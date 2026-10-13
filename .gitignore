@@ -1,0 +1,17 @@
+# Build output
+/build/
+/build-feat/
+build*/
+*.o
+*.so
+moc_*
+*.qmlc
+*.jsc
+
+# Python
+__pycache__/
+*.pyc
+
+# Local/editor
+*.swp
+.DS_Store

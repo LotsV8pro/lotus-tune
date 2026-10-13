@@ -1,0 +1,854 @@
+import QtQuick
+import QtQuick.Layouts
+import "theme.js" as Theme
+
+// Inicio: filas horizontales de tarjetas de tamaño fijo. Ninguna tarjeta
+// cambia de tamaño al pasar el ratón, de modo que la retícula nunca salta.
+//
+// Comportamiento de clic:
+//   · botón de play  -> carga la lista y la REPRODUCE (sin salir de Inicio)
+//   · clic en tarjeta -> abre la lista/álbum: sólo abre; Main la muestra en
+//     cuanto termina de cargar, con un único salto (sin pasar por Biblioteca)
+Item {
+    id: page
+
+    signal playRequested(var list, int index)
+    signal navigateRequested(string page)
+    signal openSettingsRequested()
+    signal openLauncherRequested()
+    // Pide abrir una lista del catálogo. `play` = reproducirla en cuanto
+    // llegue; sin reproducir, Main sólo la muestra (nunca auto-reproduce).
+    signal openListRequested(bool play)
+    // Re-ejecuta una búsqueda del historial: Main abre Buscar y lanza la query.
+    signal searchRequested(string query)
+
+    // Altura fija de cada carril de tarjetas (portada 172 + texto 54).
+    readonly property int rowHeight: 230
+    readonly property int cardSpacing: 14
+
+    // ---- Selección rápida (deck estilo Sonora) --------------------------
+    // Caja enmarcada con 3 columnas × 5 filas de filas compactas, paginada
+    // con flechas. Mezcla: «me gusta», lo escuchado hace poco y tus listas.
+    property int picksPage: 0
+    readonly property int picksPerPage: 15
+    readonly property int picksCols: 3
+    readonly property int picksRows: 5
+
+    function quickPicks() {
+        const out = []
+        if (page.ytmOk)
+            out.push({ kind: "liked", title: "Música que me gusta",
+                       sub: "YouTube Music · Tus me gusta", thumb: "",
+                       url: "https://music.youtube.com/playlist?list=LM" })
+        const rec = catalog.recent
+        for (var i = 0; i < rec.length && out.length < 30; i++) {
+            const t = rec[i]
+            if (!t || !t.url)
+                continue
+            out.push({ kind: "track", title: t.title || "",
+                       sub: t.artist || "", thumb: t.thumb || "",
+                       url: t.url })
+        }
+        const lib = catalog.ytmLibrary
+        for (var j = 0; j < lib.length && out.length < 30; j++) {
+            const p = lib[j]
+            out.push({ kind: "playlist", title: p.name || "",
+                       sub: "YouTube Music · " + (p.count || 0) + " pistas",
+                       thumb: p.thumb || "", url: p.url || "" })
+        }
+        return out
+    }
+
+    readonly property int picksTotal: page.quickPicks().length
+    readonly property int picksPages: Math.max(1, Math.ceil(page.picksTotal / page.picksPerPage))
+    function picksPageItems() {
+        const all = page.quickPicks()
+        return all.slice(page.picksPage * page.picksPerPage,
+                         page.picksPage * page.picksPerPage + page.picksPerPage)
+    }
+
+    function openQuickPick(item, play) {
+        if (!item)
+            return
+        if (item.kind === "liked") {
+            if (!page.ytmOk) {
+                page.openSettingsRequested()
+                return
+            }
+            page.openListRequested(!!play)
+            catalog.openUrl("https://music.youtube.com/playlist?list=LM",
+                            "Música que me gusta")
+            return
+        }
+        if (item.url) {
+            page.openListRequested(!!play)
+            catalog.openUrl(item.url, item.title)
+        }
+    }
+
+    function sourceEntry(id) {
+        const l = sources.list
+        for (var i = 0; i < l.length; i++)
+            if (l[i].id === id)
+                return l[i]
+        return null
+    }
+    readonly property var src: sourceEntry(sources.activeId)
+    readonly property bool ytmOk: String(catalog.loginState || "") === "ok"
+
+    // ---- portadas con degradado derivadas del propio texto --------------
+    function _hash(s) {
+        var h = 0
+        s = String(s || "")
+        for (var i = 0; i < s.length; i++)
+            h = (h * 31 + s.charCodeAt(i)) >>> 0
+        return h
+    }
+    function coverA(seed) {
+        return Qt.hsla(((page._hash(seed) % 360) / 360), 0.33, 0.30, 1)
+    }
+    function coverB(seed) {
+        return Qt.hsla((((page._hash(seed) >> 3) % 360) / 360), 0.30, 0.10, 1)
+    }
+
+    // ---- saludo fechado --------------------------------------------------
+    readonly property string today: {
+        const d = new Date()
+        const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+        const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                       "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+        return dias[d.getDay()] + " " + d.getDate() + " de " + meses[d.getMonth()]
+    }
+    readonly property string greeting: {
+        const h = new Date().getHours()
+        return h < 12 ? "Buenos días" : (h < 20 ? "Buenas tardes" : "Buenas noches")
+    }
+
+    function videoId(url) {
+        const u = String(url || "")
+        var m = /[?&]v=([A-Za-z0-9_-]{6,})/.exec(u)
+        if (m)
+            return m[1]
+        const m2 = u.match(/youtu\.be\/([A-Za-z0-9_-]+)/)
+        return m2 ? m2[1] : ""
+    }
+
+    function srcName(id) {
+        const e = sourceEntry(id)
+        return e ? e.name : String(id || "")
+    }
+
+    // ---- historial de búsquedas (persistido en appcfg) -------------------
+    // Clave "searchHistory": JSON [{ q, t }…], máx. 20 entradas. Se escribe
+    // desde SearchPage.runSearch() y aquí sólo se lee/muestra/borra.
+    property var searchHistory: []
+
+    function refreshSearchHistory() {
+        var arr = []
+        if (typeof appcfg !== "undefined") {
+            try {
+                arr = JSON.parse(String(appcfg.get("searchHistory") || "[]")) || []
+            } catch (e) {
+                arr = []
+            }
+        }
+        const out = []
+        for (var i = 0; i < arr.length && out.length < 20; i++) {
+            const e = arr[i]
+            if (e && typeof e.q === "string" && e.q.length > 0)
+                out.push({ q: e.q, t: Number(e.t || 0) })
+        }
+        searchHistory = out
+    }
+
+    function clearSearchHistory() {
+        if (typeof appcfg !== "undefined") {
+            appcfg.set("searchHistory", "[]")
+            appcfg.save()
+        }
+        searchHistory = []
+    }
+
+    Component.onCompleted: refreshSearchHistory()
+
+    // ---- sección: tus playlists -----------------------------------------
+    function playlistCards() {
+        const out = []
+        const l = catalog.playlists
+        for (var i = 0; i < l.length; i++) {
+            const p = l[i]
+            var sub = sourceEntry(p.source) ? sourceEntry(p.source).name : p.source
+            if (p.count)
+                sub += " · " + p.count + " pistas"
+            out.push({ index: i, title: p.name, sub: sub })
+        }
+        return out
+    }
+
+    // ---- recomendaciones: radios a partir del historial ------------------
+    function recCards() {
+        const out = []
+        if (page.ytmOk) {
+            out.push({ kind: "liked", title: "Me gusta",
+                       sub: "Tu música que te gusta", icon: "heart" })
+        }
+        const seen = {}
+        const rec = catalog.recent
+        for (var i = 0; i < rec.length && out.length < 10; i++) {
+            const t = rec[i]
+            const artist = t.artist || ""
+            if (!artist || seen[artist])
+                continue
+            seen[artist] = true
+            out.push({ kind: "radio", title: "Radio de " + artist,
+                       sub: t.title || "Mix de YouTube", icon: "radio",
+                       trackId: page.videoId(t.url) })
+        }
+        return out
+    }
+
+    // Abre una recomendación. Devuelve true si lanzó la apertura (para que el
+    // llamante pida reproducirla o sólo abrirla); false si sólo abrió Ajustes.
+    function openRec(d, play) {
+        if (d.kind === "liked") {
+            if (!page.ytmOk) {
+                page.openSettingsRequested()
+                return false
+            }
+            page.openListRequested(!!play)
+            catalog.openUrl("https://music.youtube.com/playlist?list=LM", "Me gusta")
+            return true
+        }
+        if (d.trackId) {
+            page.openListRequested(!!play)
+            catalog.openUrl(
+                "https://music.youtube.com/watch?v=" + d.trackId
+                + "&list=RDAMVM" + d.trackId + "&start_radio=1",
+                d.title)
+            return true
+        }
+        return false
+    }
+
+    // ---- radios de YouTube (estado de animo / genero) --------------------
+    readonly property var moodRadios: [
+        { q: "éxitos pop 2024", t: "Éxitos pop", s: "Lo más escuchado", icon: "radio" },
+        { q: "reggaeton 2024", t: "Reggaetón", s: "Para la fiesta", icon: "radio" },
+        { q: "lofi hip hop", t: "Lo-fi", s: "Para concentrarte", icon: "radio" },
+        { q: "rock clásico", t: "Rock clásico", s: "Clásicos de siempre", icon: "radio" },
+        { q: "electrónica chill", t: "Electrónica", s: "Beats suaves", icon: "radio" },
+        { q: "jazz relax", t: "Jazz", s: "Relájate", icon: "radio" },
+        { q: "música latina", t: "Latino", s: "Ritmo y sabor", icon: "radio" },
+        { q: "indie alternativo", t: "Indie", s: "Descubre algo nuevo", icon: "radio" },
+        { q: "r&b soul", t: "R&B / Soul", s: "Suave y con groove", icon: "radio" },
+        { q: "clásica para estudiar", t: "Clásica", s: "Enfoque", icon: "radio" }
+    ]
+
+    // ====================================================================
+    Flickable {
+        id: pageFlick
+        anchors.fill: parent
+        contentWidth: width
+        contentHeight: content.implicitHeight + 48
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        ColumnLayout {
+            id: content
+            x: 24
+            y: 24
+            width: pageFlick.width - 48
+            spacing: Theme.s5
+
+            // ---- saludo -----------------------------------------------
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 1
+                    Text {
+                        text: page.greeting
+                        color: Sys.text
+                        font.pixelSize: Theme.t2xl
+                        font.weight: Font.DemiBold
+                    }
+                    Text {
+                        text: page.src ? "Escuchando desde " + page.src.name + " · " + page.today : page.today
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tSm
+                    }
+                }
+                Rectangle {
+                    height: 22
+                    radius: Theme.rSm
+                    color: Sys.accentDim
+                    implicitWidth: srcChip.implicitWidth + 16
+                    visible: page.src
+                    Text {
+                        id: srcChip
+                        anchors.centerIn: parent
+                        text: page.src ? page.src.name : ""
+                        color: Sys.accent
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                    }
+                }
+            }
+
+            // ---- buscador (abre el lanzador) --------------------------
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.rowCompact
+                radius: Theme.rMd
+                color: spotMouse.containsMouse ? Theme.hover(Sys.surface) : Sys.surface
+                border.width: 1
+                border.color: spotMouse.containsMouse ? Sys.accent : "transparent"
+                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.s4
+                    anchors.rightMargin: Theme.s4
+                    spacing: Theme.s3
+                    Glyph { width: 16; height: 16; kind: "search"; color: Sys.textDim }
+                    Text {
+                        text: "Buscar en cualquier fuente…"
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tBase
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        text: "Ctrl+Espacio"
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        opacity: 0.7
+                    }
+                }
+                MouseArea {
+                    id: spotMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: page.openLauncherRequested()
+                }
+            }
+
+            // ---- SELECCIÓN RÁPIDA (deck enmarcado estilo Sonora) ------
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: deckCol.implicitHeight + 24
+                visible: page.picksTotal > 0
+                radius: Theme.rLg
+                color: Sys.surface
+                border.width: 1
+                border.color: Sys.borderSubtle
+
+                ColumnLayout {
+                    id: deckCol
+                    anchors.fill: parent
+                    anchors.margins: Theme.s3
+                    spacing: Theme.s2
+
+                    // Cabecera: eyebrow + título + flechas de página.
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Text {
+                                text: page.src ? page.src.name.toUpperCase() : "LOTUS TUNE"
+                                color: Sys.textDim
+                                font.pixelSize: Theme.tXs
+                                font.weight: Font.DemiBold
+                                font.letterSpacing: 1.3
+                            }
+                            Text {
+                                text: "Selección rápida"
+                                color: Sys.text
+                                font.pixelSize: Theme.tXl
+                                font.weight: Font.DemiBold
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.preferredWidth: 32
+                            Layout.preferredHeight: 32
+                            radius: Theme.rMd
+                            color: (prevMa.containsMouse && page.picksPage > 0)
+                                   ? Theme.hover(Sys.surface) : "transparent"
+                            border.width: 0
+                            border.color: "transparent"
+                            opacity: page.picksPage > 0 ? 1 : 0.35
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 15
+                                height: 15
+                                kind: "chevron-left"
+                                color: prevMa.containsMouse ? Sys.accent : Sys.textDim
+                            }
+                            MouseArea {
+                                id: prevMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: page.picksPage = Math.max(0, page.picksPage - 1)
+                            }
+                        }
+                        Rectangle {
+                            Layout.preferredWidth: 32
+                            Layout.preferredHeight: 32
+                            radius: Theme.rMd
+                            color: nextMa.containsMouse && page.picksPage < page.picksPages - 1
+                                   ? Theme.hover(Sys.surface) : "transparent"
+                            border.width: 0
+                            border.color: "transparent"
+                            opacity: page.picksPage < page.picksPages - 1 ? 1 : 0.4
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 15
+                                height: 15
+                                kind: "chevron-right"
+                                color: nextMa.containsMouse ? Sys.accent : Sys.textDim
+                            }
+                            MouseArea {
+                                id: nextMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: page.picksPage = Math.min(page.picksPages - 1,
+                                                                     page.picksPage + 1)
+                            }
+                        }
+                    }
+
+                    // Rejilla: 3 columnas × 5 filas (llenado por columnas).
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: page.picksCols
+                        flow: GridLayout.TopToBottom
+                        columnSpacing: Theme.s3
+                        rowSpacing: Theme.s1
+
+                        Repeater {
+                            model: page.picksPageItems()
+
+                            delegate: Rectangle {
+                                id: pickRow
+                                required property var modelData
+                                required property int index
+
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: Theme.rowCompact
+                                radius: Theme.rMd
+                                color: pickMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
+                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.s2
+                                    anchors.rightMargin: Theme.s2
+                                    spacing: Theme.s3
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 36
+                                        Layout.preferredHeight: 36
+                                        radius: Theme.rSm
+                                        color: Sys.surfaceAlt
+                                        clip: true
+                                        Image {
+                                            anchors.fill: parent
+                                            source: pickRow.modelData.thumb || ""
+                                            visible: source != ""
+                                            sourceSize.width: 36
+                                            sourceSize.height: 36
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            cache: true
+                                        }
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            width: 16
+                                            height: 16
+                                            visible: !pickRow.modelData.thumb
+                                            kind: pickRow.modelData.kind === "liked"
+                                                  ? "heart"
+                                                  : (pickRow.modelData.kind === "playlist"
+                                                     ? "list" : "music")
+                                            color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
+                                        }
+                                    }
+
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 0
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: pickRow.modelData.title || ""
+                                            color: Sys.text
+                                            font.pixelSize: Theme.tBase
+                                            font.weight: Font.DemiBold
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: pickRow.modelData.sub || ""
+                                            color: Sys.textDim
+                                            font.pixelSize: Theme.tSm
+                                            elide: Text.ElideRight
+                                            maximumLineCount: 1
+                                        }
+                                    }
+                                }
+
+                                MouseArea {
+                                    id: pickMouse
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        // La primera fila abre; el play lo da el
+                                        // botón flotante que aparece al pasar.
+                                        page.openQuickPick(pickRow.modelData, false)
+                                    }
+                                    onDoubleClicked: page.openQuickPick(pickRow.modelData, true)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- TUS LISTAS (YouTube Music) ---------------------------
+            Text {
+                visible: catalog.ytmLibrary.length > 0 || catalog.libraryBusy
+                text: "TUS LISTAS"
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.2
+            }
+
+            Flickable {
+                visible: catalog.ytmLibrary.length > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: page.rowHeight
+                contentWidth: ytmLibRow.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: ytmLibRow
+                    spacing: page.cardSpacing
+
+                    Repeater {
+                        model: catalog.ytmLibrary
+                        delegate: HomeCard {
+                            required property var modelData
+                            thumb: modelData.thumb || ""
+                            title: modelData.name
+                            subtitle: modelData.count
+                                      ? "YouTube Music · " + modelData.count + " pistas"
+                                      : "YouTube Music"
+                            icon: "queue"
+                            coverA: page.coverA(modelData.name)
+                            coverB: page.coverB(modelData.name)
+                            // Clic: abrir la lista (la muestra Main al cargar).
+                            onClicked: {
+                                page.openListRequested(false)
+                                catalog.openUrl(modelData.url, modelData.name)
+                            }
+                            onPlayClicked: {
+                                page.openListRequested(true)
+                                catalog.openUrl(modelData.url, modelData.name)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                visible: catalog.libraryBusy
+                text: "Cargando…"
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+                opacity: 0.8
+            }
+
+            // ---- TUS PLAYLISTS ----------------------------------------
+            Text {
+                text: "TUS PLAYLISTS"
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.2
+            }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.preferredHeight: page.rowHeight
+                contentWidth: plRow.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: plRow
+                    spacing: page.cardSpacing
+
+                    Repeater {
+                        model: page.playlistCards()
+                        delegate: HomeCard {
+                            required property var modelData
+                            title: modelData.title
+                            subtitle: modelData.sub
+                            icon: "queue"
+                            coverA: page.coverA(modelData.title)
+                            coverB: page.coverB(modelData.title)
+                            // Clic en la portada -> abre la playlist.
+                            onClicked: {
+                                page.openListRequested(false)
+                                catalog.openPlaylist(modelData.index)
+                            }
+                            onPlayClicked: {
+                                page.openListRequested(true)
+                                catalog.openPlaylist(modelData.index)
+                            }
+                        }
+                    }
+
+                    Item {
+                        visible: catalog.playlists.length === 0
+                        width: visible ? 320 : 0
+                        height: page.rowHeight
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width
+                            text: "Aún no hay playlists guardadas. Pega una URL en Biblioteca para empezar."
+                            color: Sys.textDim
+                            font.pixelSize: Theme.tSm
+                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                        }
+                    }
+                }
+            }
+
+            // ---- recomendaciones (radios del historial) ---------------
+            Text {
+                visible: page.recCards().length > 0
+                text: "RECOMENDADO PARA TI"
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.2
+            }
+
+            Flickable {
+                visible: page.recCards().length > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: page.rowHeight
+                contentWidth: recRow.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: recRow
+                    spacing: page.cardSpacing
+
+                    Repeater {
+                        model: page.recCards()
+                        delegate: HomeCard {
+                            required property var modelData
+                            title: modelData.title
+                            subtitle: modelData.sub
+                            icon: modelData.icon
+                            badge: modelData.kind === "liked" ? "YT" : "RADIO"
+                            coverA: modelData.kind === "liked"
+                                     ? Sys.accentDim : page.coverA(modelData.title)
+                            coverB: page.coverB(modelData.title)
+                            // Clic -> abre la radio/cola (sólo abre).
+                            onClicked: page.openRec(modelData, false)
+                            onPlayClicked: page.openRec(modelData, true)
+                        }
+                    }
+                }
+            }
+
+            // ---- radios de YouTube ------------------------------------
+            Text {
+                text: "RADIOS DE YOUTUBE"
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.2
+            }
+
+            Flickable {
+                Layout.fillWidth: true
+                Layout.preferredHeight: page.rowHeight
+                contentWidth: moodRow.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: moodRow
+                    spacing: page.cardSpacing
+
+                    Repeater {
+                        model: page.moodRadios
+                        delegate: HomeCard {
+                            required property var modelData
+                            title: modelData.t
+                            subtitle: modelData.s
+                            icon: modelData.icon
+                            badge: "YT"
+                            coverA: page.coverA(modelData.t)
+                            coverB: page.coverB(modelData.t)
+                            // Clic -> carga la radio y muestra sus pistas.
+                            onClicked: {
+                                page.openListRequested(false)
+                                catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
+                            }
+                            onPlayClicked: {
+                                page.openListRequested(true)
+                                catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- historial de búsquedas --------------------------------
+            // Chips con las últimas consultas (appcfg "searchHistory").
+            // El clic re-ejecuta la búsqueda: Main abre Buscar y lanza la
+            // query. «Borrar» limpia el historial persistido.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: page.cardSpacing
+
+                Text {
+                    text: "HISTORIAL DE BÚSQUEDAS"
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tXs
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.2
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    visible: page.searchHistory.length > 0
+                    height: 22
+                    radius: Theme.rSm
+                    implicitWidth: clearHistBtn.implicitWidth + 18
+                    color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
+                    border.width: 0
+                    border.color: "transparent"
+                    Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    Text {
+                        id: clearHistBtn
+                        anchors.centerIn: parent
+                        text: "Borrar historial"
+                        color: clearHistMa.containsMouse ? Sys.accent : Sys.textDim
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    }
+                    MouseArea {
+                        id: clearHistMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: page.clearSearchHistory()
+                    }
+                }
+            }
+
+            Text {
+                visible: page.searchHistory.length === 0
+                text: "Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+Espacio."
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+                opacity: 0.8
+            }
+
+            Flickable {
+                visible: page.searchHistory.length > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: 34
+                contentWidth: histRow.implicitWidth
+                contentHeight: height
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Row {
+                    id: histRow
+                    spacing: Theme.s2
+
+                    Repeater {
+                        model: page.searchHistory
+                        delegate: Rectangle {
+                            id: histChip
+                            required property var modelData
+                            required property int index
+
+                            height: 32
+                            radius: Theme.rSm
+                            width: Math.min(histTxt.implicitWidth + 38, 340)
+                            color: histChipMa.containsMouse ? Sys.accentDim : Sys.surface
+                            border.width: 0
+                            border.color: "transparent"
+                            Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 8
+
+                                Glyph {
+                                    width: 12
+                                    height: 12
+                                    kind: "search"
+                                    color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
+                                }
+                                Text {
+                                    id: histTxt
+                                    text: histChip.modelData.q
+                                    color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
+                                    font.pixelSize: Theme.tMd
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                    width: Math.min(implicitWidth, 280)
+                                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                                }
+                            }
+
+                            MouseArea {
+                                id: histChipMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                // Re-ejecuta la búsqueda: Main abre Buscar y lanza la query.
+                                onClicked: page.searchRequested(histChip.modelData.q)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item { Layout.preferredHeight: 8 }
+        }
+    }
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <!-- Lotus Tune icon: 5-petal lotus, accent #e3bae5, transparent background -->
+  <defs>
+    <path id="petalTall" d="M100 32 C 124 64 132 108 100 150 C 68 108 76 64 100 32 Z"/>
+    <path id="petalShort" d="M100 62 C 124 88 130 120 100 150 C 70 120 76 88 100 62 Z"/>
+  </defs>
+  <g fill="#e3bae5">
+    <use href="#petalShort" transform="rotate(-58 100 150)" fill-opacity="0.78"/>
+    <use href="#petalShort" transform="rotate(58 100 150)" fill-opacity="0.78"/>
+    <use href="#petalTall" transform="rotate(-26 100 150)" fill-opacity="0.92"/>
+    <use href="#petalTall" transform="rotate(26 100 150)" fill-opacity="0.92"/>
+    <use href="#petalTall"/>
+  </g>
+</svg>
