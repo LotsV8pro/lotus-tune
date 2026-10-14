@@ -457,6 +457,28 @@ void Catalog::openUrl(const QString &url, const QString &name)
     run(u, QStringLiteral("playlist"), name.trimmed());
 }
 
+// Radio/autoplay de YouTube Music: la lista que la propia app reproduce "a
+// continuación" de un vídeo es la mix RDAMVM<videoId>. yt-dlp la resuelve como
+// playlist plana (la semilla primero y luego la autorradio). Se usa a propósito
+// el propósito "radio" (no "playlist") para que run() omita tanto la caché en
+// memoria como la vía rápida de la API interna (ytm_api.py devuelve vacío para
+// RDAMVM...) y acabe en runYtdlp(), que ya adjunta las cookies de YT Music.
+void Catalog::fetchRadio(const QString &videoId)
+{
+    const QString v = videoId.trimmed();
+    if (v.isEmpty())
+        return;
+    // Best-effort: la radio es un extra (no debe interrumpir ni dar error si
+    // ya hay otra consulta en marcha). Se reintenta en la siguiente pista.
+    if (m_busy)
+        return;
+    m_radioSeed = v;
+    const QString target =
+        QStringLiteral("https://www.youtube.com/watch?v=") + v
+        + QStringLiteral("&list=RDAMVM") + v;
+    run(target, QStringLiteral("radio"), QStringLiteral("Radio"));
+}
+
 void Catalog::syncLiked()
 {
     if (m_sources->activeId() != QLatin1String("ytm")) {
@@ -988,14 +1010,21 @@ bool Catalog::handleOutput(const QByteArray &json)
     }
 
     if (list.isEmpty()) {
-        fail(m_purpose == QLatin1String("search")
-                 ? QStringLiteral("Nada encontrado para «%1»").arg(m_pendingTitle)
-                 : QStringLiteral("La playlist está vacía o no es accesible"));
+        if (m_purpose == QLatin1String("search"))
+            fail(QStringLiteral("Nada encontrado para «%1»").arg(m_pendingTitle));
+        else if (m_purpose == QLatin1String("radio"))
+            fail(QStringLiteral("No se pudo obtener la radio de YouTube Music"));
+        else
+            fail(QStringLiteral("La playlist está vacía o no es accesible"));
         return false;
     }
 
     if (m_purpose == QLatin1String("search")) {
         m_results = list;
+    } else if (m_purpose == QLatin1String("radio")) {
+        // La radio no reemplaza la cola ni se cachea: el reproductor la usa
+        // solo para ampliar "a continuación" tras la pista semilla.
+        emit radioReady(m_radioSeed, list);
     } else {
         QString title = m_pendingTitle;
         if (title.isEmpty())

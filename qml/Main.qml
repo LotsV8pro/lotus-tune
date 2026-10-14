@@ -233,8 +233,10 @@ Window {
             root.playTracks([t], 0)
             return
         }
+        root.autoplayRadioPending = false   // ya hay una cola puesta a mano
         queue.append(root.queueRow(t))
         root.toast("Añadido a la cola")
+        root.saveSession()
     }
 
     // Reproduce una lista en orden aleatorio (botón «aleatorio» del hero).
@@ -531,7 +533,7 @@ Window {
     Shortcut {
         sequence: "Space"
         enabled: !root.typing()
-        onActivated: if (root.currentTitle) player.playPause()
+        onActivated: if (root.currentTitle) root.togglePlay()
     }
     // Flechas: ±5 s de búsqueda; Ctrl+flechas o Media: pista anterior/siguiente.
     Shortcut {
@@ -677,6 +679,7 @@ Window {
     //     `--settings`, `--launcher`, `--accent=#rrggbb` ('' clears the override)
     Component.onCompleted: {
         const args = Qt.application.arguments
+        let cliOpen = false
         for (let i = 1; i < args.length; i++) {
             const a = args[i]
             if (a.startsWith("--page=")) {
@@ -707,6 +710,7 @@ Window {
             } else if (a.startsWith("--accent=")) {
                 cfgSet("accent", a.substring(9))
             } else if (a.startsWith("--openurl=")) {
+                cliOpen = true   // QA: no restaura la sesión, abre esta URL
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
@@ -721,6 +725,9 @@ Window {
         discord.configure(discordEnabled, "")
         if (cfgGet("downloadFolder"))
             downloads.setFolder(cfgGet("downloadFolder"))
+
+        // Restaura la última sesión (cola + pista EN PAUSA + volumen + repetición).
+        root.restoreSession(cliOpen)
     }
 
     // Esc "atrás": cierra overlays/panel o sale de pantalla completa.
@@ -763,6 +770,14 @@ Window {
     property string lyricsKey: ""
     // Evita reenviar metadatos MPRIS/Discord en cada tick de posición.
     property string metaKey: ""
+    // ---- sesión persistente (se restaura EN PAUSA al arrancar) -----------
+    // sessionLoaded evita guardar antes de haber restaurado la sesión.
+    property bool sessionLoaded: false
+    // Volumen guardado pendiente de aplicar cuando mpv esté listo (-1 = nada).
+    property int pendingVolume: -1
+    // ¿Hay una radio/autoplay de YT Music en camino para la pista actual?
+    property bool autoplayRadioPending: false
+    property string autoplayRadioSeed: ""
 
     // Copia normalizada de una pista: conserva title/artist/url/duration/
     // source/cover y, cuando la fuente los trae, album e index.
@@ -879,6 +894,100 @@ Window {
         queueShuffled = false
     }
 
+    // ---- sesión persistente ---------------------------------------------
+    // Guarda cola + pista en curso + aleatorio/repetir + volumen. Lo llaman
+    // los cambios significativos; el volumen, al cambiar, se guarda con
+    // rebote para no escribir en disco en cada tick del deslizador.
+    function saveSession() {
+        if (typeof appcfg === "undefined" || !root.sessionLoaded)
+            return
+        appcfg.set("playerVolume", String(player.volume))
+        if (queue.count > 0) {
+            const st = { queue: toTrackList(queue), index: queueIndex,
+                         shuffle: shuffle, repeat: repeat }
+            appcfg.set("sessionState", JSON.stringify(st))
+        }
+        appcfg.save()
+    }
+
+    // Restaura la última sesión: cola + pista en curso + volumen + aleatorio/
+    // repetir. La pista NO se carga en mpv (queda lista pero EN PAUSA): el
+    // primer play la arranca. `skipQueue` (QA con --openurl) deja la cola vacía
+    // pero sí recupera el volumen.
+    function restoreSession(skipQueue) {
+        root.sessionLoaded = true
+        if (!skipQueue) {
+            const raw = cfgGet("sessionState")
+            var st = null
+            if (raw) {
+                try {
+                    st = JSON.parse(raw)
+                } catch (e) {
+                    st = null
+                }
+            }
+            if (st && st.queue && st.queue.length) {
+                const arr = toTrackList(st.queue)
+                originalOrder = arr
+                fillQueue(arr)
+                let idx = Number(st.index)
+                if (!(idx >= 0 && idx < arr.length))
+                    idx = 0
+                queueIndex = idx
+                const t = queue.get(idx)
+                if (t) {
+                    currentTitle = t.title
+                    currentArtist = t.artist
+                    currentThumb = t.thumb || ""
+                    root.currentVideoId = videoIdOf(t.url)
+                    root.currentSetId = t.setId || ""
+                    root.currentLiked = catalog.likedReady
+                        ? catalog.isLiked(root.currentVideoId)
+                        : (t.liked === true)
+                }
+                shuffle = st.shuffle === true
+                repeat = st.repeat === true
+                mpris.setShuffle(shuffle)
+                root.updateNowPlaying()
+            }
+        }
+        // Sin valor guardado no se toca el volumen (mpv arranca con el suyo);
+        // "" -> -1 evita caer en 0 y silenciar la app en el primer arranque.
+        const pv = cfgGet("playerVolume")
+        root.pendingVolume = pv === "" ? -1 : Number(pv)
+        if (player.ready)
+            root.applyPendingVolume()
+    }
+
+    function applyPendingVolume() {
+        if (root.pendingVolume < 0)
+            return
+        const v = root.pendingVolume
+        root.pendingVolume = -1
+        if (v >= 0 && v <= 150)
+            player.setVolume(v)
+    }
+
+    // Primer play tras restaurar la sesión: si no hay nada cargado en mpv,
+    // arranca la pista actual; si ya hay algo, solo alterna la pausa.
+    function togglePlay() {
+        if (!player.hasFile && root.currentTitle.length > 0
+                && root.queueIndex >= 0 && root.queueIndex < queue.count) {
+            root.startCurrent()
+            return
+        }
+        player.playPause()
+    }
+
+    function requestPlay() {
+        if (!player.hasFile && root.currentTitle.length > 0
+                && root.queueIndex >= 0 && root.queueIndex < queue.count) {
+            root.startCurrent()
+        } else if (!player.playing) {
+            player.playPause()
+        }
+    }
+
     function toggleShuffle() {
         shuffle = !shuffle
         if (queue.count > 0) {
@@ -889,6 +998,7 @@ Window {
         }
         mpris.setShuffle(shuffle)
         toast(shuffle ? "Aleatorio activado" : "Aleatorio desactivado")
+        root.saveSession()
     }
 
     // Extrae el videoId (youtube.com/watch?v= / youtu.be/ / music.youtube.com)
@@ -911,6 +1021,7 @@ Window {
     function toggleRepeat() {
         repeat = !repeat
         toast(repeat ? "Repetir activado" : "Repetir desactivado")
+        root.saveSession()
     }
 
     // ---- integraciones (letras / Discord / MPRIS) ------------------------
@@ -975,6 +1086,26 @@ Window {
         queueShuffled = shuffle && arr.length > 1
         queueIndex = idx
         startCurrent()
+        // Una sola canción: que continúe sola con la radio/autoplay de YouTube
+        // Music (las «siguientes» que usaría YouTube Music sin añadirlas a mano).
+        root.autoplayRadioPending = false
+        root.autoplayRadioSeed = ""
+        if (arr.length === 1) {
+            const only = queue.get(0)
+            const vid = only ? videoIdOf(only.url) : ""
+            if (vid && typeof catalog.fetchRadio === "function") {
+                root.autoplayRadioPending = true
+                root.autoplayRadioSeed = vid
+                // Diferido: si venimos de tracksReady el backend aún tiene su
+                // operación en curso en este mismo tick; el callLater deja que
+                // termine antes de pedir la radio.
+                Qt.callLater(function() {
+                    if (root.autoplayRadioPending
+                            && root.autoplayRadioSeed === vid)
+                        catalog.fetchRadio(vid)
+                })
+            }
+        }
     }
 
     function startCurrent() {
@@ -1007,6 +1138,7 @@ Window {
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "" })
         root.updateNowPlaying()
+        root.saveSession()
     }
 
     // Pre-resuelve hasta `n` pistas a partir de `from` de la cola (en serie,
@@ -1078,6 +1210,17 @@ Window {
         // Mantiene al día Discord/MPRIS y afina las letras cuando llega la
         // duración real o cambia el estado de reproducción.
         function onStateChanged() { root.updateNowPlaying() }
+        // El volumen cambia a menudo (deslizador/teclas): se guarda con rebote.
+        function onVolumeChanged() { sessionSaveTimer.restart() }
+        // mpv listo: aplica el volumen recuperado de la última sesión.
+        function onReadyChanged() { if (player.ready) root.applyPendingVolume() }
+    }
+
+    // Escritura de la sesión con rebote (para el volumen continuo).
+    Timer {
+        id: sessionSaveTimer
+        interval: 700
+        onTriggered: root.saveSession()
     }
 
     // Latido periódico para el progreso en Discord/MPRIS.
@@ -1091,9 +1234,9 @@ Window {
     // Órdenes que llegan del centro multimedia del sistema (MPRIS2).
     Connections {
         target: mpris
-        function onPlayRequested() { if (!player.playing) player.playPause() }
+        function onPlayRequested() { root.requestPlay() }
         function onPauseRequested() { if (player.playing) player.playPause() }
-        function onPlayPauseRequested() { player.playPause() }
+        function onPlayPauseRequested() { root.togglePlay() }
         function onNextRequested() { root.next() }
         function onPreviousRequested() { root.prev() }
         function onStopRequested() { player.stopPlayback() }
@@ -1220,6 +1363,36 @@ Window {
         function onLibraryChanged() {
             if (root.launcherOpen)
                 root.buildLauncher(launchInput.text)
+        }
+        // Radio/autoplay de YouTube Music: si venía de una sola canción,
+        // añade las «siguientes» a la cola (sin duplicar la que ya suena).
+        function onRadioReady(seed, tracks) {
+            if (!root.autoplayRadioPending || seed !== root.autoplayRadioSeed)
+                return
+            root.autoplayRadioPending = false
+            root.autoplayRadioSeed = ""
+            if (!tracks || !tracks.length)
+                return
+            const have = {}
+            const cur = toTrackList(queue)
+            for (let i = 0; i < cur.length; i++) {
+                have[cur[i].url] = true
+                have[String(cur[i].title).toLowerCase() + "|"
+                     + String(cur[i].artist).toLowerCase()] = true
+            }
+            for (let j = 0; j < tracks.length; j++) {
+                const t = tracks[j]
+                if (!t || !t.url)
+                    continue
+                const k = String(t.title || "").toLowerCase() + "|"
+                          + String(t.artist || "").toLowerCase()
+                if (have[t.url] || have[k])
+                    continue
+                have[t.url] = true
+                have[k] = true
+                queue.append(root.queueRow(t))
+            }
+            root.saveSession()
         }
     }
 
@@ -1395,7 +1568,7 @@ Window {
             volume: player.volume
             shuffle: root.shuffle
             repeat: root.repeat
-            onToggle: player.playPause()
+            onToggle: root.togglePlay()
             onNextRequested: root.next()
             onPrevRequested: root.prev()
             onShuffleToggled: root.toggleShuffle()
@@ -1428,7 +1601,7 @@ Window {
         shuffle: root.shuffle
         repeat: root.repeat
         onCloseRequested: root.nowPlayingOpen = false
-        onToggleRequested: player.playPause()
+        onToggleRequested: root.togglePlay()
         onNextRequested: root.next()
         onPrevRequested: root.prev()
         onShuffleToggled: root.toggleShuffle()

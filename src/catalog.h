@@ -63,6 +63,10 @@ public:
     Q_INVOKABLE void search(const QString &query);
     Q_INVOKABLE void openPlaylist(int savedIndex);
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
+    // Autorradio de YouTube Music para un videoId (lo que la propia app pone
+    // "a continuación"): resuelve la mix RDAMVM<videoId> con yt-dlp y emite
+    // radioReady() con la lista, sin tocar la cola ni la caché de listas.
+    Q_INVOKABLE void fetchRadio(const QString &videoId);
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -109,6 +113,9 @@ signals:
     void libraryChanged();
     // A track list finished loading and should replace the queue.
     void tracksReady(const QVariantList &tracks, const QString &title);
+    // Llegó la radio (autoplay) de YouTube Music: `tracks` es lo que sigue tras
+    // el videoId semilla, para que la UI amplíe "a continuación".
+    void radioReady(const QString &seedVideoId, const QVariantList &tracks);
     // loginState / loginError / loginUrl changed.
     void loginChanged();
     // Resultado de una interacción YT (votar / añadir / quitar de lista).
@@ -174,6 +181,7 @@ private:
     SourceManager *m_sources;
     QProcess m_proc;
     QString m_purpose;
+    QString m_radioSeed;   // videoId semilla de la radio en curso
     QString m_pendingTitle;
     QString m_currentSource;
     bool m_busy = false;

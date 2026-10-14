@@ -24,6 +24,10 @@ class Player : public QObject
     Q_PROPERTY(QString engineStatus READ engineStatus NOTIFY stateChanged)
     // Calidad de audio elegida: "max" | "alta" | "media" | "baja".
     Q_PROPERTY(QString quality READ quality NOTIFY qualityChanged)
+    // ¿Hay (o se está cargando) un fichero en mpv? Necesario en QML para saber
+    // si el "play" debe arrancar la pista restaurada de la sesión (aún sin
+    // cargar) o solo alternar la pausa de lo que ya está sonando.
+    Q_PROPERTY(bool hasFile READ hasFile NOTIFY stateChanged)
 
 public:
     explicit Player(QObject *parent = nullptr);

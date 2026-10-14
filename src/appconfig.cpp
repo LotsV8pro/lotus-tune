@@ -20,6 +20,9 @@ static const char *kAppKeys[] = {
     "spotifyPassword", "tidalUsername", "tidalPassword", "defaultSource",
     "audioQuality", "discordRpc", "discordClientId", "downloadFolder",
     "lyricsEnabled",
+    // Estado de la última sesión (cola + pista + volumen), restaurado en pausa
+    // al arrancar. Se cargan al inicio igual que el resto de claves de la app.
+    "sessionState", "playerVolume",
 };
 
 static bool isThemeKey(const QString &key)
