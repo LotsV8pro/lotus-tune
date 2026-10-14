@@ -105,7 +105,7 @@ Item {
                                 color: Sys.accent
                                 height: 5
                                 SequentialAnimation on height {
-                                    running: true
+                                    running: row.index === qv.currentIndex
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 14; duration: 380 + index * 90; easing.type: Easing.InOutSine }
                                     NumberAnimation { to: 5; duration: 380 + index * 90; easing.type: Easing.InOutSine }

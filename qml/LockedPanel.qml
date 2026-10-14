@@ -4,6 +4,8 @@ import "theme.js" as Theme
 
 // Shown by every page while the active source cannot stream yet: explains
 // exactly what is needed to activate it.
+// Minimalismo: un icono quieto, un titular, una línea de apoyo y un único
+// botón de texto en acento. Sin cajas, sin adornos.
 ColumnLayout {
     id: panel
 
@@ -16,11 +18,11 @@ ColumnLayout {
 
     Glyph {
         Layout.alignment: Qt.AlignHCenter
-        width: 42
-        height: 42
+        width: 28
+        height: 28
         kind: "lock"
         color: Sys.textDim
-        weight: 1.3
+        weight: 1.4
     }
 
     Text {
@@ -45,9 +47,17 @@ ColumnLayout {
 
     Text {
         Layout.alignment: Qt.AlignHCenter
+        Layout.topMargin: Theme.s1
         text: "Elige una fuente activa en la barra lateral"
-        color: Sys.textDim
+        color: actMa.hovered ? Sys.text : Sys.accent
         font.pixelSize: Theme.tSm
-        opacity: 0.75
+        font.weight: Font.Medium
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        MouseArea {
+            id: actMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+        }
     }
 }

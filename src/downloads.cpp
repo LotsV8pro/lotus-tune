@@ -9,7 +9,10 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStringList>
 #include <QUrl>
+
+#include <utility>
 
 #include <QDebug>
 
@@ -51,6 +54,20 @@ Downloads::Downloads(QObject *parent)
     // no congelar la UI con bibliotecas grandes.
     m_scanTimer.setInterval(2);
     connect(&m_scanTimer, &QTimer::timeout, this, &Downloads::scanChunk);
+
+    // Auto-sync: cualquier cambio en disco (alta/baja de ficheros) reescanea
+    // la biblioteca local tras un breve silencio, sin intervención del usuario.
+    m_watchDebounce.setSingleShot(true);
+    m_watchDebounce.setInterval(600);
+    connect(&m_watchDebounce, &QTimer::timeout, this, [this]() {
+        if (!m_busy)
+            refreshLocal();
+    });
+    connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this,
+            [this](const QString &) { m_watchDebounce.start(); });
+
+    // Primera sincronización al arrancar.
+    refreshLocal();
 }
 
 Downloads::~Downloads()
@@ -392,6 +409,7 @@ void Downloads::refreshLocal()
     // Reinicia cualquier escaneo en curso y empieza de cero.
     stopScan();
     m_scanItems.clear();
+    m_scanDirs.clear();
     m_localBusy = true;
     emit libraryChanged();
     startScan();
@@ -434,6 +452,7 @@ void Downloads::scanChunk()
     while (processed < 60 && m_scan->hasNext()) {
         const QString path = m_scan->next();
         ++processed;
+        m_scanDirs.insert(QFileInfo(path).absolutePath());
         if (isAudioFile(path))
             m_scanItems.append(makeLocalTrack(path));
     }
@@ -443,8 +462,29 @@ void Downloads::scanChunk()
         m_local = m_scanItems;
         m_scanItems.clear();
         m_localBusy = false;
+        updateWatchDirs();
         emit libraryChanged();
     }
+}
+
+void Downloads::updateWatchDirs()
+{
+    // Vigila la raíz + cada subcarpeta descubierta (una por lista/pista).
+    QStringList want;
+    if (!m_folder.isEmpty() && QDir(m_folder).exists())
+        want << m_folder;
+    for (const QString &d : std::as_const(m_scanDirs))
+        if (QDir(d).exists())
+            want << d;
+    want.removeDuplicates();
+
+    const QStringList current = m_watcher.directories();
+    for (const QString &d : current)
+        if (!want.contains(d))
+            m_watcher.removePath(d);
+    for (const QString &d : want)
+        if (!current.contains(d))
+            m_watcher.addPath(d);
 }
 
 void Downloads::openFolder()

@@ -10,6 +10,10 @@ import "theme.js" as Theme
 // The line list comes pre-parsed from the backend (`lyrics.lines`), so the
 // index returned by `lineIndexAt()` and the row drawn on screen can never
 // drift apart (that used to happen because the LRC was parsed twice).
+//
+// Minimalism: only the active line gets `Sys.text` at full weight; the
+// surroundings are `Sys.textDim` dimmed by distance. No boxes, no glow,
+// just the two edge washes tying into `edgeColor`.
 Item {
     id: lv
     clip: true
@@ -187,12 +191,12 @@ Item {
         if (d === 0)
             return 1
         if (d === 1)
-            return 0.45
+            return 0.40
         if (d === 2)
-            return 0.30
+            return 0.25
         if (d === 3)
-            return 0.20
-        return 0.12
+            return 0.16
+        return 0.1
     }
 
     // ---- relleno progresivo -------------------------------------------------
@@ -220,20 +224,20 @@ Item {
             + Math.round(bl * 255) + "," + (Math.round(al * 100) / 100) + ")"
     }
 
-    // La parte aún no cantada de la línea activa: el MISMO acento mezclado con
-    // el fondo. Así el frente se ve encenderse de verdad (sin cantar queda
-    // tenue; cantado, a pleno acento).
-    readonly property real _unsungAlpha: 0.16
+    // La parte aún no cantada de la línea activa: una versión tenue de la
+    // letra (texto apagado hacia el fondo). Sin acento: solo el blanco de la
+    // voz marca la línea que canta, el resto se desvanece en `Sys.textDim`.
+    readonly property real _unsungAlpha: 0.55
     readonly property color _unsungColor: {
         var a = edgeColor
-        var b = Sys.accent
+        var b = Sys.textDim
         var t = _unsungAlpha
         return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
                        a.b + (b.b - a.b) * t, 1)
     }
 
     // Pinta una línea letra a letra: `fill` va de 0 (recién entró, apagada) a 1
-    // (cantada, en color de acento). Los caracteres contiguos del mismo color
+    // (cantada, en texto a pleno). Los caracteres contiguos del mismo color
     // se agrupan en una sola etiqueta: una por letra rompería el kerning y se
     // notaría en el salto de línea.
     function _fillHtml(str, fill) {
@@ -254,7 +258,7 @@ Item {
         for (var j = 0; j < s.length; j++) {
             var c = s.charAt(j)
             var isVis = (c !== " " && c !== "\t")
-            var css = _mixCss(_unsungColor, Sys.accent, isVis ? front - k : 0)
+            var css = _mixCss(_unsungColor, Sys.text, isVis ? front - k : 0)
             if (isVis)
                 k++
             if (css !== runCss) {
@@ -319,9 +323,11 @@ Item {
 
     // Interpola la posición entre avisos del motor para que el frente del
     // relleno avance fluido. Solo hace falta con karaoke por palabra; con la
-    // frase entera no hay frente que mover.
+    // frase entera no hay frente que mover. 100 ms (10 fps) es el mínimo
+    // permitido: el aviso del motor llega a 240 ms, así que no perdemos
+    // fluidez real y sí la mitad de las reconstrucciones de HTML.
     Timer {
-        interval: 33
+        interval: 100
         repeat: true
         running: lv.showSynced && lv.hasWordSync && !!lv.ply && lv.ply.playing
         onTriggered: {
@@ -345,13 +351,6 @@ Item {
     }
     onLinesChanged: computeActive()
     onActiveIndexChanged: {
-        if (activeIndex >= 0 && activeIndex < lines.length) {
-            var it = lines[activeIndex]
-            console.log("[lyrics-ui] línea", activeIndex + "/" + lines.length,
-                        "t=" + Number(it.time).toFixed(1) + "s",
-                        "pos=" + (ply ? Number(ply.position).toFixed(1) : "?") + "s",
-                        '"' + it.text + '"')
-        }
         Qt.callLater(function () { if (lv.following) lv.scrollToActive(false) })
         // La activa crece de tamaño al volverse activa: la columna se
         // reordena y el primer centrado puede haberse calculado antes del
@@ -373,35 +372,23 @@ Item {
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 320)
-        spacing: 14
+        spacing: Theme.s3
         visible: lv.loading
 
-        Item {
+        // Quiet static marker: no spinner, no infinite loops.
+        Glyph {
             Layout.alignment: Qt.AlignHCenter
-            width: 26
-            height: 26
-            Rectangle {
-                width: 3
-                height: 11
-                radius: 1.5
-                color: Sys.accent
-                anchors.top: parent.top
-                anchors.topMargin: 1
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-            RotationAnimator on rotation {
-                from: 0
-                to: 360
-                duration: 950
-                loops: Animation.Infinite
-                running: lv.loading
-            }
+            width: 24
+            height: 24
+            kind: "disc"
+            color: Sys.textDim
+            weight: 1.5
         }
         Text {
             Layout.fillWidth: true
             text: "Buscando letra…"
             color: Sys.textDim
-            font.pixelSize: 13
+            font.pixelSize: Theme.tBase
             horizontalAlignment: Text.AlignHCenter
         }
     }
@@ -439,31 +426,26 @@ Item {
                     required property var modelData
                     required property int index
                     readonly property bool active: index === lv.activeIndex
-                    property real ignite: 0
-                    Behavior on ignite { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
-                    onActiveChanged: ignite = active ? 1 : 0
 
                     // El karaoke de verdad solo se pinta cuando la fuente trae
                     // tiempos por palabra (lv.hasWordSync); si no, la frase
-                    // activa se ilumina entera, sin relleno progresivo falso.
+                    // activa se enciende entera, sin relleno progresivo falso.
                     readonly property bool karaoke: active && lv.hasWordSync
                     readonly property real fill: karaoke ? lv.lineFill(index) : 0
 
                     width: lv.colW
                     text: karaoke ? lv._fillHtml(modelData.text, fill) : modelData.text
                     textFormat: karaoke ? Text.RichText : Text.PlainText
-                    // Rediseño: la activa es la única en color de acento y con
-                    // más peso; el resto baja de peso y se apaga por distancia.
-                    color: active ? Sys.accent : Sys.textDim
+                    // Solo la activa canta: texto a pleno y con más peso; el
+                    // resto se apaga en `Sys.textDim` según la distancia.
+                    color: active ? Sys.text : Sys.textDim
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
-                    font.weight: active ? Font.DemiBold : Font.Medium
+                    font.weight: active ? Font.DemiBold : Font.Normal
                     // La opacidad sube al pasar el ratón: la línea bajo el
                     // cursor se marca como «clicable» (salta a ese momento).
                     opacity: Math.min(1, lv.lineOpacity(index)
                                          + (lineMa.containsMouse ? 0.22 : 0))
-                    // Transformación pura: no mueve el layout ni el scroll.
-                    scale: active ? (1 + 0.035 * ignite) : 1
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     horizontalAlignment: Text.AlignHCenter
                     lineHeight: 1.32
@@ -485,19 +467,19 @@ Item {
             id: scrollAnim
             target: syncedFlick
             property: "contentY"
-            duration: 380
+            duration: Theme.slowMs
             easing.type: Easing.InOutCubic
             onStopped: lv._animating = false
         }
     }
 
     // Difuminado superior/inferior. Van fuera del Flickable para que no se
-    // desplacen con el texto.
+    // desplacen con el texto. Una sola «lavada» sutil, sin brillos.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        height: Math.min(72, Math.max(30, lv.edgePad * 0.55))
+        height: Math.min(56, Math.max(24, lv.edgePad * 0.5))
         visible: !lv.loading && lv.showSynced
         gradient: Gradient {
             GradientStop { position: 0.0; color: lv.edgeColor }
@@ -508,7 +490,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        height: Math.min(72, Math.max(30, lv.edgePad * 0.55))
+        height: Math.min(56, Math.max(24, lv.edgePad * 0.5))
         visible: !lv.loading && lv.showSynced
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
@@ -524,24 +506,25 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 14
-        width: followRow.implicitWidth + 28
-        height: 34
-        radius: 17
+        width: followRow.implicitWidth + 24
+        height: 32
+        radius: 16
         color: followMa.containsMouse
-               ? Theme.tint(Sys.accent, Sys.surface, 0.2) : Sys.surface
+               ? Theme.hover(Sys.surface) : Sys.surface
         border.width: 1
-        border.color: Sys.border
+        border.color: Sys.borderSubtle
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
         RowLayout {
             id: followRow
             anchors.centerIn: parent
-            spacing: 7
-            Glyph { width: 13; height: 13; kind: "refresh"; color: Sys.accent }
+            spacing: 6
+            Glyph { width: 12; height: 12; kind: "refresh"; color: Sys.accent }
             Text {
                 text: "Seguir la canción"
                 color: Sys.accent
-                font.pixelSize: 12
-                font.bold: true
+                font.pixelSize: Theme.tMd
+                font.weight: Font.Medium
             }
         }
         MouseArea {
@@ -573,7 +556,7 @@ Item {
             width: plainLabel.width
             text: "SIN LETRA SINCRONIZADA"
             color: Sys.textDim
-            font.pixelSize: 10
+            font.pixelSize: Theme.tXs
             font.bold: true
             font.letterSpacing: 1.4
         }
@@ -593,33 +576,27 @@ Item {
     }
 
     // ---- empty / error ------------------------------------------------
+    // Un icono quieto, un titular y una línea de apoyo. Sin cajas.
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 360)
-        spacing: 10
+        spacing: Theme.s2
         visible: lv.showEmpty || lv.showError
 
-        Rectangle {
+        Glyph {
             Layout.alignment: Qt.AlignHCenter
-            width: 58
-            height: 58
-            radius: 29
-            color: Sys.surfaceAlt
-            Glyph {
-                anchors.centerIn: parent
-                width: 26
-                height: 26
-                kind: "mic"
-                color: Sys.textDim
-                weight: 1.4
-            }
+            width: 28
+            height: 28
+            kind: "mic"
+            color: Sys.textDim
+            weight: 1.3
         }
         Text {
             Layout.fillWidth: true
             text: lv.showError ? lv.errorText : "Sin letra sincronizada"
             color: lv.showError ? Sys.danger : Sys.text
-            font.pixelSize: 14
-            font.bold: true
+            font.pixelSize: Theme.tLg
+            font.weight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
         }
@@ -627,7 +604,7 @@ Item {
             Layout.fillWidth: true
             text: lv.showError ? "Intentando con la siguiente pista." : "No encontramos la letra de esta canción."
             color: Sys.textDim
-            font.pixelSize: 12
+            font.pixelSize: Theme.tMd
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
         }
@@ -645,17 +622,12 @@ Item {
         spacing: Theme.s2
         opacity: 0.95
 
-        Rectangle {
-            width: 26; height: 26; radius: Theme.rSm
-            color: offMinus.hovered ? Theme.hover(Sys.surface) : Sys.surface
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Text {
+            text: "−"
+            color: offMinus.hovered ? Sys.accent : Sys.textDim
+            font.pixelSize: Theme.tXl
+            font.weight: Font.DemiBold
             HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
-            Text {
-                anchors.centerIn: parent
-                text: "−"
-                color: offMinus.hovered ? Sys.accent : Sys.textDim
-                font.pixelSize: Theme.tLg
-            }
             TapHandler { onTapped: lv.setOffset(lv.offset - 0.1) }
         }
 
@@ -667,17 +639,12 @@ Item {
             font.weight: Font.DemiBold
         }
 
-        Rectangle {
-            width: 26; height: 26; radius: Theme.rSm
-            color: offPlus.hovered ? Theme.hover(Sys.surface) : Sys.surface
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Text {
+            text: "+"
+            color: offPlus.hovered ? Sys.accent : Sys.textDim
+            font.pixelSize: Theme.tXl
+            font.weight: Font.DemiBold
             HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
-            Text {
-                anchors.centerIn: parent
-                text: "+"
-                color: offPlus.hovered ? Sys.accent : Sys.textDim
-                font.pixelSize: Theme.tLg
-            }
             TapHandler { onTapped: lv.setOffset(lv.offset + 0.1) }
         }
     }

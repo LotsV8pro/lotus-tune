@@ -2,11 +2,10 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Rail de navegación. Reposo: una columna estrecha sólo con iconos (68 px).
-// Al pasar el ratón se expande (232 px) y aparecen las etiquetas, las listas
-// guardadas y la tarjeta "sonando ahora". Es el mismo conjunto de funciones
-// que antes, pero en una superficie mucho más silenciosa: nada de cabeceras
-// que compitan con el contenido.
+// Rail de navegación. Plegado (estado primario): una columna estrecha con las
+// tres secciones principales, icono + etiqueta corta. Al pasar el ratón se
+// expande y aparecen las entradas secundarias, las listas y "sonando ahora".
+// Misma API pública que antes; sólo cambia cómo se pinta.
 Rectangle {
     id: side
 
@@ -65,100 +64,70 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.leftMargin: 14
-        anchors.rightMargin: 14
+        anchors.leftMargin: Theme.s1
+        anchors.rightMargin: Theme.s1
         spacing: 0
 
-        // ---- identidad ------------------------------------------------
+        // Aire superior: sustituye a la vieja cabecera de marca.
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 40
-            Layout.topMargin: 18
-            Layout.bottomMargin: 14
-
-            Rectangle {
-                width: 30
-                height: 30
-                anchors.verticalCenter: parent.verticalCenter
-                x: side.expanded ? 7 : (parent.width - width) / 2
-                radius: Theme.rMd
-                color: Sys.accentDim
-                LotusMark {
-                    anchors.centerIn: parent
-                    width: 18
-                    height: 17
-                    petalColor: Sys.accent
-                    active: side.playing
-                }
-            }
-            ColumnLayout {
-                visible: side.expanded
-                anchors.left: parent.left
-                anchors.leftMargin: 46
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 0
-                Text {
-                    text: "Lotus Tune"
-                    color: Sys.text
-                    font.pixelSize: Theme.tLg
-                    font.weight: Font.DemiBold
-                }
-                Text {
-                    text: "minimal"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tXs
-                    font.letterSpacing: 1.4
-                    opacity: 0.7
-                }
-            }
+            Layout.preferredHeight: Theme.s4
         }
 
         // ---- navegación ----------------------------------------------
+        // Plegado: sólo las tres secciones principales (icono + etiqueta).
+        // Expandido: se añaden "Me gusta" y "Descargas" con más aire.
         Repeater {
             model: side.navItems
             delegate: Rectangle {
                 required property var modelData
+                required property int index
                 id: navRow
                 readonly property bool on: side.page === modelData.id
+                readonly property bool primary: index < 3
 
+                visible: side.expanded || navRow.primary
                 Layout.fillWidth: true
-                Layout.preferredHeight: 40
-                Layout.topMargin: 2
+                Layout.preferredHeight: Theme.rowCompact
+                Layout.topMargin: !side.expanded ? Theme.s1
+                                  : (index === 3 ? Theme.s4 : Theme.s2)
                 radius: Theme.rMd
                 color: navRow.on ? Sys.accentDim
-                                 : (navHover.hovered ? Theme.hover(Sys.bg) : "transparent")
+                                 : (navHover.hovered ? Theme.hover(Sys.surface) : "transparent")
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                 HoverHandler { id: navHover; cursorShape: Qt.PointingHandCursor }
 
-                // Filo de acento: marca la sección activa sin rellenar la fila.
-                Rectangle {
-                    anchors.left: parent.left
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 3
-                    height: 15
-                    radius: 2
-                    color: Sys.accent
-                    visible: navRow.on && side.expanded
-                }
-
                 Glyph {
+                    id: navGlyph
                     width: 19
                     height: 19
-                    anchors.verticalCenter: parent.verticalCenter
-                    x: side.expanded ? 7 : (parent.width - width) / 2
                     kind: navRow.modelData.icon
-                    color: navRow.on ? Sys.accent : Sys.textDim
+                    color: navRow.on ? Sys.accent
+                                     : (navHover.hovered ? Sys.text : Sys.textDim)
+                    weight: navRow.on ? 1.9 : 1.6
+                    x: side.expanded ? 12 : (parent.width - width) / 2
+                    y: side.expanded ? (parent.height - height) / 2
+                                     : (parent.height - height) / 2 - 7
+                    Behavior on x { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
                 }
+
                 Text {
-                    visible: side.expanded
-                    anchors.left: parent.left
-                    anchors.leftMargin: 36
-                    anchors.verticalCenter: parent.verticalCenter
+                    id: navLabel
                     text: navRow.modelData.label
                     color: navRow.on ? Sys.text : Sys.textDim
-                    font.pixelSize: Theme.tBase
+                    font.pixelSize: side.expanded ? Theme.tBase : Theme.tXs
                     font.weight: navRow.on ? Font.DemiBold : Font.Medium
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                    horizontalAlignment: side.expanded ? Text.AlignLeft : Text.AlignHCenter
+                    width: side.expanded ? parent.width - 46 : parent.width
+                    x: side.expanded ? 40 : 0
+                    y: side.expanded ? (parent.height - height) / 2
+                                     : navGlyph.y + navGlyph.height + 3
+                    Behavior on x { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
+                    Behavior on y { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
                 }
 
                 TapHandler { onTapped: side.activate(navRow.modelData.id) }
@@ -168,15 +137,15 @@ Rectangle {
         // ---- Tus listas (sólo expandido) ------------------------------
         Text {
             visible: side.expanded
-            Layout.leftMargin: 7
-            Layout.topMargin: Theme.s5
-            Layout.bottomMargin: Theme.s2
+            Layout.leftMargin: 6
+            Layout.topMargin: Theme.s3
+            Layout.bottomMargin: Theme.s1
             text: "TUS LISTAS"
             color: Sys.textDim
             font.pixelSize: Theme.tXs
             font.weight: Font.DemiBold
             font.letterSpacing: 1.4
-            opacity: 0.8
+            opacity: 0.75
         }
 
         Flickable {
@@ -199,9 +168,9 @@ Rectangle {
                         required property int index
                         id: ytmRow
                         Layout.fillWidth: true
-                        height: 34
+                        height: Theme.rowThin
                         radius: Theme.rSm
-                        color: listHover.hovered ? Theme.hover(Sys.bg) : "transparent"
+                        color: listHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         HoverHandler { id: listHover; cursorShape: Qt.PointingHandCursor }
@@ -216,7 +185,7 @@ Rectangle {
                                 Layout.preferredHeight: 14
                                 Layout.alignment: Qt.AlignVCenter
                                 kind: "list"
-                                color: listHover.hovered ? Sys.accent : Sys.textDim
+                                color: listHover.hovered ? Sys.text : Sys.textDim
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -232,7 +201,7 @@ Rectangle {
                                 Layout.alignment: Qt.AlignVCenter
                                 visible: modelData.owned === true
                                 kind: "user"
-                                color: Sys.accent
+                                color: Sys.textDim
                             }
                         }
                         MouseArea {
@@ -259,9 +228,9 @@ Rectangle {
                         required property int index
                         id: plRow
                         Layout.fillWidth: true
-                        height: 34
+                        height: Theme.rowThin
                         radius: Theme.rSm
-                        color: plHover.hovered ? Theme.hover(Sys.bg) : "transparent"
+                        color: plHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         HoverHandler { id: plHover; cursorShape: Qt.PointingHandCursor }
@@ -276,7 +245,7 @@ Rectangle {
                                 Layout.preferredHeight: 14
                                 Layout.alignment: Qt.AlignVCenter
                                 kind: "music"
-                                color: plHover.hovered ? Sys.accent : Sys.textDim
+                                color: plHover.hovered ? Sys.text : Sys.textDim
                             }
                             Text {
                                 Layout.fillWidth: true
@@ -329,10 +298,10 @@ Rectangle {
             visible: side.expanded
             Layout.fillWidth: true
             Layout.topMargin: Theme.s2
-            Layout.bottomMargin: Theme.s2
+            Layout.bottomMargin: Theme.s1
             height: 44
             radius: Theme.rMd
-            color: nowHover.hovered ? Theme.hover(Sys.bg) : "transparent"
+            color: nowHover.hovered ? Theme.hover(Sys.surface) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             HoverHandler { id: nowHover; cursorShape: Qt.PointingHandCursor }
@@ -354,6 +323,8 @@ Rectangle {
                         id: miniCover
                         anchors.fill: parent
                         source: side.trackThumb
+                        sourceSize.width: 64
+                        sourceSize.height: 64
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -364,7 +335,6 @@ Rectangle {
                         width: 16
                         height: 15
                         petalColor: Sys.accent
-                        active: side.playing
                         visible: miniCover.status !== Image.Ready
                     }
                 }
@@ -395,18 +365,17 @@ Rectangle {
             TapHandler { onTapped: side.nowPlayingRequested() }
         }
 
-        // ---- ajustes --------------------------------------------------
+        // ---- ajustes (sólo expandido) ---------------------------------
         Item {
+            visible: side.expanded
             Layout.fillWidth: true
             Layout.preferredHeight: 36
             Layout.bottomMargin: Theme.s3
 
             Rectangle {
                 anchors.fill: parent
-                anchors.leftMargin: side.expanded ? 0 : 2
-                anchors.rightMargin: side.expanded ? 0 : 2
                 radius: Theme.rMd
-                color: setHover.hovered ? Theme.hover(Sys.bg) : "transparent"
+                color: setHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             }
             HoverHandler { id: setHover; cursorShape: Qt.PointingHandCursor }
@@ -415,29 +384,17 @@ Rectangle {
                 width: 18
                 height: 18
                 anchors.verticalCenter: parent.verticalCenter
-                x: side.expanded ? 7 : (parent.width - width) / 2
+                x: 10
                 kind: "gear"
-                color: setHover.hovered ? Sys.accent : Sys.textDim
+                color: setHover.hovered ? Sys.text : Sys.textDim
             }
-            RowLayout {
-                visible: side.expanded
+            Text {
                 anchors.left: parent.left
                 anchors.leftMargin: 36
-                anchors.right: parent.right
-                anchors.rightMargin: 6
                 anchors.verticalCenter: parent.verticalCenter
-                Text {
-                    text: "Ajustes"
-                    color: setHover.hovered ? Sys.text : Sys.textDim
-                    font.pixelSize: Theme.tBase
-                }
-                Item { Layout.fillWidth: true }
-                Text {
-                    text: "Ctrl+,"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tXs
-                    opacity: 0.55
-                }
+                text: "Ajustes"
+                color: setHover.hovered ? Sys.text : Sys.textDim
+                font.pixelSize: Theme.tBase
             }
             TapHandler { onTapped: side.settingsRequested() }
         }

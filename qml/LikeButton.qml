@@ -1,10 +1,11 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Corazón de "me gusta" (biblioteca) para las filas de las listas, calcado de
-// Sonora: relleno y en color de acento cuando la pista está guardada; contorno
-// atenuado y sólo visible al pasar el ratón cuando no. Reserva su hueco para
-// que el título no se mueva al aparecer. Emite `toggled()`.
+// Corazón de "me gusta" (biblioteca) para las filas de las listas.
+// Minimalista: solo el glifo. Contorno atenuado cuando la pista no está
+// guardada (`Sys.textDim`), acento cuando sí (`Sys.accent`); sin caja ni
+// fondo propio, la jerarquía la da el color. Reserva su hueco para que el
+// título no se mueva al aparecer. Emite `toggled()`.
 //
 // Es "tonto": el estado (`liked`) y la acción los decide la fila, que conoce
 // el videoId y el estado global de la biblioteca.
@@ -32,23 +33,18 @@ Item {
         cursorShape: Qt.PointingHandCursor
     }
 
-    Rectangle {
-        anchors.fill: parent
-        radius: Theme.rSm
-        color: hh.hovered ? Theme.hover(Sys.bg) : "transparent"
+    Glyph {
+        anchors.centerIn: parent
+        width: 15
+        height: 15
+        kind: btn.liked ? "heart" : "heart-outline"
+        weight: 1.6
+        color: btn.liked ? Sys.accent : (hh.hovered ? Sys.text : Sys.textDim)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+    }
 
-        Glyph {
-            anchors.centerIn: parent
-            width: 14
-            height: 14
-            kind: btn.liked ? "heart" : "heart-outline"
-            color: btn.liked ? Sys.accent : (hh.hovered ? Sys.text : Sys.textDim)
-        }
-
-        TapHandler {
-            enabled: btn.shown
-            onTapped: btn.toggled()
-        }
+    TapHandler {
+        enabled: btn.shown
+        onTapped: btn.toggled()
     }
 }

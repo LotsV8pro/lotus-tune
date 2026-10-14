@@ -31,6 +31,9 @@ Item {
     // ---- fuente elegida en el desplegable (estado local de la página) ---
     property string selectedSourceId: sources.activeId
     property bool sourceMenuOpen: false
+    // Pestaña activa de la biblioteca (0 Canciones · 1 Artistas · 2 Álbumes ·
+    // 3 Playlists · 4 Descargadas). Estado puramente visual de la página.
+    property int libraryTab: 0
     readonly property bool localSelected: selectedSourceId === "local"
     readonly property var localSource: ({
         id: "local", name: "Local / Descargas", status: "ready",
@@ -676,133 +679,103 @@ Item {
                 }
             }
 
-            Flickable {
-                id: tracksFlick
+            // Lista virtualizada: filas de altura fija, reutilizadas al hacer
+            // scroll (reuseItems + cacheBuffer) para mantener la RAM baja.
+            ListView {
+                id: tracksList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                contentHeight: tracksCol.implicitHeight
                 clip: true
+                model: catalog.tracks
+                reuseItems: true
+                cacheBuffer: 800
+                spacing: 0
                 boundsBehavior: Flickable.StopAtBounds
 
-                ColumnLayout {
-                    id: tracksCol
-                    width: tracksFlick.width
-                    spacing: Theme.s1
+                delegate: Item {
+                    id: trow
+                    required property int index
+                    required property var modelData
 
-                    Repeater {
-                        model: catalog.tracks
+                    readonly property bool isLocal: String(modelData.source || "") === "local"
+                                                    || String(modelData.url || "").indexOf("file://") === 0
 
-                        delegate: Rectangle {
-                            id: trow
-                            required property int index
+                    width: ListView.view.width
+                    height: Theme.rowH
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.rMd
+                        color: trowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    }
+
+                    MouseArea {
+                        id: trowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton)
+                                page.trackContextRequested(modelData,
+                                                           mouse.scenePos.x,
+                                                           mouse.scenePos.y)
+                            else
+                                page.playRequested(catalog.tracks, trow.index)
+                        }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.s3
+                        anchors.rightMargin: Theme.s3
+                        spacing: Theme.s3
+
+                        ColumnLayout {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.rowCompact
-                            radius: Theme.rMd
-                            color: trowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
-                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                            // Detrás de la fila: los controles (corazón) van
-                            // encima y reciben el clic sin robarle el suyo.
-                            MouseArea {
-                                id: trowMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onClicked: (mouse) => {
-                                    if (mouse.button === Qt.RightButton)
-                                        page.trackContextRequested(catalog.tracks[trow.index],
-                                                                   mouse.scenePos.x,
-                                                                   mouse.scenePos.y)
-                                    else
-                                        page.playRequested(catalog.tracks, trow.index)
-                                }
+                            spacing: 1
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData.title || ""
+                                color: Sys.text
+                                font.pixelSize: Theme.tBase
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
                             }
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.s3
-                                anchors.rightMargin: Theme.s3
-                                spacing: Theme.s3
-
-                                Rectangle {
-                                    Layout.preferredWidth: 34
-                                    Layout.preferredHeight: 34
-                                    radius: Theme.rMd
-                                    clip: true
-                                    color: Sys.surfaceAlt
-
-                                    Image {
-                                        anchors.fill: parent
-                                        source: catalog.tracks[trow.index].thumb || ""
-                                        visible: source != ""
-                                        sourceSize.width: 34
-                                        sourceSize.height: 34
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
-                                    }
-                                    Glyph {
-                                        anchors.centerIn: parent
-                                        width: 15
-                                        height: 15
-                                        visible: !catalog.tracks[trow.index].thumb
-                                        kind: "play"
-                                        color: trowMouse.containsMouse ? Sys.accent : Sys.textDim
-                                    }
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    // Título + corazón de "me gusta" (estilo Sonora).
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: Theme.s1
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: catalog.tracks[trow.index].title || ""
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tBase
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-                                        LikeButton {
-                                            id: trowLike
-                                            interactive: catalog.loginState === "ok"
-                                                         && catalog.videoIdOf(
-                                                                catalog.tracks[trow.index].url) !== ""
-                                            revealed: trowMouse.containsMouse
-                                            liked: {
-                                                const rev = catalog.likedRevision
-                                                const tr = catalog.tracks[trow.index]
-                                                if (!tr)
-                                                    return false
-                                                if (catalog.likedReady)
-                                                    return catalog.isLiked(tr.url)
-                                                return tr.liked === true
-                                            }
-                                            onToggled: {
-                                                const tr = catalog.tracks[trow.index]
-                                                if (tr)
-                                                    catalog.toggleLiked(tr.url, trowLike.liked)
-                                            }
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: catalog.tracks[trow.index].artist || ""
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tSm
-                                        elide: Text.ElideRight
-                                        maximumLineCount: 1
-                                    }
-                                }
-                                Text {
-                                    text: Theme.mmss(catalog.tracks[trow.index].duration)
-                                    color: Sys.textDim
-                                    font.pixelSize: Theme.tSm
-                                }
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData.artist || ""
+                                color: Sys.textDim
+                                font.pixelSize: Theme.tSm
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
                             }
+                        }
+
+                        // Distintivo discreto para ficheros disponibles en local.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: trow.isLocal
+                            width: 20
+                            height: 20
+                            radius: 10
+                            color: Theme.alpha(Sys.accent, 0.14)
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 12
+                                height: 12
+                                kind: "check"
+                                color: Sys.accent
+                                weight: 1.8
+                            }
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignVCenter
+                            text: Theme.mmss(modelData.duration)
+                            color: Sys.textDim
+                            font.pixelSize: Theme.tSm
                         }
                     }
                 }
@@ -815,6 +788,58 @@ Item {
             Layout.fillHeight: true
             visible: !page.showingTracks
             spacing: Theme.s3
+
+            // 0) pestañas de sección: solo texto, subrayado de acento en la
+            //    activa. Sin cajas ni fondos.
+            RowLayout {
+                id: libTabs
+                Layout.fillWidth: true
+                spacing: Theme.s5
+
+                readonly property var items: [
+                    { t: 0, name: "Canciones" },
+                    { t: 1, name: "Artistas" },
+                    { t: 2, name: "Álbumes" },
+                    { t: 3, name: "Playlists" },
+                    { t: 4, name: "Descargadas" }
+                ]
+
+                Repeater {
+                    model: libTabs.items
+                    delegate: Item {
+                        id: tabItem
+                        required property var modelData
+                        readonly property bool on: page.libraryTab === modelData.t
+                        implicitWidth: tabLabel.implicitWidth
+                        implicitHeight: 28
+
+                        Text {
+                            id: tabLabel
+                            anchors.top: parent.top
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: tabItem.modelData.name
+                            color: tabItem.on ? Sys.text : Sys.textDim
+                            font.pixelSize: Theme.tBase
+                            font.weight: tabItem.on ? Font.DemiBold : Font.Normal
+                        }
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 2
+                            radius: 1
+                            color: Sys.accent
+                            visible: tabItem.on
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.libraryTab = tabItem.modelData.t
+                        }
+                    }
+                }
+                Item { Layout.fillWidth: true }
+            }
 
             // 1) desplegable de fuentes (todas + Local / Descargas)
             LibrarySourceMenu {
@@ -1047,198 +1072,199 @@ Item {
 
                 // fuente bloqueada (Spotify / Tidal / lo que venga)
                 LockedSection {
-                    visible: page.selectedLocked
+                    visible: page.selectedLocked && page.libraryTab !== 4
                     title: page.selectedEntry ? page.selectedEntry.name
                                               : page.srcName(page.selectedSourceId)
                     note: page.selectedLocked ? page.srcNote(page.selectedSourceId) : ""
                 }
 
-                // ---- LOCAL: descargas + empleos ---------------------------
-                Flickable {
-                    id: localFlick
+                // ---- LOCAL: descargas (lista virtualizada) ----------------
+                Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: page.localSelected
-                    contentHeight: localCol.implicitHeight
-                    clip: true
-                    boundsBehavior: Flickable.StopAtBounds
+                    visible: page.localSelected || page.libraryTab === 4
 
-                    ColumnLayout {
-                        id: localCol
-                        width: localFlick.width
-                        spacing: Theme.s1
+                    ListView {
+                        id: localList
+                        anchors.fill: parent
+                        clip: true
+                        model: page.dlLocal
+                        reuseItems: true
+                        cacheBuffer: 600
+                        spacing: 0
+                        boundsBehavior: Flickable.StopAtBounds
 
-                        Repeater {
-                            model: page.dlLocal
+                        delegate: Item {
+                            id: lrow
+                            required property int index
+                            required property var modelData
 
-                            delegate: Rectangle {
-                                id: lrow
-                                required property int index
-                                required property var modelData
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.rowCompact
+                            width: ListView.view.width
+                            height: Theme.rowH
+
+                            Rectangle {
+                                anchors.fill: parent
                                 radius: Theme.rMd
                                 color: lrowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
-                                border.width: 0
                                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            }
 
-                                MouseArea {
-                                    id: lrowMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                    onClicked: (mouse) => {
-                                        if (mouse.button === Qt.RightButton)
-                                            page.trackContextRequested(lrow.modelData,
-                                                                       mouse.scenePos.x,
-                                                                       mouse.scenePos.y)
-                                        else
-                                            page.playRequested(page.dlLocal, lrow.index)
+                            MouseArea {
+                                id: lrowMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                onClicked: (mouse) => {
+                                    if (mouse.button === Qt.RightButton)
+                                        page.trackContextRequested(modelData,
+                                                                   mouse.scenePos.x,
+                                                                   mouse.scenePos.y)
+                                    else
+                                        page.playRequested(page.dlLocal, lrow.index)
+                                }
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.s3
+                                anchors.rightMargin: Theme.s3
+                                spacing: Theme.s3
+
+                                Rectangle {
+                                    Layout.preferredWidth: 32
+                                    Layout.preferredHeight: 32
+                                    Layout.alignment: Qt.AlignVCenter
+                                    radius: Theme.rSm
+                                    clip: true
+                                    color: Sys.surfaceAlt
+                                    Image {
+                                        anchors.fill: parent
+                                        source: modelData.thumb || ""
+                                        visible: source != ""
+                                        sourceSize.width: 32
+                                        sourceSize.height: 32
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
+                                    }
+                                    ActionIcon {
+                                        anchors.centerIn: parent
+                                        width: 15
+                                        height: 15
+                                        visible: !modelData.thumb
+                                        kind: "download"
+                                        color: Sys.textDim
                                     }
                                 }
-
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    spacing: Theme.s3
-
-                                    Rectangle {
-                                        Layout.preferredWidth: 34
-                                        Layout.preferredHeight: 34
-                                        radius: Theme.rMd
-                                        clip: true
-                                        color: Sys.surfaceAlt
-                                        Image {
-                                            anchors.fill: parent
-                                            source: lrow.modelData.thumb || ""
-                                            visible: source != ""
-                                            sourceSize.width: 34
-                                            sourceSize.height: 34
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            cache: true
-                                        }
-                                        ActionIcon {
-                                            anchors.centerIn: parent
-                                            width: 15
-                                            height: 15
-                                            visible: !lrow.modelData.thumb
-                                            kind: "download"
-                                            color: lrowMouse.containsMouse ? Sys.accent : Sys.textDim
-                                        }
-                                    }
-                                    ColumnLayout {
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 1
+                                    Text {
                                         Layout.fillWidth: true
-                                        spacing: 0
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: lrow.modelData.title || ""
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tBase
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: lrow.modelData.artist || ""
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tSm
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
+                                        text: modelData.title || ""
+                                        color: Sys.text
+                                        font.pixelSize: Theme.tBase
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
                                     }
                                     Text {
-                                        text: Theme.mmss(lrow.modelData.duration)
+                                        Layout.fillWidth: true
+                                        text: modelData.artist || ""
                                         color: Sys.textDim
                                         font.pixelSize: Theme.tSm
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
                                     }
+                                }
+                                Glyph {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    width: 13
+                                    height: 13
+                                    kind: "check"
+                                    color: Sys.accent
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    text: Theme.mmss(modelData.duration)
+                                    color: Sys.textDim
+                                    font.pixelSize: Theme.tSm
                                 }
                             }
                         }
+                    }
 
-                        Text {
-                            Layout.fillWidth: true
-                            visible: page.dlLocal.length === 0 && !page.dlLocalBusy
-                            text: "Sin descargas locales. Usa el botón de descarga de una playlist o pista."
-                            color: Sys.textDim
-                            font.pixelSize: Theme.tSm
-                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        }
+                    Text {
+                        anchors.centerIn: parent
+                        width: Math.min(parent.width - Theme.s4, 320)
+                        visible: localList.count === 0 && !page.dlLocalBusy
+                        text: "Sin descargas locales. Usa el botón de descarga de una playlist o pista."
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tSm
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
                 }
 
-                // ---- FUENTE REMOTA: rejilla de covers ---------------------
-                Flickable {
-                    id: coversFlick
+                // ---- FUENTE REMOTA: rejilla de covers virtualizada --------
+                GridView {
+                    id: coversGrid
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !page.localSelected && !page.selectedLocked
-                             && page.covers.length > 0
+                    visible: !page.localSelected && page.libraryTab !== 4
+                             && !page.selectedLocked && page.covers.length > 0
                     clip: true
+                    model: page.covers
+                    reuseItems: true
+                    cacheBuffer: 800
                     boundsBehavior: Flickable.StopAtBounds
-                    flickableDirection: Flickable.VerticalFlick
-                    contentWidth: width
-                    contentHeight: gridBox.height
+                    flow: GridView.FlowLeftToRight
+                    readonly property real tileW: page.gridTileW(width)
+                    cellWidth: tileW + page.coverGap
+                    cellHeight: tileW + 58
 
-                    Item {
-                        id: gridBox
-                        width: coversFlick.width
-                        height: page.covers.length === 0 ? 0
-                               : Math.ceil(page.covers.length
-                                           / page.gridCols(gridBox.width))
-                                 * (page.gridTileW(gridBox.width) + 50)
+                    delegate: CoverTile {
+                        required property int index
+                        required property var modelData
+                        width: GridView.view.cellWidth - page.coverGap
+                        height: GridView.view.cellHeight
 
-                        Repeater {
-                            model: page.covers
+                        title: modelData.name || ""
+                        subtitle: (modelData.count || 0) > 0
+                                  ? modelData.count + " pistas"
+                                  : (modelData.url || "")
+                        thumb: modelData.thumb || ""
+                        removable: (modelData.savedIndex || -1) >= 0
+                        downloadable: !!modelData.url
 
-                            delegate: CoverTile {
-                                required property int index
-                                required property var modelData
-                                width: page.gridTileW(gridBox.width)
-                                height: width + 50
-                                x: (index % page.gridCols(gridBox.width)) * width
-                                y: Math.floor(index / page.gridCols(gridBox.width)) * height
-
-                                title: modelData.name || ""
-                                subtitle: (modelData.count || 0) > 0
-                                          ? modelData.count + " pistas"
-                                          : (modelData.url || "")
-                                thumb: modelData.thumb || ""
-                                removable: (modelData.savedIndex || -1) >= 0
-                                downloadable: !!modelData.url
-
-                                // Clic en la tarjeta -> ABRIR la lista.
-                                onClicked: {
-                                    page.openListRequested(false)
-                                    page.openCover(modelData)
-                                }
-                                // Clic en el botón de play flotante -> REPRODUCIR.
-                                onPlayClicked: {
-                                    page.openListRequested(true)
-                                    page.openCover(modelData)
-                                }
-                                onDownloadRequested: {
-                                    if (typeof downloads !== "undefined")
-                                        downloads.downloadPlaylist(modelData.url || "",
-                                                                   modelData.name || "")
-                                }
-                                onRemoveRequested: {
-                                    if ((modelData.savedIndex || -1) >= 0)
-                                        catalog.removePlaylist(modelData.savedIndex)
-                                }
-                                onContextRequested: (x, y) => page.coverContextRequested(modelData, x, y)
-                            }
+                        // Clic en la tarjeta -> ABRIR la lista.
+                        onClicked: {
+                            page.openListRequested(false)
+                            page.openCover(modelData)
                         }
+                        // Clic en el botón de play flotante -> REPRODUCIR.
+                        onPlayClicked: {
+                            page.openListRequested(true)
+                            page.openCover(modelData)
+                        }
+                        onDownloadRequested: {
+                            if (typeof downloads !== "undefined")
+                                downloads.downloadPlaylist(modelData.url || "",
+                                                           modelData.name || "")
+                        }
+                        onRemoveRequested: {
+                            if ((modelData.savedIndex || -1) >= 0)
+                                catalog.removePlaylist(modelData.savedIndex)
+                        }
+                        onContextRequested: (x, y) => page.coverContextRequested(modelData, x, y)
                     }
                 }
 
                 // ---- estados vacíos ---------------------------------------
                 Text {
                     Layout.fillWidth: true
-                    visible: !page.localSelected && !page.selectedLocked
-                             && page.covers.length === 0
+                    visible: !page.localSelected && page.libraryTab !== 4
+                             && !page.selectedLocked && page.covers.length === 0
                     text: page.selectedSourceId === "ytm"
                           ? (catalog.libraryBusy
                              ? "Cargando tus listas de YouTube Music…"

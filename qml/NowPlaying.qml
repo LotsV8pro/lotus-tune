@@ -30,6 +30,14 @@ Rectangle {
     property bool scrubbing: false
     property real scrubPos: 0
 
+    // LOCAL vs STREAM sin llamadas nuevas al backend: una portada remota
+    // (http/https) delata un stream; los ficheros locales no traen portada
+    // remota. Si no hay portada, se asume LOCAL.
+    readonly property bool isStream: {
+        var t = String(np.thumb || "").toLowerCase()
+        return t.indexOf("http") === 0 || t.indexOf("//") === 0
+    }
+
     // ---- medidas -------------------------------------------------------
     // Ancho máximo de la caja de contenido y de la columna de lectura.
     readonly property real maxContentW: 840
@@ -244,25 +252,25 @@ Rectangle {
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width
-                height: 4
-                radius: 2
-                color: Theme.mix(Sys.surface, Sys.text, 0.16)
+                height: 2
+                radius: 1
+                color: Theme.mix(Sys.surface, Sys.text, 0.18)
             }
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
                 width: parent.width * volTrack.ratio
-                height: 4
-                radius: 2
+                height: 2
+                radius: 1
                 color: Sys.accent
             }
             Rectangle {
                 x: parent.width * volTrack.ratio - width / 2
                 anchors.verticalCenter: parent.verticalCenter
-                width: 11
-                height: 11
-                radius: 5.5
+                width: 8
+                height: 8
+                radius: 4
                 color: Sys.accent
-                scale: volMa.containsMouse ? 1.15 : 0.9
+                scale: volMa.containsMouse ? 1.05 : 0
                 Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
             }
             MouseArea {
@@ -415,8 +423,10 @@ Rectangle {
                 Rectangle {
                     id: bigCover
                     anchors.fill: parent
-                    radius: Theme.rXl
+                    radius: Theme.rLg
                     color: Sys.surfaceAlt
+                    border.width: 1
+                    border.color: Sys.borderSubtle
                     clip: true
                     Image {
                         id: bigCoverImg
@@ -425,6 +435,8 @@ Rectangle {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         visible: status === Image.Ready
+                        sourceSize.width: 600
+                        sourceSize.height: 600
                     }
                     LotusMark {
                         anchors.centerIn: parent
@@ -460,6 +472,17 @@ Rectangle {
                     font.pixelSize: Theme.tMd
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: np.title.length > 0
+                    text: np.isStream ? "STREAM" : "LOCAL"
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tXs
+                    font.weight: Font.DemiBold
+                    font.letterSpacing: 1.2
+                    horizontalAlignment: Text.AlignHCenter
+                    topPadding: Theme.s1
                 }
             }
 
@@ -508,7 +531,7 @@ Rectangle {
                 Rectangle {
                     id: npTrack
                     Layout.fillWidth: true
-                    height: 16
+                    height: 10
                     color: "transparent"
 
                     readonly property real ratio: np.duration > 0
@@ -518,25 +541,25 @@ Rectangle {
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width
-                        height: 4
-                        radius: 2
-                        color: Theme.mix(Sys.surface, Sys.text, 0.16)
+                        height: 2
+                        radius: 1
+                        color: Theme.mix(Sys.surface, Sys.text, 0.18)
                     }
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width * npTrack.ratio
-                        height: 4
-                        radius: 2
+                        height: 2
+                        radius: 1
                         color: Sys.accent
                     }
                     Rectangle {
                         x: parent.width * npTrack.ratio - width / 2
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 12
-                        height: 12
-                        radius: 6
+                        width: 8
+                        height: 8
+                        radius: 4
                         color: Sys.accent
-                        scale: npSeek.containsMouse || np.scrubbing ? 1.2 : 0.9
+                        scale: npSeek.containsMouse || np.scrubbing ? 1.05 : 0
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
                     }
                     MouseArea {

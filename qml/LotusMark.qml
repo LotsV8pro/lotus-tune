@@ -1,6 +1,8 @@
 import QtQuick
 
-// Five-petal lotus identity mark. `active` pulses gently (now playing).
+// Five-petal lotus identity mark. `active` gives ONE short, gentle pulse
+// (<=280 ms) when the mark is visible; otherwise it stays perfectly still.
+// No infinite loops: the app must remain cheap on the compositor.
 Canvas {
     id: mark
 
@@ -11,7 +13,10 @@ Canvas {
     onPetalColorChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
-    Component.onCompleted: requestPaint()
+    Component.onCompleted: {
+        requestPaint()
+        maybePulse()
+    }
 
     scale: baseScale * pulseAnim.currentValue
 
@@ -21,33 +26,37 @@ Canvas {
         property real currentValue: 1.0
     }
 
-    onActiveChanged: {
-        if (active)
-            pulse.start()
+    onActiveChanged: maybePulse()
+    onVisibleChanged: maybePulse()
+
+    // Solo late si está activo Y visible; en cualquier otro caso, estático.
+    function maybePulse() {
+        if (active && visible)
+            pulse.restart()
         else {
             pulse.stop()
             pulseAnim.currentValue = 1.0
         }
     }
 
+    // Un único latido corto (2 x 130 ms = 260 ms), sin `loops`.
     SequentialAnimation {
         id: pulse
-        loops: Animation.Infinite
         running: false
         PropertyAnimation {
             target: pulseAnim
             property: "currentValue"
             from: 1.0
-            to: 1.09
-            duration: 850
+            to: 1.08
+            duration: 130
             easing.type: Easing.InOutSine
         }
         PropertyAnimation {
             target: pulseAnim
             property: "currentValue"
-            from: 1.09
+            from: 1.08
             to: 1.0
-            duration: 850
+            duration: 130
             easing.type: Easing.InOutSine
         }
     }

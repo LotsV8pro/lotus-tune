@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Barra superior por página. Deliberadamente parca: un título, un acceso al
-// buscador y los ajustes. El subtítulo y el chip de fuente se retiraron para
-// no competir con el contenido (la fuente activa vive en Biblioteca/Ajustes).
+// Barra superior por página. Plana y silenciosa: atrás (si aplica), el título
+// de la página y dos accesos discretos (lanzador y ajustes). Sin subtítulo, sin
+// sombra inferior y sin bordes pesados: la jerarquía viene del aire.
 Rectangle {
     id: top
 
@@ -20,24 +20,25 @@ Rectangle {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 22
-        anchors.rightMargin: 18
-        spacing: 10
+        anchors.leftMargin: Theme.s4
+        anchors.rightMargin: Theme.s3
+        spacing: Theme.s1
 
+        // Atrás: sólo cuando la página es hija de otra.
         Rectangle {
             visible: top.showBack
             Layout.alignment: Qt.AlignVCenter
-            width: 32
-            height: 32
+            width: Theme.rowThin
+            height: Theme.rowThin
             radius: Theme.rMd
-            color: backHover.hovered ? Sys.surfaceAlt : "transparent"
+            color: backHover.hovered ? Theme.hover(Sys.surface) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
             Glyph {
                 anchors.centerIn: parent
                 width: 16; height: 16
                 kind: "chevron-left"
-                color: backHover.hovered ? Sys.accent : Sys.text
+                color: Sys.text
             }
             TapHandler { onTapped: top.backRequested() }
         }
@@ -54,57 +55,37 @@ Rectangle {
 
         Item { Layout.fillWidth: true }
 
-        // Buscador rápido (abre el lanzador). Sólo un filo, sin relleno.
+        // Lanzador: un acceso callado, no un campo con borde.
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: 260
-            Layout.maximumWidth: 320
-            height: 34
+            width: Theme.rowThin
+            height: Theme.rowThin
             radius: Theme.rMd
-            color: searchHover.hovered ? Theme.hover(Sys.bg) : "transparent"
-            border.width: 1
-            border.color: searchHover.hovered ? Sys.border : Sys.borderSubtle
-            Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+            color: launcherHover.hovered ? Theme.hover(Sys.surface) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-            HoverHandler { id: searchHover; cursorShape: Qt.PointingHandCursor }
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 12
-                anchors.rightMargin: 12
-                spacing: 10
-                Glyph {
-                    Layout.preferredWidth: 15
-                    Layout.preferredHeight: 15
-                    Layout.alignment: Qt.AlignVCenter
-                    kind: "search"
-                    color: searchHover.hovered ? Sys.accent : Sys.textDim
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: "Buscar o pegar un enlace…"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tMd
-                    elide: Text.ElideRight
-                }
+            HoverHandler { id: launcherHover; cursorShape: Qt.PointingHandCursor }
+            Glyph {
+                anchors.centerIn: parent
+                width: 17; height: 17
+                kind: "search"
+                color: launcherHover.hovered ? Sys.text : Sys.textDim
             }
             TapHandler { onTapped: top.launcherRequested() }
         }
 
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
-            width: 32
-            height: 32
+            width: Theme.rowThin
+            height: Theme.rowThin
             radius: Theme.rMd
-            color: gearHover.hovered ? Sys.surfaceAlt : "transparent"
+            color: gearHover.hovered ? Theme.hover(Sys.surface) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             HoverHandler { id: gearHover; cursorShape: Qt.PointingHandCursor }
             Glyph {
                 anchors.centerIn: parent
                 width: 17; height: 17
                 kind: "gear"
-                color: gearHover.hovered ? Sys.accent : Sys.textDim
+                color: gearHover.hovered ? Sys.text : Sys.textDim
             }
             TapHandler { onTapped: top.settingsRequested() }
         }

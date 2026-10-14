@@ -9,16 +9,16 @@
 // ------------------------------------------------------------------
 
 // Animation durations (ms). Short and cheap on purpose: the app is meant to
-// stay light in RAM, so no per-row shaders or MultiEffects.
-var fastMs = 130
-var medMs = 220
-var slowMs = 420
+// stay light in RAM, so no per-row shaders or MultiEffects. Hard cap: 280 ms.
+var fastMs = 120
+var medMs = 180
+var slowMs = 280
 
 // Corner radii (px). Flat, minimal: nothing is a pill unless it is a slot.
 var rSm = 6
 var rMd = 10
 var rLg = 14
-var rXl = 20
+var rXl = 18
 
 // Type scale (px). One ramp for the whole app: quiet by default, one clear
 // step for the page title and the now-playing title.
@@ -39,13 +39,13 @@ var s4 = 16
 var s5 = 24
 var s6 = 32
 
-// Layout rhythm (px).
-var rowH = 56
-var rowCompact = 48
-var rowThin = 36
-var topBarH = 60
-var playerBarH = 76
-var sidePanelMin = 280
+// Layout rhythm (px). Slim, air-first chrome.
+var rowH = 52
+var rowCompact = 46
+var rowThin = 32
+var topBarH = 52
+var playerBarH = 56
+var sidePanelMin = 300
 
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v))

@@ -1,8 +1,10 @@
 #pragma once
 
 #include <QByteArray>
+#include <QFileSystemWatcher>
 #include <QObject>
 #include <QProcess>
+#include <QSet>
 #include <QString>
 #include <QTimer>
 #include <QVariantList>
@@ -77,6 +79,9 @@ private:
     void startScan();
     void scanChunk();
     void stopScan();
+    // Sincroniza los directorios vigilados con la carpeta raíz + subcarpetas
+    // descubiertas en el último escaneo (auto-sync al cambiar ficheros).
+    void updateWatchDirs();
     QVariantMap makeLocalTrack(const QString &path) const;
     QString artistForPath(const QString &dir) const;
 
@@ -98,4 +103,10 @@ private:
     QDirIterator *m_scan = nullptr;
     QVariantList m_scanItems;
     QTimer m_scanTimer;
+    QSet<QString> m_scanDirs;      // carpetas vistas en el escaneo en curso
+
+    // Auto-sync: vigila la carpeta de descargas (y subcarpetas) y reescanea
+    // con un pequeño debounce cuando algo cambia en disco.
+    QFileSystemWatcher m_watcher;
+    QTimer m_watchDebounce;
 };

@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Inicio: filas horizontales de tarjetas de tamaño fijo. Ninguna tarjeta
-// cambia de tamaño al pasar el ratón, de modo que la retícula nunca salta.
+// Inicio: saludo en una línea, atajo discreto a Descargas y carriles
+// horizontales de tarjetas de tamaño fijo. Cada carril es un ListView con
+// reuseItems: recicla delegados y la retícula nunca salta al pasar el ratón.
 //
 // Comportamiento de clic:
 //   · botón de play  -> carga la lista y la REPRODUCE (sin salir de Inicio)
@@ -27,8 +28,8 @@ Item {
     readonly property int cardSpacing: 14
 
     // ---- Selección rápida (deck estilo Sonora) --------------------------
-    // Caja enmarcada con 3 columnas × 5 filas de filas compactas, paginada
-    // con flechas. Mezcla: «me gusta», lo escuchado hace poco y tus listas.
+    // Rejilla paginada de filas compactas. Mezcla: «me gusta», lo escuchado
+    // hace poco y tus listas.
     property int picksPage: 0
     readonly property int picksPerPage: 15
     readonly property int picksCols: 3
@@ -244,68 +245,92 @@ Item {
         { q: "clásica para estudiar", t: "Clásica", s: "Enfoque", icon: "radio" }
     ]
 
+    // Título de sección: pequeño, en Sys.textDim, sin adornos.
+    component SectionTitle: Text {
+        color: Sys.textDim
+        font.pixelSize: Theme.tSm
+        font.weight: Font.DemiBold
+        font.letterSpacing: 1.1
+        elide: Text.ElideRight
+    }
+
     // ====================================================================
     Flickable {
         id: pageFlick
         anchors.fill: parent
         contentWidth: width
-        contentHeight: content.implicitHeight + 48
+        contentHeight: content.implicitHeight + Theme.s5 * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
             id: content
-            x: 24
-            y: 24
-            width: pageFlick.width - 48
+            x: Theme.s5
+            y: Theme.s5
+            width: pageFlick.width - Theme.s5 * 2
             spacing: Theme.s5
 
-            // ---- saludo -----------------------------------------------
+            // ---- saludo (una sola línea) + atajo a Descargas ------------
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.s3
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 1
-                    Text {
-                        text: page.greeting
-                        color: Sys.text
-                        font.pixelSize: Theme.t2xl
-                        font.weight: Font.DemiBold
-                    }
-                    Text {
-                        text: page.src ? "Escuchando desde " + page.src.name + " · " + page.today : page.today
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tSm
-                    }
+                Text {
+                    text: page.greeting
+                    color: Sys.text
+                    font.pixelSize: Theme.t2xl
+                    font.weight: Font.DemiBold
                 }
+                Text {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignBaseline
+                    text: "· " + page.today + (page.src ? " · " + page.src.name : "")
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tSm
+                    elide: Text.ElideRight
+                }
+
                 Rectangle {
-                    height: 22
+                    Layout.preferredHeight: Theme.rowThin
+                    implicitWidth: dlRow.implicitWidth + Theme.s4
                     radius: Theme.rSm
-                    color: Sys.accentDim
-                    implicitWidth: srcChip.implicitWidth + 16
-                    visible: page.src
-                    Text {
-                        id: srcChip
+                    color: dlMa.containsMouse ? Sys.surface : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    RowLayout {
+                        id: dlRow
                         anchors.centerIn: parent
-                        text: page.src ? page.src.name : ""
-                        color: Sys.accent
-                        font.pixelSize: Theme.tXs
-                        font.weight: Font.DemiBold
+                        spacing: Theme.s2
+                        Glyph {
+                            Layout.preferredWidth: 14
+                            Layout.preferredHeight: 14
+                            kind: "download"
+                            color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                        }
+                        Text {
+                            text: "Descargas"
+                            color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                            font.pixelSize: Theme.tMd
+                            font.weight: Font.DemiBold
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        }
+                    }
+                    MouseArea {
+                        id: dlMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: page.navigateRequested("library")
                     }
                 }
             }
 
-            // ---- buscador (abre el lanzador) --------------------------
+            // ---- buscador (abre el lanzador) ---------------------------
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.rowCompact
                 radius: Theme.rMd
                 color: spotMouse.containsMouse ? Theme.hover(Sys.surface) : Sys.surface
-                border.width: 1
-                border.color: spotMouse.containsMouse ? Sys.accent : "transparent"
-                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                 RowLayout {
@@ -338,188 +363,156 @@ Item {
                 }
             }
 
-            // ---- SELECCIÓN RÁPIDA (deck enmarcado estilo Sonora) ------
-            Rectangle {
+            // ---- SELECCIÓN RÁPIDA (rejilla paginada, sin marco) --------
+            ColumnLayout {
                 Layout.fillWidth: true
-                Layout.preferredHeight: deckCol.implicitHeight + 24
+                spacing: Theme.s2
                 visible: page.picksTotal > 0
-                radius: Theme.rLg
-                color: Sys.surface
-                border.width: 1
-                border.color: Sys.borderSubtle
 
-                ColumnLayout {
-                    id: deckCol
-                    anchors.fill: parent
-                    anchors.margins: Theme.s3
+                RowLayout {
+                    Layout.fillWidth: true
                     spacing: Theme.s2
 
-                    // Cabecera: eyebrow + título + flechas de página.
-                    RowLayout {
+                    SectionTitle {
                         Layout.fillWidth: true
-                        spacing: 8
-
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 0
-                            Text {
-                                text: page.src ? page.src.name.toUpperCase() : "LOTUS TUNE"
-                                color: Sys.textDim
-                                font.pixelSize: Theme.tXs
-                                font.weight: Font.DemiBold
-                                font.letterSpacing: 1.3
-                            }
-                            Text {
-                                text: "Selección rápida"
-                                color: Sys.text
-                                font.pixelSize: Theme.tXl
-                                font.weight: Font.DemiBold
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.preferredWidth: 32
-                            Layout.preferredHeight: 32
-                            radius: Theme.rMd
-                            color: (prevMa.containsMouse && page.picksPage > 0)
-                                   ? Theme.hover(Sys.surface) : "transparent"
-                            border.width: 0
-                            border.color: "transparent"
-                            opacity: page.picksPage > 0 ? 1 : 0.35
-                            Glyph {
-                                anchors.centerIn: parent
-                                width: 15
-                                height: 15
-                                kind: "chevron-left"
-                                color: prevMa.containsMouse ? Sys.accent : Sys.textDim
-                            }
-                            MouseArea {
-                                id: prevMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: page.picksPage = Math.max(0, page.picksPage - 1)
-                            }
-                        }
-                        Rectangle {
-                            Layout.preferredWidth: 32
-                            Layout.preferredHeight: 32
-                            radius: Theme.rMd
-                            color: nextMa.containsMouse && page.picksPage < page.picksPages - 1
-                                   ? Theme.hover(Sys.surface) : "transparent"
-                            border.width: 0
-                            border.color: "transparent"
-                            opacity: page.picksPage < page.picksPages - 1 ? 1 : 0.4
-                            Glyph {
-                                anchors.centerIn: parent
-                                width: 15
-                                height: 15
-                                kind: "chevron-right"
-                                color: nextMa.containsMouse ? Sys.accent : Sys.textDim
-                            }
-                            MouseArea {
-                                id: nextMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: page.picksPage = Math.min(page.picksPages - 1,
-                                                                     page.picksPage + 1)
-                            }
-                        }
+                        text: page.src ? page.src.name.toUpperCase() : "SELECCIÓN RÁPIDA"
                     }
 
-                    // Rejilla: 3 columnas × 5 filas (llenado por columnas).
-                    GridLayout {
-                        Layout.fillWidth: true
-                        columns: page.picksCols
-                        flow: GridLayout.TopToBottom
-                        columnSpacing: Theme.s3
-                        rowSpacing: Theme.s1
+                    Rectangle {
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        radius: Theme.rSm
+                        color: prevMa.containsMouse && page.picksPage > 0
+                               ? Theme.hover(Sys.surface) : "transparent"
+                        opacity: page.picksPage > 0 ? 1 : 0.35
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        Glyph {
+                            anchors.centerIn: parent
+                            width: 14
+                            height: 14
+                            kind: "chevron-left"
+                            color: prevMa.containsMouse ? Sys.accent : Sys.textDim
+                        }
+                        MouseArea {
+                            id: prevMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.picksPage = Math.max(0, page.picksPage - 1)
+                        }
+                    }
+                    Rectangle {
+                        Layout.preferredWidth: 28
+                        Layout.preferredHeight: 28
+                        radius: Theme.rSm
+                        color: nextMa.containsMouse && page.picksPage < page.picksPages - 1
+                               ? Theme.hover(Sys.surface) : "transparent"
+                        opacity: page.picksPage < page.picksPages - 1 ? 1 : 0.4
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        Glyph {
+                            anchors.centerIn: parent
+                            width: 14
+                            height: 14
+                            kind: "chevron-right"
+                            color: nextMa.containsMouse ? Sys.accent : Sys.textDim
+                        }
+                        MouseArea {
+                            id: nextMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.picksPage = Math.min(page.picksPages - 1,
+                                                                 page.picksPage + 1)
+                        }
+                    }
+                }
 
-                        Repeater {
-                            model: page.picksPageItems()
+                // Rejilla: 3 columnas × 5 filas (llenado por columnas).
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: page.picksCols
+                    flow: GridLayout.TopToBottom
+                    columnSpacing: Theme.s3
+                    rowSpacing: 0
 
-                            delegate: Rectangle {
-                                id: pickRow
-                                required property var modelData
-                                required property int index
+                    Repeater {
+                        model: page.picksPageItems()
 
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: Theme.rowCompact
-                                radius: Theme.rMd
-                                color: pickMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        delegate: Rectangle {
+                            id: pickRow
+                            required property var modelData
+                            required property int index
 
-                                RowLayout {
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s2
-                                    anchors.rightMargin: Theme.s2
-                                    spacing: Theme.s3
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: Theme.rowCompact
+                            radius: Theme.rMd
+                            color: pickMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
-                                    Rectangle {
-                                        Layout.preferredWidth: 36
-                                        Layout.preferredHeight: 36
-                                        radius: Theme.rSm
-                                        color: Sys.surfaceAlt
-                                        clip: true
-                                        Image {
-                                            anchors.fill: parent
-                                            source: pickRow.modelData.thumb || ""
-                                            visible: source != ""
-                                            sourceSize.width: 36
-                                            sourceSize.height: 36
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            cache: true
-                                        }
-                                        Glyph {
-                                            anchors.centerIn: parent
-                                            width: 16
-                                            height: 16
-                                            visible: !pickRow.modelData.thumb
-                                            kind: pickRow.modelData.kind === "liked"
-                                                  ? "heart"
-                                                  : (pickRow.modelData.kind === "playlist"
-                                                     ? "list" : "music")
-                                            color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
-                                        }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Theme.s2
+                                anchors.rightMargin: Theme.s2
+                                spacing: Theme.s3
+
+                                Rectangle {
+                                    Layout.preferredWidth: 34
+                                    Layout.preferredHeight: 34
+                                    radius: Theme.rSm
+                                    color: Sys.surfaceAlt
+                                    clip: true
+                                    Image {
+                                        anchors.fill: parent
+                                        source: pickRow.modelData.thumb || ""
+                                        visible: source != ""
+                                        sourceSize.width: 34
+                                        sourceSize.height: 34
+                                        fillMode: Image.PreserveAspectCrop
+                                        asynchronous: true
+                                        cache: true
                                     }
+                                    Glyph {
+                                        anchors.centerIn: parent
+                                        width: 15
+                                        height: 15
+                                        visible: !pickRow.modelData.thumb
+                                        kind: pickRow.modelData.kind === "liked"
+                                              ? "heart"
+                                              : (pickRow.modelData.kind === "playlist"
+                                                 ? "list" : "music")
+                                        color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
+                                    }
+                                }
 
-                                    ColumnLayout {
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+                                    Text {
                                         Layout.fillWidth: true
-                                        spacing: 0
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: pickRow.modelData.title || ""
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tBase
-                                            font.weight: Font.DemiBold
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: pickRow.modelData.sub || ""
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tSm
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
+                                        text: pickRow.modelData.title || ""
+                                        color: Sys.text
+                                        font.pixelSize: Theme.tBase
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
+                                    }
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: pickRow.modelData.sub || ""
+                                        color: Sys.textDim
+                                        font.pixelSize: Theme.tSm
+                                        elide: Text.ElideRight
+                                        maximumLineCount: 1
                                     }
                                 }
+                            }
 
-                                MouseArea {
-                                    id: pickMouse
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        // La primera fila abre; el play lo da el
-                                        // botón flotante que aparece al pasar.
-                                        page.openQuickPick(pickRow.modelData, false)
-                                    }
-                                    onDoubleClicked: page.openQuickPick(pickRow.modelData, true)
-                                }
+                            MouseArea {
+                                id: pickMouse
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: page.openQuickPick(pickRow.modelData, false)
+                                onDoubleClicked: page.openQuickPick(pickRow.modelData, true)
                             }
                         }
                     }
@@ -527,50 +520,42 @@ Item {
             }
 
             // ---- TUS LISTAS (YouTube Music) ---------------------------
-            Text {
+            SectionTitle {
+                Layout.fillWidth: true
                 visible: catalog.ytmLibrary.length > 0 || catalog.libraryBusy
                 text: "TUS LISTAS"
-                color: Sys.textDim
-                font.pixelSize: Theme.tXs
-                font.weight: Font.DemiBold
-                font.letterSpacing: 1.2
             }
 
-            Flickable {
+            ListView {
+                id: ytmLibView
                 visible: catalog.ytmLibrary.length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: page.rowHeight
-                contentWidth: ytmLibRow.implicitWidth
-                contentHeight: height
+                orientation: ListView.Horizontal
                 clip: true
+                spacing: page.cardSpacing
+                model: catalog.ytmLibrary
+                reuseItems: true
+                cacheBuffer: 600
                 boundsBehavior: Flickable.StopAtBounds
 
-                Row {
-                    id: ytmLibRow
-                    spacing: page.cardSpacing
-
-                    Repeater {
-                        model: catalog.ytmLibrary
-                        delegate: HomeCard {
-                            required property var modelData
-                            thumb: modelData.thumb || ""
-                            title: modelData.name
-                            subtitle: modelData.count
-                                      ? "YouTube Music · " + modelData.count + " pistas"
-                                      : "YouTube Music"
-                            icon: "queue"
-                            coverA: page.coverA(modelData.name)
-                            coverB: page.coverB(modelData.name)
-                            // Clic: abrir la lista (la muestra Main al cargar).
-                            onClicked: {
-                                page.openListRequested(false)
-                                catalog.openUrl(modelData.url, modelData.name)
-                            }
-                            onPlayClicked: {
-                                page.openListRequested(true)
-                                catalog.openUrl(modelData.url, modelData.name)
-                            }
-                        }
+                delegate: HomeCard {
+                    required property var modelData
+                    thumb: modelData.thumb || ""
+                    title: modelData.name
+                    subtitle: modelData.count
+                              ? "YouTube Music · " + modelData.count + " pistas"
+                              : "YouTube Music"
+                    icon: "queue"
+                    coverA: page.coverA(modelData.name)
+                    coverB: page.coverB(modelData.name)
+                    onClicked: {
+                        page.openListRequested(false)
+                        catalog.openUrl(modelData.url, modelData.name)
+                    }
+                    onPlayClicked: {
+                        page.openListRequested(true)
+                        catalog.openUrl(modelData.url, modelData.name)
                     }
                 }
             }
@@ -584,146 +569,118 @@ Item {
             }
 
             // ---- TUS PLAYLISTS ----------------------------------------
-            Text {
+            SectionTitle {
+                Layout.fillWidth: true
                 text: "TUS PLAYLISTS"
-                color: Sys.textDim
-                font.pixelSize: Theme.tXs
-                font.weight: Font.DemiBold
-                font.letterSpacing: 1.2
             }
 
-            Flickable {
+            ListView {
+                id: plView
+                visible: catalog.playlists.length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: page.rowHeight
-                contentWidth: plRow.implicitWidth
-                contentHeight: height
+                orientation: ListView.Horizontal
                 clip: true
+                spacing: page.cardSpacing
+                model: page.playlistCards()
+                reuseItems: true
+                cacheBuffer: 600
                 boundsBehavior: Flickable.StopAtBounds
 
-                Row {
-                    id: plRow
-                    spacing: page.cardSpacing
-
-                    Repeater {
-                        model: page.playlistCards()
-                        delegate: HomeCard {
-                            required property var modelData
-                            title: modelData.title
-                            subtitle: modelData.sub
-                            icon: "queue"
-                            coverA: page.coverA(modelData.title)
-                            coverB: page.coverB(modelData.title)
-                            // Clic en la portada -> abre la playlist.
-                            onClicked: {
-                                page.openListRequested(false)
-                                catalog.openPlaylist(modelData.index)
-                            }
-                            onPlayClicked: {
-                                page.openListRequested(true)
-                                catalog.openPlaylist(modelData.index)
-                            }
-                        }
+                delegate: HomeCard {
+                    required property var modelData
+                    title: modelData.title
+                    subtitle: modelData.sub
+                    icon: "queue"
+                    coverA: page.coverA(modelData.title)
+                    coverB: page.coverB(modelData.title)
+                    onClicked: {
+                        page.openListRequested(false)
+                        catalog.openPlaylist(modelData.index)
                     }
-
-                    Item {
-                        visible: catalog.playlists.length === 0
-                        width: visible ? 320 : 0
-                        height: page.rowHeight
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width
-                            text: "Aún no hay playlists guardadas. Pega una URL en Biblioteca para empezar."
-                            color: Sys.textDim
-                            font.pixelSize: Theme.tSm
-                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        }
+                    onPlayClicked: {
+                        page.openListRequested(true)
+                        catalog.openPlaylist(modelData.index)
                     }
                 }
             }
 
-            // ---- recomendaciones (radios del historial) ---------------
             Text {
-                visible: page.recCards().length > 0
-                text: "RECOMENDADO PARA TI"
+                Layout.fillWidth: true
+                visible: catalog.playlists.length === 0
+                text: "Aún no hay playlists guardadas. Pega una URL en Biblioteca para empezar."
                 color: Sys.textDim
-                font.pixelSize: Theme.tXs
-                font.weight: Font.DemiBold
-                font.letterSpacing: 1.2
+                font.pixelSize: Theme.tSm
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
 
-            Flickable {
+            // ---- recomendaciones (radios del historial) ---------------
+            SectionTitle {
+                Layout.fillWidth: true
+                visible: page.recCards().length > 0
+                text: "RECOMENDADO PARA TI"
+            }
+
+            ListView {
+                id: recView
                 visible: page.recCards().length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: page.rowHeight
-                contentWidth: recRow.implicitWidth
-                contentHeight: height
+                orientation: ListView.Horizontal
                 clip: true
+                spacing: page.cardSpacing
+                model: page.recCards()
+                reuseItems: true
+                cacheBuffer: 600
                 boundsBehavior: Flickable.StopAtBounds
 
-                Row {
-                    id: recRow
-                    spacing: page.cardSpacing
-
-                    Repeater {
-                        model: page.recCards()
-                        delegate: HomeCard {
-                            required property var modelData
-                            title: modelData.title
-                            subtitle: modelData.sub
-                            icon: modelData.icon
-                            badge: modelData.kind === "liked" ? "YT" : "RADIO"
-                            coverA: modelData.kind === "liked"
-                                     ? Sys.accentDim : page.coverA(modelData.title)
-                            coverB: page.coverB(modelData.title)
-                            // Clic -> abre la radio/cola (sólo abre).
-                            onClicked: page.openRec(modelData, false)
-                            onPlayClicked: page.openRec(modelData, true)
-                        }
-                    }
+                delegate: HomeCard {
+                    required property var modelData
+                    title: modelData.title
+                    subtitle: modelData.sub
+                    icon: modelData.icon
+                    badge: modelData.kind === "liked" ? "YT" : "RADIO"
+                    coverA: modelData.kind === "liked"
+                            ? Sys.accentDim : page.coverA(modelData.title)
+                    coverB: page.coverB(modelData.title)
+                    onClicked: page.openRec(modelData, false)
+                    onPlayClicked: page.openRec(modelData, true)
                 }
             }
 
             // ---- radios de YouTube ------------------------------------
-            Text {
+            SectionTitle {
+                Layout.fillWidth: true
                 text: "RADIOS DE YOUTUBE"
-                color: Sys.textDim
-                font.pixelSize: Theme.tXs
-                font.weight: Font.DemiBold
-                font.letterSpacing: 1.2
             }
 
-            Flickable {
+            ListView {
+                id: moodView
                 Layout.fillWidth: true
                 Layout.preferredHeight: page.rowHeight
-                contentWidth: moodRow.implicitWidth
-                contentHeight: height
+                orientation: ListView.Horizontal
                 clip: true
+                spacing: page.cardSpacing
+                model: page.moodRadios
+                reuseItems: true
+                cacheBuffer: 600
                 boundsBehavior: Flickable.StopAtBounds
 
-                Row {
-                    id: moodRow
-                    spacing: page.cardSpacing
-
-                    Repeater {
-                        model: page.moodRadios
-                        delegate: HomeCard {
-                            required property var modelData
-                            title: modelData.t
-                            subtitle: modelData.s
-                            icon: modelData.icon
-                            badge: "YT"
-                            coverA: page.coverA(modelData.t)
-                            coverB: page.coverB(modelData.t)
-                            // Clic -> carga la radio y muestra sus pistas.
-                            onClicked: {
-                                page.openListRequested(false)
-                                catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
-                            }
-                            onPlayClicked: {
-                                page.openListRequested(true)
-                                catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
-                            }
-                        }
+                delegate: HomeCard {
+                    required property var modelData
+                    title: modelData.t
+                    subtitle: modelData.s
+                    icon: modelData.icon
+                    badge: "YT"
+                    coverA: page.coverA(modelData.t)
+                    coverB: page.coverB(modelData.t)
+                    onClicked: {
+                        page.openListRequested(false)
+                        catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
+                    }
+                    onPlayClicked: {
+                        page.openListRequested(true)
+                        catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
                     }
                 }
             }
@@ -734,16 +691,11 @@ Item {
             // query. «Borrar» limpia el historial persistido.
             RowLayout {
                 Layout.fillWidth: true
-                spacing: page.cardSpacing
+                spacing: Theme.s3
 
-                Text {
-                    text: "HISTORIAL DE BÚSQUEDAS"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tXs
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.2
+                SectionTitle {
                     Layout.fillWidth: true
-                    elide: Text.ElideRight
+                    text: "HISTORIAL DE BÚSQUEDAS"
                 }
 
                 Rectangle {
@@ -752,9 +704,6 @@ Item {
                     radius: Theme.rSm
                     implicitWidth: clearHistBtn.implicitWidth + 18
                     color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
-                    border.width: 0
-                    border.color: "transparent"
-                    Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     Text {
@@ -777,6 +726,7 @@ Item {
             }
 
             Text {
+                Layout.fillWidth: true
                 visible: page.searchHistory.length === 0
                 text: "Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+Espacio."
                 color: Sys.textDim
@@ -784,71 +734,64 @@ Item {
                 opacity: 0.8
             }
 
-            Flickable {
+            ListView {
+                id: histView
                 visible: page.searchHistory.length > 0
                 Layout.fillWidth: true
-                Layout.preferredHeight: 34
-                contentWidth: histRow.implicitWidth
-                contentHeight: height
+                Layout.preferredHeight: Theme.rowThin
+                orientation: ListView.Horizontal
+                spacing: Theme.s2
                 clip: true
+                model: page.searchHistory
+                reuseItems: true
+                cacheBuffer: 400
                 boundsBehavior: Flickable.StopAtBounds
 
-                Row {
-                    id: histRow
-                    spacing: Theme.s2
+                delegate: Rectangle {
+                    id: histChip
+                    required property var modelData
+                    required property int index
 
-                    Repeater {
-                        model: page.searchHistory
-                        delegate: Rectangle {
-                            id: histChip
-                            required property var modelData
-                            required property int index
+                    height: 32
+                    radius: Theme.rSm
+                    width: Math.min(histTxt.implicitWidth + 38, 340)
+                    color: histChipMa.containsMouse ? Sys.accentDim : Sys.surface
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
-                            height: 32
-                            radius: Theme.rSm
-                            width: Math.min(histTxt.implicitWidth + 38, 340)
-                            color: histChipMa.containsMouse ? Sys.accentDim : Sys.surface
-                            border.width: 0
-                            border.color: "transparent"
-                            Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Theme.s2
 
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: 8
-
-                                Glyph {
-                                    width: 12
-                                    height: 12
-                                    kind: "search"
-                                    color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
-                                }
-                                Text {
-                                    id: histTxt
-                                    text: histChip.modelData.q
-                                    color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
-                                    font.pixelSize: Theme.tMd
-                                    font.weight: Font.DemiBold
-                                    elide: Text.ElideRight
-                                    width: Math.min(implicitWidth, 280)
-                                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                }
-                            }
-
-                            MouseArea {
-                                id: histChipMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                // Re-ejecuta la búsqueda: Main abre Buscar y lanza la query.
-                                onClicked: page.searchRequested(histChip.modelData.q)
-                            }
+                        Glyph {
+                            Layout.preferredWidth: 12
+                            Layout.preferredHeight: 12
+                            kind: "search"
+                            color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
                         }
+                        Text {
+                            id: histTxt
+                            text: histChip.modelData.q
+                            color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
+                            font.pixelSize: Theme.tMd
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            width: Math.min(implicitWidth, 280)
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        }
+                    }
+
+                    MouseArea {
+                        id: histChipMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        // Re-ejecuta la búsqueda: Main abre Buscar y lanza la query.
+                        onClicked: page.searchRequested(histChip.modelData.q)
                     }
                 }
             }
 
-            Item { Layout.preferredHeight: 8 }
+            Item { Layout.preferredHeight: 1 }
         }
     }
 }

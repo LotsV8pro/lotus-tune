@@ -2041,7 +2041,8 @@ Window {
                                                     to: 360
                                                     duration: 900
                                                     loops: Animation.Infinite
-                                                    running: true
+                                                    running: root.settingsOpen
+                                                             && root.ytmState() === "waiting"
                                                 }
                                             }
                                             Text {
@@ -3200,64 +3201,4 @@ Window {
         }
     }
 
-    // ---- intro -----------------------------------------------------------
-    Rectangle {
-        id: intro
-        anchors.fill: parent
-        z: 40
-        color: Sys.bg
-
-        LotusMark {
-            id: introMark
-            anchors.centerIn: parent
-            width: 96
-            height: 96
-            petalColor: Sys.accent
-            opacity: 0
-            scale: 0.4
-        }
-
-        SequentialAnimation {
-            id: introSeq
-            running: true
-
-            ParallelAnimation {
-                NumberAnimation {
-                    target: introMark
-                    property: "opacity"
-                    from: 0
-                    to: 1
-                    duration: Theme.slowMs
-                    easing.type: Easing.OutCubic
-                }
-                NumberAnimation {
-                    target: introMark
-                    property: "scale"
-                    from: 0.4
-                    to: 1
-                    duration: Theme.slowMs + 120
-                    easing.type: Easing.OutBack
-                }
-            }
-            PauseAnimation { duration: 320 }
-            ParallelAnimation {
-                NumberAnimation {
-                    target: intro
-                    property: "opacity"
-                    from: 1
-                    to: 0
-                    duration: Theme.medMs
-                    easing.type: Easing.InCubic
-                }
-                NumberAnimation {
-                    target: introMark
-                    property: "scale"
-                    from: 1
-                    to: 1.25
-                    duration: Theme.medMs
-                }
-            }
-            ScriptAction { script: intro.visible = false }
-        }
-    }
 }
