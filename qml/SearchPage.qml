@@ -11,6 +11,8 @@ Item {
     signal playRequested(var list, int index)
     // Clic derecho: pide el menú contextual para esa pista (x/y en ventana).
     signal trackContextRequested(var track, real x, real y)
+    // Deslizar una fila a la izquierda: añadir la pista a la cola.
+    signal enqueueRequested(var track)
 
     // La rueda que sobra (lista al borde o puntero sobre el campo) se queda en
     // la página: nunca arrastra a un contenedor padre.
@@ -207,6 +209,31 @@ Item {
                     color: rrowMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
+                    readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
+                    readonly property bool willEnqueue: dx <= -80
+
+                    // Indicación discreta al deslizar: "Encolar".
+                    Row {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.s4
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.s2
+                        opacity: Math.min(1, -rrow.dx / 80)
+                        Glyph {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 16; height: 16
+                            kind: "queue"
+                            color: Sys.accent
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Encolar"
+                            color: Sys.accent
+                            font.pixelSize: Theme.tSm
+                            font.weight: Font.DemiBold
+                        }
+                    }
+
                     MouseArea {
                         id: rrowMouse
                         anchors.fill: parent
@@ -223,11 +250,22 @@ Item {
                         }
                     }
 
+                    // Deslizar a la izquierda para añadir a la cola.
+                    DragHandler {
+                        id: swipe
+                        xAxis.enabled: true
+                        yAxis.enabled: false
+                        target: null
+                        onActiveChanged: if (!active && rrow.willEnqueue)
+                                             page.enqueueRequested(rrow.modelData)
+                    }
+
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
                         spacing: Theme.s3
+                        transform: Translate { x: rrow.dx }
 
                         Rectangle {
                             Layout.preferredWidth: 34

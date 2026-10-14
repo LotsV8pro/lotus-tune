@@ -18,6 +18,8 @@ Item {
     signal openListRequested(bool play)
     // Clic derecho sobre una pista: menú contextual (x/y en ventana).
     signal trackContextRequested(var track, real x, real y)
+    // Deslizar una fila a la izquierda: añadir la pista a la cola.
+    signal enqueueRequested(var track)
     // Clic derecho sobre una lista (cover): menú contextual de la lista.
     signal coverContextRequested(var cover, real x, real y)
     // Pide reproducir la lista abierta en orden aleatorio.
@@ -139,7 +141,6 @@ Item {
     }
 
     function openCover(c) {
-        console.log("QA openCover saved=" + (c ? c.savedIndex : "null"))
         if (!c) return
         if (c.savedIndex !== undefined && c.savedIndex >= 0)
             catalog.openPlaylist(c.savedIndex)
@@ -225,20 +226,6 @@ Item {
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
     readonly property var dlLocal: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
-
-    // ---- QA temporal (se retira tras la prueba) --------------------------
-    Component.onCompleted: {
-        const e = menuEntries
-        const ids = []
-        for (var i = 0; i < e.length; i++) ids.push(e[i].id + ":" + e[i].count)
-        console.log("QA entries=" + ids.join(","))
-    }
-    onSourceMenuOpenChanged: console.log("QA menuOpen=" + sourceMenuOpen)
-    onSelectedSourceIdChanged: console.log("QA source=" + selectedSourceId
-                                           + " locked=" + selectedLocked
-                                           + " covers=" + covers.length)
-    onShowingTracksChanged: console.log("QA showingTracks=" + showingTracks)
-    onCoversChanged: console.log("QA covers=" + covers.length)
 
     // ---- icono de acción (Glyph no incluye descarga/carpeta/refrescar) ----
     component ActionIcon: Canvas {
@@ -703,6 +690,31 @@ Item {
                     width: ListView.view.width
                     height: Theme.rowH
 
+                    readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
+                    readonly property bool willEnqueue: dx <= -80
+
+                    // Indicación discreta al deslizar: "Encolar".
+                    Row {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.s4
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Theme.s2
+                        opacity: Math.min(1, -trow.dx / 80)
+                        Glyph {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 16; height: 16
+                            kind: "queue"
+                            color: Sys.accent
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Encolar"
+                            color: Sys.accent
+                            font.pixelSize: Theme.tSm
+                            font.weight: Font.DemiBold
+                        }
+                    }
+
                     Rectangle {
                         anchors.fill: parent
                         radius: Theme.rMd
@@ -726,11 +738,22 @@ Item {
                         }
                     }
 
+                    // Deslizar a la izquierda para añadir a la cola.
+                    DragHandler {
+                        id: swipe
+                        xAxis.enabled: true
+                        yAxis.enabled: false
+                        target: null
+                        onActiveChanged: if (!active && trow.willEnqueue)
+                                             page.enqueueRequested(modelData)
+                    }
+
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
                         spacing: Theme.s3
+                        transform: Translate { x: trow.dx }
 
                         ColumnLayout {
                             Layout.fillWidth: true

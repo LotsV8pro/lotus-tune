@@ -7,6 +7,11 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QDir>
+#include <QFile>
+#include <QHash>
+#include <QSqlDatabase>
+#include <QSqlQuery>
 #include <QUrlQuery>
 #include <QVariantMap>
 
@@ -105,6 +110,13 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     qInfo().noquote() << QString("[lyrics] buscar pista=\"%1\" dur=%2s")
                              .arg(m_trackKey)
                              .arg(m_duration);
+
+    // Primero la caché local de Sonora: es instantánea y trae tiempos por
+    // palabra (karaoke real). Si no está, se sigue con la red.
+    if (trySonoraCache()) {
+        finish();
+        return;
+    }
 
     startYtm();
 }
@@ -858,6 +870,128 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
     return true;
 }
 
+bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
+{
+    if (lines.size() < 2)
+        return false;
+    m_lines = std::move(lines);
+    m_hasSynced = true;
+    m_syncSource = source;
+    return true;
+}
+
+// Convierte {"secs":N,"nanos":M} a segundos.
+static double secsOf(const QJsonValue &v)
+{
+    const QJsonObject o = v.toObject();
+    return o.value(QStringLiteral("secs")).toDouble()
+        + o.value(QStringLiteral("nanos")).toDouble() / 1e9;
+}
+
+bool Lyrics::trySonoraCache()
+{
+    if (m_videoId.isEmpty())
+        return false;
+    const QString path = QDir::homePath()
+        + QStringLiteral("/.cache/sonora/cache.sqlite");
+    if (!QFile::exists(path))
+        return false;
+
+    // Conexión propia y efímera, en solo lectura.
+    QByteArray raw;
+    const QString conn = QStringLiteral("sonora_lyrics");
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        db.setDatabaseName(path);
+        if (db.open()) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT value FROM lyrics WHERE key LIKE :k "
+                                     "ORDER BY stored DESC LIMIT 1"));
+            q.bindValue(QStringLiteral(":k"),
+                        QStringLiteral("youtube:%1:lyrics:%").arg(m_videoId));
+            if (q.exec() && q.next())
+                raw = q.value(0).toString().toUtf8();
+            db.close();
+        }
+    }
+    QSqlDatabase::removeDatabase(conn);
+
+    if (raw.isEmpty())
+        return false;
+
+    const QJsonArray hits =
+        QJsonDocument::fromJson(raw).object().value(QStringLiteral("hits")).toArray();
+
+    // Se elige el hit con más líneas "palabreadas"; a igualdad, el de fuente
+    // más fiable (Apple Music trae los tiempos por palabra más exactos).
+    static const QHash<QString, int> rank{
+        { QStringLiteral("Apple Music"), 0 }, { QStringLiteral("Musixmatch"), 1 },
+        { QStringLiteral("NetEase"), 2 },     { QStringLiteral("Kugou"), 3 },
+        { QStringLiteral("LrcLib"), 4 } };
+
+    QVector<LrcLine> best;
+    int bestWorded = -1;
+    int bestRank = 99;
+    QString bestSource;
+    for (const QJsonValue &hv : hits) {
+        const QJsonObject h = hv.toObject();
+        const QJsonArray ls = h.value(QStringLiteral("lyrics")).toObject()
+                                  .value(QStringLiteral("Synced")).toObject()
+                                  .value(QStringLiteral("lines")).toArray();
+        QVector<LrcLine> parsed;
+        int worded = 0;
+        for (const QJsonValue &lv : ls) {
+            const QJsonObject lo = lv.toObject();
+            const QString text =
+                lo.value(QStringLiteral("text")).toString().trimmed();
+            if (text.isEmpty())
+                continue;
+            LrcLine line;
+            line.time = secsOf(lo.value(QStringLiteral("start")));
+            line.text = text;
+            const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
+            if (ws.size() > 1) {
+                ++worded;
+                for (const QJsonValue &wv : ws) {
+                    const QJsonObject wo = wv.toObject();
+                    const QString wt = wo.value(QStringLiteral("text")).toString();
+                    if (wt.isEmpty())
+                        continue;
+                    QVariantMap wm;
+                    wm.insert(QStringLiteral("t"),
+                              secsOf(wo.value(QStringLiteral("start"))));
+                    wm.insert(QStringLiteral("e"),
+                              secsOf(wo.value(QStringLiteral("end"))));
+                    wm.insert(QStringLiteral("text"), wt);
+                    line.words.append(wm);
+                }
+                if (line.words.size() < 2)
+                    line.words.clear();
+            }
+            parsed.append(line);
+        }
+        if (parsed.size() < 2)
+            continue;
+        const QString src = h.value(QStringLiteral("source")).toString();
+        const int rk = rank.value(src, 9);
+        if (worded > bestWorded || (worded == bestWorded && rk < bestRank)) {
+            bestWorded = worded;
+            bestRank = rk;
+            best = parsed;
+            bestSource = src;
+        }
+    }
+
+    if (best.size() < 2)
+        return false;
+
+    return adoptWorded(std::move(best),
+                       QStringLiteral("sonora · %1").arg(
+                           bestSource.isEmpty() ? QStringLiteral("cache")
+                                                : bestSource));
+}
+
 void Lyrics::settleOrFail()
 {
     if (m_hasLyrics || !m_plain.trimmed().isEmpty())
@@ -920,6 +1054,10 @@ QVariantList Lyrics::lines() const
         QVariantMap m;
         m.insert(QStringLiteral("time"), l.time);
         m.insert(QStringLiteral("text"), l.text);
+        if (!l.words.isEmpty())
+            m.insert(QStringLiteral("words"), l.words);
+        if (l.instrumental)
+            m.insert(QStringLiteral("instrumental"), true);
         out.append(m);
     }
     return out;

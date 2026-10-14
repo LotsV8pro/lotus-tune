@@ -117,7 +117,6 @@ Rectangle {
             appcfg.set("npLyrics", lyricsVisible ? "1" : "0")
             appcfg.save()
         }
-        console.log("[np] letra visible=" + lyricsVisible)
     }
 
     // Botón de pantalla completa. Emite la señal (por si Main.qml la conecta
@@ -147,16 +146,6 @@ Rectangle {
                       + transportRow.height + bodyCol.spacing * 4
         const letra = lyricsSlot.visible ? lyricsSlot.height : 0
         const total = fixed + letra
-        console.log("[np] geom", "win=" + np.width + "x" + np.height,
-                    "contentW=" + Math.round(contentW),
-                    "cover=" + Math.round(coverWrap.height),
-                    "fijo=" + Math.round(fixed),
-                    "disponible=" + Math.round(npBody.height),
-                    "letra=" + Math.round(letra),
-                    "letraW=" + Math.round(lyricsSlot.width),
-                    "letraTop=" + Math.round(lyricsTopY),
-                    "resplandor=" + Math.round(glowH),
-                    total <= npBody.height + 1 ? "OK" : "DESBORDE")
     }
 
     // subtle top glow

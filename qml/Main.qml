@@ -407,7 +407,6 @@ Window {
     function toggleFullscreen() {
         fullscreen = !fullscreen
         root.visibility = fullscreen ? Window.FullScreen : Window.Windowed
-        console.log("[qa] toggleFullscreen -> " + fullscreen)
     }
 
     // ---- navegación con pila («atrás») ------------------------------------
@@ -437,7 +436,6 @@ Window {
         page = prev
         if (prev === "library")
             libPage.showingTracks = false
-        console.log("[qa] navBack -> " + prev + " stack=" + navStack.join(">"))
         return true
     }
 
@@ -480,7 +478,6 @@ Window {
     function beginOpenList(play) {
         pendingPlay = !!play
         listLoading = true
-        console.log("[qa] beginOpenList play=" + pendingPlay)
         toast(play ? "Cargando la lista para reproducir…" : "Cargando la lista…")
     }
 
@@ -492,7 +489,6 @@ Window {
         if (!(page === "library" && libPage.showingTracks))
             pushPage("library", true)   // guarda la página de la que venías
         libPage.openTracks()
-        console.log("[qa] openTracksView from=" + from + " stack=" + navStack.join(">"))
     }
 
     property int preMuteVolume: 70
@@ -849,8 +845,6 @@ Window {
         fillQueue(out)
         queueIndex = cur
         queueShuffled = true
-        console.log("[qa] reshuffle cur=" + cur + " posOrig=["
-                    + out.map(function(t) { return arr.indexOf(t) }).join(",") + "]")
     }
 
     // Vuelve al orden original de la lista. La pista que suena sigue sonando
@@ -881,8 +875,6 @@ Window {
         else if (queueIndex >= order.length)
             queueIndex = order.length - 1
         queueShuffled = false
-        console.log("[qa] restoreOrder n=" + order.length + " playingAt=" + idx
-                    + " queueIndex=" + queueIndex)
     }
 
     function toggleShuffle() {
@@ -894,7 +886,6 @@ Window {
                 restoreOriginalOrder() // orden estable original
         }
         mpris.setShuffle(shuffle)
-        console.log("[qa] toggleShuffle -> " + shuffle + " queueShuffled=" + queueShuffled)
         toast(shuffle ? "Aleatorio activado" : "Aleatorio desactivado")
     }
 
@@ -981,9 +972,6 @@ Window {
         fillQueue(order)
         queueShuffled = shuffle && arr.length > 1
         queueIndex = idx
-        console.log("[qa] playTracks n=" + arr.length + " shuffle=" + shuffle
-                    + " start=" + idx + " posOrig=["
-                    + order.map(function(t) { return arr.indexOf(t) }).join(",") + "]")
         startCurrent()
     }
 
@@ -1037,12 +1025,10 @@ Window {
         // En condiciones normales la cola YA es el orden aleatorio y sólo se
         // avanza linealmente (eso es lo que muestra la vista de cola).
         if (shuffle && !queueShuffled && queue.count > 1) {
-            console.log("[qa] next: aleatorio activo y cola sin barajar")
             reshuffleQueue()
         }
         if (queueIndex + 1 < queue.count) {
             queueIndex++
-            console.log("[qa] next -> " + queueIndex + "/" + queue.count)
             startCurrent()
         } else {
             player.stopPlayback()
@@ -1215,7 +1201,6 @@ Window {
             const play = root.pendingPlay
             root.pendingPlay = false
             root.listLoading = false
-            console.log("[qa] tracksReady n=" + tracks.length + " play=" + play)
             if (play) {
                 // Botón de play: reproduce sin salir de la página actual.
                 root.playTracks(tracks, 0)
@@ -1352,12 +1337,14 @@ Window {
                         Layout.fillHeight: true
                         onPlayRequested: (list, idx) => root.playTracks(list, idx)
                         onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                        onEnqueueRequested: (t) => root.enqueueTrack(t)
                     }
                     LibraryPage {
                         id: libPage
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         onPlayRequested: (list, idx) => root.playTracks(list, idx)
+                        onEnqueueRequested: (t) => root.enqueueTrack(t)
                         // Cover: abrir (false) o abrir y reproducir (true).
                         onOpenListRequested: (play) => root.beginOpenList(play)
                         onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)

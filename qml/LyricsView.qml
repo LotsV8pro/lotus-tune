@@ -49,17 +49,10 @@ Item {
     readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
 
-    // Karaoke real solo si la fuente trae tiempos POR PALABRA (LRC mejorado,
-    // `<mm:ss.xx>`). Cuando solo hay tiempos por línea —lo habitual— no
-    // fingimos un relleno progresivo: la frase activa se enciende entera.
-    readonly property bool hasWordSync: {
-        for (var i = 0; i < lines.length; i++) {
-            var w = lines[i] ? lines[i].words : null
-            if (w && w.length > 1)
-                return true
-        }
-        return false
-    }
+    // Karaoke: la línea activa se rellena progresivamente. Si la fuente trae
+    // tiempos POR PALABRA (Sonora/Apple Music), el frente sigue cada palabra;
+    // si solo hay tiempos por línea (YTM/LRCLIB/NetEase), barre la frase
+    // completa sobre su duración. En ambos casos la letra «avanza».
 
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
@@ -274,6 +267,26 @@ Item {
         return out
     }
 
+    // Rellena una línea CON tiempos por palabra: cada palabra se enciende
+    // sobre su propio tramo, así el frente sigue la voz en lugar de repartirse
+    // uniformemente por toda la frase (que es lo que hace el widget de
+    // escritorio). Reutiliza `_fillHtml` palabra a palabra.
+    function _wordHtml(words) {
+        if (!words || words.length === 0)
+            return ""
+        var out = ""
+        for (var i = 0; i < words.length; i++) {
+            var w = words[i]
+            var t = Number(w.t || 0)
+            var e = Number(w.e || 0)
+            if (!(e > t))
+                e = t + 0.3
+            var f = Math.max(0, Math.min(1, (karaokePos - t) / (e - t)))
+            out += _fillHtml(String(w.text || ""), f)
+        }
+        return out
+    }
+
     // Segundo en que arranca la línea `i`. La duración del frente es hasta la
     // línea siguiente y, en la última, un margen corto.
     function lineEnd(i) {
@@ -322,14 +335,13 @@ Item {
     }
 
     // Interpola la posición entre avisos del motor para que el frente del
-    // relleno avance fluido. Solo hace falta con karaoke por palabra; con la
-    // frase entera no hay frente que mover. 100 ms (10 fps) es el mínimo
-    // permitido: el aviso del motor llega a 240 ms, así que no perdemos
-    // fluidez real y sí la mitad de las reconstrucciones de HTML.
+    // relleno avance fluido, tanto palabra a palabra como barriendo la frase.
+    // El aviso del motor llega a 240 ms; a 50 ms el frente se mueve suave y
+    // solo se reconstruye el HTML de la línea activa.
     Timer {
-        interval: 100
+        interval: 50
         repeat: true
-        running: lv.showSynced && lv.hasWordSync && !!lv.ply && lv.ply.playing
+        running: lv.showSynced && !!lv.ply && lv.ply.playing
         onTriggered: {
             if (!lv.ply)
                 return
@@ -427,14 +439,18 @@ Item {
                     required property int index
                     readonly property bool active: index === lv.activeIndex
 
-                    // El karaoke de verdad solo se pinta cuando la fuente trae
-                    // tiempos por palabra (lv.hasWordSync); si no, la frase
-                    // activa se enciende entera, sin relleno progresivo falso.
-                    readonly property bool karaoke: active && lv.hasWordSync
+                    // Con tiempos por palabra, el frente va palabra a palabra;
+                    // si no, se barre la frase sobre su duración. En la línea
+                    // activa SIEMPRE hay relleno progresivo (karaoke).
+                    readonly property var _w: modelData.words ? modelData.words : []
+                    readonly property bool _worded: active && _w.length > 1
+                    readonly property bool karaoke: active
                     readonly property real fill: karaoke ? lv.lineFill(index) : 0
 
                     width: lv.colW
-                    text: karaoke ? lv._fillHtml(modelData.text, fill) : modelData.text
+                    text: _worded ? lv._wordHtml(_w)
+                                  : (karaoke ? lv._fillHtml(modelData.text, fill)
+                                             : modelData.text)
                     textFormat: karaoke ? Text.RichText : Text.PlainText
                     // Solo la activa canta: texto a pleno y con más peso; el
                     // resto se apaga en `Sys.textDim` según la distancia.

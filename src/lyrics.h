@@ -81,6 +81,10 @@ private:
     struct LrcLine {
         double time;    // segundos desde el inicio
         QString text;
+        // Tiempos POR PALABRA (solo si la fuente los trae): [{t,e,text}].
+        // Vacío en las fuentes de nivel de línea (YTM/LRCLIB/NetEase).
+        QVariantList words;
+        bool instrumental = false;   // tramo sin voz (solo Sonora lo marca)
     };
 
     // Etapa de la cascada de fuentes; viaja pegada al reply para saber qué
@@ -140,6 +144,17 @@ private:
 
     static QVector<LrcLine> parseLrc(const QString &text, bool filterCredits);
     static bool looksLikeCredit(const QString &line);
+
+    // ---- caché local de Sonora (letra con tiempos POR PALABRA) ------------
+    // El reproductor de escritorio Sonora cachea en
+    // ~/.cache/sonora/cache.sqlite las letras que ya bajó, indexadas por vídeo
+    // de YouTube, con los tiempos por palabra de Apple Music/Musixmatch. Es la
+    // MISMA fuente que usa el widget de escritorio, así que leerla da karaoke
+    // palabra a palabra sin pedir nada a la red. Solo se usa si la pista tiene
+    // vídeo y está en la caché; si no, sigue la cascada normal.
+    bool trySonoraCache();
+    // Adopta líneas ya construidas (con palabras) como letra sincronizada.
+    bool adoptWorded(QVector<LrcLine> lines, const QString &source);
 
     QNetworkAccessManager *m_net = nullptr;
     QString m_trackKey;
