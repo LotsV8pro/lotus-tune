@@ -2,16 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Buscar: consulta la fuente activa a través de yt-dlp y reproduce al clic.
-// Filas y campos de tamaño fijo para que la lista no salte al cargar.
-//
-// Scroll: la única superficie con rueda es la lista de resultados
-// (resultsFlick, con clip). El WheelHandler de la raíz corta la propagación
-// del wheel que «sobra» (lista ya al borde, o puntero sobre la barra de
-// búsqueda): el evento se queda en la página y nunca arrastra a un contenedor
-// padre. Además, cada búsqueda nueva reinicia contentY para que la lista
-// arranque siempre arriba (antes podía quedar «scrolled» de la búsqueda
-// anterior y parecer que se movía sola).
+// Buscar: consulta la fuente activa (yt-dlp) y reproduce al clic.
+// Minimalista: campo de una sola superficie, estado en texto y una lista
+// VIRTUALIZADA (ListView) para no materializar todos los resultados de golpe.
 Item {
     id: page
 
@@ -19,9 +12,9 @@ Item {
     // Clic derecho: pide el menú contextual para esa pista (x/y en ventana).
     signal trackContextRequested(var track, real x, real y)
 
-    WheelHandler {
-        onWheel: (event) => { event.accepted = true }
-    }
+    // La rueda que sobra (lista al borde o puntero sobre el campo) se queda en
+    // la página: nunca arrastra a un contenedor padre.
+    WheelHandler { onWheel: (event) => { event.accepted = true } }
 
     function sourceEntry(id) {
         const l = sources.list
@@ -33,19 +26,18 @@ Item {
     readonly property var src: sourceEntry(sources.activeId)
     readonly property bool locked: !src || src.status !== "ready"
 
-    readonly property int rowHeight: 46
+    readonly property int rowHeight: Theme.rowH
 
     function runSearch() {
         const q = String(input.text || "").trim()
         if (q.length === 0)
             return
-        resultsFlick.contentY = 0     // toda búsqueda nueva empieza arriba
+        results.positionViewAtBeginning()   // toda búsqueda nueva empieza arriba
         pushHistory(q)
         catalog.search(q)
     }
 
-    // API para re-ejecutar una búsqueda desde fuera (chips del Historial
-    // en Inicio): rellena el campo y lanza la búsqueda.
+    // API externa (chips del Historial en Inicio): rellena el campo y busca.
     function startSearch(q) {
         input.text = String(q || "")
         runSearch()
@@ -77,7 +69,7 @@ Item {
             appcfg.set("searchHistory", JSON.stringify(out))
             appcfg.save()
         } catch (e2) {
-            console.warn("searchHistory: no se pudo guardar: " + e2)
+            // sin historial persistente: la búsqueda sigue funcionando
         }
     }
 
@@ -99,293 +91,239 @@ Item {
             visible: !page.locked
             spacing: Theme.s2
 
-            // ---- barra de búsqueda -----------------------------------------
-            RowLayout {
+            // ---- campo de búsqueda ----------------------------------------
+            Rectangle {
+                id: field
                 Layout.fillWidth: true
-                spacing: 8
+                Layout.preferredHeight: 44
+                radius: Theme.rMd
+                color: Sys.surface
+                border.width: 1
+                border.color: input.activeFocus ? Sys.accent : Sys.border
+                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
-                Rectangle {
-                    id: field
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    radius: Theme.rMd
-                    color: Sys.surface
-                    border.width: 1
-                    border.color: input.activeFocus ? Sys.accent : "transparent"
-                    Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-
-                    Glyph {
-                        id: searchIcon
-                        anchors.left: parent.left
-                        anchors.leftMargin: Theme.s3
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 15
-                        height: 15
-                        kind: "search"
-                        color: Sys.textDim
-                    }
-
-                    TextInput {
-                        id: input
-                        anchors.left: searchIcon.right
-                        anchors.leftMargin: Theme.s2
-                        anchors.right: clearBtn.left
-                        anchors.rightMargin: Theme.s2
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: Sys.text
-                        font.pixelSize: Theme.tBase
-                        clip: true
-                        selectByMouse: true
-                        Keys.onReturnPressed: { event.accepted = true; page.runSearch() }
-                        Keys.onEnterPressed: { event.accepted = true; page.runSearch() }
-                    }
-                    Text {
-                        visible: input.text.length === 0
-                        anchors.left: input.left
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: input.width
-                        text: "¿Qué quieres escuchar en "
-                              + (page.src ? page.src.name : "") + "?"
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tBase
-                        elide: Text.ElideRight
-                    }
-                    Rectangle {
-                        id: clearBtn
-                        visible: input.text.length > 0
-                        width: 24
-                        height: 24
-                        radius: Theme.rSm
-                        anchors.right: parent.right
-                        anchors.rightMargin: 8
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: clearMa.containsMouse ? Theme.hover(Sys.surface) : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                        Glyph {
-                            anchors.centerIn: parent
-                            width: 11
-                            height: 11
-                            kind: "x"
-                            color: clearMa.containsMouse ? Sys.accent : Sys.textDim
-                        }
-                        MouseArea {
-                            id: clearMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: { input.text = ""; input.forceActiveFocus() }
-                        }
-                    }
+                Glyph {
+                    id: searchIcon
+                    anchors.left: parent.left
+                    anchors.leftMargin: Theme.s3
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 15
+                    height: 15
+                    kind: "search"
+                    color: Sys.textDim
                 }
 
+                TextInput {
+                    id: input
+                    anchors.left: searchIcon.right
+                    anchors.leftMargin: Theme.s2
+                    anchors.right: clearBtn.left
+                    anchors.rightMargin: Theme.s2
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Sys.text
+                    font.pixelSize: Theme.tBase
+                    clip: true
+                    selectByMouse: true
+                    Keys.onReturnPressed: { event.accepted = true; page.runSearch() }
+                    Keys.onEnterPressed: { event.accepted = true; page.runSearch() }
+                }
+                Text {
+                    visible: input.text.length === 0
+                    anchors.left: input.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: input.width
+                    text: "¿Qué quieres escuchar en "
+                          + (page.src ? page.src.name : "") + "?"
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tBase
+                    elide: Text.ElideRight
+                }
                 Rectangle {
-                    Layout.preferredWidth: 104
-                    Layout.preferredHeight: 42
-                    radius: Theme.rMd
-                    color: btnMa.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                    scale: btnMa.pressed ? 0.96 : 1
-                    Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                    id: clearBtn
+                    visible: input.text.length > 0
+                    width: 24
+                    height: 24
+                    radius: Theme.rSm
+                    anchors.right: parent.right
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: clearMa.containsMouse ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                    RowLayout {
+                    Glyph {
                         anchors.centerIn: parent
-                        spacing: 7
-                        Glyph { width: 14; height: 14; kind: "search"; color: Sys.onAccent }
-                        Text {
-                            text: "Buscar"
-                            color: Sys.onAccent
-                            font.pixelSize: Theme.tBase
-                            font.bold: true
-                        }
+                        width: 11
+                        height: 11
+                        kind: "x"
+                        color: clearMa.containsMouse ? Sys.accent : Sys.textDim
                     }
                     MouseArea {
-                        id: btnMa
+                        id: clearMa
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: page.runSearch()
+                        onClicked: { input.text = ""; input.forceActiveFocus() }
                     }
                 }
             }
 
             // ---- estado ----------------------------------------------------
-            RowLayout {
+            Text {
                 Layout.fillWidth: true
-                spacing: 8
-
-                Text {
-                    visible: catalog.busy
-                    property int dots: 1
-                    text: "Buscando" + ".".repeat(dots)
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tSm
-                    Timer {
-                        running: catalog.busy
-                        repeat: true
-                        interval: 320
-                        onTriggered: parent.dots = parent.dots % 3 + 1
-                    }
-                }
-                Text {
-                    visible: !catalog.busy && catalog.results.length > 0
-                    text: catalog.results.length + " resultados para «" + catalog.resultsQuery + "»"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tSm
-                    elide: Text.ElideRight
-                    Layout.fillWidth: true
-                }
-                Item { Layout.fillWidth: true }
+                visible: catalog.busy
+                text: "Buscando…"
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+            }
+            Text {
+                Layout.fillWidth: true
+                visible: !catalog.busy && catalog.results.length > 0
+                text: catalog.results.length + " resultados para «"
+                      + catalog.resultsQuery + "»"
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+                elide: Text.ElideRight
             }
 
-            // ---- resultados -----------------------------------------------
-            // Único Flickable de la página: clip para que nada pinte fuera y
-            // contentWidth fijo para que el wheel horizontal no cree contenido.
-            Flickable {
-                id: resultsFlick
+            // ---- resultados (lista virtualizada) --------------------------
+            ListView {
+                id: results
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                contentWidth: width
-                contentHeight: resultsCol.implicitHeight
                 clip: true
+                model: catalog.results
+                spacing: 2
                 boundsBehavior: Flickable.StopAtBounds
+                reuseItems: true
+                cacheBuffer: 600
 
-                ColumnLayout {
-                    id: resultsCol
-                    width: resultsFlick.width
-                    spacing: 3
+                delegate: Rectangle {
+                    id: rrow
+                    required property int index
+                    required property var modelData
 
-                    Repeater {
-                        model: catalog.results
+                    width: ListView.view.width
+                    height: Theme.rowH
+                    radius: Theme.rMd
+                    color: rrowMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
-                        delegate: Rectangle {
-                            id: rrow
-                            required property int index
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 46
-                            radius: Theme.rMd
-                            color: rrowMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
-                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                            MouseArea {
-                                id: rrowMouse
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                onClicked: (mouse) => {
-                                    if (mouse.button === Qt.RightButton)
-                                        page.trackContextRequested(catalog.results[rrow.index],
-                                                                   mouse.scenePos.x,
-                                                                   mouse.scenePos.y)
-                                    else
-                                        page.playRequested(catalog.results, rrow.index)
-                                }
-                            }
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.s3
-                                anchors.rightMargin: Theme.s3
-                                spacing: Theme.s3
-
-                                Text {
-                                    Layout.preferredWidth: 22
-                                    text: rrow.index + 1
-                                    color: Sys.textDim
-                                    font.pixelSize: Theme.tSm
-                                    horizontalAlignment: Text.AlignRight
-                                }
-                                Rectangle {
-                                    Layout.preferredWidth: 34
-                                    Layout.preferredHeight: 34
-                                    radius: Theme.rSm
-                                    clip: true
-                                    color: Sys.surfaceAlt
-
-                                    Image {
-                                        anchors.fill: parent
-                                        source: catalog.results[rrow.index].thumb || ""
-                                        visible: source != ""
-                                        sourceSize.width: 34
-                                        sourceSize.height: 34
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
-                                    }
-                                    Glyph {
-                                        anchors.centerIn: parent
-                                        width: 15
-                                        height: 15
-                                        visible: !catalog.results[rrow.index].thumb
-                                        kind: "play"
-                                        color: rrowMouse.containsMouse ? Sys.accent : Sys.textDim
-                                    }
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 6
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: catalog.results[rrow.index].title || ""
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tBase
-                                            elide: Text.ElideRight
-                                            maximumLineCount: 1
-                                        }
-                                        LikeButton {
-                                            id: rrowLike
-                                            interactive: catalog.loginState === "ok"
-                                                         && catalog.videoIdOf(
-                                                                catalog.results[rrow.index].url) !== ""
-                                            revealed: rrowMouse.containsMouse
-                                            liked: {
-                                                const rev = catalog.likedRevision
-                                                const tr = catalog.results[rrow.index]
-                                                if (!tr)
-                                                    return false
-                                                if (catalog.likedReady)
-                                                    return catalog.isLiked(tr.url)
-                                                return tr.liked === true
-                                            }
-                                            onToggled: {
-                                                const tr = catalog.results[rrow.index]
-                                                if (tr)
-                                                    catalog.toggleLiked(tr.url, rrowLike.liked)
-                                            }
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: catalog.results[rrow.index].artist || ""
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tSm
-                                        elide: Text.ElideRight
-                                        maximumLineCount: 1
-                                    }
-                                }
-                                Text {
-                                    text: Theme.mmss(catalog.results[rrow.index].duration)
-                                    color: Sys.textDim
-                                    font.pixelSize: Theme.tSm
-                                }
-                            }
+                    MouseArea {
+                        id: rrowMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton)
+                                page.trackContextRequested(rrow.modelData,
+                                                           mouse.scenePos.x,
+                                                           mouse.scenePos.y)
+                            else
+                                page.playRequested(catalog.results, rrow.index)
                         }
                     }
 
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.topMargin: Theme.s4
-                        visible: !catalog.busy && catalog.results.length === 0
-                        text: "Escribe algo y pulsa Buscar. Se usa la extracción directa\nde la fuente: sin anuncios, sin navegador."
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tMd
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        lineHeight: 1.3
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.s3
+                        anchors.rightMargin: Theme.s3
+                        spacing: Theme.s3
+
+                        Rectangle {
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 34
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: Theme.rSm
+                            clip: true
+                            color: Sys.surfaceAlt
+
+                            Image {
+                                anchors.fill: parent
+                                source: rrow.modelData.thumb || ""
+                                visible: source != ""
+                                sourceSize.width: 34
+                                sourceSize.height: 34
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: true
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 15
+                                height: 15
+                                visible: !rrow.modelData.thumb
+                                kind: rrowMouse.containsMouse ? "play" : "music"
+                                color: rrowMouse.containsMouse ? Sys.accent : Sys.textDim
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.s1
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: rrow.modelData.title || ""
+                                    color: Sys.text
+                                    font.pixelSize: Theme.tBase
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                                LikeButton {
+                                    id: rrowLike
+                                    interactive: catalog.loginState === "ok"
+                                                 && catalog.videoIdOf(
+                                                        rrow.modelData.url) !== ""
+                                    revealed: rrowMouse.containsMouse
+                                    liked: {
+                                        const rev = catalog.likedRevision
+                                        if (!rrow.modelData)
+                                            return false
+                                        if (catalog.likedReady)
+                                            return catalog.isLiked(rrow.modelData.url)
+                                        return rrow.modelData.liked === true
+                                    }
+                                    onToggled: {
+                                        if (rrow.modelData)
+                                            catalog.toggleLiked(rrow.modelData.url,
+                                                                rrowLike.liked)
+                                    }
+                                }
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: rrow.modelData.artist || ""
+                                color: Sys.textDim
+                                font.pixelSize: Theme.tSm
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignVCenter
+                            text: Theme.mmss(rrow.modelData.duration)
+                            color: Sys.textDim
+                            font.pixelSize: Theme.tSm
+                        }
                     }
                 }
+            }
+
+            // ---- vacío / ayuda --------------------------------------------
+            Text {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.s4
+                visible: !catalog.busy && catalog.results.length === 0
+                text: "Escribe algo y pulsa Enter. Se usa la extracción directa "
+                      + "de la fuente: sin anuncios, sin navegador."
+                color: Sys.textDim
+                font.pixelSize: Theme.tMd
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                lineHeight: 1.3
             }
         }
     }
