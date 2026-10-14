@@ -2,6 +2,7 @@
 #include "sources.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -12,9 +13,15 @@
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 
 #include <QDebug>
+
+// TTL de la caché de "me gusta" en disco: 24 h. Dentro de esa ventana el
+// arranque no consulta la red (nada bloquea las listas); el botón manual
+// syncLiked() siempre fuerza el fetch ignorando la TTL.
+static constexpr qint64 kLikedTtlSecs = 24 * 60 * 60;
 
 Catalog::Catalog(SourceManager *sources, QObject *parent)
     : QObject(parent)
@@ -196,6 +203,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 }
                 m_likedIds = ids;
                 m_likedReady = true;
+                m_likedTs = QDateTime::currentSecsSinceEpoch();
+                saveLikedToDisk();
                 ++m_likedRevision;
                 qInfo() << "[catalog] me gusta:" << m_likedIds.size() << "pistas";
                 emit likedChanged();
@@ -327,6 +336,33 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     if (target.isEmpty())
         return;
 
+    // Caché en memoria: reabrir una lista ya cargada no lanza ningún proceso y
+    // responde al instante. Solo para listas; la búsqueda siempre va a la red.
+    const QString key = cacheKeyFor(target);
+    if (!m_busy && purpose == QLatin1String("playlist")
+        && m_playlistCache.contains(key)) {
+        const QVariantList cached = m_playlistCache.value(key);
+        const QString cachedTitle = m_playlistTitles.value(key);
+        m_fastFallback.clear();
+        m_fastFallbackTitle.clear();
+        m_openPlaylistId.clear();
+        if (target.contains(QLatin1String("youtube.com"))
+            && key.startsWith(QLatin1String("list:")))
+            m_openPlaylistId = key.mid(QStringLiteral("list:").size());
+        m_error.clear();
+        // Diferido: no reentramos en QML desde dentro de la propia llamada.
+        QTimer::singleShot(0, this, [this, cached, cachedTitle]() {
+            m_tracks = cached;
+            m_tracksTitle = cachedTitle;
+            m_busy = false;   // servir de caché nunca deja la UI bloqueada
+            emit tracksReady(cached, cachedTitle);
+            emit changed();
+        });
+        return;
+    }
+
+    m_pendingKey = key;
+
     m_fastFallback.clear();
     m_fastFallbackTitle.clear();
     m_openPlaylistId.clear();
@@ -431,10 +467,15 @@ void Catalog::syncLiked()
         fail(QStringLiteral("Inicia sesión en Ajustes para sincronizar «Me gusta»"));
         return;
     }
-    // "Liked Music" (playlist LM) autenticada con las cookies del login
-    // integrado. yt-dlp emite el JSON -J que handleOutput() ya sabe leer.
-    run(QStringLiteral("https://music.youtube.com/playlist?list=LM"),
-        QStringLiteral("playlist"), QStringLiteral("Liked Music"));
+    // Botón manual: fuerza el fetch de red del conjunto de "me gusta" (ignora
+    // la TTL y la caché en disco) para que el corazón refleje el estado real.
+    launchLikedFetch();
+    // Y recarga la lista "Liked Music" en la cola, saltándose la caché en
+    // memoria para traer el contenido fresco.
+    const QString lm =
+        QStringLiteral("https://music.youtube.com/playlist?list=LM");
+    forgetCachedPlaylist(cacheKeyFor(lm));
+    run(lm, QStringLiteral("playlist"), QStringLiteral("Liked Music"));
 }
 
 // ------------------------------------------------------------ "mis listas" ----
@@ -651,6 +692,9 @@ void Catalog::setLiked(const QString &videoId, bool liked)
     // Sigue subiendo la revisión aunque no cambie: el voto ya se envió y las
     // filas/corazón deben repintarse con el estado decidido localmente.
     ++m_likedRevision;
+    // Persistir el conjunto local (conservando m_likedTs) para que un reinicio
+    // dentro de la TTL no pierda el voto recién hecho.
+    saveLikedToDisk();
     emit likedChanged();
 }
 
@@ -672,12 +716,127 @@ void Catalog::refreshLikedSet()
     if (m_likedReady || !ytmLoggedIn()
         || m_likedProc.state() != QProcess::NotRunning)
         return;
+
+    // 1) Carga inmediata desde disco (sin red): el conjunto queda listo al
+    //    instante y las filas pintan el corazón sin esperar al fetch.
+    if (loadLikedFromDisk()) {
+        m_likedReady = true;
+        ++m_likedRevision;
+        emit likedChanged();
+    }
+
+    // 2) Solo se consulta la red si no hay caché o si es más antigua que la TTL
+    //    (24 h). Con caché fresca no se lanza nada: el arranque no se bloquea.
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (m_likedTs > 0 && now - m_likedTs < kLikedTtlSecs)
+        return;
+    launchLikedFetch();
+}
+
+// Lanza el fetch de red del conjunto "me gusta" (m_likedProc). No mira la TTL
+// ni la caché: lo llama el refresco perezoso (ya filtrado) y syncLiked().
+void Catalog::launchLikedFetch()
+{
+    if (!ytmLoggedIn() || m_likedProc.state() != QProcess::NotRunning)
+        return;
     if (!QFile::exists(ytmApiPath()))
         return;
     m_likedProc.setProgram(QStringLiteral("python3"));
     m_likedProc.setArguments({ytmApiPath(), QStringLiteral("playlist"),
                               QStringLiteral("LM")});
     m_likedProc.start();
+}
+
+// ------------------------------------------------- caché de "me gusta" ----
+
+// Fichero JSON junto al estado de la biblioteca (library.json).
+QString Catalog::likedFile()
+{
+    const QString dir = QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
+    QDir().mkpath(dir);
+    return dir + QStringLiteral("/liked.json");
+}
+
+// Carga el conjunto desde disco; deja m_likedTs con su marca de tiempo.
+bool Catalog::loadLikedFromDisk()
+{
+    QFile f(likedFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    const QJsonArray ids = o.value(QStringLiteral("ids")).toArray();
+    QSet<QString> set;
+    for (const QJsonValue &v : ids) {
+        const QString id = v.toString();
+        if (!id.isEmpty())
+            set.insert(id);
+    }
+    if (set.isEmpty())
+        return false;
+    m_likedIds = set;
+    m_likedTs = qint64(o.value(QStringLiteral("ts")).toDouble());
+    return true;
+}
+
+void Catalog::saveLikedToDisk() const
+{
+    QJsonArray ids;
+    for (const QString &id : m_likedIds)
+        ids.append(id);
+    const QJsonObject o{
+        {QStringLiteral("ts"), QJsonValue(double(m_likedTs))},
+        {QStringLiteral("ids"), ids},
+    };
+    QFile f(likedFile());
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
+
+// ------------------------------------------------- caché en memoria ----
+
+// Normaliza el `list=<id>` de YouTube: la misma lista abierta por URL, por id
+// o desde "mis listas" comparte entrada de caché. El resto de destinos
+// (ytsearch..., SoundCloud, etc.) usan la URL tal cual.
+QString Catalog::cacheKeyFor(const QString &target)
+{
+    static const QRegularExpression re(QStringLiteral("list=([A-Za-z0-9_-]+)"));
+    const QRegularExpressionMatch m = re.match(target);
+    if (m.hasMatch())
+        return QStringLiteral("list:") + m.captured(1);
+    return target;
+}
+
+void Catalog::cachePlaylist(const QString &key, const QVariantList &tracks,
+                            const QString &title)
+{
+    if (key.isEmpty())
+        return;
+    if (!m_playlistCache.contains(key)) {
+        m_cacheOrder.append(key);
+        // Límite de RAM: evacuar las más antiguas por encima de 24 entradas.
+        while (m_cacheOrder.size() > 24) {
+            const QString old = m_cacheOrder.takeFirst();
+            m_playlistCache.remove(old);
+            m_playlistTitles.remove(old);
+        }
+    }
+    m_playlistCache.insert(key, tracks);
+    m_playlistTitles.insert(key, title);
+}
+
+void Catalog::forgetCachedPlaylist(const QString &key)
+{
+    m_playlistCache.remove(key);
+    m_playlistTitles.remove(key);
+    m_cacheOrder.removeAll(key);
+}
+
+// Olvida las listas cacheadas en memoria: la próxima apertura las recarga.
+void Catalog::invalidatePlaylistCache()
+{
+    m_playlistCache.clear();
+    m_playlistTitles.clear();
+    m_cacheOrder.clear();
 }
 
 // ------------------------------------------------------------ login ----
@@ -790,12 +949,16 @@ void Catalog::logoutYTM()
     QFile::remove(cookieFile());
     QFile::remove(QDir::homePath()
                   + QStringLiteral("/.config/lotus-tune/ytm_session.json"));
+    // La sesión se fue: olvidar listas cacheadas y el "me gusta" persistido.
+    invalidatePlaylistCache();
+    QFile::remove(likedFile());
     m_loginError.clear();
     setLoginState(QString());
     // Al cerrar sesión, olvidar el conjunto de "me gusta".
     if (!m_likedIds.isEmpty() || m_likedReady) {
         m_likedIds.clear();
         m_likedReady = false;
+        m_likedTs = 0;
         ++m_likedRevision;
         emit likedChanged();
     }
@@ -841,6 +1004,8 @@ bool Catalog::handleOutput(const QByteArray &json)
             title = QStringLiteral("Playlist");
         m_tracks = list;
         m_tracksTitle = title;
+        // Guarda en la caché en memoria: reabrir esta lista será instantáneo.
+        cachePlaylist(m_pendingKey, list, title);
         emit tracksReady(list, title);
     }
     emit changed();

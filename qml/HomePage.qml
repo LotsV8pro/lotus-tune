@@ -7,9 +7,9 @@ import "theme.js" as Theme
 // reuseItems: recicla delegados y la retícula nunca salta al pasar el ratón.
 //
 // Comportamiento de clic:
+//   · clic en tarjeta -> UN CLIC = SUENA YA: las canciones sueltas y las
+//     listas reales se reproducen sin salir de Inicio.
 //   · botón de play  -> carga la lista y la REPRODUCE (sin salir de Inicio)
-//   · clic en tarjeta -> abre la lista/álbum: sólo abre; Main la muestra en
-//     cuanto termina de cargar, con un único salto (sin pasar por Biblioteca)
 Item {
     id: page
 
@@ -79,6 +79,18 @@ Item {
             page.openListRequested(!!play)
             catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                             "Música que me gusta")
+            return
+        }
+        // Canción suelta: un solo clic ya suena (no abre vista de lista ni
+        // pasa por yt-dlp: se entrega la pista tal cual al reproductor).
+        if (item.kind === "track") {
+            page.playRequested([{
+                title: item.title || "",
+                artist: item.sub || "",
+                url: item.url || "",
+                thumb: item.thumb || "",
+                source: item.source || ""
+            }], 0)
             return
         }
         if (item.url) {
@@ -511,8 +523,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: page.openQuickPick(pickRow.modelData, false)
-                                onDoubleClicked: page.openQuickPick(pickRow.modelData, true)
+                                onClicked: page.openQuickPick(pickRow.modelData, true)
                             }
                         }
                     }
@@ -550,7 +561,7 @@ Item {
                     coverA: page.coverA(modelData.name)
                     coverB: page.coverB(modelData.name)
                     onClicked: {
-                        page.openListRequested(false)
+                        page.openListRequested(true)
                         catalog.openUrl(modelData.url, modelData.name)
                     }
                     onPlayClicked: {
@@ -595,7 +606,7 @@ Item {
                     coverA: page.coverA(modelData.title)
                     coverB: page.coverB(modelData.title)
                     onClicked: {
-                        page.openListRequested(false)
+                        page.openListRequested(true)
                         catalog.openPlaylist(modelData.index)
                     }
                     onPlayClicked: {
@@ -643,7 +654,7 @@ Item {
                     coverA: modelData.kind === "liked"
                             ? Sys.accentDim : page.coverA(modelData.title)
                     coverB: page.coverB(modelData.title)
-                    onClicked: page.openRec(modelData, false)
+                    onClicked: page.openRec(modelData, true)
                     onPlayClicked: page.openRec(modelData, true)
                 }
             }
@@ -675,7 +686,7 @@ Item {
                     coverA: page.coverA(modelData.t)
                     coverB: page.coverB(modelData.t)
                     onClicked: {
-                        page.openListRequested(false)
+                        page.openListRequested(true)
                         catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
                     }
                     onPlayClicked: {

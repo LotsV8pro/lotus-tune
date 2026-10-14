@@ -264,6 +264,8 @@ Window {
         const liked = (catalog.likedReady === true) ? catalog.isLiked(url)
                                                     : (t.liked === true)
         const out = []
+        out.push({ label: "Reproducir", icon: "play",
+                   action: function() { root.playTracks([t], 0) } })
         if (canYt)
             out.push({ label: "Añadir a lista de reproducción…", icon: "plus",
                        action: function() { root.openPlaylistPicker(vid) } })
@@ -1206,6 +1208,12 @@ Window {
                 root.playTracks(tracks, 0)
                 return
             }
+            // Una lista de una sola pista es, en la práctica, una canción
+            // suelta: reprodúcela ya en lugar de abrir una vista de lista.
+            if (tracks && tracks.length === 1) {
+                root.playTracks(tracks, 0)
+                return
+            }
             // Sólo abrir: un salto directo a la lista/álbum (sin reproducir).
             root.openTracksView()
         }
@@ -1300,13 +1308,9 @@ Window {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     currentIndex: root.pageIndex(root.page)
-                    opacity: 1
-                    Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
 
+                    // Cambio de página inmediato: sin fundido ni transición.
                     onCurrentIndexChanged: {
-                        // fade-in transition between pages
-                        opacity = 0.25
-                        opacity = 1
                         // Recarga el historial de búsquedas de Inicio (se
                         // escribe desde Buscar mientras no está visible).
                         homePage.refreshSearchHistory()

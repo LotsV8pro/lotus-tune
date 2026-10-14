@@ -49,11 +49,6 @@ Rectangle {
 
     readonly property color _ui: Theme.hover(Sys.surface)
 
-    // LOCAL vs STREAM sin llamadas nuevas al backend: las pistas de YouTube
-    // llegan con `videoId` (y portada remota); los ficheros locales, no.
-    readonly property bool isStream: String(bar.videoId || "").length > 0
-        || String(bar.currentThumb || "").toLowerCase().indexOf("http") === 0
-
     // ---- botón de icono reutilizable ---------------------------------
     component BarButton: Rectangle {
         id: bb
@@ -176,6 +171,14 @@ Rectangle {
 
                     BarButton {
                         diameter: 30; glyph: 15
+                        kind: "shuffle"
+                        active: bar.shuffle
+                        iconColor: Sys.text
+                        onTapped: bar.shuffleToggled()
+                    }
+
+                    BarButton {
+                        diameter: 30; glyph: 15
                         kind: "prev"
                         iconColor: Sys.text
                         onTapped: bar.prevRequested()
@@ -206,6 +209,14 @@ Rectangle {
                         kind: "next"
                         iconColor: Sys.text
                         onTapped: bar.nextRequested()
+                    }
+
+                    BarButton {
+                        diameter: 30; glyph: 15
+                        kind: "repeat"
+                        active: bar.repeat
+                        iconColor: Sys.text
+                        onTapped: bar.repeatToggled()
                     }
                 }
 
@@ -277,23 +288,13 @@ Rectangle {
                 }
             }
 
-            // ---- derecha: etiqueta, panel y volumen ------------------
+            // ---- derecha: panel y volumen ----------------------------
             RowLayout {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
                 spacing: Theme.s2
 
                 Item { Layout.fillWidth: true }
-
-                Text {
-                    Layout.alignment: Qt.AlignVCenter
-                    visible: bar.title.length > 0
-                    text: bar.isStream ? "STREAM" : "LOCAL"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tXs
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.0
-                }
 
                 BarButton {
                     diameter: 30; glyph: 15

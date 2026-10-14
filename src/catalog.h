@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QHash>
 #include <QObject>
 #include <QProcess>
 #include <QSet>
@@ -63,6 +64,9 @@ public:
     Q_INVOKABLE void openPlaylist(int savedIndex);
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
     Q_INVOKABLE void syncLiked();
+    // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
+    // cada una consulta de nuevo la red (útil para "refrescar").
+    Q_INVOKABLE void invalidatePlaylistCache();
     // ---- Interacción con YouTube Music (requiere sesión iniciada) ---------
     // rating: "LIKE" | "DISLIKE" | "INDIFFERENT".
     Q_INVOKABLE void rateTrack(const QString &videoId, const QString &rating);
@@ -146,6 +150,26 @@ private:
     // Carga una vez la playlist "Me gusta" (LM) para conocer el estado real de
     // "me gusta" de todas las pistas (estilo Sonora).
     void refreshLikedSet();
+    // Lanza el fetch de red del conjunto "me gusta" (sin TTL): lo usa tanto el
+    // refresco perezoso como el botón manual syncLiked().
+    void launchLikedFetch();
+
+    // ---- caché en memoria de listas --------------------------------------
+    // Clave de una lista: normaliza el `list=<id>` de YouTube para que la misma
+    // lista abierta por URL, por id o desde "mis listas" comparta entrada.
+    static QString cacheKeyFor(const QString &target);
+    // Guarda una lista recién cargada (FIFO, máx. 24 entradas).
+    void cachePlaylist(const QString &key, const QVariantList &tracks,
+                       const QString &title);
+    void forgetCachedPlaylist(const QString &key);
+
+    // ---- persistencia del conjunto "me gusta" ----------------------------
+    // Fichero JSON junto al estado de la biblioteca (library.json).
+    static QString likedFile();
+    // Carga el conjunto desde disco; devuelve false si no hay caché válida.
+    bool loadLikedFromDisk();
+    // Guarda el conjunto actual (con la marca de tiempo m_likedTs).
+    void saveLikedToDisk() const;
 
     SourceManager *m_sources;
     QProcess m_proc;
@@ -158,6 +182,12 @@ private:
     QString m_resultsQuery;
     QVariantList m_tracks;
     QString m_tracksTitle;
+    // Caché en memoria de resultados de lista (reabrir es instantáneo). La clave
+    // es el destino normalizado (p. ej. "list:<id>"); se limita a 24 entradas.
+    QHash<QString, QVariantList> m_playlistCache;
+    QHash<QString, QString> m_playlistTitles;
+    QList<QString> m_cacheOrder;   // orden FIFO para evacuar la caché
+    QString m_pendingKey;          // clave de la carga de lista en curso
     QVariantList m_playlists;
     QVariantList m_recent;
     QVariantList m_ytmLibrary;
@@ -174,6 +204,7 @@ private:
     QSet<QString> m_likedIds;  // videoIds en "me gusta"
     int m_likedRevision = 0;
     bool m_likedReady = false;
+    qint64 m_likedTs = 0;      // marca de la última carga de red (epoch secs)
     // Respaldo a yt-dlp si la vía rápida de playlists (API interna) falla.
     QString m_fastFallback;      // destino yt-dlp pendiente ("" si no aplica)
     QString m_fastFallbackTitle; // título a conservar en el respaldo
