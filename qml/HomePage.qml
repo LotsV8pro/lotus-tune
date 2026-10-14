@@ -42,13 +42,18 @@ Item {
                        sub: "YouTube Music · Tus me gusta", thumb: "",
                        url: "https://music.youtube.com/playlist?list=LM" })
         const rec = catalog.recent
-        for (var i = 0; i < rec.length && out.length < 30; i++) {
-            const t = rec[i]
-            if (!t || !t.url)
-                continue
-            out.push({ kind: "track", title: t.title || "",
-                       sub: t.artist || "", thumb: t.thumb || "",
-                       url: t.url })
+        // En YouTube Music no se listan canciones sueltas (las que sonaron
+        // dentro de una playlist): la Home muestra solo listas y las
+        // canciones se buscan individualmente.
+        if (!page.ytmSource) {
+            for (var i = 0; i < rec.length && out.length < 30; i++) {
+                const t = rec[i]
+                if (!t || !t.url)
+                    continue
+                out.push({ kind: "track", title: t.title || "",
+                           sub: t.artist || "", thumb: t.thumb || "",
+                           url: t.url })
+            }
         }
         const lib = catalog.ytmLibrary
         for (var j = 0; j < lib.length && out.length < 30; j++) {
@@ -108,6 +113,10 @@ Item {
     }
     readonly property var src: sourceEntry(sources.activeId)
     readonly property bool ytmOk: String(catalog.loginState || "") === "ok"
+    // Fuente activa = YouTube Music. En YT Music la Home muestra SOLO listas
+    // (tus listas y «me gusta»): las canciones sueltas se obtienen buscando,
+    // no se listan las que sonaron dentro de una playlist (catalog.recent).
+    readonly property bool ytmSource: String(page.src ? page.src.id : "") === "ytm"
 
     // ---- portadas con degradado derivadas del propio texto --------------
     function _hash(s) {
