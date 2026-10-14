@@ -1747,6 +1747,8 @@ Window {
     }
 
     // ---- settings panel (full-window modal) ------------------------------
+    // Panel de Ajustes: secciones en tarjetas planas, una sola forma de hacer
+    // cada cosa. Todo se apoya en los tokens de `Theme` y la paleta de `Sys`.
     Rectangle {
         id: settingsOverlay
         anchors.fill: parent
@@ -1755,6 +1757,307 @@ Window {
         color: Sys.bg
         opacity: root.settingsOpen ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+
+        // ---- componentes reutilizables del panel -------------------------
+        // Tarjeta de sección: título discreto + superficie con 1 borde.
+        component SettingSection: ColumnLayout {
+            id: sec
+            property string title: ""
+            default property alias content: body.data
+            Layout.fillWidth: true
+            spacing: Theme.s2
+
+            Text {
+                Layout.fillWidth: true
+                text: sec.title.toUpperCase()
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+                font.weight: Font.DemiBold
+                font.letterSpacing: 1.4
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                implicitHeight: body.implicitHeight + Theme.s4 * 2
+                radius: Theme.rLg
+                color: Sys.surface
+                border.width: 1
+                border.color: Sys.border
+
+                ColumnLayout {
+                    id: body
+                    anchors.fill: parent
+                    anchors.margins: Theme.s4
+                    spacing: Theme.s3
+                }
+            }
+        }
+
+        // Fila: etiqueta + descripción a la izquierda, control a la derecha.
+        component SettingRow: RowLayout {
+            id: row
+            property string label: ""
+            property string desc: ""
+            default property alias control: slot.data
+            Layout.fillWidth: true
+            implicitHeight: Theme.rowH
+            spacing: Theme.s3
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                spacing: 1
+                Text {
+                    Layout.fillWidth: true
+                    text: row.label
+                    color: Sys.text
+                    font.pixelSize: Theme.tMd
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: row.desc !== ""
+                    text: row.desc
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tXs
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+            }
+            RowLayout {
+                id: slot
+                Layout.alignment: Qt.AlignVCenter
+                spacing: Theme.s2
+            }
+        }
+
+        // Bloque: etiqueta + descripción arriba y control a lo ancho debajo.
+        component SettingBlock: ColumnLayout {
+            id: blk
+            property string label: ""
+            property string desc: ""
+            default property alias content: inner.data
+            Layout.fillWidth: true
+            spacing: Theme.s2
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                Text {
+                    Layout.fillWidth: true
+                    text: blk.label
+                    color: Sys.text
+                    font.pixelSize: Theme.tMd
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: blk.desc !== ""
+                    text: blk.desc
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tXs
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+            }
+            RowLayout {
+                id: inner
+                Layout.fillWidth: true
+                spacing: Theme.s2
+            }
+        }
+
+        // Interruptor tipo switch: pista + mando, acento cuando está activo.
+        component Toggle: Rectangle {
+            id: tg
+            property bool checked: false
+            signal toggled()
+            width: 40
+            height: 22
+            radius: 11
+            color: tg.checked ? Sys.accent : Theme.mix(Sys.surface, Sys.text, 0.16)
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+            Rectangle {
+                width: 18
+                height: 18
+                radius: 9
+                color: Sys.onAccent
+                anchors.verticalCenter: parent.verticalCenter
+                x: tg.checked ? parent.width - width - 3 : 3
+                Behavior on x { NumberAnimation { duration: Theme.fastMs } }
+            }
+            MouseArea {
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: tg.toggled()
+            }
+        }
+
+        // Chip de selección única.
+        component Chip: Rectangle {
+            id: ch
+            property string text: ""
+            property bool selected: false
+            signal picked()
+            implicitWidth: chLabel.implicitWidth + Theme.s5
+            height: 30
+            radius: Theme.rSm
+            color: ch.selected ? Sys.accentDim
+                               : (chHover.containsMouse ? Theme.hover(Sys.surface) : "transparent")
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+            Text {
+                id: chLabel
+                anchors.centerIn: parent
+                text: ch.text
+                color: ch.selected ? Sys.accent
+                                   : (chHover.containsMouse ? Sys.text : Sys.textDim)
+                font.pixelSize: Theme.tSm
+                font.weight: ch.selected ? Font.DemiBold : Font.Normal
+                elide: Text.ElideRight
+            }
+            MouseArea {
+                id: chHover
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: ch.picked()
+            }
+        }
+
+        // Campo de texto con etiqueta y marcador de posición.
+        component Field: ColumnLayout {
+            id: fld
+            property string label: ""
+            property string placeholder: ""
+            property bool password: false
+            property alias text: input.text
+            spacing: Theme.s1
+
+            Text {
+                visible: fld.label !== ""
+                text: fld.label
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+            }
+            Rectangle {
+                Layout.fillWidth: true
+                height: 34
+                radius: Theme.rMd
+                color: Sys.bg
+                border.width: 1
+                border.color: input.activeFocus ? Sys.accent : Sys.borderSubtle
+                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+
+                TextInput {
+                    id: input
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.s3
+                    anchors.rightMargin: Theme.s3
+                    verticalAlignment: Text.AlignVCenter
+                    color: Sys.text
+                    font.pixelSize: Theme.tMd
+                    clip: true
+                    echoMode: fld.password ? TextInput.Password : TextInput.Normal
+                }
+                Text {
+                    visible: input.text.length === 0
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.s3
+                    verticalAlignment: Text.AlignVCenter
+                    text: fld.placeholder
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tSm
+                }
+            }
+        }
+
+        // Botón principal (acento).
+        component PrimaryButton: Rectangle {
+            id: pb
+            property string text: ""
+            signal clicked()
+            implicitWidth: pbLabel.implicitWidth + Theme.s5
+            height: 36
+            radius: Theme.rMd
+            color: pbHover.containsMouse ? Theme.active(Sys.accent) : Sys.accent
+            scale: pbHover.pressed ? 0.97 : 1
+            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+            Text {
+                id: pbLabel
+                anchors.centerIn: parent
+                text: pb.text
+                color: Sys.onAccent
+                font.pixelSize: Theme.tMd
+                font.weight: Font.DemiBold
+            }
+            MouseArea {
+                id: pbHover
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: pb.clicked()
+            }
+        }
+
+        // Botón secundario; `danger` lo tiñe en rojo para acciones destructivas.
+        component GhostButton: Rectangle {
+            id: gb
+            property string text: ""
+            property bool danger: false
+            signal clicked()
+            implicitWidth: gbLabel.implicitWidth + Theme.s4
+            height: 34
+            radius: Theme.rMd
+            color: gbHover.containsMouse
+                   ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Sys.surfaceAlt))
+                   : (gb.danger ? "transparent" : Sys.surfaceAlt)
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+            Text {
+                id: gbLabel
+                anchors.centerIn: parent
+                text: gb.text
+                color: gb.danger
+                       ? (gbHover.containsMouse ? Sys.danger : Sys.textDim)
+                       : (gbHover.containsMouse ? Sys.accent : Sys.text)
+                font.pixelSize: Theme.tMd
+                font.weight: Font.DemiBold
+            }
+            MouseArea {
+                id: gbHover
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: gb.clicked()
+            }
+        }
+
+        // Insignia de estado (lista / pendiente, o sesión iniciada).
+        component StatusBadge: Rectangle {
+            id: sb
+            property bool ok: false
+            property string okText: "Lista"
+            property string offText: "Pendiente"
+            implicitWidth: sbLabel.implicitWidth + Theme.s3
+            height: 20
+            radius: 10
+            color: sb.ok ? Sys.accentDim : Theme.alpha(Sys.danger, 0.14)
+
+            Text {
+                id: sbLabel
+                anchors.centerIn: parent
+                text: sb.ok ? sb.okText : sb.offText
+                color: sb.ok ? Sys.accent : Sys.danger
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+            }
+        }
 
         ColumnLayout {
             id: settingsLayout
@@ -1765,6 +2068,7 @@ Window {
             anchors.bottomMargin: Theme.s3
             spacing: Theme.s3
 
+            // ---- cabecera -----------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s3
@@ -1777,21 +2081,21 @@ Window {
                 }
                 Item { Layout.fillWidth: true }
 
-                Rectangle { // close
+                Rectangle { // cerrar
                     width: 32
                     height: 32
                     radius: Theme.rMd
-                    color: closeX.containsMouse ? Sys.surfaceAlt : "transparent"
+                    color: closeMa.containsMouse ? Sys.surfaceAlt : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
                         width: 16
                         height: 16
                         kind: "x"
-                        color: closeX.containsMouse ? Sys.accent : Sys.textDim
+                        color: closeMa.containsMouse ? Sys.accent : Sys.textDim
                     }
                     MouseArea {
-                        id: closeX
+                        id: closeMa
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
@@ -1800,11 +2104,10 @@ Window {
                 }
             }
 
-            Rectangle { // separador bajo la cabecera
+            Rectangle { // separador de cabecera
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 color: Sys.borderSubtle
-                opacity: 1
             }
 
             Flickable {
@@ -1818,1181 +2121,441 @@ Window {
 
                 ColumnLayout {
                     id: settingsCol
-                    // Columna centrada con ancho máximo: en pantallas anchas
-                    // (2560 px) los controles no se estiran de borde a borde y
-                    // en ventanas pequeñas vuelve al ancho disponible sin
-                    // desbordar (nunca mayor que el Flickable).
-                    width: Math.min(settingsScroll.width, 1120)
+                    // Columna centrada con ancho legible: no se estira de borde
+                    // a borde en pantallas anchas y nunca desborda en ventanas
+                    // pequeñas.
+                    width: Math.min(settingsScroll.width, 820)
                     x: Math.max(0, (settingsScroll.width - width) / 2)
-                    spacing: Theme.s3
+                    spacing: Theme.s5
 
-                    // ---- CUENTAS --------------------------------------
-                    Text {
-                        text: "CUENTAS"
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tXs
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 1.4
+                    // ======================================================
+                    // APARIENCIA
+                    // ======================================================
+                    SettingSection {
+                        title: "Apariencia"
+
+                        SettingRow {
+                            label: "Seguir el tema del sistema"
+                            desc: "Usa la paleta del escritorio (iNiR/matugen)"
+                            Toggle {
+                                checked: root.followSys
+                                onToggled: {
+                                    root.followSys = !root.followSys
+                                    root.cfgSet("followSystem", root.followSys ? "true" : "false")
+                                    root.toast("Guardado en la configuración")
+                                }
+                            }
+                        }
+
+                        SettingRow {
+                            label: "Color de acento"
+                            desc: "Hexadecimal, por ejemplo #e3bae5"
+                            RowLayout {
+                                spacing: Theme.s2
+                                Field {
+                                    id: accentField
+                                    Layout.preferredWidth: 150
+                                    placeholder: "#e3bae5"
+                                    text: root.cfgGet("accent")
+                                }
+                                PrimaryButton {
+                                    text: "Aplicar"
+                                    onClicked: {
+                                        const v = accentField.text.trim()
+                                        if (!root.hexOk(v)) {
+                                            root.toast("Color inválido: usa #rrggbb")
+                                            return
+                                        }
+                                        root.cfgSet("accent", v.charAt(0) === "#" ? v : "#" + v)
+                                        root.toast("Guardado en la configuración")
+                                    }
+                                }
+                            }
+                        }
                     }
 
-                    Repeater {
-                        model: sources.list
+                    // ======================================================
+                    // REPRODUCCIÓN
+                    // ======================================================
+                    SettingSection {
+                        title: "Reproducción"
 
-                        delegate: Rectangle {
-                            required property var modelData
-                            id: block
-                            Layout.fillWidth: true
-                            radius: Theme.rMd
-                            color: "transparent"
-                            border.width: 0
-                            implicitHeight: blockCol.implicitHeight + 20
-
-                            Rectangle {
-                                anchors { left: parent.left; right: parent.right; top: parent.top }
-                                height: 1
-                                color: Sys.borderSubtle
+                        SettingBlock {
+                            label: "Fuente por defecto"
+                            desc: "Con qué servicio empieza la app"
+                            Repeater {
+                                model: sources.list
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.name
+                                    selected: sources.activeId === modelData.id
+                                    onPicked: {
+                                        root.pickSource(modelData.id)
+                                        root.cfgSet("defaultSource", modelData.id)
+                                        root.toast("Guardado en la configuración")
+                                    }
+                                }
                             }
+                        }
 
-                            ColumnLayout {
-                                id: blockCol
-                                anchors.fill: parent
-                                anchors.leftMargin: Theme.s3
-                                anchors.rightMargin: Theme.s3
-                                anchors.topMargin: Theme.s3
-                                anchors.bottomMargin: Theme.s2
+                        SettingBlock {
+                            label: "Calidad de audio"
+                            desc: "Máxima sin recodificar; bájala para ahorrar datos"
+                            Repeater {
+                                model: [
+                                    { id: "max", label: "Máxima" },
+                                    { id: "alta", label: "Alta" },
+                                    { id: "media", label: "Media" },
+                                    { id: "baja", label: "Baja" }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: player.quality === modelData.id
+                                    onPicked: {
+                                        player.setQuality(modelData.id)
+                                        root.cfgSet("audioQuality", modelData.id)
+                                        root.toast("Calidad: " + modelData.label)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // LETRAS
+                    // ======================================================
+                    SettingSection {
+                        title: "Letras"
+
+                        SettingRow {
+                            label: "Letras sincronizadas"
+                            desc: "Busca la letra de cada canción"
+                            Toggle {
+                                checked: root.lyricsEnabled
+                                onToggled: {
+                                    root.lyricsEnabled = !root.lyricsEnabled
+                                    root.cfgSet("lyricsEnabled", root.lyricsEnabled)
+                                    if (!root.lyricsEnabled)
+                                        lyrics.clear()
+                                    else {
+                                        root.lyricsKey = ""
+                                        root.fetchLyrics()
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // DISCORD
+                    // ======================================================
+                    SettingSection {
+                        title: "Discord"
+
+                        SettingRow {
+                            label: "Discord Rich Presence"
+                            desc: "Muestra lo que suena en tu perfil"
+                            RowLayout {
                                 spacing: Theme.s2
+                                Text {
+                                    text: discord.connected ? "Conectado"
+                                          : (root.discordEnabled ? "Sin conexión" : "Desactivado")
+                                    color: discord.connected ? Sys.accent : Sys.textDim
+                                    font.pixelSize: Theme.tXs
+                                    font.weight: Font.DemiBold
+                                }
+                                Toggle {
+                                    checked: root.discordEnabled
+                                    onToggled: {
+                                        root.discordEnabled = !root.discordEnabled
+                                        root.cfgSet("discordRpc", root.discordEnabled)
+                                        discord.configure(root.discordEnabled, "")
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // DESCARGAS
+                    // ======================================================
+                    SettingSection {
+                        title: "Descargas"
+
+                        SettingBlock {
+                            label: "Carpeta de descargas"
+                            desc: "Dónde se guardan las canciones descargadas"
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: 34
+                                radius: Theme.rMd
+                                color: Sys.bg
+                                border.width: 1
+                                border.color: Sys.borderSubtle
+                                Text {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: Theme.s3
+                                    anchors.rightMargin: Theme.s3
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: downloads.folder
+                                    color: Sys.textDim
+                                    font.pixelSize: Theme.tSm
+                                    elide: Text.ElideMiddle
+                                }
+                            }
+                            GhostButton {
+                                text: "Abrir carpeta"
+                                onClicked: downloads.openFolder()
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // CUENTAS
+                    // ======================================================
+                    SettingSection {
+                        title: "Cuentas"
+
+                        Repeater {
+                            model: sources.list
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                required property int index
+                                Layout.fillWidth: true
+                                spacing: Theme.s3
+
+                                Rectangle { // divider entre cuentas
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: Theme.s2
+                                    visible: index > 0
+                                    height: 1
+                                    color: Sys.borderSubtle
+                                }
 
                                 RowLayout {
                                     Layout.fillWidth: true
                                     spacing: Theme.s2
-
                                     Text {
-                                        text: block.modelData.name
+                                        text: modelData.name
                                         color: Sys.text
-                                        font.pixelSize: Theme.tBase
-                                        font.bold: true
+                                        font.pixelSize: Theme.tMd
+                                        font.weight: Font.DemiBold
                                     }
-                                    Rectangle {
-                                        height: Theme.s4
-                                        radius: Theme.rSm
-                                        color: block.modelData.status === "ready"
-                                               ? Sys.accentDim : Theme.alpha(Sys.danger, 0.14)
-                                        implicitWidth: badgeLabel.implicitWidth + 12
-                                        Text {
-                                            id: badgeLabel
-                                            anchors.centerIn: parent
-                                            text: block.modelData.status === "ready"
-                                                  ? "Lista" : "Bloqueada · backend pendiente"
-                                            color: block.modelData.status === "ready"
-                                                   ? Sys.accent : Sys.danger
-                                            font.pixelSize: Theme.tXs
-                                            font.bold: true
-                                        }
+                                    StatusBadge {
+                                        ok: modelData.status === "ready"
                                     }
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                // ---- YouTube Music (Google login) ----
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    visible: block.modelData.id === "ytm"
-                                    spacing: 10
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Inicia sesión en una ventana de Google integrada y sincroniza «Me gusta». Tu navegador personal no se toca."
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tSm
-                                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                        lineHeight: 1.3
-                                    }
-
-                                    // ---- ok: sesión iniciada ----
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: Theme.s2
-                                        visible: root.ytmState() === "ok"
-
-                                        Rectangle {
-                                            height: 20
-                                            radius: 10
-                                            color: Sys.accentDim
-                                            implicitWidth: okLabel.implicitWidth + 14
-                                            Text {
-                                                id: okLabel
-                                                anchors.centerIn: parent
-                                                text: "Sesión iniciada"
-                                                color: Sys.accent
-                                                font.pixelSize: Theme.tXs
-                                                font.bold: true
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            implicitWidth: ytmSyncBtn.implicitWidth + 26
-                                            height: 34
-                                            radius: Theme.rMd
-                                            color: ytmSyncMouse.containsMouse ? Theme.hover(Sys.surfaceAlt) : Sys.surfaceAlt
-                                            border.width: 0
-                                            scale: ytmSyncMouse.pressed ? 0.96 : 1
-                                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                id: ytmSyncBtn
-                                                anchors.centerIn: parent
-                                                text: "Sincronizar Me gusta"
-                                                color: ytmSyncMouse.containsMouse ? Sys.accent : Sys.text
-                                                font.pixelSize: Theme.tMd
-                                                font.bold: true
-                                            }
-                                            MouseArea {
-                                                id: ytmSyncMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: catalog.syncLiked()
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            implicitWidth: ytmLogoutBtn.implicitWidth + 20
-                                            height: 34
-                                            radius: Theme.rMd
-                                            color: ytmLogoutMouse.containsMouse ? Theme.alpha(Sys.danger, 0.12) : "transparent"
-                                            border.width: 0
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                id: ytmLogoutBtn
-                                                anchors.centerIn: parent
-                                                text: "Cerrar sesión"
-                                                color: ytmLogoutMouse.containsMouse ? Sys.danger : Sys.textDim
-                                                font.pixelSize: Theme.tSm
-                                            }
-                                            MouseArea {
-                                                id: ytmLogoutMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: catalog.logoutYTM()
-                                            }
-                                        }
-                                        Item { Layout.fillWidth: true }
-                                    }
-
-                                    // ---- idle (or backend missing) ----
-                                    Rectangle {
-                                        visible: root.ytmState() === "" || root.ytmState() === "nologin"
-                                        implicitWidth: ytmLoginBtn.implicitWidth + 30
-                                        height: 36
-                                        radius: Theme.rMd
-                                        color: ytmLoginMouse.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                                        scale: ytmLoginMouse.pressed ? 0.96 : 1
-                                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                        Text {
-                                            id: ytmLoginBtn
-                                            anchors.centerIn: parent
-                                            text: "Iniciar sesión con Google"
-                                            color: Sys.onAccent
-                                            font.pixelSize: Theme.tMd
-                                            font.bold: true
-                                        }
-                                        MouseArea {
-                                            id: ytmLoginMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: root.ytmLogin()
-                                        }
-                                    }
-
-                                    // ---- waiting ----
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 10
-                                        visible: root.ytmState() === "waiting"
-
-                                        RowLayout {
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s3
-                                            Item {
-                                                width: 18
-                                                height: 18
-                                                Rectangle {
-                                                    width: 2
-                                                    height: 8
-                                                    radius: 1
-                                                    color: Sys.accent
-                                                    anchors.top: parent.top
-                                                    anchors.topMargin: 1
-                                                    anchors.horizontalCenter: parent.horizontalCenter
-                                                }
-                                                RotationAnimator on rotation {
-                                                    from: 0
-                                                    to: 360
-                                                    duration: 900
-                                                    loops: Animation.Infinite
-                                                    running: root.settingsOpen
-                                                             && root.ytmState() === "waiting"
-                                                }
-                                            }
-                                            Text {
-                                                Layout.fillWidth: true
-                                                text: "Esperando a que inicies sesión en la ventana de Google…"
-                                                color: Sys.text
-                                                font.pixelSize: Theme.tMd
-                                                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                            }
-                                        }
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: "Se abrió una ventana de Google integrada. Escribe tu cuenta y contraseña ahí; la app detecta la sesión y la ventana se cierra sola."
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tXs
-                                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                        }
-
-                                        Rectangle {
-                                            implicitWidth: ytmCancelBtn.implicitWidth + 22
-                                            height: 34
-                                            radius: Theme.rMd
-                                            color: ytmCancelMouse.containsMouse ? Theme.alpha(Sys.danger, 0.12) : "transparent"
-                                            border.width: 0
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                id: ytmCancelBtn
-                                                anchors.centerIn: parent
-                                                text: "Cancelar"
-                                                color: ytmCancelMouse.containsMouse ? Sys.danger : Sys.textDim
-                                                font.pixelSize: Theme.tSm
-                                            }
-                                            MouseArea {
-                                                id: ytmCancelMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: catalog.logoutYTM()
-                                            }
-                                        }
-                                    }
-
-                                    // ---- error ----
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: Theme.s2
-                                        visible: root.ytmState() === "error"
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: root.ytmError()
-                                            color: Sys.danger
-                                            font.pixelSize: Theme.tSm
-                                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                        }
-                                        Rectangle {
-                                            implicitWidth: ytmRetryBtn.implicitWidth + 26
-                                            height: 34
-                                            radius: Theme.rMd
-                                            color: ytmRetryMouse.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                                            scale: ytmRetryMouse.pressed ? 0.96 : 1
-                                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                id: ytmRetryBtn
-                                                anchors.centerIn: parent
-                                                text: "Reintentar"
-                                                color: Sys.onAccent
-                                                font.pixelSize: Theme.tMd
-                                                font.bold: true
-                                            }
-                                            MouseArea {
-                                                id: ytmRetryMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: root.ytmLogin()
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // ---- SoundCloud ----
+                                // ---- YouTube Music (sesión de Google) ------
                                 Text {
                                     Layout.fillWidth: true
-                                    visible: block.modelData.id === "soundcloud"
-                                    text: "Acceso público, sin login: búsqueda y playlists públicas de SoundCloud."
+                                    visible: modelData.id === "ytm"
+                                    text: "Inicia sesión con Google y sincroniza tus «Me gusta»."
                                     color: Sys.textDim
                                     font.pixelSize: Theme.tSm
-                                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                    lineHeight: 1.3
+                                    elide: Text.ElideRight
                                 }
 
-                                // ---- Spotify ----
-                                ColumnLayout {
+                                RowLayout { // sesión iniciada
                                     Layout.fillWidth: true
-                                    visible: block.modelData.id === "spotify"
-                                    spacing: Theme.s3
+                                    spacing: Theme.s2
+                                    visible: modelData.id === "ytm" && root.ytmState() === "ok"
+                                    StatusBadge { ok: true; okText: "Sesión iniciada" }
+                                    GhostButton {
+                                        text: "Sincronizar Me gusta"
+                                        onClicked: catalog.syncLiked()
+                                    }
+                                    GhostButton {
+                                        text: "Cerrar sesión"
+                                        danger: true
+                                        onClicked: catalog.logoutYTM()
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                }
+
+                                PrimaryButton { // iniciar sesión
+                                    visible: modelData.id === "ytm"
+                                             && (root.ytmState() === "" || root.ytmState() === "nologin")
+                                    text: "Iniciar sesión con Google"
+                                    onClicked: root.ytmLogin()
+                                }
+
+                                ColumnLayout { // esperando inicio de sesión
+                                    Layout.fillWidth: true
+                                    spacing: Theme.s2
+                                    visible: modelData.id === "ytm" && root.ytmState() === "waiting"
 
                                     RowLayout {
                                         Layout.fillWidth: true
-                                        spacing: Theme.s2
-                                        ColumnLayout { // Client ID
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s1
-                                            Text {
-                                                text: "Client ID"
-                                                color: Sys.textDim
-                                                font.pixelSize: Theme.tXs
-                                            }
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                height: 34
-                                                radius: Theme.rMd
-                                                color: Sys.bg
-                                                border.width: 1
-                                                border.color: cidInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                                TextInput {
-                                                    id: cidInput
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    anchors.rightMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    color: Sys.text
-                                                    font.pixelSize: Theme.tMd
-                                                    clip: true
-                                                }
-                                                Text {
-                                                    visible: cidInput.text.length === 0
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    text: "developer.spotify.com"
-                                                    color: Sys.textDim
-                                                    font.pixelSize: Theme.tSm
-                                                }
-                                            }
-                                        }
-                                        ColumnLayout { // Usuario
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s1
-                                            Text {
-                                                text: "Usuario"
-                                                color: Sys.textDim
-                                                font.pixelSize: Theme.tXs
-                                            }
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                height: 34
-                                                radius: Theme.rMd
-                                                color: Sys.bg
-                                                border.width: 1
-                                                border.color: userInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                                TextInput {
-                                                    id: userInput
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    anchors.rightMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    color: Sys.text
-                                                    font.pixelSize: Theme.tMd
-                                                    clip: true
-                                                }
-                                                Text {
-                                                    visible: userInput.text.length === 0
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    text: "cuenta Premium"
-                                                    color: Sys.textDim
-                                                    font.pixelSize: Theme.tSm
-                                                }
-                                            }
-                                        }
-                                        ColumnLayout { // Contraseña
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s1
-                                            Text {
-                                                text: "Contraseña"
-                                                color: Sys.textDim
-                                                font.pixelSize: Theme.tXs
-                                            }
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                height: 34
-                                                radius: Theme.rMd
-                                                color: Sys.bg
-                                                border.width: 1
-                                                border.color: passInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                                TextInput {
-                                                    id: passInput
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    anchors.rightMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    color: Sys.text
-                                                    font.pixelSize: Theme.tMd
-                                                    clip: true
-                                                    echoMode: TextInput.Password
-                                                }
-                                                Text {
-                                                    visible: passInput.text.length === 0
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    text: "••••••••"
-                                                    color: Sys.textDim
-                                                    font.pixelSize: Theme.tSm
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        implicitWidth: spotSave.implicitWidth + 26
-                                        height: 34
-                                        radius: Theme.rMd
-                                        color: spotSaveMouse.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                                        scale: spotSaveMouse.pressed ? 0.96 : 1
-                                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                        Text {
-                                            id: spotSave
-                                            anchors.centerIn: parent
-                                            text: "Guardar"
-                                            color: Sys.onAccent
-                                            font.pixelSize: Theme.tMd
-                                            font.bold: true
-                                        }
-                                        MouseArea {
-                                            id: spotSaveMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                root.cfgLogin("spotify", cidInput.text,
-                                                              userInput.text, passInput.text)
-                                                root.toast("Guardado en la configuración")
-                                            }
-                                        }
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Se activa cuando el backend librespot esté listo; guardamos tus credenciales. Requiere cuenta Premium y un Client ID de developer.spotify.com."
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tSm
-                                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                                        lineHeight: 1.3
-                                    }
-                                }
-
-                                // ---- Tidal ----
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    visible: block.modelData.id === "tidal"
-                                    spacing: Theme.s3
-
-                                    RowLayout {
-                                        Layout.fillWidth: true
-                                        spacing: Theme.s2
-                                        ColumnLayout { // Usuario
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s1
-                                            Text {
-                                                text: "Usuario"
-                                                color: Sys.textDim
-                                                font.pixelSize: Theme.tXs
-                                            }
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                height: 34
-                                                radius: Theme.rMd
-                                                color: Sys.bg
-                                                border.width: 1
-                                                border.color: tidalUserInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                                TextInput {
-                                                    id: tidalUserInput
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    anchors.rightMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    color: Sys.text
-                                                    font.pixelSize: Theme.tMd
-                                                    clip: true
-                                                }
-                                                Text {
-                                                    visible: tidalUserInput.text.length === 0
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    text: "cuenta Tidal"
-                                                    color: Sys.textDim
-                                                    font.pixelSize: Theme.tSm
-                                                }
-                                            }
-                                        }
-                                        ColumnLayout { // Contraseña
-                                            Layout.fillWidth: true
-                                            spacing: Theme.s1
-                                            Text {
-                                                text: "Contraseña"
-                                                color: Sys.textDim
-                                                font.pixelSize: Theme.tXs
-                                            }
-                                            Rectangle {
-                                                Layout.fillWidth: true
-                                                height: 34
-                                                radius: Theme.rMd
-                                                color: Sys.bg
-                                                border.width: 1
-                                                border.color: tidalPassInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                                TextInput {
-                                                    id: tidalPassInput
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    anchors.rightMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    color: Sys.text
-                                                    font.pixelSize: Theme.tMd
-                                                    clip: true
-                                                    echoMode: TextInput.Password
-                                                }
-                                                Text {
-                                                    visible: tidalPassInput.text.length === 0
-                                                    anchors.fill: parent
-                                                    anchors.leftMargin: Theme.s3
-                                                    verticalAlignment: Text.AlignVCenter
-                                                    text: "••••••••"
-                                                    color: Sys.textDim
-                                                    font.pixelSize: Theme.tSm
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        implicitWidth: tidalSave.implicitWidth + 26
-                                        height: 34
-                                        radius: Theme.rMd
-                                        color: tidalSaveMouse.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                                        scale: tidalSaveMouse.pressed ? 0.96 : 1
-                                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                        Text {
-                                            id: tidalSave
-                                            anchors.centerIn: parent
-                                            text: "Guardar"
-                                            color: Sys.onAccent
-                                            font.pixelSize: Theme.tMd
-                                            font.bold: true
-                                        }
-                                        MouseArea {
-                                            id: tidalSaveMouse
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                root.cfgLogin("tidal", tidalUserInput.text,
-                                                              tidalPassInput.text, "")
-                                                root.toast("Guardado en la configuración")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ---- REPRODUCTOR ------------------------------------
-                    Text {
-                        Layout.fillWidth: true
-                        Layout.topMargin: Theme.s2
-                        text: "REPRODUCTOR"
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tXs
-                        font.weight: Font.DemiBold
-                        font.letterSpacing: 1.4
-                    }
-
-                    ColumnLayout {
-                        id: playerCol
-                        Layout.fillWidth: true
-                        spacing: Theme.s3
-
-                            Rectangle { // bloque de ajuste: fuente por defecto
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref1.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref1
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                Text {
-                                    text: "Fuente por defecto"
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tMd
-                                    font.bold: true
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.s2
-                                    Repeater {
-                                        model: sources.list
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            id: chip
-                                            readonly property bool cur: sources.activeId === chip.modelData.id
-                                            Layout.fillWidth: true
-                                            height: 30
-                                            radius: Theme.rSm
-                                            color: cur ? Sys.accentDim : (chipMouse.containsMouse ? Sys.bg : "transparent")
-                                            border.width: 0
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: chip.modelData.name
-                                                color: cur ? Sys.accent : (chipMouse.containsMouse ? Sys.text : Sys.textDim)
-                                                font.pixelSize: Theme.tSm
-                                                font.bold: cur
-                                                elide: Text.ElideRight
-                                            }
-                                            MouseArea {
-                                                id: chipMouse
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    root.pickSource(chip.modelData.id)
-                                                    root.cfgSet("defaultSource", chip.modelData.id)
-                                                    root.toast("Guardado en la configuración")
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                                }
-                            }
-
-                            Rectangle { // bloque de ajuste: tema del sistema
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref2.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref2
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s3
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 1
-                                    Text {
-                                        text: "Seguir el tema del sistema"
-                                        color: Sys.text
-                                        font.pixelSize: Theme.tMd
-                                        font.bold: true
-                                    }
-                                    Text {
-                                        text: "Paleta de iNiR/matugen (sincronizada con el escritorio)"
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tXs
-                                    }
-                                }
-                                Rectangle { // toggle
-                                    width: 40
-                                    height: 22
-                                    radius: 11
-                                    color: root.followSys ? Sys.accent : Theme.mix(Sys.surface, Sys.text, 0.16)
-                                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                    Rectangle {
-                                        width: 18
-                                        height: 18
-                                        radius: 9
-                                        color: Sys.onAccent
-                                        x: root.followSys ? 20 : 2
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        Behavior on x { NumberAnimation { duration: Theme.fastMs } }
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.followSys = !root.followSys
-                                            root.cfgSet("followSystem", root.followSys ? "true" : "false")
-                                            root.toast("Guardado en la configuración")
-                                        }
-                                    }
-                                }
-                            }
-                                }
-                            }
-
-                            Rectangle { // bloque de ajuste: color de acento
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref3.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref3
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.s1
-                                    Text {
-                                        text: "Color de acento (hex)"
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tXs
-                                    }
-                                    Rectangle {
-                                        Layout.fillWidth: true
-                                        height: 34
-                                        radius: Theme.rMd
-                                        color: Sys.bg
-                                        border.width: 1
-                                        border.color: accentInput.activeFocus ? Sys.accent : Sys.borderSubtle
-                                        Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
-                                        TextInput {
-                                            id: accentInput
-                                            anchors.fill: parent
-                                            anchors.leftMargin: Theme.s3
-                                            anchors.rightMargin: Theme.s3
-                                            verticalAlignment: Text.AlignVCenter
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tMd
-                                            clip: true
-                                            text: root.cfgGet("accent")
-                                        }
-                                        Text {
-                                            visible: accentInput.text.length === 0
-                                            anchors.fill: parent
-                                            anchors.leftMargin: Theme.s3
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: "#e3bae5"
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tSm
-                                        }
-                                    }
-                                }
-                                Rectangle {
-                                    implicitWidth: accentSave.implicitWidth + 26
-                                    height: 34
-                                    radius: Theme.rMd
-                                    color: accentSaveMouse.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                                    scale: accentSaveMouse.pressed ? 0.96 : 1
-                                    Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                    Text {
-                                        id: accentSave
-                                        anchors.centerIn: parent
-                                        text: "Guardar"
-                                        color: Sys.onAccent
-                                        font.pixelSize: Theme.tMd
-                                        font.bold: true
-                                    }
-                                    MouseArea {
-                                        id: accentSaveMouse
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            const v = accentInput.text.trim()
-                                            if (!root.hexOk(v)) {
-                                                root.toast("Color inválido: usa #rrggbb")
-                                                return
-                                            }
-                                            root.cfgSet("accent", v.charAt(0) === "#" ? v : "#" + v)
-                                            root.toast("Guardado en la configuración")
-                                        }
-                                    }
-                                }
-                            }
-                                }
-                            }
-
-                            // ---- Calidad de audio ----------------------------
-                            Rectangle { // bloque de ajuste: calidad de audio
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref4.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref4
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                Text {
-                                    text: "Calidad de audio"
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tMd
-                                    font.bold: true
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "Máxima por defecto (sin recodificar). Bájala para ahorrar datos."
-                                    color: Sys.textDim
-                                    font.pixelSize: Theme.tXs
-                                    wrapMode: Text.WordWrap
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.s2
-                                    Repeater {
-                                        model: [
-                                            { id: "max", label: "Máxima" },
-                                            { id: "alta", label: "Alta" },
-                                            { id: "media", label: "Media" },
-                                            { id: "baja", label: "Baja" }
-                                        ]
-                                        delegate: Rectangle {
-                                            required property var modelData
-                                            readonly property bool cur: player.quality === modelData.id
-                                            Layout.fillWidth: true
-                                            height: 30
-                                            radius: Theme.rSm
-                                            color: cur ? Sys.accentDim : (qTag.containsMouse ? Sys.bg : "transparent")
-                                            border.width: 0
-                                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                            Text {
-                                                anchors.centerIn: parent
-                                                text: modelData.label
-                                                color: cur ? Sys.accent : (qTag.containsMouse ? Sys.text : Sys.textDim)
-                                                font.pixelSize: Theme.tSm
-                                                font.bold: cur
-                                            }
-                                            MouseArea {
-                                                id: qTag
-                                                anchors.fill: parent
-                                                hoverEnabled: true
-                                                cursorShape: Qt.PointingHandCursor
-                                                onClicked: {
-                                                    player.setQuality(modelData.id)
-                                                    root.cfgSet("audioQuality", modelData.id)
-                                                    root.toast("Calidad: " + modelData.label)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                                }
-                            }
-
-                            // ---- Letras --------------------------------------
-                            Rectangle { // bloque de ajuste: letras
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref5.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref5
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            RowLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
-                                    Text {
-                                        text: "Letras"
-                                        color: Sys.text
-                                        font.pixelSize: Theme.tMd
-                                        font.bold: true
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Busca la letra sincronizada de cada canción."
-                                        color: Sys.textDim
-                                        font.pixelSize: Theme.tXs
-                                        wrapMode: Text.WordWrap
-                                    }
-                                }
-                                Rectangle {
-                                    width: 40
-                                    height: 22
-                                    radius: 11
-                                    color: root.lyricsEnabled ? Sys.accent : Theme.mix(Sys.surface, Sys.text, 0.16)
-                                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                    Rectangle {
-                                        width: 18
-                                        height: 18
-                                        radius: 9
-                                        color: Sys.onAccent
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        x: root.lyricsEnabled ? parent.width - width - 3 : 3
-                                        Behavior on x { NumberAnimation { duration: Theme.fastMs } }
-                                    }
-                                    MouseArea {
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.lyricsEnabled = !root.lyricsEnabled
-                                            root.cfgSet("lyricsEnabled", root.lyricsEnabled)
-                                            if (!root.lyricsEnabled)
-                                                lyrics.clear()
-                                            else {
-                                                root.lyricsKey = ""
-                                                root.fetchLyrics()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                                }
-                            }
-
-                            // ---- Discord Rich Presence -----------------------
-                            Rectangle { // bloque de ajuste: discord rich presence
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref6.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref6
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: Theme.s2
-                                    ColumnLayout {
-                                        Layout.fillWidth: true
-                                        spacing: 2
-                                        Text {
-                                            text: "Discord Rich Presence"
-                                            color: Sys.text
-                                            font.pixelSize: Theme.tMd
-                                            font.bold: true
-                                        }
-                                        Text {
-                                            Layout.fillWidth: true
-                                            text: "Muestra lo que suena en tu perfil. Ya viene configurado."
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tXs
-                                            wrapMode: Text.WordWrap
-                                        }
-                                    }
-                                    Text {
-                                        text: discord.connected ? "Conectado"
-                                              : (root.discordEnabled ? "Sin conexión" : "Desactivado")
-                                        color: discord.connected ? Sys.accent : Sys.textDim
-                                        font.pixelSize: Theme.tXs
-                                        font.bold: true
-                                    }
-                                    Rectangle {
-                                        width: 40
-                                        height: 22
-                                        radius: 11
-                                        color: root.discordEnabled ? Sys.accent : Theme.mix(Sys.surface, Sys.text, 0.16)
-                                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                        Rectangle {
+                                        spacing: Theme.s3
+                                        Item { // indicador girando (solo con el panel abierto)
                                             width: 18
                                             height: 18
-                                            radius: 9
-                                            color: Sys.onAccent
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            x: root.discordEnabled ? parent.width - width - 3 : 3
-                                            Behavior on x { NumberAnimation { duration: Theme.fastMs } }
-                                        }
-                                        MouseArea {
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: {
-                                                root.discordEnabled = !root.discordEnabled
-                                                root.cfgSet("discordRpc", root.discordEnabled)
-                                                discord.configure(root.discordEnabled, "")
+                                            Rectangle {
+                                                width: 2
+                                                height: 8
+                                                radius: 1
+                                                color: Sys.accent
+                                                anchors.top: parent.top
+                                                anchors.topMargin: 1
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                            }
+                                            RotationAnimator on rotation {
+                                                from: 0
+                                                to: 360
+                                                duration: 900
+                                                loops: Animation.Infinite
+                                                running: root.settingsOpen
+                                                         && root.ytmState() === "waiting"
                                             }
                                         }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Esperando a que inicies sesión en la ventana de Google…"
+                                            color: Sys.text
+                                            font.pixelSize: Theme.tMd
+                                            elide: Text.ElideRight
+                                        }
+                                        GhostButton {
+                                            text: "Cancelar"
+                                            danger: true
+                                            onClicked: catalog.logoutYTM()
+                                        }
                                     }
                                 }
-                            }
-                                }
-                            }
 
-                            // ---- Carpeta de descargas ------------------------
-                            Rectangle { // bloque de ajuste: carpeta de descargas
-                                Layout.fillWidth: true
-                                radius: Theme.rMd
-                                color: "transparent"
-                                border.width: 0
-                                implicitHeight: pref7.implicitHeight + 20
-
-                                Rectangle {
-                                    anchors { left: parent.left; right: parent.right; top: parent.top }
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
-
-                                ColumnLayout {
-                                    id: pref7
-                                    anchors.fill: parent
-                                    anchors.leftMargin: Theme.s3
-                                    anchors.rightMargin: Theme.s3
-                                    anchors.topMargin: Theme.s3
-                                    anchors.bottomMargin: Theme.s2
-                                    spacing: Theme.s2
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: Theme.s2
-                                Text {
-                                    text: "Carpeta de descargas"
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tBase
-                                    font.bold: true
-                                }
-                                RowLayout {
+                                ColumnLayout { // error
                                     Layout.fillWidth: true
                                     spacing: Theme.s2
-                                    Rectangle {
+                                    visible: modelData.id === "ytm" && root.ytmState() === "error"
+
+                                    Text {
                                         Layout.fillWidth: true
-                                        height: 34
-                                        radius: Theme.rMd
-                                        color: Sys.bg
-                                        border.width: 1
-                                        border.color: Sys.borderSubtle
-                                        Text {
-                                            anchors.fill: parent
-                                            anchors.leftMargin: Theme.s3
-                                            anchors.rightMargin: Theme.s3
-                                            verticalAlignment: Text.AlignVCenter
-                                            text: downloads.folder
-                                            color: Sys.textDim
-                                            font.pixelSize: Theme.tSm
-                                            elide: Text.ElideMiddle
+                                        text: root.ytmError()
+                                        color: Sys.danger
+                                        font.pixelSize: Theme.tSm
+                                        wrapMode: Text.WordWrap
+                                    }
+                                    PrimaryButton {
+                                        text: "Reintentar"
+                                        onClicked: root.ytmLogin()
+                                    }
+                                }
+
+                                // ---- SoundCloud (acceso público) -----------
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: modelData.id === "soundcloud"
+                                    text: "Acceso público, sin necesidad de cuenta."
+                                    color: Sys.textDim
+                                    font.pixelSize: Theme.tSm
+                                    elide: Text.ElideRight
+                                }
+
+                                // ---- Spotify (credenciales) ----------------
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: modelData.id === "spotify"
+                                    spacing: Theme.s3
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.s2
+                                        Field {
+                                            id: spotCid
+                                            Layout.fillWidth: true
+                                            label: "Client ID"
+                                            placeholder: "developer.spotify.com"
+                                        }
+                                        Field {
+                                            id: spotUser
+                                            Layout.fillWidth: true
+                                            label: "Usuario"
+                                            placeholder: "cuenta Premium"
+                                        }
+                                        Field {
+                                            id: spotPass
+                                            Layout.fillWidth: true
+                                            label: "Contraseña"
+                                            placeholder: "••••••••"
+                                            password: true
                                         }
                                     }
-                                    Rectangle {
-                                        implicitWidth: dlOpenLabel.implicitWidth + 24
-                                        height: 34
-                                        radius: Theme.rMd
-                                        color: dlOpenMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : Sys.surfaceAlt
-                                        border.width: 0
-                                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                        Text {
-                                            id: dlOpenLabel
-                                            anchors.centerIn: parent
-                                            text: "Abrir carpeta"
-                                            color: dlOpenMa.containsMouse ? Sys.accent : Sys.text
-                                            font.pixelSize: Theme.tMd
-                                            font.bold: true
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.s2
+                                        PrimaryButton {
+                                            text: "Guardar"
+                                            onClicked: {
+                                                root.cfgLogin("spotify", spotCid.text,
+                                                              spotUser.text, spotPass.text)
+                                                root.toast("Guardado en la configuración")
+                                            }
                                         }
-                                        MouseArea {
-                                            id: dlOpenMa
-                                            anchors.fill: parent
-                                            hoverEnabled: true
-                                            cursorShape: Qt.PointingHandCursor
-                                            onClicked: downloads.openFolder()
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Se activará cuando el backend librespot esté listo."
+                                            color: Sys.textDim
+                                            font.pixelSize: Theme.tXs
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
                                         }
                                     }
                                 }
-                            }
+
+                                // ---- Tidal (credenciales) ------------------
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    visible: modelData.id === "tidal"
+                                    spacing: Theme.s3
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.s2
+                                        Field {
+                                            id: tidalUser
+                                            Layout.fillWidth: true
+                                            label: "Usuario"
+                                            placeholder: "cuenta Tidal"
+                                        }
+                                        Field {
+                                            id: tidalPass
+                                            Layout.fillWidth: true
+                                            label: "Contraseña"
+                                            placeholder: "••••••••"
+                                            password: true
+                                        }
+                                    }
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        spacing: Theme.s2
+                                        PrimaryButton {
+                                            text: "Guardar"
+                                            onClicked: {
+                                                root.cfgLogin("tidal", tidalUser.text,
+                                                              tidalPass.text, "")
+                                                root.toast("Guardado en la configuración")
+                                            }
+                                        }
+                                        Text {
+                                            Layout.fillWidth: true
+                                            text: "Se activará cuando el backend esté listo."
+                                            color: Sys.textDim
+                                            font.pixelSize: Theme.tXs
+                                            elide: Text.ElideRight
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
                 }
             }
-
         }
 
         // ---- indicador de scroll propio -------------------------------
