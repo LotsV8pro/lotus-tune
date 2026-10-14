@@ -87,20 +87,25 @@ Rectangle {
         border.color: Sys.border
         clip: true
 
-        RowLayout {
+        Item {
+            id: barRow
             anchors.fill: parent
             anchors.leftMargin: Theme.s3
             anchors.rightMargin: Theme.s3
             anchors.topMargin: Theme.s1
             anchors.bottomMargin: Theme.s1
-            spacing: Theme.s3
+            property int gap: Theme.s3
 
             // ---- ahora suena (izquierda) ----------------------------
             RowLayout {
-                Layout.fillWidth: true
-                Layout.minimumWidth: 150
-                Layout.alignment: Qt.AlignVCenter
+                id: leftSide
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.s2
+                // Anchura hasta el centro (deja el hueco del gap); igual que la
+                // derecha => el transporte queda siempre centrado, sin moverse
+                // con el ancho del título.
+                width: Math.max(0, (parent.width - centerCol.width) / 2 - Theme.s3)
 
                 Item {
                     Layout.alignment: Qt.AlignVCenter
@@ -159,11 +164,11 @@ Rectangle {
 
             // ---- transporte + progreso (centro) ---------------------
             ColumnLayout {
-                Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: 320
-                Layout.maximumWidth: 420
-                Layout.minimumWidth: 180
+                id: centerCol
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: 2
+                width: Math.min(320, parent.width - Theme.s3 * 2)
 
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
@@ -290,12 +295,21 @@ Rectangle {
 
             // ---- derecha: panel y volumen ----------------------------
             RowLayout {
-                Layout.fillWidth: true
-                Layout.alignment: Qt.AlignVCenter
+                id: rightSide
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
                 spacing: Theme.s2
+                width: Math.max(0, (parent.width - centerCol.width) / 2 - Theme.s3)
 
                 Item { Layout.fillWidth: true }
 
+                BarButton {
+                    diameter: 30; glyph: 15
+                    kind: bar.liked ? "heart" : "heart-outline"
+                    active: bar.liked
+                    iconColor: bar.canInteract ? Sys.text : Sys.textDim
+                    onTapped: if (bar.canInteract) bar.likeRequested()
+                }
                 BarButton {
                     diameter: 30; glyph: 15
                     kind: "queue"
