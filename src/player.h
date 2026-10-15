@@ -88,8 +88,17 @@ private:
     void send(const QJsonObject &cmd);
     void handleLine(const QByteArray &line);
     void emitPosition(bool force);
+    // Implementación real de load(): `allowResolve=false` se usa cuando nuestra
+    // pre-resolución ha fallado y toca dejar que mpv lo intente por su cuenta.
+    void loadImpl(const QString &url, bool allowResolve);
     // Traduce m_quality al selector "--ytdl-format" de yt-dlp.
     QString ytdlFormat() const;
+    // Normaliza la URL de página: las de music.youtube.com tardan ~1 s más en
+    // resolverse que las de www.youtube.com (mismo vídeo). Devolver siempre la
+    // forma www hace que resolver sea más rápido y comparta caché.
+    static QString normalizeUrl(const QString &url);
+    void loadStreamCache();
+    void saveStreamCache();
 
     QProcess m_proc;
     class QLocalSocket *m_sock = nullptr;
@@ -113,8 +122,15 @@ private:
     QStringList m_resolveFront;   // cola prioritaria (hover)
     QStringList m_resolveQueue;   // cola de fondo (siguientes de la lista)
     QHash<QString, QString> m_resolved;
+    // Momento (epoch) en que se resolvió cada entrada, para el TTL de la caché.
+    QHash<QString, qint64> m_resolvedAt;
+    // Caché en disco de URLs directas (para que una pista ya resuelta suene al
+    // instante incluso tras reiniciar la app). Caduca por TTL.
+    QString m_cacheFile;
+    QTimer m_cacheSaveTimer;
+    bool m_cacheDirty = false;
     // Encapsula el alta en las colas (dedup, prioridad, cancelación de fondo).
-    void enqueueResolve(const QString &url, bool front);
+    void enqueueResolve(const QString &url, bool front, bool urgent = false);
     void resolveQueue();
     // Nº de reintentos seguidos de la pista actual (para fallos transitorios
     // de yt-dlp/YouTube). Se resetea al empezar a sonar una pista distinta.

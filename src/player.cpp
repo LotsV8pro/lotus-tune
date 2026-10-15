@@ -3,11 +3,14 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocalSocket>
 #include <QStandardPaths>
+
+#include <algorithm>
 
 #include <QDebug>
 
@@ -25,6 +28,13 @@ Player::Player(QObject *parent)
     m_posFlush.setSingleShot(true);
     m_posFlush.setInterval(240);
     connect(&m_posFlush, &QTimer::timeout, this, [this] { emitPosition(true); });
+
+    // Caché en disco de streams resueltos: se vuelca en diferido para no
+    // escribir en cada resolución.
+    m_cacheSaveTimer.setSingleShot(true);
+    m_cacheSaveTimer.setInterval(2500);
+    connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Player::saveStreamCache);
+    loadStreamCache();
 
     // Tope de tiempo por pre-resolución: red de seguridad ante un yt-dlp colgado
     // (no ante una resolución normal, que tarda ~2.5 s). Si aún así un load()
@@ -58,6 +68,21 @@ Player::Player(QObject *parent)
                 const QString s = QString::fromUtf8(l).trimmed();
                 if (s.startsWith(QLatin1String("http"))) {
                     m_resolved.insert(url, s);
+                    m_resolvedAt.insert(url, QDateTime::currentSecsSinceEpoch());
+                    m_cacheDirty = true;
+                    m_cacheSaveTimer.start();
+                    // Tope en memoria: descarta las más antiguas.
+                    if (m_resolved.size() > 300) {
+                        QStringList keys = m_resolvedAt.keys();
+                        std::sort(keys.begin(), keys.end(),
+                                  [this](const QString &a, const QString &b) {
+                                      return m_resolvedAt.value(a) < m_resolvedAt.value(b);
+                                  });
+                        for (int i = 0; i < keys.size() && m_resolved.size() > 300; ++i) {
+                            m_resolved.remove(keys.at(i));
+                            m_resolvedAt.remove(keys.at(i));
+                        }
+                    }
                     qInfo() << "[player] pre-resuelta" << url << "->" << s.left(60) << "...";
                     break;
                 }
@@ -67,7 +92,7 @@ Player::Player(QObject *parent)
         // (o, si la resolución falló, cae a que mpv la resuelva por su cuenta).
         if (!url.isEmpty() && m_pendingLoadUrl == url) {
             m_pendingLoadUrl.clear();
-            load(url);
+            loadImpl(url, /*allowResolve=*/m_resolved.contains(url));
         }
         resolveQueue();
     });
@@ -78,6 +103,7 @@ Player::Player(QObject *parent)
 
 Player::~Player()
 {
+    saveStreamCache();
     if (m_sock && m_sock->state() == QLocalSocket::ConnectedState) {
         m_sock->write(QJsonDocument(QJsonObject{{QStringLiteral("command"),
                                                 QJsonArray{QStringLiteral("quit")}}})
@@ -90,6 +116,70 @@ Player::~Player()
         if (m_proc.state() != QProcess::NotRunning)
             m_proc.kill();
     }
+}
+
+// Las URLs de music.youtube.com tardan ~1 s más en resolverse que las de
+// www.youtube.com (mismo vídeo): normalizar acelera y unifica la caché.
+QString Player::normalizeUrl(const QString &url)
+{
+    if (url.contains(QLatin1String("music.youtube.com")))
+        return QString(url).replace(QLatin1String("music.youtube.com"),
+                                    QLatin1String("www.youtube.com"));
+    return url;
+}
+
+namespace { constexpr qint64 kStreamCacheTtlSec = 3 * 3600; }
+
+void Player::loadStreamCache()
+{
+    m_cacheFile = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+                  + QStringLiteral("/streams.json");
+    QFile f(m_cacheFile);
+    if (!f.open(QIODevice::ReadOnly))
+        return;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+        const QJsonArray a = it.value().toArray();
+        if (a.size() != 2)
+            continue;
+        const QString direct = a.at(0).toString();
+        const qint64 ts = qint64(a.at(1).toDouble());
+        if (direct.isEmpty() || now - ts > kStreamCacheTtlSec)
+            continue;
+        m_resolved.insert(it.key(), direct);
+        m_resolvedAt.insert(it.key(), ts);
+    }
+}
+
+void Player::saveStreamCache()
+{
+    if (m_cacheFile.isEmpty() || !m_cacheDirty)
+        return;
+    m_cacheDirty = false;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    QList<QPair<QString, qint64>> items;
+    for (auto it = m_resolved.constBegin(); it != m_resolved.constEnd(); ++it) {
+        const qint64 ts = m_resolvedAt.value(it.key(), now);
+        if (now - ts <= kStreamCacheTtlSec)
+            items.append({it.key(), ts});
+    }
+    std::sort(items.begin(), items.end(),
+              [](const QPair<QString, qint64> &a, const QPair<QString, qint64> &b) {
+                  return a.second > b.second;   // más recientes primero
+              });
+    if (items.size() > 300)
+        items = items.mid(0, 300);
+    QJsonObject o;
+    for (const auto &p : items)
+        o.insert(p.first, QJsonArray{m_resolved.value(p.first), double(p.second)});
+    QDir().mkpath(QFileInfo(m_cacheFile).absolutePath());
+    QFile f(m_cacheFile);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return;
+    f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+    f.close();
 }
 
 void Player::startMpv()
@@ -145,7 +235,7 @@ void Player::startMpv()
              // played" que YouTube devuelve hoy con el cliente por defecto.
              // Requiere cookies (cliente autenticado).
              << QStringLiteral(
-                    "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_creator");
+                    "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_creator;player_skip=configs");
     m_proc.setArguments(args);
     connect(&m_proc, &QProcess::readyReadStandardError, this, [this] {
         const QByteArray err = m_proc.readAllStandardError();
@@ -286,6 +376,13 @@ void Player::handleLine(const QByteArray &line)
         } else if (reason == QLatin1String("error")) {
             m_hasFile = false;
             m_loading = false;
+            // La URL directa cacheada puede haber caducado: se invalida para
+            // que el reintento vuelva a resolverla (y no falle en bucle).
+            if (!m_currentUrl.isEmpty() && m_resolved.remove(m_currentUrl) > 0) {
+                m_resolvedAt.remove(m_currentUrl);
+                m_cacheDirty = true;
+                m_cacheSaveTimer.start();
+            }
             qWarning() << "[player] playback error" << "url=" << m_currentUrl
                        << "err=" << o.value(QStringLiteral("error")).toString()
                        << "file=" << o.value(QStringLiteral("file_error")).toString();
@@ -341,6 +438,12 @@ void Player::emitPosition(bool force)
 
 void Player::load(const QString &url)
 {
+    loadImpl(url, /*allowResolve=*/true);
+}
+
+void Player::loadImpl(const QString &rawUrl, bool allowResolve)
+{
+    const QString url = normalizeUrl(rawUrl);
     if (url.isEmpty())
         return;
     // Una pista nueva (distinta de la actual) reinicia el contador de
@@ -351,39 +454,47 @@ void Player::load(const QString &url)
         m_pendingUrl = url;
         return;
     }
-    // Nuestro resolver ya está trabajando en esta misma pista (hover): mejor
-    // esperar a que acabe que dejar que mpv la resuelva otra vez. La UI se
-    // actualiza ya (parece que arranca) y el loadfile sale al terminar.
-    if (!m_resolved.contains(url) && url == m_resolvingUrl) {
-        m_pendingLoadUrl = url;
+    const bool network = url.startsWith(QLatin1String("http"));
+    const bool cached = m_resolved.contains(url);
+    // Caso "ya suena": tenemos la URL directa cacheada, es un fichero local que
+    // mpv abre tal cual, o ya no cabe resolver (nuestra pre-resolución falló y
+    // dejamos que mpv lo intente por su cuenta).
+    if (!network || cached || !allowResolve) {
+        m_pendingLoadUrl.clear();
         m_position = 0;
         m_duration = 0;
         m_currentUrl = url;
         m_hasFile = true;
         m_loading = true;
-        m_playing = true;
+        qInfo() << "[player] load" << url;
         emit positionChanged();
+        emit stateChanged();
+        // Se conserva la entrada (no se consume): una repetición vuelve a sonar
+        // al instante. Si la URL resulta caducada, el error de mpv la invalida.
+        const QString direct = m_resolved.value(url);
+        send({{QStringLiteral("command"),
+               QJsonArray{QStringLiteral("loadfile"), direct.isEmpty() ? url : direct,
+                          QStringLiteral("replace")}}});
+        send({{QStringLiteral("command"),
+               QJsonArray{QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("no")}}});
+        m_playing = true;
         emit stateChanged();
         return;
     }
-    m_pendingLoadUrl.clear();
+    // Sin cachear: la resolvemos NOSOTROS (con prioridad máxima) y esperamos.
+    // Nunca se la pasamos a mpv para que la resuelva: su yt-dlp interno es
+    // bastante más lento (en vídeos sólo-HLS supera los 25 s). La UI muestra
+    // "Cargando…" mientras tanto y, si falla, caemos a mpv (loadImpl(false)).
+    if (url != m_resolvingUrl)
+        enqueueResolve(url, true, /*urgent=*/true);
+    m_pendingLoadUrl = url;
     m_position = 0;
     m_duration = 0;
     m_currentUrl = url;
     m_hasFile = true;
     m_loading = true;
-    qInfo() << "[player] load" << url;
-    emit positionChanged();
-    emit stateChanged();
-    // Si el pre-resolver ya tiene la URL directa del stream, mpv arranca sin
-    // esperar a yt-dlp dentro de su propio hook (≈instantáneo estilo Sonora).
-    const QString direct = m_resolved.take(url);
-    send({{QStringLiteral("command"),
-           QJsonArray{QStringLiteral("loadfile"), direct.isEmpty() ? url : direct,
-                      QStringLiteral("replace")}}});
-    send({{QStringLiteral("command"),
-           QJsonArray{QStringLiteral("set"), QStringLiteral("pause"), QStringLiteral("no")}}});
     m_playing = true;
+    emit positionChanged();
     emit stateChanged();
 }
 
@@ -404,31 +515,39 @@ void Player::prefetchFront(const QString &url)
 
 // Alta en las colas de pre-resolución. La cola "front" (hover) tiene prioridad
 // absoluta sobre la de fondo (siguientes de la lista): así el clic inminente
-// del usuario no espera detrás de las canciones que aún no va a tocar. Si hay
-// una resolución de fondo en marcha y llega un hover, se descarta la de fondo
-// (es recuperable) salvo que acabe de arrancar, para no malgastar el trabajo
-// de yt-dlp por un simple barrido del ratón.
-void Player::enqueueResolve(const QString &url, bool front)
+// del usuario no espera detrás de las canciones que aún no va a tocar.
+//
+// `urgent` (clic del usuario) adelanta SIEMPRE lo que se esté resolviendo, sea
+// de hover o de fondo, porque el usuario ya ha elegido otra pista. Sin `urgent`
+// (hover) sólo se descarta una resolución de fondo que lleve un mínimo, para no
+// reiniciar el trabajo de yt-dlp por un simple barrido del ratón.
+void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
 {
+    const QString url = normalizeUrl(rawUrl);
     if (url.isEmpty() || !url.startsWith(QLatin1String("http")))
         return;   // sólo hay que resolver streams de red (los locales son ya directos)
     if (m_resolved.contains(url) || m_resolvingUrl == url)
         return;
     if (front) {
         m_resolveQueue.removeAll(url);
-        if (m_resolveFront.contains(url))
-            return;
-        m_resolveFront.append(url);
+        const bool already = m_resolveFront.contains(url);
+        if (!already)
+            m_resolveFront.append(url);
         while (m_resolveFront.size() > 8)
             m_resolveFront.removeFirst();
-        // Descarta una resolución de fondo en curso para atender el hover ya
-        // (sólo si lleva un mínimo: evitar reinicios por micro-hovers). Nunca
+        // Descarta lo que se esté resolviendo ahora mismo para atender esto ya.
+        // Un clic (`urgent`) descarta cualquier cosa; un hover sólo una
+        // resolución de fondo y sólo si lleva un mínimo (>500 ms), para no
+        // reiniciar el trabajo de yt-dlp por un simple barrido del ratón. Nunca
         // se descarta si un load() está esperando esa misma resolución: sería
         // dejar la pista pulsada sin cargar.
-        if (m_resolver.state() != QProcess::NotRunning && !m_resolvingFront
-                && m_pendingLoadUrl != m_resolvingUrl
-                && m_resolveStart > 0
-                && QDateTime::currentMSecsSinceEpoch() - m_resolveStart > 500) {
+        const bool canKill = m_resolver.state() != QProcess::NotRunning
+                && m_resolvingUrl != url
+                && (urgent
+                    || (!m_resolvingFront && m_pendingLoadUrl != m_resolvingUrl
+                        && m_resolveStart > 0
+                        && QDateTime::currentMSecsSinceEpoch() - m_resolveStart > 500));
+        if (canKill) {
             if (!m_resolvingUrl.isEmpty())
                 m_resolveQueue.prepend(m_resolvingUrl);
             m_resolvingUrl.clear();
@@ -436,6 +555,8 @@ void Player::enqueueResolve(const QString &url, bool front)
             m_resolver.kill();
             return;   // finished() vuelve a llamar a resolveQueue()
         }
+        if (already)
+            return;
     } else {
         if (m_resolveQueue.contains(url) || m_resolveFront.contains(url))
             return;
@@ -471,7 +592,9 @@ void Player::resolveQueue()
     if (QFile::exists(cookies)) {
         args << QStringLiteral("--cookies") << cookies
              << QStringLiteral("--extractor-args")
-             << QStringLiteral("youtube:player_client=web_creator");
+             // player_skip=configs evita descargar configs del player: recorta
+             // ~0,5-1 s por resolución sin afectar a la reproducción.
+             << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
     }
     args << url;
     m_resolvingUrl = url;
