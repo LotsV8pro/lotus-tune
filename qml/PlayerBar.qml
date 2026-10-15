@@ -207,14 +207,14 @@ Rectangle {
                         kind: "shuffle"
                         active: bar.shuffle
                         iconColor: Sys.text
-                        onTapped: bar.shuffleToggled()
+                        onTapped: { if (typeof sfx !== 'undefined') sfx.play('toggle'); bar.shuffleToggled() }
                     }
 
                     BarButton {
                         diameter: 30; glyph: 15
                         kind: "prev"
                         iconColor: Sys.text
-                        onTapped: bar.prevRequested()
+                        onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bar.prevRequested() }
                     }
 
                     Rectangle {
@@ -241,7 +241,7 @@ Rectangle {
                         diameter: 30; glyph: 15
                         kind: "next"
                         iconColor: Sys.text
-                        onTapped: bar.nextRequested()
+                        onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bar.nextRequested() }
                     }
 
                     BarButton {
@@ -249,7 +249,7 @@ Rectangle {
                         kind: "repeat"
                         active: bar.repeat
                         iconColor: Sys.text
-                        onTapped: bar.repeatToggled()
+                        onTapped: { if (typeof sfx !== 'undefined') sfx.play('toggle'); bar.repeatToggled() }
                     }
                 }
 
@@ -336,12 +336,12 @@ Rectangle {
                     kind: bar.liked ? "heart" : "heart-outline"
                     active: bar.liked
                     iconColor: bar.canInteract ? Sys.text : Sys.textDim
-                    onTapped: if (bar.canInteract) bar.likeRequested()
+                    onTapped: { if (typeof sfx !== 'undefined') sfx.play('like'); if (bar.canInteract) bar.likeRequested() }
                 }
                 BarButton {
                     diameter: 30; glyph: 15
                     kind: "queue"
-                    onTapped: bar.queueRequested()
+                    onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bar.queueRequested() }
                 }
                 BarButton {
                     diameter: 30; glyph: 15
