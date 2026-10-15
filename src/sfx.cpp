@@ -12,16 +12,19 @@ Sfx::Sfx(QObject *parent)
 {
     loadSettings();
     const QString click = QStringLiteral("qrc:/sounds/click.wav");
+    const QString clickToggle = QStringLiteral("qrc:/sounds/click_toggle.wav");
+    const QString clickPlay = QStringLiteral("qrc:/sounds/click_play.wav");
+    const QString clickLike = QStringLiteral("qrc:/sounds/click_like.wav");
     m_soundMap.insert("tap", click);
     m_soundMap.insert("click", click);
     m_soundMap.insert("open", click);
-    m_soundMap.insert("play", click);
-    m_soundMap.insert("pause", click);
-    m_soundMap.insert("like", click);
+    m_soundMap.insert("play", clickPlay);
+    m_soundMap.insert("pause", clickPlay);
+    m_soundMap.insert("like", clickLike);
     m_soundMap.insert("unlike", click);
     m_soundMap.insert("add", click);
     m_soundMap.insert("remove", click);
-    m_soundMap.insert("toggle", click);
+    m_soundMap.insert("toggle", clickToggle);
     m_soundMap.insert("success", click);
     m_soundMap.insert("error", click);
 }

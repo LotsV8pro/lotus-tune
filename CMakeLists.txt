@@ -67,6 +67,9 @@ qt_add_resources(lotus-tune "ui_sounds"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/sounds"
     FILES
         sounds/click.wav
+        sounds/click_toggle.wav
+        sounds/click_play.wav
+        sounds/click_like.wav
 )
 
 # Ship the embedded YT Music login helper and the "mis listas" API helper
