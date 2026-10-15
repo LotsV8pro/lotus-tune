@@ -421,6 +421,24 @@ Canvas {
             ctx.lineTo(X(14.5), Y(5))
             ctx.stroke()
             break
+        case "arrow-up":
+            ctx.beginPath()
+            ctx.moveTo(X(9), Y(14.5))
+            ctx.lineTo(X(9), Y(4))
+            ctx.moveTo(X(4.7), Y(8.3))
+            ctx.lineTo(X(9), Y(4))
+            ctx.lineTo(X(13.3), Y(8.3))
+            ctx.stroke()
+            break
+        case "arrow-down":
+            ctx.beginPath()
+            ctx.moveTo(X(9), Y(3.5))
+            ctx.lineTo(X(9), Y(14))
+            ctx.moveTo(X(4.7), Y(9.7))
+            ctx.lineTo(X(9), Y(14))
+            ctx.lineTo(X(13.3), Y(9.7))
+            ctx.stroke()
+            break
         case "volume-1":
             ctx.beginPath()
             ctx.moveTo(X(3), Y(7))

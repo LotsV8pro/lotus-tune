@@ -663,6 +663,32 @@ def remove_playlist_item(playlist_id, video_id, set_video_id):
     )
 
 
+def move_playlist_item(playlist_id, set_video_id, neighbor_set_video_id, before):
+    """Reordena una pista dentro de una playlist propia.
+
+    `before` = True  -> mueve la pista JUSTO ANTES del vecino.
+    `before` = False -> la mueve JUSTO DESPUÉS del vecino (ACTION_MOVE_VIDEO_AFTER).
+    """
+    if not set_video_id or not neighbor_set_video_id:
+        raise YtmError("faltan setVideoId para reordenar")
+    if before:
+        action = {
+            "action": "ACTION_MOVE_VIDEO_BEFORE",
+            "setVideoId": set_video_id,
+            "movedSetVideoIdSuccessor": neighbor_set_video_id,
+        }
+    else:
+        action = {
+            "action": "ACTION_MOVE_VIDEO_AFTER",
+            "setVideoId": set_video_id,
+            "movedSetVideoIdPredecessor": neighbor_set_video_id,
+        }
+    return post_json(
+        "browse/edit_playlist",
+        {"playlistId": playlist_id, "actions": [action]},
+    )
+
+
 # ------------------------------------------------------------------- cli ----
 
 def cmd_library():
@@ -695,6 +721,14 @@ def cmd_addpl(playlist_id, video_id):
 
 def cmd_rmpl(playlist_id, video_id, set_video_id):
     resp = remove_playlist_item(playlist_id, video_id, set_video_id)
+    json.dump({"status": resp.get("status", "ok")}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_movepl(playlist_id, set_video_id, neighbor_set_video_id, before):
+    resp = move_playlist_item(playlist_id, set_video_id, neighbor_set_video_id,
+                              before)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
     sys.stdout.write("\n")
     return 0
@@ -774,6 +808,12 @@ def main():
             if len(args) < 4:
                 raise YtmError("uso: rmpl <playlistId> <videoId> <setVideoId>")
             return cmd_rmpl(args[1], args[2], args[3])
+        if cmd == "movepl":
+            if len(args) < 5:
+                raise YtmError("uso: movepl <playlistId> <setVideoId> "
+                               "<vecinoSetVideoId> <before|after>")
+            return cmd_movepl(args[1], args[2], args[3],
+                              args[4].lower() == "before")
         if cmd == "createpl":
             if len(args) < 2:
                 raise YtmError("uso: createpl <title> [priv]")
