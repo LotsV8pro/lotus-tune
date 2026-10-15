@@ -36,15 +36,15 @@ Item {
     readonly property int picksCols: 3
     readonly property int picksRows: 5
 
-    // Canciones sueltas recientes (catalog.recent, más nueva primero). Una
-    // pista con `setId` sonó dentro de una playlist, así que no cuenta como
-    // «individual».
+    // Canciones sueltas recientes (catalog.recent, más nueva primero). Se
+    // excluyen las que sonaron dentro de una playlist (`setId`) y las antiguas
+    // sin clasificar (`legacy`).
     function recentTracks() {
         const out = []
         const rec = catalog.recent
         for (var i = 0; i < rec.length && out.length < 30; i++) {
             const t = rec[i]
-            if (!t || !t.url || t.setId)
+            if (!t || !t.url || t.setId || t.legacy)
                 continue
             out.push({ kind: "track", title: t.title || "",
                        sub: t.artist || "", thumb: t.thumb || "",
