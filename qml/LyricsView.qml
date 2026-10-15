@@ -625,7 +625,7 @@ Item {
             font.pixelSize: Theme.tXl
             font.weight: Font.DemiBold
             HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: lv.setOffset(lv.offset - 0.1) }
+            TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) } }
         }
 
         Text {
@@ -642,7 +642,7 @@ Item {
             font.pixelSize: Theme.tXl
             font.weight: Font.DemiBold
             HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: lv.setOffset(lv.offset + 0.1) }
+            TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) } }
         }
     }
 }

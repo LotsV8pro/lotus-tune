@@ -150,7 +150,7 @@ Item {
                         }
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: privToggle.priv = !privToggle.priv }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); privToggle.priv = !privToggle.priv } }
                 }
             }
 
@@ -210,7 +210,7 @@ Item {
                         font.pixelSize: Theme.tMd
                     }
                     HoverHandler { id: cancelHov; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: pel.canceled() }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); pel.canceled() } }
                 }
 
                 Rectangle {
@@ -230,7 +230,7 @@ Item {
                         font.weight: Font.DemiBold
                     }
                     HoverHandler { id: saveHov; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { enabled: nameField.text.trim().length > 0; onTapped: pel.submit() }
+                    TapHandler { enabled: nameField.text.trim().length > 0; onTapped: { if (typeof sfx !== "undefined") sfx.play("success"); pel.submit() } }
                 }
             }
         }

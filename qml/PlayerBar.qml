@@ -139,7 +139,7 @@ Rectangle {
                         }
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: bar.lyricsRequested() }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); bar.lyricsRequested() } }
                 }
 
                 ColumnLayout {
@@ -234,7 +234,7 @@ Rectangle {
                             kind: bar.playing ? "pause" : "play"
                             color: Sys.onAccent
                         }
-                        TapHandler { onTapped: bar.toggle() }
+                        TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); bar.toggle() } }
                     }
 
                     BarButton {
