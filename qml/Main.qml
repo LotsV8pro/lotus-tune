@@ -1717,7 +1717,7 @@ Window {
                     radius: Theme.rMd
                     color: newPick.hovered ? Theme.hover(Sys.bg) : "transparent"
                     HoverHandler { id: newPick; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: root.openCreatePlaylist(root.pickerVideoId) }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.openCreatePlaylist(root.pickerVideoId) } }
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
@@ -1837,7 +1837,7 @@ Window {
                         kind: "x"
                         color: closePick.hovered ? Sys.accent : Sys.textDim
                     }
-                    TapHandler { onTapped: root.playlistPickerOpen = false }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.playlistPickerOpen = false } }
                 }
             }
         }
@@ -1924,7 +1924,7 @@ Window {
                             font.pixelSize: Theme.tMd
                         }
                         HoverHandler { id: cCancelHov; cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: root.confirmOpen = false }
+                        TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.confirmOpen = false } }
                     }
 
                     Rectangle {
@@ -1942,7 +1942,7 @@ Window {
                             font.bold: true
                         }
                         HoverHandler { id: cOkHov; cursorShape: Qt.PointingHandCursor }
-                        TapHandler { onTapped: root.runConfirm() }
+                        TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.runConfirm() } }
                     }
                 }
             }

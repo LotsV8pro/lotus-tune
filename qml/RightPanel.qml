@@ -70,7 +70,7 @@ Rectangle {
                         visible: tabItem.on
                     }
 
-                    TapHandler { onTapped: panel.tab = tabItem.modelData.t }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.tab = tabItem.modelData.t } }
                 }
             }
 
@@ -87,7 +87,7 @@ Rectangle {
                     kind: "chevron-right"
                     color: closeHover.hovered ? Sys.accent : Sys.textDim
                 }
-                TapHandler { onTapped: panel.closeRequested() }
+                TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.closeRequested() } }
             }
         }
 
