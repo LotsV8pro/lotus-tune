@@ -189,7 +189,7 @@ Item {
                     }
                     HoverHandler { id: delHov; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
-                        onTapped: pel.deleteRequested(pel.playlistId, pel.initialTitle)
+                        onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); pel.deleteRequested(pel.playlistId, pel.initialTitle) }
                     }
                 }
 
