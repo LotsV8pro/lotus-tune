@@ -45,6 +45,9 @@ Item {
 
     TapHandler {
         enabled: btn.shown
-        onTapped: btn.toggled()
+        onTapped: {
+            if (typeof sfx !== 'undefined') sfx.play(btn.liked ? 'unlike' : 'like')
+            btn.toggled()
+        }
     }
 }

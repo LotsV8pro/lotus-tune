@@ -750,6 +750,7 @@ Item {
                                 const p = mapToItem(null, mouse.x, mouse.y)
                                 page.trackContextRequested(modelData, p.x, p.y)
                             } else {
+                                if (typeof sfx !== 'undefined') sfx.play('tap')
                                 page.playRequested(catalog.tracks, trow.index)
                             }
                         }
@@ -1161,6 +1162,7 @@ Item {
                                         page.trackContextRequested(modelData,
                                                                    p.x, p.y)
                                     } else {
+                                        if (typeof sfx !== 'undefined') sfx.play('tap')
                                         page.playRequested(page.dlLocal, lrow.index)
                                     }
                                 }
