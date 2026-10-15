@@ -26,10 +26,12 @@ Item {
     visible: open
     z: 96
 
+    // Cierra el menú avisando al dueño (Main), que es quien manda sobre
+    // `open` mediante su binding. OJO: no asignar `open = false` aquí, porque
+    // rompería ese binding y el menú sólo podría abrirse UNA vez.
     function dismiss() {
         if (!open)
             return
-        open = false
         closed()
     }
 
