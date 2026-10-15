@@ -1091,10 +1091,9 @@ Window {
         root.fetchLyrics()
     }
 
-    // Carga una lista en la cola. Si el aleatorio está activo, la cola se
-    // baraja (Fisher–Yates) ANTES de reproducir y se arranca en una pista
-    // aleatoria: la primera canción ya sale en aleatorio y, a partir de ahí,
-    // `next()` avanza linealmente por la cola barajada (sin saltos).
+    // Carga una lista en la cola. Si el aleatorio está activo, la canción que
+    // pulsaste suena PRIMERO y el resto de la cola va barajado (Fisher–Yates);
+    // a partir de ahí `next()` avanza linealmente por la cola (sin saltos).
     function playTracks(list, idx) {
         const arr = toTrackList(list)
         if (arr.length === 0 || idx < 0 || idx >= arr.length)
@@ -1102,9 +1101,13 @@ Window {
         originalOrder = arr            // orden original (copia sin barajar)
         let order = arr
         if (shuffle && arr.length > 1) {
-            order = arr.slice()
-            fisherYates(order)
-            idx = Math.floor(Math.random() * order.length)
+            // La pista pulsada va la primera; el resto, en aleatorio.
+            const first = arr[idx]
+            const rest = arr.slice()
+            rest.splice(idx, 1)
+            fisherYates(rest)
+            order = [first].concat(rest)
+            idx = 0
         }
         fillQueue(order)
         queueShuffled = shuffle && arr.length > 1
