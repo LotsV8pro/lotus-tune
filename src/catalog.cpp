@@ -1243,9 +1243,18 @@ void Catalog::loadLibrary()
     const QJsonArray pls = o.value(QStringLiteral("playlists")).toArray();
     for (const QJsonValue &v : pls)
         m_playlists.append(v.toObject().toVariantMap());
+    // Los «recientes» anteriores a la v1 no guardaban `setId`, así que no se
+    // puede saber cuáles sonaron dentro de una playlist. Se marcan como
+    // «legacy»: no se pintan como canciones sueltas, pero siguen alimentando
+    // «Recomendado para ti» hasta que se van cayendo solos.
+    const int schema = o.value(QStringLiteral("schema")).toInt();
     const QJsonArray rec = o.value(QStringLiteral("recent")).toArray();
-    for (const QJsonValue &v : rec)
-        m_recent.append(v.toObject().toVariantMap());
+    for (const QJsonValue &v : rec) {
+        QVariantMap m = v.toObject().toVariantMap();
+        if (schema < 1)
+            m.insert(QStringLiteral("legacy"), true);
+        m_recent.append(m);
+    }
 }
 
 void Catalog::saveLibrary() const
@@ -1255,7 +1264,9 @@ void Catalog::saveLibrary() const
         pls.append(QJsonObject::fromVariantMap(v.toMap()));
     for (const QVariant &v : m_recent)
         rec.append(QJsonObject::fromVariantMap(v.toMap()));
-    const QJsonObject o{{QStringLiteral("playlists"), pls}, {QStringLiteral("recent"), rec}};
+    const QJsonObject o{{QStringLiteral("schema"), 1},
+                        {QStringLiteral("playlists"), pls},
+                        {QStringLiteral("recent"), rec}};
     QFile f(stateFile());
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         f.write(QJsonDocument(o).toJson(QJsonDocument::Indented));
