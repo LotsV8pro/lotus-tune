@@ -513,6 +513,13 @@ void Player::prefetchFront(const QString &url)
     enqueueResolve(url, true);
 }
 
+void Player::clearPrefetch()
+{
+    // Sólo la cola de fondo: la de prioridad (hover/clic) es del usuario y está
+    // a punto de consumirse; además un load() puede estar esperándola.
+    m_resolveQueue.clear();
+}
+
 // Alta en las colas de pre-resolución. La cola "front" (hover) tiene prioridad
 // absoluta sobre la de fondo (siguientes de la lista): así el clic inminente
 // del usuario no espera detrás de las canciones que aún no va a tocar.
@@ -548,8 +555,11 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
                         && m_resolveStart > 0
                         && QDateTime::currentMSecsSinceEpoch() - m_resolveStart > 500));
         if (canKill) {
+            // La pista abandonada se re-encola AL FINAL (antes iba al principio,
+            // y una pista ya descartada se re-resolvía en bucle bloqueando las
+            // pre-cargas nuevas).
             if (!m_resolvingUrl.isEmpty())
-                m_resolveQueue.prepend(m_resolvingUrl);
+                m_resolveQueue.append(m_resolvingUrl);
             m_resolvingUrl.clear();
             m_resolvingFront = false;
             m_resolver.kill();

@@ -69,6 +69,11 @@ public:
     // fondo, se descarta para atender esta ya. Pensado para el hover de una
     // fila (el usuario está a punto de hacer clic en esa pista).
     Q_INVOKABLE void prefetchFront(const QString &url);
+    // Descarta las pre-resoluciones PENDIENTES de la cola de fondo (no toca la
+    // que ya está en curso ni las de prioridad). Se llama al cambiar de
+    // contexto (nueva lista, aleatorio, otra pista) para que no queden
+    // resoluciones viejas bloqueando las nuevas.
+    Q_INVOKABLE void clearPrefetch();
 
 signals:
     void stateChanged();

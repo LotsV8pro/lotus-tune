@@ -862,6 +862,8 @@ Window {
         fillQueue(out)
         queueIndex = cur
         queueShuffled = true
+        // El orden de reproducción ha cambiado: lo pre-cargado ya no sirve.
+        player.clearPrefetch()
     }
 
     // Vuelve al orden original de la lista. La pista que suena sigue sonando
@@ -892,6 +894,8 @@ Window {
         else if (queueIndex >= order.length)
             queueIndex = order.length - 1
         queueShuffled = false
+        // El orden de reproducción ha cambiado: lo pre-cargado ya no sirve.
+        player.clearPrefetch()
     }
 
     // ---- sesión persistente ---------------------------------------------
@@ -947,6 +951,11 @@ Window {
                 }
                 shuffle = st.shuffle === true
                 repeat = st.repeat === true
+                // La cola guardada YA está en el orden de reproducción (si el
+                // aleatorio estaba activo, ya viene barajada): marcarla como tal
+                // evita que el primer next() la vuelva a barajar y cambie el
+                // orden (lo que invalidaba las pistas pre-cargadas).
+                queueShuffled = shuffle && arr.length > 1
                 mpris.setShuffle(shuffle)
                 root.updateNowPlaying()
             }
@@ -1133,8 +1142,11 @@ Window {
         }
         player.load(t.url)
         // Pre-resuelve el stream de las siguientes pistas en background para
-        // que el cambio de canción sea instantáneo (estilo Sonora).
-        prefetchAhead(queueIndex, 3)
+        // que el cambio de canción sea instantáneo (estilo Sonora). Se descarta
+        // antes lo que quedara pendiente de un contexto anterior (otra lista u
+        // otra posición) para que no bloquee estas, que son las que van a sonar.
+        player.clearPrefetch()
+        prefetchAhead(queueIndex, 6)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "" })
         root.updateNowPlaying()
