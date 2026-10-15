@@ -42,7 +42,7 @@ Item {
     function recentTracks() {
         const out = []
         const rec = catalog.recent
-        for (var i = 0; i < rec.length && out.length < 30; i++) {
+        for (var i = 0; i < rec.length && out.length < 5; i++) {
             const t = rec[i]
             if (!t || !t.url || t.setId || t.legacy)
                 continue
@@ -212,20 +212,6 @@ Item {
     }
 
     Component.onCompleted: refreshSearchHistory()
-
-    // ---- sección: tus playlists -----------------------------------------
-    function playlistCards() {
-        const out = []
-        const l = catalog.playlists
-        for (var i = 0; i < l.length; i++) {
-            const p = l[i]
-            var sub = sourceEntry(p.source) ? sourceEntry(p.source).name : p.source
-            if (p.count)
-                sub += " · " + p.count + " pistas"
-            out.push({ index: i, title: p.name, sub: sub })
-        }
-        return out
-    }
 
     // ---- recomendaciones: radios a partir del historial ------------------
     function recCards() {
@@ -566,11 +552,11 @@ Item {
                 }
             }
 
-            // ---- TUS LISTAS (YouTube Music) ---------------------------
+            // ---- TUS PLAYLISTS (YouTube Music) ------------------------
             SectionTitle {
                 Layout.fillWidth: true
                 visible: catalog.ytmLibrary.length > 0 || catalog.libraryBusy
-                text: "TUS LISTAS"
+                text: "TUS PLAYLISTS"
             }
 
             ListView {
@@ -614,53 +600,6 @@ Item {
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
                 opacity: 0.8
-            }
-
-            // ---- TUS PLAYLISTS ----------------------------------------
-            SectionTitle {
-                Layout.fillWidth: true
-                text: "TUS PLAYLISTS"
-            }
-
-            ListView {
-                id: plView
-                visible: catalog.playlists.length > 0
-                Layout.fillWidth: true
-                Layout.preferredHeight: page.rowHeight
-                orientation: ListView.Horizontal
-                clip: true
-                spacing: page.cardSpacing
-                model: page.playlistCards()
-                reuseItems: true
-                cacheBuffer: 600
-                boundsBehavior: Flickable.StopAtBounds
-
-                delegate: HomeCard {
-                    required property var modelData
-                    title: modelData.title
-                    subtitle: modelData.sub
-                    icon: "queue"
-                    coverA: page.coverA(modelData.title)
-                    coverB: page.coverB(modelData.title)
-                    // Portada -> ABRIR la lista; botón de play -> reproducirla.
-                    onClicked: {
-                        page.openListRequested(false)
-                        catalog.openPlaylist(modelData.index)
-                    }
-                    onPlayClicked: {
-                        page.openListRequested(true)
-                        catalog.openPlaylist(modelData.index)
-                    }
-                }
-            }
-
-            Text {
-                Layout.fillWidth: true
-                visible: catalog.playlists.length === 0
-                text: "Aún no hay playlists guardadas. Pega una URL en Biblioteca para empezar."
-                color: Sys.textDim
-                font.pixelSize: Theme.tSm
-                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             }
 
             // ---- recomendaciones (radios del historial) ---------------

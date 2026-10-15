@@ -131,10 +131,20 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     if (!lines.isEmpty())
                         msg = lines.constLast().trimmed();
                     m_plAddVideo.clear();
-                    if (mode == QLatin1String("info"))
+                    m_plSetId.clear();
+                    if (mode == QLatin1String("info")) {
                         emit playlistInfoReady({});
-                    else
+                    } else {
+                        // Un reordenado fallido deja la fila movida en local:
+                        // se recarga la lista abierta para volver al orden real.
+                        if (mode == QLatin1String("move")
+                            && !m_openPlaylistId.isEmpty())
+                            run(QStringLiteral("https://music.youtube.com/"
+                                               "playlist?list=")
+                                    + m_openPlaylistId,
+                                QStringLiteral("playlist"), m_tracksTitle);
                         emit interactionDone(false, msg);
+                    }
                     return;
                 }
                 if (mode == QLatin1String("info")) {
@@ -177,6 +187,32 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 if (mode == QLatin1String("delete")) {
                     refreshYtmLibrary();
                     emit interactionDone(true, QStringLiteral("Lista eliminada"));
+                    return;
+                }
+                if (mode == QLatin1String("move")) {
+                    emit interactionDone(true, QStringLiteral("Lista reordenada"));
+                    return;
+                }
+                if (mode == QLatin1String("remove")) {
+                    // Ya confirmado por YouTube: quita la fila de la lista abierta.
+                    const QString sid = m_plSetId;
+                    m_plSetId.clear();
+                    if (!sid.isEmpty()) {
+                        for (int k = 0; k < m_tracks.size(); k++) {
+                            if (m_tracks.at(k).toMap()
+                                    .value(QStringLiteral("setId")).toString()
+                                == sid) {
+                                m_tracks.removeAt(k);
+                                break;
+                            }
+                        }
+                    }
+                    if (!m_openPlaylistId.isEmpty())
+                        forgetCachedPlaylist(QStringLiteral("list:")
+                                             + m_openPlaylistId);
+                    emit changed();
+                    refreshYtmLibrary();
+                    emit interactionDone(true, QStringLiteral("Quitado de la lista"));
                     return;
                 }
             });
@@ -585,6 +621,64 @@ void Catalog::removeFromPlaylist(const QString &playlistId, const QString &video
     }
     runYtmAction({ytmApiPath(), QStringLiteral("rmpl"), p, v, s},
                  QStringLiteral("Quitado de la lista"));
+}
+
+// Reordena la pista `setVideoId` de la lista abierta `delta` posiciones (±1).
+// La fila se mueve al instante en local y el cambio se sube a YouTube Music.
+void Catalog::moveOpenPlaylistTrack(const QString &setVideoId, int delta)
+{
+    const QString sid = setVideoId.trimmed();
+    if (m_openPlaylistId.isEmpty() || sid.isEmpty() || delta == 0)
+        return;
+    if (!ytmLoggedIn() || m_plProc.state() != QProcess::NotRunning) {
+        emit interactionDone(false,
+                             QStringLiteral("No se puede reordenar ahora mismo"));
+        return;
+    }
+    int i = -1;
+    for (int k = 0; k < m_tracks.size(); k++) {
+        if (m_tracks.at(k).toMap().value(QStringLiteral("setId")).toString() == sid) {
+            i = k;
+            break;
+        }
+    }
+    if (i < 0)
+        return;
+    const int j = i + delta;
+    if (j < 0 || j >= m_tracks.size())
+        return;   // ya está en un extremo
+    // Vecino y sentido ANTES de mutar la lista local.
+    const QString neighbor =
+        m_tracks.at(j).toMap().value(QStringLiteral("setId")).toString();
+    if (neighbor.isEmpty())
+        return;
+    const bool before = delta < 0;   // subir -> antes del vecino de arriba
+    const QString plId = m_openPlaylistId;
+    m_tracks.move(i, j);
+    forgetCachedPlaylist(QStringLiteral("list:") + plId);
+    emit changed();
+    runPlaylistAction({ytmApiPath(), QStringLiteral("movepl"), plId, sid,
+                       neighbor, before ? QStringLiteral("before")
+                                        : QStringLiteral("after")},
+                      QStringLiteral("move"));
+}
+
+// Quita de la lista abierta la pista con ese setVideoId. Se espera a que
+// YouTube confirme para borrar la fila (así no queda descuadrado si falla).
+void Catalog::removeOpenPlaylistTrack(const QString &videoId,
+                                      const QString &setVideoId)
+{
+    const QString vid = videoId.trimmed();
+    const QString sid = setVideoId.trimmed();
+    if (m_openPlaylistId.isEmpty() || vid.isEmpty() || sid.isEmpty()) {
+        emit interactionDone(false,
+                             QStringLiteral("Esta pista no se puede quitar"));
+        return;
+    }
+    m_plSetId = sid;
+    runPlaylistAction({ytmApiPath(), QStringLiteral("rmpl"), m_openPlaylistId,
+                       vid, sid},
+                      QStringLiteral("remove"));
 }
 
 // --------------------------------------------------- gestión de listas ----

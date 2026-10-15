@@ -78,6 +78,11 @@ public:
     Q_INVOKABLE void removeFromPlaylist(const QString &playlistId,
                                         const QString &videoId,
                                         const QString &setVideoId);
+    // Reordena (`delta` ±1) o quita una pista de la lista ABIERTA
+    // (m_openPlaylistId): se pinta al instante y se sincroniza con YT Music.
+    Q_INVOKABLE void moveOpenPlaylistTrack(const QString &setVideoId, int delta);
+    Q_INVOKABLE void removeOpenPlaylistTrack(const QString &videoId,
+                                             const QString &setVideoId);
     // ¿La pista está en "me gusta" (biblioteca) según el conjunto cargado?
     Q_INVOKABLE bool isLiked(const QString &videoId) const;
     // Actualiza el conjunto local tras un voto (sin esperar al servidor).
@@ -208,6 +213,7 @@ private:
     QProcess m_plProc;         // one-shot gestión de listas (create/rename/delete/info)
     QString m_plMode;          // cómo interpretar la salida de m_plProc
     QString m_plAddVideo;      // pista a añadir tras crear una lista (o "")
+    QString m_plSetId;         // setVideoId pendiente (quitar de una lista)
     QProcess m_likedProc;      // one-shot "me gusta" (LM) para el estado de las filas
     QSet<QString> m_likedIds;  // videoIds en "me gusta"
     int m_likedRevision = 0;

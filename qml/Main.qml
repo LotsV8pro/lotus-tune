@@ -283,6 +283,21 @@ Window {
                    action: function() { root.playNextTrack(t) } })
         out.push({ label: "Añadir a la cola", icon: "queue",
                    action: function() { root.enqueueTrack(t) } })
+        // Lista propia abierta: quitar la pista y reordenarla. Se sube a
+        // YouTube Music. Requiere que la lista sea del usuario y que la pista
+        // traiga su setVideoId (vino de la lista por la vía rápida).
+        const plId = String(catalog.openPlaylistId || "")
+        const plSet = String(t.setId || "")
+        const plOwned = (typeof libPage !== "undefined") ? libPage.currentOwned() : false
+        if (plId !== "" && plSet !== "" && plOwned) {
+            out.push({ separator: true })
+            out.push({ label: "Quitar de esta lista", icon: "trash", danger: true,
+                       action: function() { root.removeTrackFromOpenPlaylist(t) } })
+            out.push({ label: "Mover arriba", icon: "arrow-up",
+                       action: function() { catalog.moveOpenPlaylistTrack(plSet, -1) } })
+            out.push({ label: "Mover abajo", icon: "arrow-down",
+                       action: function() { catalog.moveOpenPlaylistTrack(plSet, 1) } })
+        }
         if (String(t.artist || "")) {
             out.push({ separator: true })
             out.push({ label: "Buscar el artista", icon: "search",
@@ -1319,6 +1334,18 @@ Window {
             return
         }
         catalog.addToPlaylist(playlistId, vid)
+    }
+
+    // Quita una pista concreta (clic derecho en una fila) de la lista abierta.
+    function removeTrackFromOpenPlaylist(t) {
+        t = t || {}
+        const vid = root.videoIdOf(String(t.url || ""))
+        const sid = String(t.setId || "")
+        if (!catalog.openPlaylistId || !vid || !sid) {
+            root.toast("Esta pista no se puede quitar de la lista")
+            return
+        }
+        catalog.removeOpenPlaylistTrack(vid, sid)
     }
 
     // Quita la pista actual de la lista con la que se abrió (requiere el
