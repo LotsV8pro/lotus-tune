@@ -40,7 +40,7 @@ Rectangle {
                 kind: "chevron-left"
                 color: Sys.text
             }
-            TapHandler { onTapped: top.backRequested() }
+            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.backRequested() } }
         }
 
         Text {
@@ -70,7 +70,7 @@ Rectangle {
                 kind: "search"
                 color: launcherHover.hovered ? Sys.text : Sys.textDim
             }
-            TapHandler { onTapped: top.launcherRequested() }
+            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
         }
 
         Rectangle {
@@ -87,7 +87,7 @@ Rectangle {
                 kind: "gear"
                 color: gearHover.hovered ? Sys.text : Sys.textDim
             }
-            TapHandler { onTapped: top.settingsRequested() }
+            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
         }
     }
 }

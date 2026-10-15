@@ -76,7 +76,7 @@ Rectangle {
             color: bb.active ? Sys.accent
                    : (bbHover.hovered ? Sys.text : bb.iconColor)
         }
-        TapHandler { onTapped: bb.tapped() }
+        TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
     }
 
     // ---- tarjeta flotante --------------------------------------------

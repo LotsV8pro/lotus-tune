@@ -130,7 +130,7 @@ Rectangle {
                     Behavior on y { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
                 }
 
-                TapHandler { onTapped: side.activate(navRow.modelData.id) }
+                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); side.activate(navRow.modelData.id) } }
             }
         }
 
@@ -362,7 +362,7 @@ Rectangle {
                 }
             }
 
-            TapHandler { onTapped: side.nowPlayingRequested() }
+            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); side.nowPlayingRequested() } }
         }
 
         // ---- ajustes (sólo expandido) ---------------------------------
@@ -396,7 +396,7 @@ Rectangle {
                 color: setHover.hovered ? Sys.text : Sys.textDim
                 font.pixelSize: Theme.tBase
             }
-            TapHandler { onTapped: side.settingsRequested() }
+            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); side.settingsRequested() } }
         }
     }
 }
