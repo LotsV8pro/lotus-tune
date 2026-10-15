@@ -142,7 +142,8 @@ Rectangle {
         // Clic derecho -> menú contextual de la lista.
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
-                tile.contextRequested(mouse.scenePos.x, mouse.scenePos.y)
+                const p = mapToItem(null, mouse.x, mouse.y)
+                tile.contextRequested(p.x, p.y)
                 return
             }
             if (overPlayBtn(mouse.x, mouse.y))

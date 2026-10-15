@@ -65,7 +65,8 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: (mouse) => {
-                    if (mouse.button === Qt.RightButton)
+                    if (mouse.button === Qt.RightButton) {
+                        const p = mapToItem(null, mouse.x, mouse.y)
                         qv.trackContextRequested({
                             title: row.title,
                             artist: row.artist,
@@ -73,9 +74,10 @@ Item {
                             thumb: row.thumb,
                             duration: row.duration,
                             source: row.source
-                        }, mouse.scenePos.x, mouse.scenePos.y)
-                    else
+                        }, p.x, p.y)
+                    } else {
                         qv.trackActivated(index)
+                    }
                 }
             }
 
