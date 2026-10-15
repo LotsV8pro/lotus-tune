@@ -6,10 +6,10 @@ import "theme.js" as Theme
 // horizontales de tarjetas de tamaño fijo. Cada carril es un ListView con
 // reuseItems: recicla delegados y la retícula nunca salta al pasar el ratón.
 //
-// Comportamiento de clic:
-//   · clic en tarjeta -> UN CLIC = SUENA YA: las canciones sueltas y las
-//     listas reales se reproducen sin salir de Inicio.
-//   · botón de play  -> carga la lista y la REPRODUCE (sin salir de Inicio)
+// Comportamiento de clic en las tarjetas:
+//   · clic en la PORTADA -> ABRE la lista (vista de pistas), sin reproducir.
+//   · botón de play      -> carga la lista y la REPRODUCE (sin salir de Inicio).
+//   · fila de «Reciente» -> un clic ya suena (no tiene botón aparte).
 Item {
     id: page
 
@@ -27,41 +27,65 @@ Item {
     readonly property int rowHeight: 230
     readonly property int cardSpacing: 14
 
-    // ---- Selección rápida (deck estilo Sonora) --------------------------
-    // Rejilla paginada de filas compactas. Mezcla: «me gusta», lo escuchado
-    // hace poco y tus listas.
+    // ---- Reciente (deck estilo Sonora) ----------------------------------
+    // Rejilla paginada de filas compactas. Es un «RECIENTE» combinado de TODAS
+    // las fuentes: las canciones SUELTAS escuchadas (se excluyen las que
+    // sonaron dentro de una playlist) y las 5 listas más recientes.
     property int picksPage: 0
     readonly property int picksPerPage: 15
     readonly property int picksCols: 3
     readonly property int picksRows: 5
 
+    // Canciones sueltas recientes (catalog.recent, más nueva primero). Una
+    // pista con `setId` sonó dentro de una playlist, así que no cuenta como
+    // «individual».
+    function recentTracks() {
+        const out = []
+        const rec = catalog.recent
+        for (var i = 0; i < rec.length && out.length < 30; i++) {
+            const t = rec[i]
+            if (!t || !t.url || t.setId)
+                continue
+            out.push({ kind: "track", title: t.title || "",
+                       sub: t.artist || "", thumb: t.thumb || "",
+                       url: t.url, source: t.source || "" })
+        }
+        return out
+    }
+
+    // Hasta `limit` listas, más recientes primero. Se combinan TODAS las
+    // fuentes: las listas guardadas por el usuario y las de YouTube Music.
+    function recentLists(limit) {
+        const out = []
+        const seen = {}
+        function push(url, name, thumb, count, source) {
+            if (!url || seen[url])
+                return
+            seen[url] = true
+            const sname = source ? page.srcName(source) : ""
+            var sub = sname
+            if (count)
+                sub += (sub ? " · " : "") + count + " pistas"
+            out.push({ kind: "playlist", title: name || "", sub: sub,
+                       thumb: thumb || "", url: url, source: source || "" })
+        }
+        const pls = catalog.playlists
+        for (var i = 0; i < pls.length; i++)
+            push(pls[i].url, pls[i].name, pls[i].thumb, pls[i].count, pls[i].source)
+        const lib = catalog.ytmLibrary
+        for (var j = 0; j < lib.length; j++)
+            push(lib[j].url, lib[j].name, lib[j].thumb, lib[j].count, "ytm")
+        return out.slice(0, limit)
+    }
+
     function quickPicks() {
         const out = []
-        if (page.ytmOk)
-            out.push({ kind: "liked", title: "Música que me gusta",
-                       sub: "YouTube Music · Tus me gusta", thumb: "",
-                       url: "https://music.youtube.com/playlist?list=LM" })
-        const rec = catalog.recent
-        // En YouTube Music no se listan canciones sueltas (las que sonaron
-        // dentro de una playlist): la Home muestra solo listas y las
-        // canciones se buscan individualmente.
-        if (!page.ytmSource) {
-            for (var i = 0; i < rec.length && out.length < 30; i++) {
-                const t = rec[i]
-                if (!t || !t.url)
-                    continue
-                out.push({ kind: "track", title: t.title || "",
-                           sub: t.artist || "", thumb: t.thumb || "",
-                           url: t.url })
-            }
-        }
-        const lib = catalog.ytmLibrary
-        for (var j = 0; j < lib.length && out.length < 30; j++) {
-            const p = lib[j]
-            out.push({ kind: "playlist", title: p.name || "",
-                       sub: "YouTube Music · " + (p.count || 0) + " pistas",
-                       thumb: p.thumb || "", url: p.url || "" })
-        }
+        const tracks = page.recentTracks()
+        for (var i = 0; i < tracks.length; i++)
+            out.push(tracks[i])
+        const lists = page.recentLists(5)
+        for (var j = 0; j < lists.length; j++)
+            out.push(lists[j])
         return out
     }
 
@@ -113,10 +137,6 @@ Item {
     }
     readonly property var src: sourceEntry(sources.activeId)
     readonly property bool ytmOk: String(catalog.loginState || "") === "ok"
-    // Fuente activa = YouTube Music. En YT Music la Home muestra SOLO listas
-    // (tus listas y «me gusta»): las canciones sueltas se obtienen buscando,
-    // no se listan las que sonaron dentro de una playlist (catalog.recent).
-    readonly property bool ytmSource: String(page.src ? page.src.id : "") === "ytm"
 
     // ---- portadas con degradado derivadas del propio texto --------------
     function _hash(s) {
@@ -384,7 +404,7 @@ Item {
                 }
             }
 
-            // ---- SELECCIÓN RÁPIDA (rejilla paginada, sin marco) --------
+            // ---- RECIENTE (rejilla paginada, sin marco) -----------------
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
@@ -396,7 +416,7 @@ Item {
 
                     SectionTitle {
                         Layout.fillWidth: true
-                        text: page.src ? page.src.name.toUpperCase() : "SELECCIÓN RÁPIDA"
+                        text: "RECIENTE"
                     }
 
                     Rectangle {
@@ -576,8 +596,9 @@ Item {
                     icon: "queue"
                     coverA: page.coverA(modelData.name)
                     coverB: page.coverB(modelData.name)
+                    // Portada -> ABRIR la lista; botón de play -> reproducirla.
                     onClicked: {
-                        page.openListRequested(true)
+                        page.openListRequested(false)
                         catalog.openUrl(modelData.url, modelData.name)
                     }
                     onPlayClicked: {
@@ -621,8 +642,9 @@ Item {
                     icon: "queue"
                     coverA: page.coverA(modelData.title)
                     coverB: page.coverB(modelData.title)
+                    // Portada -> ABRIR la lista; botón de play -> reproducirla.
                     onClicked: {
-                        page.openListRequested(true)
+                        page.openListRequested(false)
                         catalog.openPlaylist(modelData.index)
                     }
                     onPlayClicked: {
@@ -670,7 +692,7 @@ Item {
                     coverA: modelData.kind === "liked"
                             ? Sys.accentDim : page.coverA(modelData.title)
                     coverB: page.coverB(modelData.title)
-                    onClicked: page.openRec(modelData, true)
+                    onClicked: page.openRec(modelData, false)
                     onPlayClicked: page.openRec(modelData, true)
                 }
             }
@@ -702,7 +724,7 @@ Item {
                     coverA: page.coverA(modelData.t)
                     coverB: page.coverB(modelData.t)
                     onClicked: {
-                        page.openListRequested(true)
+                        page.openListRequested(false)
                         catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
                     }
                     onPlayClicked: {
