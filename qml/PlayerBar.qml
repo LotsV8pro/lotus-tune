@@ -13,6 +13,9 @@ Rectangle {
     id: bar
 
     property bool playing: false
+    // Pista pedida pero aún sin sonar (resolviendo el stream): muestra un
+    // estado de espera en la barra para que el arranque no parezca colgado.
+    property bool loading: false
     property real position: 0
     property real duration: 0
     property string title: ""
@@ -153,11 +156,36 @@ Rectangle {
                     }
                     Text {
                         Layout.fillWidth: true
+                        visible: !bar.loading
                         text: bar.artist.length ? bar.artist : "—"
                         color: Sys.textDim
                         font.pixelSize: Theme.tMd
                         elide: Text.ElideRight
                         maximumLineCount: 1
+                    }
+                    // Estado de espera: punto que late + texto, con la misma
+                    // altura que la línea de artista para no mover el layout.
+                    Row {
+                        Layout.fillWidth: true
+                        visible: bar.loading
+                        spacing: Theme.s2
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 6; height: 6; radius: 3
+                            color: Sys.accent
+                            SequentialAnimation on opacity {
+                                running: bar.loading
+                                loops: Animation.Infinite
+                                NumberAnimation { to: 0.25; duration: 520; easing.type: Easing.InOutSine }
+                                NumberAnimation { to: 1.0; duration: 520; easing.type: Easing.InOutSine }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "Cargando…"
+                            color: Sys.textDim
+                            font.pixelSize: Theme.tMd
+                        }
                     }
                 }
             }

@@ -197,6 +197,17 @@ Item {
                 boundsBehavior: Flickable.StopAtBounds
                 reuseItems: true
                 cacheBuffer: 600
+                // Al llegar resultados nuevos, cuece las primeras pistas: un
+                // clic en la cabecera de la lista suena al instante.
+                onCountChanged: {
+                    const arr = catalog.results
+                    const n = Math.min(3, arr ? arr.length : 0)
+                    for (let i = 0; i < n; i++) {
+                        const t = arr[i]
+                        if (t && t.url)
+                            player.prefetch(t.url)
+                    }
+                }
 
                 delegate: Rectangle {
                     id: rrow
@@ -240,6 +251,11 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        // Al pasar el ratón, pre-resuelve esa pista con
+                        // prioridad: si el clic cae enseguida, ya suena.
+                        onContainsMouseChanged: if (containsMouse && rrow.modelData
+                                                     && rrow.modelData.url)
+                                                    player.prefetchFront(rrow.modelData.url)
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton)
                                 page.trackContextRequested(rrow.modelData,

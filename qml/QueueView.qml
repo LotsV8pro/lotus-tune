@@ -49,7 +49,13 @@ Item {
                    : (rowHover.hovered ? Theme.hover(Sys.bg) : "transparent")
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
-            HoverHandler { id: rowHover; cursorShape: Qt.PointingHandCursor }
+            HoverHandler {
+                id: rowHover
+                cursorShape: Qt.PointingHandCursor
+                // Al señalar una fila de la cola, pre-resuelve su stream.
+                onHoveredChanged: if (hovered && row.url)
+                                      player.prefetchFront(row.url)
+            }
 
             // Detrás de la fila: el corazón va encima y recibe su propio clic.
             MouseArea {

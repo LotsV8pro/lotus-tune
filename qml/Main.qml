@@ -1132,9 +1132,9 @@ Window {
                          root.currentVideoId)
         }
         player.load(t.url)
-        // Pre-resuelve el stream de la siguiente pista en background para que
-        // el cambio de canción sea instantáneo (estilo Sonora).
-        prefetchAhead(queueIndex, 2)
+        // Pre-resuelve el stream de las siguientes pistas en background para
+        // que el cambio de canción sea instantáneo (estilo Sonora).
+        prefetchAhead(queueIndex, 3)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "" })
         root.updateNowPlaying()
@@ -1149,6 +1149,21 @@ Window {
             return
         for (let i = from + 1; i <= from + n && i < queue.count; i++) {
             const t = queue.get(i)
+            if (t && t.url)
+                player.prefetch(t.url)
+        }
+    }
+
+    // Pre-resuelve las primeras `n` pistas de una lista recién mostrada (lista
+    // abierta o resultados de búsqueda). Así un clic en cualquiera de las
+    // primeras filas ya encuentra el stream resuelto y suena al instante.
+    function prefetchHead(list, n) {
+        if (!list || !list.length)
+            return
+        n = n || 4
+        const total = Math.min(n, list.length)
+        for (let i = 0; i < total; i++) {
+            const t = list[i]
             if (t && t.url)
                 player.prefetch(t.url)
         }
@@ -1359,6 +1374,9 @@ Window {
             }
             // Sólo abrir: un salto directo a la lista/álbum (sin reproducir).
             root.openTracksView()
+            // Cuece ya las primeras pistas: cuando el usuario pulse una de
+            // ellas, el stream estará resuelto y sonará al instante.
+            root.prefetchHead(tracks, 4)
         }
         function onLibraryChanged() {
             if (root.launcherOpen)
@@ -1560,6 +1578,7 @@ Window {
         PlayerBar {
             Layout.fillWidth: true
             playing: player.playing
+            loading: player.loading
             position: player.position
             duration: player.duration
             title: root.currentTitle

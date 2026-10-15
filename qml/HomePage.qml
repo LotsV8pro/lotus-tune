@@ -532,6 +532,13 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
+                                // Canciones sueltas: al pasar el ratón ya se
+                                // pre-resuelve el stream (un clic = suena ya).
+                                onContainsMouseChanged: if (containsMouse
+                                        && pickRow.modelData
+                                        && pickRow.modelData.kind === "track"
+                                        && pickRow.modelData.url)
+                                        player.prefetchFront(pickRow.modelData.url)
                                 onClicked: page.openQuickPick(pickRow.modelData, true)
                             }
                         }

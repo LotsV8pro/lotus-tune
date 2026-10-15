@@ -678,6 +678,17 @@ Item {
                 cacheBuffer: 800
                 spacing: 0
                 boundsBehavior: Flickable.StopAtBounds
+                // Lista abierta: cuece ya sus primeras pistas para que el clic
+                // en la cabecera suene al instante.
+                onCountChanged: {
+                    const arr = catalog.tracks
+                    const n = Math.min(4, arr ? arr.length : 0)
+                    for (let i = 0; i < n; i++) {
+                        const t = arr[i]
+                        if (t && t.url)
+                            player.prefetch(t.url)
+                    }
+                }
 
                 delegate: Item {
                     id: trow
@@ -728,6 +739,10 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        // Hover: pre-resuelve con prioridad la pista señalada.
+                        onContainsMouseChanged: if (containsMouse && modelData
+                                                     && modelData.url)
+                                                    player.prefetchFront(modelData.url)
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.RightButton)
                                 page.trackContextRequested(modelData,

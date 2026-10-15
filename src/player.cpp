@@ -26,10 +26,31 @@ Player::Player(QObject *parent)
     m_posFlush.setInterval(240);
     connect(&m_posFlush, &QTimer::timeout, this, [this] { emitPosition(true); });
 
+    // Tope de tiempo por pre-resolución: red de seguridad ante un yt-dlp colgado
+    // (no ante una resolución normal, que tarda ~2.5 s). Si aún así un load()
+    // está esperando esta pista, no se abandona a mpv (su resolución interna es
+    // bastante más lenta): se concede un único margen extra antes de matarla.
+    m_resolveTimer.setSingleShot(true);
+    m_resolveTimer.setInterval(12000);
+    connect(&m_resolveTimer, &QTimer::timeout, this, [this] {
+        if (m_resolver.state() == QProcess::NotRunning)
+            return;
+        if (!m_resolveGrace && !m_pendingLoadUrl.isEmpty()
+                && m_pendingLoadUrl == m_resolvingUrl) {
+            m_resolveGrace = true;
+            m_resolveTimer.start(20000);
+            return;
+        }
+        m_resolver.kill();   // finished() limpia el estado y sigue con la cola
+    });
+
     m_resolver.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_resolver, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
+        m_resolveTimer.stop();
+        m_resolveGrace = false;
         const QString url = m_resolvingUrl;
         m_resolvingUrl.clear();
+        m_resolvingFront = false;
         if (code == 0) {
             const QByteArray out = m_resolver.readAllStandardOutput().trimmed();
             const QList<QByteArray> lines = out.split('\n');
@@ -41,6 +62,12 @@ Player::Player(QObject *parent)
                     break;
                 }
             }
+        }
+        // Un load() que estaba esperando a esta misma pista: ya hay URL directa
+        // (o, si la resolución falló, cae a que mpv la resuelva por su cuenta).
+        if (!url.isEmpty() && m_pendingLoadUrl == url) {
+            m_pendingLoadUrl.clear();
+            load(url);
         }
         resolveQueue();
     });
@@ -131,6 +158,7 @@ void Player::startMpv()
                 m_ready = false;
                 m_playing = false;
                 m_hasFile = false;
+                m_loading = false;
                 m_status = QStringLiteral("mpv died");
                 m_connectTimer.stop();
                 emit stateChanged();
@@ -218,6 +246,12 @@ void Player::handleLine(const QByteArray &line)
             emit stateChanged();
         } else if (name == QLatin1String("duration")) {
             const double d = data.toDouble();
+            // Si hay un load() esperando a la pre-resolución, mpv sigue con la
+            // pista anterior: sus eventos no deben dar por terminada la espera.
+            if (d > 0.0 && m_loading && m_pendingLoadUrl.isEmpty()) {
+                m_loading = false;   // ya hay stream: termina la espera
+                emit stateChanged();
+            }
             if (qAbs(d - m_duration) > 0.25) {
                 m_duration = d;
                 emit stateChanged();
@@ -225,6 +259,10 @@ void Player::handleLine(const QByteArray &line)
         } else if (name == QLatin1String("time-pos")) {
             if (data.isDouble()) {
                 m_position = data.toDouble();
+                if (m_position > 0.0 && m_loading && m_pendingLoadUrl.isEmpty()) {
+                    m_loading = false;
+                    emit stateChanged();
+                }
                 emitPosition(false);
             }
         } else if (name == QLatin1String("volume")) {
@@ -241,11 +279,13 @@ void Player::handleLine(const QByteArray &line)
         const QString reason = o.value(QStringLiteral("reason")).toString();
         if (reason == QLatin1String("eof")) {
             m_hasFile = false;
+            m_loading = false;
             m_position = 0;
             emit positionChanged();
             emit endOfFile(true);
         } else if (reason == QLatin1String("error")) {
             m_hasFile = false;
+            m_loading = false;
             qWarning() << "[player] playback error" << "url=" << m_currentUrl
                        << "err=" << o.value(QStringLiteral("error")).toString()
                        << "file=" << o.value(QStringLiteral("file_error")).toString();
@@ -269,6 +309,7 @@ void Player::handleLine(const QByteArray &line)
     if (ev == QLatin1String("shutdown")) {
         m_ready = false;
         m_hasFile = false;
+        m_loading = false;
         m_status = QStringLiteral("mpv shutdown");
         emit stateChanged();
     }
@@ -310,10 +351,27 @@ void Player::load(const QString &url)
         m_pendingUrl = url;
         return;
     }
+    // Nuestro resolver ya está trabajando en esta misma pista (hover): mejor
+    // esperar a que acabe que dejar que mpv la resuelva otra vez. La UI se
+    // actualiza ya (parece que arranca) y el loadfile sale al terminar.
+    if (!m_resolved.contains(url) && url == m_resolvingUrl) {
+        m_pendingLoadUrl = url;
+        m_position = 0;
+        m_duration = 0;
+        m_currentUrl = url;
+        m_hasFile = true;
+        m_loading = true;
+        m_playing = true;
+        emit positionChanged();
+        emit stateChanged();
+        return;
+    }
+    m_pendingLoadUrl.clear();
     m_position = 0;
     m_duration = 0;
     m_currentUrl = url;
     m_hasFile = true;
+    m_loading = true;
     qInfo() << "[player] load" << url;
     emit positionChanged();
     emit stateChanged();
@@ -336,19 +394,71 @@ void Player::playPause()
 
 void Player::prefetch(const QString &url)
 {
-    if (url.isEmpty() || m_resolved.contains(url))
+    enqueueResolve(url, false);
+}
+
+void Player::prefetchFront(const QString &url)
+{
+    enqueueResolve(url, true);
+}
+
+// Alta en las colas de pre-resolución. La cola "front" (hover) tiene prioridad
+// absoluta sobre la de fondo (siguientes de la lista): así el clic inminente
+// del usuario no espera detrás de las canciones que aún no va a tocar. Si hay
+// una resolución de fondo en marcha y llega un hover, se descarta la de fondo
+// (es recuperable) salvo que acabe de arrancar, para no malgastar el trabajo
+// de yt-dlp por un simple barrido del ratón.
+void Player::enqueueResolve(const QString &url, bool front)
+{
+    if (url.isEmpty() || !url.startsWith(QLatin1String("http")))
+        return;   // sólo hay que resolver streams de red (los locales son ya directos)
+    if (m_resolved.contains(url) || m_resolvingUrl == url)
         return;
-    if (m_resolveQueue.contains(url))
-        return;
-    m_resolveQueue.append(url);
+    if (front) {
+        m_resolveQueue.removeAll(url);
+        if (m_resolveFront.contains(url))
+            return;
+        m_resolveFront.append(url);
+        while (m_resolveFront.size() > 8)
+            m_resolveFront.removeFirst();
+        // Descarta una resolución de fondo en curso para atender el hover ya
+        // (sólo si lleva un mínimo: evitar reinicios por micro-hovers). Nunca
+        // se descarta si un load() está esperando esa misma resolución: sería
+        // dejar la pista pulsada sin cargar.
+        if (m_resolver.state() != QProcess::NotRunning && !m_resolvingFront
+                && m_pendingLoadUrl != m_resolvingUrl
+                && m_resolveStart > 0
+                && QDateTime::currentMSecsSinceEpoch() - m_resolveStart > 500) {
+            if (!m_resolvingUrl.isEmpty())
+                m_resolveQueue.prepend(m_resolvingUrl);
+            m_resolvingUrl.clear();
+            m_resolvingFront = false;
+            m_resolver.kill();
+            return;   // finished() vuelve a llamar a resolveQueue()
+        }
+    } else {
+        if (m_resolveQueue.contains(url) || m_resolveFront.contains(url))
+            return;
+        m_resolveQueue.append(url);
+        while (m_resolveQueue.size() > 24)
+            m_resolveQueue.removeFirst();
+    }
     resolveQueue();
 }
 
 void Player::resolveQueue()
 {
-    if (m_resolver.state() != QProcess::NotRunning || m_resolveQueue.isEmpty())
+    if (m_resolver.state() != QProcess::NotRunning)
         return;
-    const QString url = m_resolveQueue.takeFirst();
+    if (m_resolveFront.isEmpty() && m_resolveQueue.isEmpty())
+        return;
+    const bool front = !m_resolveFront.isEmpty();
+    const QString url = front ? m_resolveFront.takeFirst()
+                              : m_resolveQueue.takeFirst();
+    m_resolvingFront = front;
+    m_resolveStart = QDateTime::currentMSecsSinceEpoch();
+    m_resolveGrace = false;
+    qInfo() << "[player] resolviendo" << (front ? "(hover)" : "(lista)") << url;
     QStringList args{
         QStringLiteral("--no-warnings"),
         QStringLiteral("--get-url"),
@@ -368,15 +478,18 @@ void Player::resolveQueue()
     m_resolver.setProgram(QStringLiteral("yt-dlp"));
     m_resolver.setArguments(args);
     m_resolver.start();
+    m_resolveTimer.start();
     if (!m_resolver.waitForStarted(3000))
         qWarning() << "[player] failed to start yt-dlp resolver";
 }
 
 void Player::stopPlayback()
 {
+    m_pendingLoadUrl.clear();
     send({{QStringLiteral("command"), QJsonArray{QStringLiteral("stop")}}});
     m_playing = false;
     m_hasFile = false;
+    m_loading = false;
     m_position = 0;
     emit stateChanged();
     emit positionChanged();
