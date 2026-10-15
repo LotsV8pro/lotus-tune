@@ -257,12 +257,12 @@ Item {
                                                      && rrow.modelData.url)
                                                     player.prefetchFront(rrow.modelData.url)
                         onClicked: (mouse) => {
-                            if (mouse.button === Qt.RightButton)
-                                page.trackContextRequested(rrow.modelData,
-                                                           mouse.scenePos.x,
-                                                           mouse.scenePos.y)
-                            else
+                            if (mouse.button === Qt.RightButton) {
+                                const p = mapToItem(null, mouse.x, mouse.y)
+                                page.trackContextRequested(rrow.modelData, p.x, p.y)
+                            } else {
                                 page.playRequested(catalog.results, rrow.index)
+                            }
                         }
                     }
 

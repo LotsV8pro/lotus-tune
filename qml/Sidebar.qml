@@ -209,13 +209,13 @@ Rectangle {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
                             onClicked: (mouse) => {
-                                if (mouse.button === Qt.RightButton)
-                                    side.ytmlistContextRequested(modelData,
-                                                                 mouse.scenePos.x,
-                                                                 mouse.scenePos.y)
-                                else
+                                if (mouse.button === Qt.RightButton) {
+                                    const p = mapToItem(null, mouse.x, mouse.y)
+                                    side.ytmlistContextRequested(modelData, p.x, p.y)
+                                } else {
                                     side.ytmlistRequested(modelData.url || "",
                                                           modelData.name || "")
+                                }
                             }
                         }
                     }
@@ -261,12 +261,12 @@ Rectangle {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
                             onClicked: (mouse) => {
-                                if (mouse.button === Qt.RightButton)
-                                    side.playlistContextRequested(modelData,
-                                                                  mouse.scenePos.x,
-                                                                  mouse.scenePos.y)
-                                else
+                                if (mouse.button === Qt.RightButton) {
+                                    const p = mapToItem(null, mouse.x, mouse.y)
+                                    side.playlistContextRequested(modelData, p.x, p.y)
+                                } else {
                                     side.playlistRequested(index)
+                                }
                             }
                         }
                     }

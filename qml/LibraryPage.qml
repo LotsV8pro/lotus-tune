@@ -656,8 +656,10 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: page.openHeaderMenu(mouse.scenePos.x,
-                                                               mouse.scenePos.y)
+                                onClicked: (mouse) => {
+                                    const p = mapToItem(null, mouse.x, mouse.y)
+                                    page.openHeaderMenu(p.x, p.y)
+                                }
                             }
                         }
 
@@ -744,12 +746,12 @@ Item {
                                                      && modelData.url)
                                                     player.prefetchFront(modelData.url)
                         onClicked: (mouse) => {
-                            if (mouse.button === Qt.RightButton)
-                                page.trackContextRequested(modelData,
-                                                           mouse.scenePos.x,
-                                                           mouse.scenePos.y)
-                            else
+                            if (mouse.button === Qt.RightButton) {
+                                const p = mapToItem(null, mouse.x, mouse.y)
+                                page.trackContextRequested(modelData, p.x, p.y)
+                            } else {
                                 page.playRequested(catalog.tracks, trow.index)
+                            }
                         }
                     }
 
@@ -1154,12 +1156,13 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: (mouse) => {
-                                    if (mouse.button === Qt.RightButton)
+                                    if (mouse.button === Qt.RightButton) {
+                                        const p = mapToItem(null, mouse.x, mouse.y)
                                         page.trackContextRequested(modelData,
-                                                                   mouse.scenePos.x,
-                                                                   mouse.scenePos.y)
-                                    else
+                                                                   p.x, p.y)
+                                    } else {
                                         page.playRequested(page.dlLocal, lrow.index)
+                                    }
                                 }
                             }
 
