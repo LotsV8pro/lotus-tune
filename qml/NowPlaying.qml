@@ -223,7 +223,7 @@ Rectangle {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: np.toggleMute()
+                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.toggleMute() }
             }
         }
 
@@ -316,7 +316,7 @@ Rectangle {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: np.toggleLyrics()
+                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.toggleLyrics() }
             }
         }
 
@@ -340,7 +340,7 @@ Rectangle {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: np.doFullscreen()
+                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.doFullscreen() }
             }
         }
 
@@ -363,7 +363,7 @@ Rectangle {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: np.closeRequested()
+                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.closeRequested() }
             }
         }
     }
@@ -618,7 +618,7 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: np.shuffleToggled()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("toggle"); np.shuffleToggled() }
                     }
                 }
                 Rectangle {
@@ -639,7 +639,7 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: np.prevRequested()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.prevRequested() }
                     }
                 }
                 Rectangle {
@@ -664,7 +664,7 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: np.toggleRequested()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); np.toggleRequested() }
                     }
                 }
                 Rectangle {
@@ -685,7 +685,7 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: np.nextRequested()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); np.nextRequested() }
                     }
                 }
                 Rectangle {
@@ -708,7 +708,7 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: np.repeatToggled()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("toggle"); np.repeatToggled() }
                     }
                 }
             }

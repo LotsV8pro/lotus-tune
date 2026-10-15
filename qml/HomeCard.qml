@@ -171,7 +171,7 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: card.playClicked()
+                onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); card.playClicked() }
             }
         }
     }
@@ -181,6 +181,6 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: card.clicked()
+        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
     }
 }

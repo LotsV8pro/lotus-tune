@@ -511,7 +511,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: page.showPlaylists()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.showPlaylists() }
                     }
                 }
 
@@ -608,7 +608,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: page.playRequested(catalog.tracks, 0)
+                                onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); page.playRequested(catalog.tracks, 0) }
                             }
                         }
 
@@ -632,7 +632,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: page.shuffleListRequested()
+                                onClicked: { if (typeof sfx !== "undefined") sfx.play("toggle"); page.shuffleListRequested() }
                             }
                         }
 
@@ -875,7 +875,7 @@ Item {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: page.libraryTab = tabItem.modelData.t
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.libraryTab = tabItem.modelData.t }
                         }
                     }
                 }
@@ -987,7 +987,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: addPlaylist()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); addPlaylist() }
                     }
                 }
 
@@ -1045,7 +1045,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: if (typeof downloads !== "undefined") downloads.openFolder()
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); if (typeof downloads !== "undefined") downloads.openFolder() }
                         }
                     }
                     Rectangle {
@@ -1068,7 +1068,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: if (typeof downloads !== "undefined") downloads.cancelAll()
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); if (typeof downloads !== "undefined") downloads.cancelAll() }
                         }
                     }
                     Item { Layout.fillWidth: true }
