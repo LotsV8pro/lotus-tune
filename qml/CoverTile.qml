@@ -146,10 +146,13 @@ Rectangle {
                 tile.contextRequested(p.x, p.y)
                 return
             }
-            if (overPlayBtn(mouse.x, mouse.y))
+            if (overPlayBtn(mouse.x, mouse.y)) {
+                if (typeof sfx !== 'undefined') sfx.play('play')
                 tile.playClicked()
-            else
+            } else {
+                if (typeof sfx !== 'undefined') sfx.play('tap')
                 tile.clicked()
+            }
         }
     }
 
