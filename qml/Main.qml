@@ -1760,8 +1760,7 @@ Window {
                                 color: pickHover.hovered ? Theme.hover(Sys.bg) : "transparent"
                                 HoverHandler { id: pickHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler {
-                                    onTapped: root.addCurrentToPlaylist(
-                                        root.listIdOf(modelData.url))
+                                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.addCurrentToPlaylist(root.listIdOf(modelData.url)) }
                                 }
                                 RowLayout {
                                     anchors.fill: parent
@@ -1806,7 +1805,7 @@ Window {
                     color: pickHover2.hovered ? Theme.hover(Sys.bg) : "transparent"
                     HoverHandler { id: pickHover2; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
-                        onTapped: root.removeCurrentFromPlaylist(catalog.openPlaylistId)
+                        onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.removeCurrentFromPlaylist(catalog.openPlaylistId) }
                     }
                     RowLayout {
                         anchors.fill: parent
