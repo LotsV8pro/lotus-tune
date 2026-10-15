@@ -148,6 +148,7 @@ Item {
                             TapHandler {
                                 enabled: row.can
                                 onTapped: {
+                                    if (typeof sfx !== 'undefined') sfx.play('tap')
                                     const act = cell.modelData.action
                                     menu.dismiss()
                                     if (typeof act === "function")
