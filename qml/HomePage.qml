@@ -347,7 +347,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: page.navigateRequested("library")
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.navigateRequested("library") }
                     }
                 }
             }
@@ -386,7 +386,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: page.openLauncherRequested()
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openLauncherRequested() }
                 }
             }
 
@@ -425,7 +425,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: page.picksPage = Math.max(0, page.picksPage - 1)
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.picksPage = Math.max(0, page.picksPage - 1) }
                         }
                     }
                     Rectangle {
@@ -448,8 +448,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: page.picksPage = Math.min(page.picksPages - 1,
-                                                                 page.picksPage + 1)
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.picksPage = Math.min(page.picksPages - 1, page.picksPage + 1) }
                         }
                     }
                 }
@@ -545,7 +544,7 @@ Item {
                                         && pickRow.modelData.kind === "track"
                                         && pickRow.modelData.url)
                                         player.prefetchFront(pickRow.modelData.url)
-                                onClicked: page.openQuickPick(pickRow.modelData, true)
+                                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openQuickPick(pickRow.modelData, true) }
                             }
                         }
                     }
@@ -631,7 +630,7 @@ Item {
                     coverA: modelData.kind === "liked"
                             ? Sys.accentDim : page.coverA(modelData.title)
                     coverB: page.coverB(modelData.title)
-                    onClicked: page.openRec(modelData, false)
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
                     onPlayClicked: page.openRec(modelData, true)
                 }
             }
@@ -708,7 +707,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: page.clearSearchHistory()
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.clearSearchHistory() }
                     }
                 }
             }
@@ -774,7 +773,7 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         // Re-ejecuta la búsqueda: Main abre Buscar y lanza la query.
-                        onClicked: page.searchRequested(histChip.modelData.q)
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.searchRequested(histChip.modelData.q) }
                     }
                 }
             }
