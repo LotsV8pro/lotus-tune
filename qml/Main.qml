@@ -1148,7 +1148,8 @@ Window {
         player.clearPrefetch()
         prefetchAhead(queueIndex, 6)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
-                            duration: t.duration, source: t.source, thumb: t.thumb || "" })
+                            duration: t.duration, source: t.source, thumb: t.thumb || "",
+                            setId: t.setId || "" })
         root.updateNowPlaying()
         root.saveSession()
     }
