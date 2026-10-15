@@ -2,6 +2,7 @@
 #include "catalog.h"
 #include "discordrpc.h"
 #include "downloads.h"
+#include "sfx.h"
 #include "lyrics.h"
 #include "mpris.h"
 #include "perf.h"
@@ -268,6 +269,9 @@ int main(int argc, char *argv[])
     // Descargas de YouTube (yt-dlp) + biblioteca local.
     Downloads downloads;
     engine.rootContext()->setContextProperty(QStringLiteral("downloads"), &downloads);
+
+    Sfx sfx;
+    engine.rootContext()->setContextProperty(QStringLiteral("sfx"), &sfx);
 
     QQmlComponent component(&engine);
     component.loadFromModule("LotusTune", "Main");
