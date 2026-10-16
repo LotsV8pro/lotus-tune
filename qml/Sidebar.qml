@@ -214,6 +214,7 @@ Rectangle {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
                             onClicked: (mouse) => {
+                                if (typeof sfx !== 'undefined') sfx.play('tap')
                                 if (mouse.button === Qt.RightButton) {
                                     const p = mapToItem(null, mouse.x, mouse.y)
                                     side.ytmlistContextRequested(modelData, p.x, p.y)
@@ -266,6 +267,7 @@ Rectangle {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             cursorShape: Qt.PointingHandCursor
                             onClicked: (mouse) => {
+                                if (typeof sfx !== 'undefined') sfx.play('tap')
                                 if (mouse.button === Qt.RightButton) {
                                     const p = mapToItem(null, mouse.x, mouse.y)
                                     side.playlistContextRequested(modelData, p.x, p.y)
