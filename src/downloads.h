@@ -29,6 +29,9 @@ class Downloads : public QObject
     Q_PROPERTY(QVariantList jobs READ jobs NOTIFY jobsChanged)
     Q_PROPERTY(QString folder READ folder NOTIFY changed)
     Q_PROPERTY(QVariantList local READ local NOTIFY libraryChanged)
+    // Listas descargadas: una entrada por carpeta de primer nivel
+    // ({ name, folder, count, thumb }).
+    Q_PROPERTY(QVariantList folders READ folders NOTIFY libraryChanged)
     Q_PROPERTY(bool localBusy READ localBusy NOTIFY libraryChanged)
 
 public:
@@ -39,6 +42,7 @@ public:
     QVariantList jobs() const;
     QString folder() const { return m_folder; }
     QVariantList local() const { return m_local; }
+    QVariantList folders() const;
     bool localBusy() const { return m_localBusy; }
 
     // Carpeta raíz de descargas (configurable y persistida en QSettings).

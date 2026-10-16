@@ -4,6 +4,7 @@
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -378,12 +379,55 @@ QString Downloads::artistForPath(const QString &dir) const
     return rel.section(QLatin1Char('/'), 0, 0);
 }
 
+QVariantList Downloads::folders() const
+{
+    // Agrupa la biblioteca local por carpeta de primer nivel: cada carpeta es
+    // una lista descargada (con nombre, nº de pistas y una miniatura).
+    QStringList order;
+    QHash<QString, QVariantList> groups;
+    for (const QVariant &v : m_local) {
+        const QString f = v.toMap().value(QStringLiteral("folder")).toString();
+        if (f.isEmpty())
+            continue;   // pistas sueltas en la raíz: no forman lista
+        if (!groups.contains(f))
+            order.append(f);
+        groups[f].append(v);
+    }
+
+    QVariantList out;
+    out.reserve(order.size());
+    for (const QString &f : std::as_const(order)) {
+        const QVariantList &tr = groups.value(f);
+        QString thumb;
+        for (const QVariant &v : tr) {
+            const QString th = v.toMap().value(QStringLiteral("thumb")).toString();
+            if (!th.isEmpty()) {
+                thumb = th;
+                break;
+            }
+        }
+        QVariantMap m;
+        m.insert(QStringLiteral("name"), f);
+        m.insert(QStringLiteral("folder"), f);
+        m.insert(QStringLiteral("count"), tr.size());
+        m.insert(QStringLiteral("thumb"), thumb);
+        out.append(m);
+    }
+    return out;
+}
+
 QVariantMap Downloads::makeLocalTrack(const QString &path) const
 {
     const QFileInfo fi(path);
+    // Carpeta de primer nivel bajo la raíz = una lista descargada ("Neon &
+    // Shadows", etc.). Vacia si el fichero está suelto en la raíz.
+    const QString rel = QDir(m_folder).relativeFilePath(fi.absolutePath());
+    const QString folder = (rel.isEmpty() || rel == QLatin1String("."))
+        ? QString() : rel.section(QLatin1Char('/'), 0, 0);
     QVariantMap t;
     t.insert(QStringLiteral("title"), fi.completeBaseName());
     t.insert(QStringLiteral("artist"), artistForPath(fi.absolutePath()));
+    t.insert(QStringLiteral("folder"), folder);
     t.insert(QStringLiteral("duration"), 0.0);
     t.insert(QStringLiteral("thumb"), QString());
     t.insert(QStringLiteral("url"),
