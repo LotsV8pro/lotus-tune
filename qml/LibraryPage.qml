@@ -778,17 +778,11 @@ Item {
                             }
                         }
 
-                        // Estado de instalación + botón de desinstalar.
+                        // Botón de desinstalar (sólo cuando la lista está ya
+                        // instalada; el tick va en el propio botón de descarga).
                         RowLayout {
                             spacing: Theme.s1
                             visible: dlBtn.installed && !dlBtn.downloading
-                            Text {
-                                visible: dlBtn.installed
-                                text: "Instalada"
-                                color: Sys.accent
-                                font.pixelSize: Theme.tSm
-                                font.weight: Font.Medium
-                            }
                             Rectangle {
                                 Layout.preferredWidth: 26
                                 Layout.preferredHeight: 26
