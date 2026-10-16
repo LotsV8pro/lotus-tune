@@ -2,13 +2,13 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Biblioteca con DESPLEGABLE DE FUENTES: arriba se elige la fuente (YouTube
-// Music, SoundCloud, Spotify/Tidal bloqueadas y «Local / Descargas») y debajo
-// se muestra una rejilla de covers con las listas de ESA fuente — o, en el
-// caso local, las descargas y los empleos en curso. Al cambiar de fuente o
-// desplegar el menú NO se reproduce nada: al pulsar una cover se ABRE su
-// lista (openListRequested + catalog.openPlaylist/openUrl) y sólo el botón
-// de play flotante que aparece al pasar el ratón la REPRODUCE.
+// Biblioteca: muestra TODO lo guardado junto (la biblioteca de YouTube Music +
+// todas las playlists guardadas, sin filtrar por fuente) en una rejilla de
+// covers; las descargas locales viven aparte, en la pestaña «Descargadas».
+// Al pulsar una cover se ABRE su lista (openListRequested +
+// catalog.openPlaylist/openUrl) y sólo el botón de play flotante que aparece al
+// pasar el ratón la REPRODUCE. Al pulsar una LISTA DESCARGADA se abre como una
+// playlist de verdad (su propia vista de pistas), sin filtrar la lista plana.
 Item {
     id: page
 
@@ -26,11 +26,15 @@ Item {
     signal shuffleListRequested()
     // Pide desinstalar una lista descargada (borra su carpeta).
     signal uninstallListRequested(string folder, string name)
+    // Menú (⋮) de una lista DESCARGADA abierta como playlist.
+    signal downloadMenuRequested(string folder, string name, real x, real y)
+    // Pide abrir una lista DESCARGADA como playlist (registra el paso atrás).
+    signal downloadOpenRequested(string folder)
 
     property bool showingTracks: false
 
-    function openTracks() { showingTracks = true }
-    function showPlaylists() { showingTracks = false }
+    function openTracks() { showingTracks = true; openDownloadFolder = "" }
+    function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
 
     // Pestaña activa de la biblioteca (0 Canciones · 1 Artistas · 2 Álbumes ·
     // 3 Playlists · 4 Descargadas). Estado puramente visual de la página.
@@ -173,6 +177,11 @@ Item {
     // Menú (⋮) de la lista abierta: reutiliza el menú de covers con los datos
     // de la lista en curso.
     function openHeaderMenu(x, y) {
+        // Lista descargada abierta: menú propio (reproducir / desinstalar).
+        if (page.localPlaylistOpen) {
+            page.downloadMenuRequested(page.openDownloadFolder, page.viewTitle(), x, y)
+            return
+        }
         const id = String(catalog.openPlaylistId || "")
         page.coverContextRequested({
             id: id,
@@ -199,31 +208,69 @@ Item {
     // Listas descargadas (una carpeta = una lista) y pistas sueltas.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
-    // Carpeta seleccionada ("" = todas): al pulsar una lista descargada se
-    // filtra la lista de canciones a esa carpeta.
-    property string localFilter: ""
-    // La carpeta elegida sólo cuenta si sigue existiendo (p. ej. tras borrar
-    // los archivos); si no, se muestra todo.
-    readonly property string localFilterActive: {
-        if (page.localFilter === "")
-            return ""
-        for (var i = 0; i < page.dlFolders.length; i++)
-            if (String(page.dlFolders[i].folder) === page.localFilter)
-                return page.localFilter
-        return ""
+    readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
+
+    // ---- lista descargada abierta COMO PLAYLIST --------------------------
+    // Al pulsar una lista descargada se abre como una playlist de verdad (vista
+    // de pistas con su cabecera), en lugar de filtrar la lista plana de
+    // canciones de Descargas.
+    property string openDownloadFolder: ""     // carpeta abierta ("" = ninguna)
+    readonly property var openDownloadInfo: {
+        if (page.openDownloadFolder === "")
+            return null
+        const fs = page.dlFolders
+        for (var i = 0; i < fs.length; i++)
+            if (String(fs[i].folder || "") === page.openDownloadFolder)
+                return fs[i]
+        return null
     }
-    readonly property var dlLocal: {
-        if (page.localFilterActive === "")
-            return page.dlLocalAll
+    readonly property var openDownloadTracks: {
+        if (page.openDownloadFolder === "")
+            return []
         const out = []
-        for (var i = 0; i < page.dlLocalAll.length; i++) {
-            const t = page.dlLocalAll[i]
-            if (String(t.folder || "") === page.localFilterActive)
-                out.push(t)
-        }
+        const all = page.dlLocalAll
+        for (var i = 0; i < all.length; i++)
+            if (String(all[i].folder || "") === page.openDownloadFolder)
+                out.push(all[i])
         return out
     }
-    readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
+    // ¿La vista de pistas muestra una lista descargada (y no el catálogo)?
+    readonly property bool localPlaylistOpen: page.showingTracks
+                                              && page.openDownloadFolder !== ""
+
+    // Abre una lista descargada como playlist (vista de pistas).
+    function openDownloadPlaylist(folder) {
+        const f = String(folder || "")
+        if (f === "")
+            return
+        page.openDownloadFolder = f
+        page.showingTracks = true
+    }
+
+    // ---- fuente de la vista de pistas (catálogo o lista descargada) ------
+    function viewTracks() {
+        return page.localPlaylistOpen ? page.openDownloadTracks : catalog.tracks
+    }
+    function viewTitle() {
+        return page.localPlaylistOpen
+               ? (page.openDownloadInfo ? String(page.openDownloadInfo.name || "") : "")
+               : String(catalog.tracksTitle || "")
+    }
+    function viewCover() {
+        return page.localPlaylistOpen
+               ? (page.openDownloadInfo ? String(page.openDownloadInfo.thumb || "") : "")
+               : page.currentCover()
+    }
+    function viewMeta() {
+        if (!page.localPlaylistOpen)
+            return page.tracksMeta()
+        const n = page.openDownloadTracks.length
+        return n + (n === 1 ? " canción" : " canciones") + " · descargada"
+    }
+    function viewFolder() {
+        return page.localPlaylistOpen ? page.openDownloadFolder
+                                      : String(page.dlOpenFolder || "")
+    }
 
     // ---- icono de acción (Glyph no incluye descarga/carpeta/refrescar) ----
     component ActionIcon: Canvas {
@@ -488,7 +535,7 @@ Item {
                     Image {
                         id: heroCover
                         anchors.fill: parent
-                        source: page.currentCover()
+                        source: page.viewCover()
                         visible: status === Image.Ready
                         sourceSize.width: 280
                         sourceSize.height: 280
@@ -514,7 +561,7 @@ Item {
                     spacing: Theme.s1
 
                     Text {
-                        text: "LISTA"
+                        text: page.localPlaylistOpen ? "DESCARGADA" : "LISTA"
                         color: Sys.textDim
                         font.pixelSize: Theme.tXs
                         font.letterSpacing: 1.2
@@ -522,7 +569,7 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: catalog.tracksTitle
+                        text: page.viewTitle()
                         color: Sys.text
                         font.pixelSize: Theme.t2xl
                         font.weight: Font.DemiBold
@@ -532,7 +579,7 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: page.tracksMeta()
+                        text: page.viewMeta()
                         color: Sys.textDim
                         font.pixelSize: Theme.tMd
                         elide: Text.ElideRight
@@ -568,7 +615,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); page.playRequested(catalog.tracks, 0) }
+                                onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); page.playRequested(page.viewTracks(), 0) }
                             }
                         }
 
@@ -581,7 +628,7 @@ Item {
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 38
                             radius: Theme.rMd
-                            visible: page.canDownloadTracks()
+                            visible: !page.localPlaylistOpen && page.canDownloadTracks()
                             color: dlMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                             border.width: 0
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -652,9 +699,12 @@ Item {
 
                         // Botón de desinstalar (sólo cuando la lista está ya
                         // instalada; el tick va en el propio botón de descarga).
+                        // En una lista DESCARGADA abierta como playlist, el
+                        // botón de descarga no aplica: se muestra la papelera.
                         RowLayout {
                             spacing: Theme.s1
-                            visible: dlBtn.installed && !dlBtn.downloading
+                            visible: page.localPlaylistOpen
+                                     || (dlBtn.installed && !dlBtn.downloading)
                             Rectangle {
                                 Layout.preferredWidth: 26
                                 Layout.preferredHeight: 26
@@ -674,8 +724,8 @@ Item {
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
                                         if (typeof sfx !== "undefined") sfx.play("tap")
-                                        page.uninstallListRequested(page.dlOpenFolder,
-                                                                    String(catalog.tracksTitle || ""))
+                                        page.uninstallListRequested(page.viewFolder(),
+                                                                    page.viewTitle())
                                     }
                                 }
                             }
@@ -755,7 +805,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
-                model: catalog.tracks
+                model: page.viewTracks()
                 reuseItems: true
                 cacheBuffer: 800
                 spacing: 0
@@ -763,7 +813,7 @@ Item {
                 // Lista abierta: cuece ya sus primeras pistas para que el clic
                 // en la cabecera suene al instante.
                 onCountChanged: {
-                    const arr = catalog.tracks
+                    const arr = page.viewTracks()
                     const n = Math.min(4, arr ? arr.length : 0)
                     for (let i = 0; i < n; i++) {
                         const t = arr[i]
@@ -831,7 +881,7 @@ Item {
                                 page.trackContextRequested(modelData, p.x, p.y)
                             } else {
                                 if (typeof sfx !== 'undefined') sfx.play('tap')
-                                page.playRequested(catalog.tracks, trow.index)
+                                page.playRequested(page.viewTracks(), trow.index)
                             }
                         }
                     }
@@ -1165,7 +1215,7 @@ Item {
                 SectionHeader {
                     title: page.localSelected ? "Descargadas" : "Biblioteca"
                     badge: page.localSelected
-                           ? (page.dlLocal.length > 0 ? page.dlLocal.length + " pistas" : "")
+                           ? (page.dlLocalAll.length > 0 ? page.dlLocalAll.length + " pistas" : "")
                            : (page.covers.length === 0 ? ""
                                                        : page.covers.length + " listas")
                     busy: page.localSelected ? page.dlLocalBusy : catalog.libraryBusy
@@ -1238,7 +1288,7 @@ Item {
                                     anchors.fill: parent
                                     radius: Theme.rMd
                                     color: "transparent"
-                                    border.width: page.localFilterActive
+                                    border.width: page.openDownloadFolder
                                                   === fcell.modelData.folder ? 2 : 0
                                     border.color: Sys.accent
                                 }
@@ -1249,7 +1299,7 @@ Item {
                                 width: parent.width
                                 text: (fcell.modelData.name || "")
                                       + " · " + (fcell.modelData.count || 0)
-                                color: page.localFilterActive === fcell.modelData.folder
+                                color: page.openDownloadFolder === fcell.modelData.folder
                                        ? Sys.accent : Sys.text
                                 font.pixelSize: Theme.tXs
                                 elide: Text.ElideRight
@@ -1262,9 +1312,10 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
-                                    page.localFilter = (page.localFilterActive
-                                                        === fcell.modelData.folder)
-                                        ? "" : fcell.modelData.folder
+                                    // Abre la lista descargada COMO PLAYLIST (su
+                                    // propia vista de pistas), sin filtrar.
+                                    page.downloadOpenRequested(
+                                        String(fcell.modelData.folder || ""))
                                 }
                             }
                             // Desinstalar esta lista (borra sus archivos). Se
@@ -1305,33 +1356,6 @@ Item {
                     }
                 }
 
-                // Aviso/limpiar filtro de lista descargada.
-                RowLayout {
-                    Layout.fillWidth: true
-                    visible: page.localFilterActive !== ""
-                    spacing: Theme.s2
-
-                    Text {
-                        text: "‹ Todas las descargas"
-                        color: Sys.accent
-                        font.pixelSize: Theme.tSm
-                        font.weight: Font.DemiBold
-                        TapHandler {
-                            onTapped: {
-                                if (typeof sfx !== "undefined") sfx.play("tap")
-                                page.localFilter = ""
-                            }
-                        }
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: "Lista: " + page.localFilterActive
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tSm
-                        elide: Text.ElideRight
-                    }
-                }
-
                 // ---- LOCAL: descargas (lista virtualizada) ----------------
                 Item {
                     Layout.fillWidth: true
@@ -1342,7 +1366,7 @@ Item {
                         id: localList
                         anchors.fill: parent
                         clip: true
-                        model: page.dlLocal
+                        model: page.dlLocalAll
                         reuseItems: true
                         cacheBuffer: 600
                         spacing: 0
@@ -1376,7 +1400,7 @@ Item {
                                                                    p.x, p.y)
                                     } else {
                                         if (typeof sfx !== 'undefined') sfx.play('tap')
-                                        page.playRequested(page.dlLocal, lrow.index)
+                                        page.playRequested(page.dlLocalAll, lrow.index)
                                     }
                                 }
                             }

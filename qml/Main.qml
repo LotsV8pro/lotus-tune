@@ -121,6 +121,23 @@ Window {
         root.showContextMenu(root.playlistMenuItems(c), x, y)
     }
 
+    // Menú (⋮) de una lista descargada abierta como playlist.
+    function showDownloadMenu(folder, name, x, y) {
+        const f = String(folder || "")
+        const n = String(name || f)
+        root.showContextMenu([
+            { label: "Reproducir", icon: "play",
+              action: function() {
+                  const arr = libPage.openDownloadTracks
+                  if (arr && arr.length > 0)
+                      root.playTracks(arr, 0)
+              } },
+            { separator: true },
+            { label: "Desinstalar descarga", icon: "trash", danger: true,
+              action: function() { root.confirmRemoveDownload(f, n) } }
+        ], x, y)
+    }
+
     // ---- editor de listas (crear / renombrar / privacidad) ---------------
     property bool editorOpen: false
     property bool editorCreate: true
@@ -387,8 +404,8 @@ Window {
                         + "»? Se borrarán los archivos descargados.",
                         "Desinstalar", function() {
                             if (typeof libPage !== "undefined"
-                                    && libPage.localFilterActive === f)
-                                libPage.localFilter = ""
+                                    && libPage.openDownloadFolder === f)
+                                libPage.openDownloadFolder = ""
                             if (typeof downloads !== "undefined")
                                 downloads.removeList(f)
                             root.toast("Descarga desinstalada")
@@ -436,8 +453,10 @@ Window {
         if (page !== "library")
             return page
         if (libPage.showingTracks)
-            // La lista "Me gusta" (LM) abierta resalta su entrada del rail.
-            return catalog.openPlaylistId === "LM" ? "liked" : "library"
+            // Lista descargada abierta como playlist: resalta "Descargas". La
+            // lista "Me gusta" (LM) abierta resalta su entrada del rail.
+            return libPage.localPlaylistOpen ? "downloads"
+                 : (catalog.openPlaylistId === "LM" ? "liked" : "library")
         if (libPage.libraryTab === 4)
             return "downloads"
         return "library"
@@ -449,8 +468,8 @@ Window {
         if (page === "library")
             // Dentro de una lista/álbum el título es el de la lista: el click
             // lleva directo al contenido, sin pasar por la portada de Biblioteca.
-            return (libPage.showingTracks && catalog.tracksTitle)
-                   ? catalog.tracksTitle : "Biblioteca"
+            return (libPage.showingTracks && libPage.viewTitle())
+                   ? libPage.viewTitle() : "Biblioteca"
         return "Inicio"
     }
     function pageSubtitle() {
@@ -509,13 +528,17 @@ Window {
 
     // Estado navegable actual (página + si es la vista de pistas de biblioteca).
     function curState() {
-        return { p: page, t: (page === "library" ? libPage.showingTracks : false) }
+        return { p: page,
+                 t: (page === "library" ? libPage.showingTracks : false),
+                 f: (page === "library" ? libPage.openDownloadFolder : "") }
     }
     function applyState(s) {
         if (!s) return
         page = s.p
-        if (s.p === "library")
+        if (s.p === "library") {
+            libPage.openDownloadFolder = String(s.f || "")
             libPage.showingTracks = !!s.t
+        }
     }
 
     // Navega a `p` guardando la página actual en la pila (force: guarda
@@ -567,7 +590,7 @@ Window {
     // Navegación raíz (barra lateral / Inicio): guardamos de dónde venimos.
     function navTo(p) {
         if (p === "library")
-            libPage.showingTracks = false
+            libPage.showPlaylists()
         pushPage(p)
     }
 
@@ -592,7 +615,7 @@ Window {
             return
         // Reserva: una lista/álbum sin pila atrás va a Inicio.
         if (page === "library" && libPage.showingTracks) {
-            libPage.showingTracks = false
+            libPage.showPlaylists()
             page = "home"
         }
     }
@@ -1718,8 +1741,15 @@ Window {
                         onOpenListRequested: (play) => root.beginOpenList(play)
                         onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                         onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
-                        onShuffleListRequested: root.shuffleTracks(catalog.tracks)
+                        onShuffleListRequested: root.shuffleTracks(libPage.viewTracks())
                         onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
+                        onDownloadMenuRequested: (folder, name, x, y) => root.showDownloadMenu(folder, name, x, y)
+                        onDownloadOpenRequested: (folder) => {
+                            // Abre la lista descargada como playlist guardando
+                            // el paso atrás (la vista de lista de Descargas).
+                            root.pushPage("library", true)
+                            libPage.openDownloadPlaylist(folder)
+                        }
                     }
                 }
             }
