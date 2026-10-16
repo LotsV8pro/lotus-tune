@@ -204,6 +204,23 @@ Item {
         return String(catalog.openListUrl || "").indexOf("http") === 0
     }
 
+    // Job de descarga de la lista abierta (el más reciente con su misma URL),
+    // para dar feedback de progreso DENTRO de la propia vista de la lista.
+    readonly property var dlTracksJob: {
+        if (typeof downloads === "undefined")
+            return null
+        const u = String(catalog.openListUrl || "")
+        if (u === "")
+            return null
+        const js = downloads.jobs
+        let found = null
+        for (let i = 0; i < js.length; i++) {
+            if (String(js[i].url || "") === u)
+                found = js[i]   // gana el último (el más reciente)
+        }
+        return found
+    }
+
     // Menú (⋮) de la lista abierta: reutiliza el menú de covers con los datos
     // de la lista en curso.
     function openHeaderMenu(x, y) {
@@ -456,7 +473,7 @@ Item {
                 color: Theme.mix(Sys.surface, Sys.text, 0.16)
                 visible: String(jrow.modelData.state || "") !== "error"
                 Rectangle {
-                    width: parent.width * Math.max(0, Math.min(1, jrow.modelData.progress || 0))
+                    width: parent.width * Math.max(0, Math.min(1, (jrow.modelData.progress || 0) / 100))
                     height: parent.height
                     radius: 2
                     color: Sys.accent
@@ -661,7 +678,10 @@ Item {
 
                         // Descargar la lista (funciona también con listas que no
                         // son del usuario: usa la URL real de la lista abierta).
+                        // Muestra el progreso 0-100 % de TODA la lista mientras
+                        // descarga, y un check al terminar.
                         Rectangle {
+                            id: dlBtn
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 38
                             radius: Theme.rMd
@@ -669,12 +689,48 @@ Item {
                             color: dlMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                             border.width: 0
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                            readonly property var job: page.dlTracksJob
+                            readonly property string jstate: job !== null ? String(job.state || "") : ""
+                            readonly property bool downloading: jstate === "downloading"
+                            readonly property bool done: jstate === "done"
+                            readonly property bool failed: jstate === "error"
+                            readonly property real frac: job !== null
+                                ? Math.max(0, Math.min(1, (job.progress || 0) / 100)) : 0
+
                             Glyph {
                                 anchors.centerIn: parent
                                 width: 16
                                 height: 16
-                                kind: "download"
-                                color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                                visible: !dlBtn.downloading
+                                kind: dlBtn.done ? "check" : "download"
+                                color: dlBtn.failed ? Sys.danger
+                                       : ((dlBtn.done || dlMa.containsMouse) ? Sys.accent : Sys.textDim)
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                visible: dlBtn.downloading
+                                text: Math.round(dlBtn.job ? (dlBtn.job.progress || 0) : 0) + "%"
+                                color: Sys.accent
+                                font.pixelSize: Theme.tXs
+                                font.weight: Font.DemiBold
+                            }
+                            // Barra de progreso fina bajo el botón.
+                            Rectangle {
+                                visible: dlBtn.downloading || dlBtn.done || dlBtn.failed
+                                x: 5
+                                y: parent.height - 6
+                                width: parent.width - 10
+                                height: 2
+                                radius: 1
+                                color: Theme.mix(Sys.surface, Sys.text, 0.20)
+                                Rectangle {
+                                    height: parent.height
+                                    radius: 1
+                                    color: dlBtn.failed ? Sys.danger : Sys.accent
+                                    width: parent.width * (dlBtn.done ? 1 : dlBtn.frac)
+                                    Behavior on width { NumberAnimation { duration: Theme.fastMs } }
+                                }
                             }
                             MouseArea {
                                 id: dlMa
@@ -743,6 +799,24 @@ Item {
                         }
 
                         Item { Layout.fillWidth: true }
+
+                        // Estado de la descarga en curso (dentro de la propia
+                        // vista de la lista), alineado a la derecha.
+                        Text {
+                            visible: dlBtn.downloading
+                            text: "Descargando " + Math.round(page.dlTracksJob ? (page.dlTracksJob.progress || 0) : 0) + "%"
+                            color: Sys.accent
+                            font.pixelSize: Theme.tSm
+                            font.weight: Font.Medium
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            visible: dlBtn.done
+                            text: "Descargada"
+                            color: Sys.textDim
+                            font.pixelSize: Theme.tSm
+                            font.weight: Font.Medium
+                        }
                     }
                 }
             }
