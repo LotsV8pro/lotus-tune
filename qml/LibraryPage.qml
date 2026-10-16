@@ -24,6 +24,8 @@ Item {
     signal coverContextRequested(var cover, real x, real y)
     // Pide reproducir la lista abierta en orden aleatorio.
     signal shuffleListRequested()
+    // Pide desinstalar una lista descargada (borra su carpeta).
+    signal uninstallListRequested(string folder, string name)
 
     property bool showingTracks: false
 
@@ -221,6 +223,28 @@ Item {
         return found
     }
 
+    // Carpeta de descarga instalada que corresponde a la lista abierta
+    // (por URL de los metadatos o, de respaldo, por nombre sanitizado).
+    // Vacía si la lista no está descargada.
+    readonly property string dlOpenFolder: {
+        if (typeof downloads === "undefined")
+            return ""
+        const u = String(catalog.openListUrl || "")
+        const fs = downloads.folders
+        if (u !== "") {
+            for (let i = 0; i < fs.length; i++)
+                if (String(fs[i].url || "") === u)
+                    return String(fs[i].folder || "")
+        }
+        const nm = String(catalog.tracksTitle || "")
+        if (nm !== "") {
+            const want = downloads.listFolderName(nm)
+            for (let j = 0; j < fs.length; j++)
+                if (String(fs[j].folder || "") === want)
+                    return String(fs[j].folder || "")
+        }
+        return ""
+    }
     // Menú (⋮) de la lista abierta: reutiliza el menú de covers con los datos
     // de la lista en curso.
     function openHeaderMenu(x, y) {
@@ -693,8 +717,10 @@ Item {
                             readonly property var job: page.dlTracksJob
                             readonly property string jstate: job !== null ? String(job.state || "") : ""
                             readonly property bool downloading: jstate === "downloading"
-                            readonly property bool done: jstate === "done"
                             readonly property bool failed: jstate === "error"
+                            // "Instalada" se basa en el disco (persiste entre
+                            // reinicios), no en el job en memoria.
+                            readonly property bool installed: page.dlOpenFolder !== ""
                             readonly property real frac: job !== null
                                 ? Math.max(0, Math.min(1, (job.progress || 0) / 100)) : 0
 
@@ -703,9 +729,9 @@ Item {
                                 width: 16
                                 height: 16
                                 visible: !dlBtn.downloading
-                                kind: dlBtn.done ? "check" : "download"
+                                kind: dlBtn.installed ? "check" : "download"
                                 color: dlBtn.failed ? Sys.danger
-                                       : ((dlBtn.done || dlMa.containsMouse) ? Sys.accent : Sys.textDim)
+                                       : ((dlBtn.installed || dlMa.containsMouse) ? Sys.accent : Sys.textDim)
                             }
                             Text {
                                 anchors.centerIn: parent
@@ -717,7 +743,7 @@ Item {
                             }
                             // Barra de progreso fina bajo el botón.
                             Rectangle {
-                                visible: dlBtn.downloading || dlBtn.done || dlBtn.failed
+                                visible: dlBtn.downloading || dlBtn.installed || dlBtn.failed
                                 x: 5
                                 y: parent.height - 6
                                 width: parent.width - 10
@@ -728,7 +754,7 @@ Item {
                                     height: parent.height
                                     radius: 1
                                     color: dlBtn.failed ? Sys.danger : Sys.accent
-                                    width: parent.width * (dlBtn.done ? 1 : dlBtn.frac)
+                                    width: parent.width * (dlBtn.installed ? 1 : dlBtn.frac)
                                     Behavior on width { NumberAnimation { duration: Theme.fastMs } }
                                 }
                             }
@@ -739,10 +765,52 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
-                                    if (typeof downloads !== "undefined")
+                                    // Si ya está instalada, el botón desinstala;
+                                    // si no, descarga toda la lista.
+                                    if (dlBtn.installed)
+                                        page.uninstallListRequested(dlBtn.installed ? page.dlOpenFolder : "",
+                                                                    String(catalog.tracksTitle || ""))
+                                    else if (typeof downloads !== "undefined")
                                         downloads.downloadPlaylist(
                                             String(catalog.openListUrl || ""),
                                             String(catalog.tracksTitle || ""))
+                                }
+                            }
+                        }
+
+                        // Estado de instalación + botón de desinstalar.
+                        RowLayout {
+                            spacing: Theme.s1
+                            visible: dlBtn.installed && !dlBtn.downloading
+                            Text {
+                                visible: dlBtn.installed
+                                text: "Instalada"
+                                color: Sys.accent
+                                font.pixelSize: Theme.tSm
+                                font.weight: Font.Medium
+                            }
+                            Rectangle {
+                                Layout.preferredWidth: 26
+                                Layout.preferredHeight: 26
+                                radius: Theme.rSm
+                                color: unMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    width: 14
+                                    height: 14
+                                    kind: "trash"
+                                    color: unMa.containsMouse ? Sys.danger : Sys.textDim
+                                }
+                                MouseArea {
+                                    id: unMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        page.uninstallListRequested(page.dlOpenFolder,
+                                                                    String(catalog.tracksTitle || ""))
+                                    }
                                 }
                             }
                         }
@@ -809,13 +877,6 @@ Item {
                             font.pixelSize: Theme.tSm
                             font.weight: Font.Medium
                             elide: Text.ElideRight
-                        }
-                        Text {
-                            visible: dlBtn.done
-                            text: "Descargada"
-                            color: Sys.textDim
-                            font.pixelSize: Theme.tSm
-                            font.weight: Font.Medium
                         }
                     }
                 }
@@ -1359,13 +1420,49 @@ Item {
                                 maximumLineCount: 1
                             }
                             MouseArea {
+                                id: cellMa
                                 anchors.fill: parent
+                                hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     page.localFilter = (page.localFilterActive
                                                         === fcell.modelData.folder)
                                         ? "" : fcell.modelData.folder
+                                }
+                            }
+                            // Desinstalar esta lista (borra sus archivos). Se
+                            // muestra al pasar el ratón por encima de la tarjeta.
+                            Rectangle {
+                                width: 26
+                                height: 26
+                                radius: 13
+                                visible: cellMa.containsMouse
+                                color: delMa.containsMouse ? Sys.danger
+                                                           : Qt.rgba(0, 0, 0, 0.55)
+                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                                anchors.right: fthumb.right
+                                anchors.top: fthumb.top
+                                anchors.rightMargin: 4
+                                anchors.topMargin: 4
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    width: 13
+                                    height: 13
+                                    kind: "trash"
+                                    color: delMa.containsMouse ? Sys.onAccent : Sys.text
+                                }
+                                MouseArea {
+                                    id: delMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        page.uninstallListRequested(
+                                            String(fcell.modelData.folder || ""),
+                                            String(fcell.modelData.name || ""))
+                                    }
                                 }
                             }
                         }

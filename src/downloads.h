@@ -30,7 +30,7 @@ class Downloads : public QObject
     Q_PROPERTY(QString folder READ folder NOTIFY changed)
     Q_PROPERTY(QVariantList local READ local NOTIFY libraryChanged)
     // Listas descargadas: una entrada por carpeta de primer nivel
-    // ({ name, folder, count, thumb }).
+    // ({ name, folder, count, thumb, url }).
     Q_PROPERTY(QVariantList folders READ folders NOTIFY libraryChanged)
     Q_PROPERTY(bool localBusy READ localBusy NOTIFY libraryChanged)
 
@@ -58,6 +58,13 @@ public:
     Q_INVOKABLE void refreshLocal();
     // xdg-open sobre la carpeta raíz.
     Q_INVOKABLE void openFolder();
+    // Desinstala una lista descargada: borra su carpeta de primer nivel
+    // (recursivo y con guardas de seguridad) y reescanea la biblioteca.
+    Q_INVOKABLE void removeList(const QString &folder);
+    // Nombre de carpeta que se usaría para una lista con ese nombre
+    // (misma sanitización que al descargar); para emparejar listas antiguas
+    // que no tienen fichero de metadatos.
+    Q_INVOKABLE QString listFolderName(const QString &name) const;
 
 signals:
     void changed();
