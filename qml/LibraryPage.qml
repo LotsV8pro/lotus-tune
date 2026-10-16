@@ -1237,6 +1237,22 @@ Item {
                                         maximumLineCount: 1
                                     }
                                 }
+                                // "Me gusta" en las descargas: el videoId sale del
+                                // .info.json, así se marca y sincroniza con YT Music.
+                                LikeButton {
+                                    id: dlRowLike
+                                    Layout.alignment: Qt.AlignVCenter
+                                    interactive: catalog.loginState === "ok"
+                                                 && catalog.videoIdOf(
+                                                        modelData.url) !== ""
+                                    revealed: lrowMouse.containsMouse
+                                    liked: {
+                                        const rev = catalog.likedRevision
+                                        return catalog.isLiked(modelData.url)
+                                    }
+                                    onToggled: catalog.toggleLiked(modelData.url,
+                                                                    dlRowLike.liked)
+                                }
                                 Glyph {
                                     Layout.alignment: Qt.AlignVCenter
                                     width: 13
