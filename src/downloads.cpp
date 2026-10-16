@@ -127,6 +127,7 @@ QVariantList Downloads::jobs() const
     for (const Job &j : m_jobs) {
         QVariantMap m;
         m.insert(QStringLiteral("name"), j.name);
+        m.insert(QStringLiteral("url"), j.url);
         m.insert(QStringLiteral("progress"), j.progress);
         m.insert(QStringLiteral("state"), j.state);
         m.insert(QStringLiteral("error"), j.error);
