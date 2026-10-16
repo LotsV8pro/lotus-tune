@@ -935,10 +935,7 @@ Item {
                 spacing: Theme.s5
 
                 readonly property var items: [
-                    { t: 0, name: "Canciones" },
-                    { t: 1, name: "Artistas" },
-                    { t: 2, name: "Álbumes" },
-                    { t: 3, name: "Playlists" },
+                    { t: 0, name: "Biblioteca" },
                     { t: 4, name: "Descargadas" }
                 ]
 
@@ -1194,8 +1191,7 @@ Item {
                 Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: page.dlFolders.length > 0 ? 112 : 0
-                    visible: (page.localSelected || page.libraryTab === 4)
-                             && page.dlFolders.length > 0
+                    visible: page.localSelected && page.dlFolders.length > 0
                     clip: true
 
                     ListView {
@@ -1340,7 +1336,7 @@ Item {
                 Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: page.localSelected || page.libraryTab === 4
+                    visible: page.localSelected
 
                     ListView {
                         id: localList
