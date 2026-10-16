@@ -1497,11 +1497,15 @@ Window {
                     playing: player.playing
                     engineStatus: player.engineStatus
                     onNavigate: (p) => {
-                        // "Biblioteca" vuelve a la fuente de streaming activa
-                        // (si venías de la fuente local, para no dejar el rail
-                        // iluminando "Descargas" tras pulsar "Biblioteca").
-                        if (p === "library" && libPage.localSelected)
-                            libPage.selectedSourceId = sources.activeId
+                        // "Biblioteca" deja atrás "Descargas": vuelve a la fuente
+                        // de streaming activa y a la pestaña "Canciones", para
+                        // que el clic lleve de verdad a la Biblioteca.
+                        if (p === "library") {
+                            if (libPage.localSelected)
+                                libPage.selectedSourceId = sources.activeId
+                            if (libPage.libraryTab === 4)
+                                libPage.libraryTab = 0
+                        }
                         root.navTo(p)
                     }
                     onSettingsRequested: root.toggleSettings()
