@@ -9,6 +9,9 @@ import "theme.js" as Theme
 Rectangle {
     id: side
 
+    // Destino activo del rail: normalmente la página actual, pero Main lo
+    // resuelve a "downloads" cuando la página Biblioteca está mostrando la
+    // fuente local (para que se ilumine "Descargas" y no "Biblioteca").
     property string page: "home"
     property string trackTitle: ""
     property string trackArtist: ""
@@ -83,6 +86,8 @@ Rectangle {
                 required property var modelData
                 required property int index
                 id: navRow
+                // `page` ya viene resuelto a un destino concreto (Main decide
+                // si toca "library" o "downloads" según la fuente/tab activas).
                 readonly property bool on: side.page === modelData.id
                 readonly property bool primary: index < 3
 
