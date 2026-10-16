@@ -217,18 +217,18 @@ void Downloads::startNext()
     emit changed();
     emit jobsChanged();
 
-    // -o: playlist -> <folder>/<name>/<índice><título>.<ext>
-    //     pista    -> <folder>/<artista> - <título>.<ext>
+    // -o relativo a -P home (la carpeta de la app):
+    //   playlist -> <name>/<índice><título>.<ext>
+    //   pista    -> <artista> - <título>.<ext>
     QString outTemplate;
     if (j.playlist) {
         const QString dir = m_folder + QLatin1Char('/') + safeSegment(j.name);
         QDir().mkpath(dir);
-        outTemplate = dir
+        outTemplate = safeSegment(j.name)
             + QStringLiteral("/%(playlist_index|)s%(title)s.%(ext)s");
     } else {
         QDir().mkpath(m_folder);
-        outTemplate = m_folder + QLatin1Char('/') + safeSegment(j.name)
-            + QStringLiteral(".%(ext)s");
+        outTemplate = safeSegment(j.name) + QStringLiteral(".%(ext)s");
     }
 
     const QStringList args{
