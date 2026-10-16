@@ -32,6 +32,9 @@ class Catalog : public QObject
     // Playlist YouTube Music abierta por la vía rápida: permite "quitar de esta
     // lista" a la pista en reproducción (su setVideoId viaja en cada pista).
     Q_PROPERTY(QString openPlaylistId READ openPlaylistId NOTIFY changed)
+    // URL real de la lista abierta (para poder descargarla aunque no sea del
+    // usuario o no la conozcamos por id).
+    Q_PROPERTY(QString openListUrl READ openListUrl NOTIFY changed)
     // Estado "me gusta" (biblioteca) del usuario. likedReady pasa a true cuando
     // se ha cargado el conjunto (o fallado el intento con sesión); likedRevision
     // sube en cada cambio para que las filas repinten el corazón.
@@ -55,6 +58,7 @@ public:
     bool libraryBusy() const { return m_libraryBusy; }
     QString loginState() const { return m_loginState; }
     QString openPlaylistId() const { return m_openPlaylistId; }
+    QString openListUrl() const { return m_openListUrl; }
     bool likedReady() const { return m_likedReady; }
     int likedRevision() const { return m_likedRevision; }
     QString loginError() const { return m_loginError; }
@@ -228,6 +232,7 @@ private:
     QString m_fastFallbackTitle; // título a conservar en el respaldo
     // Playlist abierta por la vía rápida (para el botón "quitar de la lista").
     QString m_openPlaylistId;
+    QString m_openListUrl;
     QString m_loginState;
     QString m_loginError;
     QString m_loginUrl;

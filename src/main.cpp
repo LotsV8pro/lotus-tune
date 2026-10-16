@@ -15,6 +15,7 @@
 #include <QGuiApplication>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QMouseEvent>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -40,6 +41,41 @@ static void dumpErrors(const QQmlComponent &component)
         fprintf(stderr, "QML ERROR: %s\n", qPrintable(e.toString()));
     fflush(stderr);
 }
+
+// ---------------------------------------------------------------------------
+// Botones laterales del ratón (4 = atrás, 5 = adelante).
+//
+// Se filtran a nivel de ventana para que lleguen siempre, aunque el QML que
+// haya debajo (listas, paneles) consuma el evento. Llama a funciones QML del
+// objeto raíz ("mouseNavBack" / "mouseNavForward").
+// ---------------------------------------------------------------------------
+class MouseNavFilter : public QObject
+{
+public:
+    explicit MouseNavFilter(QObject *root, QObject *parent = nullptr)
+        : QObject(parent), m_root(root) {}
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override
+    {
+        if (ev->type() == QEvent::MouseButtonPress) {
+            const auto *me = static_cast<QMouseEvent *>(ev);
+            const char *fn = nullptr;
+            if (me->button() == Qt::BackButton)
+                fn = "mouseNavBack";
+            else if (me->button() == Qt::ForwardButton)
+                fn = "mouseNavForward";
+            if (fn && m_root) {
+                QMetaObject::invokeMethod(m_root, fn);
+                return true;   // consumido: que no lo reciba el QML
+            }
+        }
+        return QObject::eventFilter(obj, ev);
+    }
+
+private:
+    QObject *m_root = nullptr;
+};
 
 // ---------------------------------------------------------------------------
 // Instancia única (QLocalServer + QLocalSocket)
@@ -285,6 +321,8 @@ int main(int argc, char *argv[])
         return 1;
     }
     g_mainWindow = qobject_cast<QQuickWindow *>(root);
+    if (g_mainWindow)
+        g_mainWindow->installEventFilter(new MouseNavFilter(root, g_mainWindow));
 
     qInfo() << "[main] Lotus Tune running";
     return app.exec();

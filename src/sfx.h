@@ -6,6 +6,7 @@
 #include <QUrl>
 #include <QSettings>
 #include <QMap>
+#include <QSet>
 
 class Sfx : public QObject
 {
@@ -31,12 +32,19 @@ private:
     void loadSettings();
     void saveSettings();
     void preloadAll();
+    // Devuelve (creando si hace falta) el QSoundEffect de un recurso.
+    QSoundEffect *effectFor(const QString &path);
     void tryPlayWithSoundEffect(const QString &path);
     void playWithPw(const QString &path);
+    // Bucle silencioso para mantener despierto el motor de audio.
+    void startKeepAlive();
 
     QSettings *m_settings;
     bool m_enabled;
     qreal m_volume;
     QMap<QString, QSoundEffect*> m_effects;
     QMap<QString, QString> m_soundMap;
+    // Efectos cuyo play() se pidió mientras seguían cargando.
+    QSet<QSoundEffect*> m_pending;
+    QSoundEffect *m_keepAlive = nullptr;
 };

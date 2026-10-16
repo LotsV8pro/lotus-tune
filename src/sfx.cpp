@@ -1,8 +1,11 @@
 #include "sfx.h"
+#include <QCoreApplication>
 #include <QDebug>
-#include <QUrl>
-#include <QProcess>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QProcess>
+#include <QUrl>
 
 Sfx::Sfx(QObject *parent)
     : QObject(parent)
@@ -28,24 +31,49 @@ Sfx::Sfx(QObject *parent)
     m_soundMap.insert("success", click);
     m_soundMap.insert("error", click);
     preloadAll();
+    startKeepAlive();
 }
 
 void Sfx::preloadAll()
 {
-    // Preload all sounds so the FIRST click is instant (QSoundEffect loads
-    // async; without this the first play() does nothing while it's Loading).
-    const QStringList paths = {
-        QStringLiteral("qrc:/sounds/click.wav"),
-        QStringLiteral("qrc:/sounds/click_toggle.wav"),
-        QStringLiteral("qrc:/sounds/click_play.wav"),
-        QStringLiteral("qrc:/sounds/click_like.wav")
-    };
-    for (const QString &path : paths) {
+    // Carga por adelantado los sonidos (QSoundEffect carga en diferido; sin
+    // esto el primer play() no sonaba mientras seguía en estado Loading).
+    effectFor(QStringLiteral("qrc:/sounds/click.wav"));
+    effectFor(QStringLiteral("qrc:/sounds/click_toggle.wav"));
+    effectFor(QStringLiteral("qrc:/sounds/click_play.wav"));
+    effectFor(QStringLiteral("qrc:/sounds/click_like.wav"));
+}
+
+void Sfx::startKeepAlive()
+{
+    // Un bucle de silencio digital (samples a 0, por eso es inaudible a
+    // cualquier volumen) mantiene activo el motor de audio. Sin esto, el
+    // primer sonido tras un rato de silencio podía perderse porque el sink se
+    // suspende y el motor tarda en despertar.
+    m_keepAlive = new QSoundEffect(this);
+    m_keepAlive->setSource(QUrl(QStringLiteral("qrc:/sounds/silence.wav")));
+    m_keepAlive->setLoopCount(QSoundEffect::Infinite);
+    m_keepAlive->setVolume(1.0);
+    m_keepAlive->play();
+}
+
+QSoundEffect *Sfx::effectFor(const QString &path)
+{
+    if (!m_effects.contains(path)) {
         QSoundEffect *e = new QSoundEffect(this);
         e->setSource(QUrl(path));
         e->setVolume(m_volume);
         m_effects.insert(path, e);
+        // Si se pidió sonar mientras aún cargaba, lo reproducimos al quedar
+        // listo: así el PRIMER clic nunca queda mudo.
+        connect(e, &QSoundEffect::statusChanged, this, [this, e]() {
+            if (e->status() == QSoundEffect::Ready && m_pending.remove(e)) {
+                e->setVolume(m_volume);
+                e->play();
+            }
+        });
     }
+    return m_effects.value(path);
 }
 
 void Sfx::loadSettings()
@@ -93,34 +121,40 @@ void Sfx::play(const QString &name)
 
 void Sfx::tryPlayWithSoundEffect(const QString &path)
 {
-    QUrl url(path.startsWith("qrc:/") ? QUrl(path) : QUrl::fromLocalFile(path));
-    if (!m_effects.contains(path)) {
-        QSoundEffect *e = new QSoundEffect(this);
-        e->setSource(url);
-        e->setVolume(m_volume);
-        m_effects.insert(path, e);
-    }
-    QSoundEffect *e = m_effects.value(path);
-    if (e->status() == QSoundEffect::Ready) {
-        e->setVolume(m_volume);
+    QSoundEffect *e = effectFor(path);
+    e->setVolume(m_volume);
+    switch (e->status()) {
+    case QSoundEffect::Ready:
         e->play();
-        return;
-    }
-    if (e->status() == QSoundEffect::Error) {
+        break;
+    case QSoundEffect::Loading:
+        // Aún cargando: reproducir en cuanto quede listo (ver effectFor).
+        m_pending.insert(e);
+        break;
+    default: // QSoundEffect::Error
         playWithPw(path);
-        return;
+        break;
     }
 }
 
 void Sfx::playWithPw(const QString &path)
 {
     if (path.isEmpty()) return;
-    QStringList args;
-    if (path.startsWith("qrc:/")) {
-        // fallback to file on disk if available? the file is in build dir? no
-        args << "/home/lots/lotus-tune/sounds/click.wav";
-    } else {
-        args << path;
+    QString file = path;
+    // Los recursos (qrc:/…) no son ficheros: buscar la copia en disco junto al
+    // binario o en el árbol de fuentes para el fallback con pw-play.
+    if (file.startsWith(QLatin1String("qrc:/"))) {
+        const QString base = QFileInfo(file).fileName();
+        const QStringList cands{
+            QCoreApplication::applicationDirPath() + QStringLiteral("/sounds/") + base,
+            QCoreApplication::applicationDirPath() + QStringLiteral("/../sounds/") + base,
+            QCoreApplication::applicationDirPath() + QStringLiteral("/../../sounds/") + base,
+        };
+        for (const QString &c : cands) {
+            if (QFile::exists(c)) { file = c; break; }
+        }
     }
-    QProcess::startDetached("pw-play", args);
+    if (!QFile::exists(file))
+        return;
+    QProcess::startDetached(QStringLiteral("pw-play"), {file});
 }

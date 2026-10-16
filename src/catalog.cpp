@@ -372,6 +372,10 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     if (target.isEmpty())
         return;
 
+    // Recordamos la URL real de la lista abierta (para descargarla).
+    if (purpose == QLatin1String("playlist"))
+        m_openListUrl = target;
+
     // Caché en memoria: reabrir una lista ya cargada no lanza ningún proceso y
     // responde al instante. Solo para listas; la búsqueda siempre va a la red.
     const QString key = cacheKeyFor(target);
