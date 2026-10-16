@@ -29,118 +29,43 @@ Item {
 
     property bool showingTracks: false
 
-    function openTracks() { showingTracks = true; sourceMenuOpen = false }
-    function showPlaylists() { showingTracks = false; sourceMenuOpen = false }
+    function openTracks() { showingTracks = true }
+    function showPlaylists() { showingTracks = false }
 
-    // ---- fuente elegida en el desplegable (estado local de la página) ---
-    property string selectedSourceId: sources.activeId
-    property bool sourceMenuOpen: false
     // Pestaña activa de la biblioteca (0 Canciones · 1 Artistas · 2 Álbumes ·
     // 3 Playlists · 4 Descargadas). Estado puramente visual de la página.
     property int libraryTab: 0
-    readonly property bool localSelected: selectedSourceId === "local"
-    readonly property var localSource: ({
-        id: "local", name: "Local / Descargas", status: "ready",
-        note: "Archivos descargados en este equipo."
-    })
-    readonly property var selectedEntry: localSelected ? localSource
-                                                       : sourceEntry(selectedSourceId)
-    readonly property bool selectedLocked: !localSelected && !srcReady(selectedSourceId)
+    // La Biblioteca ya no filtra por fuente: muestra TODO junto (la biblioteca
+    // de YouTube Music + todas las playlists guardadas). Las descargas locales
+    // van aparte, en la pestaña "Descargadas".
+    readonly property bool localSelected: libraryTab === 4
 
-    function sourceEntry(id) {
-        const l = sources.list
-        for (var i = 0; i < l.length; i++)
-            if (l[i].id === id)
-                return l[i]
-        return null
-    }
-    function srcName(id) {
-        const e = sourceEntry(id)
-        return e ? e.name : String(id || "")
-    }
-    function srcNote(id) {
-        const e = sourceEntry(id)
-        return e && e.note ? e.note : "Disponible cuando el backend esté listo."
-    }
-    function srcReady(id) {
-        const e = sourceEntry(id)
-        return !!e && e.status === "ready"
-    }
-    readonly property var src: sourceEntry(sources.activeId)
-    readonly property bool locked: !src || src.status !== "ready"
-
-    // ---- entradas del desplegable (sources + "Local / Descargas") -------
-    readonly property var menuEntries: {
+    // Covers (listas) de la biblioteca: TODO junto, sin filtrar por fuente.
+    // savedIndex >= 0 → playlist guardada en `catalog` (se abre con
+    // openPlaylist); -1 → lista de la biblioteca de YTM o URL directa.
+    function coversFor() {
         const out = []
-        const l = sources.list
-        for (var i = 0; i < l.length; i++) {
-            const e = l[i]
-            out.push({ id: e.id, name: e.name, status: e.status, note: e.note || "",
-                       count: page.countFor(e.id), thumbs: page.thumbsFor(e.id, 4) })
+        const yl = catalog.ytmLibrary
+        for (var i = 0; i < yl.length; i++) {
+            const y = yl[i]
+            out.push({ name: y.name || "", url: y.url || "", thumb: y.thumb || "",
+                       count: y.count || 0, savedIndex: -1, source: "ytm",
+                       id: y.id || "", owned: y.owned === true })
         }
-        const loc = page.localSource
-        out.push({ id: loc.id, name: loc.name, status: loc.status, note: loc.note,
-                   count: page.dlLocal.length, thumbs: [] })
-        return out
-    }
-
-    // Playlists guardadas por fuente (contrato: { name, url, source, count }).
-    function playlistsOf(source) {
-        const out = []
         const l = catalog.playlists
-        for (var i = 0; i < l.length; i++) {
-            const p = l[i]
-            if (String(p.source || "") !== source)
-                continue
-            out.push({ index: i, name: p.name || "", url: p.url || "",
-                       source: p.source || "", count: p.count || 0,
-                       thumb: p.thumb || "" })
-        }
-        return out
-    }
-
-    // Covers (listas/álbumes) de una fuente. savedIndex >= 0 → playlist
-    // guardada en `catalog` (se abre con openPlaylist); -1 → URL directa.
-    function coversFor(id) {
-        const out = []
-        if (id === "local")
-            return out
-        if (id === "ytm") {
-            const yl = catalog.ytmLibrary
-            for (var i = 0; i < yl.length; i++) {
-                const y = yl[i]
-                out.push({ name: y.name || "", url: y.url || "", thumb: y.thumb || "",
-                           count: y.count || 0, savedIndex: -1, source: "ytm",
-                           id: y.id || "", owned: y.owned === true })
-            }
-        }
-        const saved = page.playlistsOf(id)
-        for (var j = 0; j < saved.length; j++) {
-            const s = saved[j]
+        for (var j = 0; j < l.length; j++) {
+            const s = l[j]
             var dup = false
             for (var k = 0; k < out.length; k++) {
                 if (s.url && out[k].url === s.url) { dup = true; break }
             }
             if (!dup)
                 out.push({ name: s.name || "", url: s.url || "", thumb: s.thumb || "",
-                           count: s.count || 0, savedIndex: s.index, source: s.source })
+                           count: s.count || 0, savedIndex: j, source: s.source || "" })
         }
         return out
     }
-    readonly property var covers: coversFor(selectedSourceId)
-
-    function countFor(id) { return id === "local" ? dlLocal.length : coversFor(id).length }
-
-    function thumbsFor(id, n) {
-        const out = []
-        if (id === "local")
-            return out
-        const c = coversFor(id)
-        for (var i = 0; i < c.length && out.length < n; i++)
-            if (c[i].thumb)
-                out.push(c[i].thumb)
-        return out
-    }
+    readonly property var covers: coversFor()
 
     function openCover(c) {
         if (!c) return
@@ -508,59 +433,6 @@ Item {
     }
 
     // ---- panel de fuente bloqueada ---------------------------------------
-    component LockedSection: Rectangle {
-        id: lock
-        property string title: ""
-        property string note: ""
-        Layout.fillWidth: true
-        implicitHeight: lockCol.implicitHeight + Theme.s5
-        radius: Theme.rLg
-        color: Sys.surface
-        border.width: 0
-
-        ColumnLayout {
-            id: lockCol
-            anchors.fill: parent
-            anchors.margins: Theme.s4
-            spacing: Theme.s2
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.s3
-                Rectangle {
-                    Layout.preferredWidth: 30
-                    Layout.preferredHeight: 30
-                    radius: Theme.rMd
-                    color: Sys.accentDim
-                    Glyph {
-                        anchors.centerIn: parent
-                        width: 15
-                        height: 15
-                        kind: "lock"
-                        color: Sys.textDim
-                    }
-                }
-                Text {
-                    text: lock.title
-                    color: Sys.text
-                    font.pixelSize: Theme.tBase
-                    font.weight: Font.DemiBold
-                }
-                Item { Layout.fillWidth: true }
-            }
-            Text {
-                Layout.fillWidth: true
-                text: lock.note
-                color: Sys.textDim
-                font.pixelSize: Theme.tSm
-                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                maximumLineCount: 3
-                elide: Text.ElideRight
-                lineHeight: 1.25
-            }
-        }
-    }
-
     // ====================================================================
     ColumnLayout {
         anchors.fill: parent
@@ -1107,19 +979,6 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            // 1) desplegable de fuentes (todas + Local / Descargas)
-            LibrarySourceMenu {
-                Layout.fillWidth: true
-                currentId: page.selectedSourceId
-                entries: page.menuEntries
-                open: page.sourceMenuOpen
-                onToggled: (o) => page.sourceMenuOpen = o
-                onSelected: (id) => {
-                    page.selectedSourceId = id
-                    page.sourceMenuOpen = false
-                }
-            }
-
             // 2) añadir playlist por URL
             RowLayout {
                 Layout.fillWidth: true
@@ -1300,26 +1159,21 @@ Item {
                 }
             }
 
-            // 4) contenido de la fuente seleccionada
+            // 4) contenido de la biblioteca (o de las descargas)
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 spacing: Theme.s2
 
                 SectionHeader {
-                    title: page.localSelected
-                           ? page.localSource.name
-                           : (page.selectedEntry ? page.selectedEntry.name
-                                                 : page.srcName(page.selectedSourceId))
+                    title: page.localSelected ? "Descargadas" : "Biblioteca"
                     badge: page.localSelected
                            ? (page.dlLocal.length > 0 ? page.dlLocal.length + " pistas" : "")
-                           : (page.selectedLocked || page.covers.length === 0
-                              ? "" : page.covers.length + " listas")
-                    busy: page.localSelected ? page.dlLocalBusy
-                          : (page.selectedSourceId === "ytm" ? catalog.libraryBusy : false)
+                           : (page.covers.length === 0 ? ""
+                                                       : page.covers.length + " listas")
+                    busy: page.localSelected ? page.dlLocalBusy : catalog.libraryBusy
 
                     IconButton { // refrescar
-                        visible: page.localSelected || page.selectedSourceId === "ytm"
                         kind: "refresh"
                         onClicked: {
                             if (page.localSelected) {
@@ -1334,14 +1188,6 @@ Item {
                         kind: "folder"
                         onClicked: if (typeof downloads !== "undefined") downloads.openFolder()
                     }
-                }
-
-                // fuente bloqueada (Spotify / Tidal / lo que venga)
-                LockedSection {
-                    visible: page.selectedLocked && page.libraryTab !== 4
-                    title: page.selectedEntry ? page.selectedEntry.name
-                                              : page.srcName(page.selectedSourceId)
-                    note: page.selectedLocked ? page.srcNote(page.selectedSourceId) : ""
                 }
 
                 // ---- Listas descargadas (una carpeta = una lista) --------
@@ -1636,13 +1482,12 @@ Item {
                     }
                 }
 
-                // ---- FUENTE REMOTA: rejilla de covers virtualizada --------
+                // ---- Biblioteca: rejilla de covers virtualizada -----------
                 GridView {
                     id: coversGrid
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !page.localSelected && page.libraryTab !== 4
-                             && !page.selectedLocked && page.covers.length > 0
+                    visible: !page.localSelected && page.covers.length > 0
                     clip: true
                     model: page.covers
                     reuseItems: true
@@ -1693,15 +1538,10 @@ Item {
                 // ---- estados vacíos ---------------------------------------
                 Text {
                     Layout.fillWidth: true
-                    visible: !page.localSelected && page.libraryTab !== 4
-                             && !page.selectedLocked && page.covers.length === 0
-                    text: page.selectedSourceId === "ytm"
-                          ? (catalog.libraryBusy
-                             ? "Cargando tus listas de YouTube Music…"
-                             : "Sin listas para YouTube Music. Inicia sesión en Ajustes o pega una URL arriba para añadirla.")
-                          : ("Sin listas guardadas para "
-                             + (page.selectedEntry ? page.selectedEntry.name : "")
-                             + ". Pega una URL arriba para añadir una.")
+                    visible: !page.localSelected && page.covers.length === 0
+                    text: catalog.libraryBusy
+                          ? "Cargando tu biblioteca…"
+                          : "Biblioteca vacía. Inicia sesión en Ajustes o pega una URL arriba para añadir una lista."
                     color: Sys.textDim
                     font.pixelSize: Theme.tSm
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere

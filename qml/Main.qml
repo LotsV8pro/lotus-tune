@@ -438,7 +438,7 @@ Window {
         if (libPage.showingTracks)
             // La lista "Me gusta" (LM) abierta resalta su entrada del rail.
             return catalog.openPlaylistId === "LM" ? "liked" : "library"
-        if (libPage.localSelected || libPage.libraryTab === 4)
+        if (libPage.libraryTab === 4)
             return "downloads"
         return "library"
     }
@@ -1603,12 +1603,10 @@ Window {
                     playing: player.playing
                     engineStatus: player.engineStatus
                     onNavigate: (p) => {
-                        // "Biblioteca" deja atrás "Descargas": vuelve a la fuente
-                        // de streaming activa y a la pestaña "Canciones", para
-                        // que el clic lleve de verdad a la Biblioteca.
+                        // "Biblioteca" deja atrás "Descargas": vuelve a la
+                        // pestaña "Canciones" para que el clic lleve de verdad
+                        // a la Biblioteca.
                         if (p === "library") {
-                            if (libPage.localSelected)
-                                libPage.selectedSourceId = sources.activeId
                             if (libPage.libraryTab === 4)
                                 libPage.libraryTab = 0
                         }
@@ -1622,10 +1620,9 @@ Window {
                         catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                                         "Me gusta")
                     }
-                    // "Descargas": Biblioteca con la fuente local y la pestaña
-                    // "Descargadas" activas (deja claro que estás en Descargas).
+                    // "Descargas": Biblioteca con la pestaña "Descargadas"
+                    // activa (deja claro que estás en Descargas).
                     onDownloadsRequested: {
-                        libPage.selectedSourceId = "local"
                         libPage.libraryTab = 4
                         root.navTo("library")
                     }
