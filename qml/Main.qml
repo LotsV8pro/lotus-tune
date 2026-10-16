@@ -548,69 +548,69 @@ Window {
     Shortcut {
         sequence: "Space"
         enabled: !root.typing()
-        onActivated: if (root.currentTitle) root.togglePlay()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("play"); if (root.currentTitle) root.togglePlay() }
     }
     // Flechas: ±5 s de búsqueda; Ctrl+flechas o Media: pista anterior/siguiente.
     Shortcut {
         sequence: "Right"
         enabled: !root.typing() && root.currentTitle !== ""
-        onActivated: player.seek(Math.min(player.position + 5, player.duration))
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); player.seek(Math.min(player.position + 5, player.duration)) }
     }
     Shortcut {
         sequence: "Left"
         enabled: !root.typing() && root.currentTitle !== ""
-        onActivated: player.seek(Math.max(0, player.position - 5))
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); player.seek(Math.max(0, player.position - 5)) }
     }
     Shortcut {
         sequence: "Ctrl+Right"
         enabled: !root.typing()
-        onActivated: root.next()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.next() }
     }
     Shortcut {
         sequence: "Ctrl+Left"
         enabled: !root.typing()
-        onActivated: root.prev()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.prev() }
     }
     // Volumen con arriba/abajo; M silencia.
     Shortcut {
         sequence: "Up"
         enabled: !root.typing()
-        onActivated: root.nudgeVolume(5)
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nudgeVolume(5) }
     }
     Shortcut {
         sequence: "Down"
         enabled: !root.typing()
-        onActivated: root.nudgeVolume(-5)
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nudgeVolume(-5) }
     }
     Shortcut {
         sequence: "M"
         enabled: !root.typing()
-        onActivated: root.toggleMute()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleMute() }
     }
     Shortcut {
         sequence: "S"
         enabled: !root.typing()
-        onActivated: root.toggleShuffle()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("toggle"); root.toggleShuffle() }
     }
     Shortcut {
         sequence: "R"
         enabled: !root.typing()
-        onActivated: root.toggleRepeat()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("toggle"); root.toggleRepeat() }
     }
     // L: letra (abre "En reproducción"); Q: cola; F11: pantalla completa.
     Shortcut {
         sequence: "L"
         enabled: !root.typing()
-        onActivated: root.nowPlayingOpen = true
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nowPlayingOpen = true }
     }
     Shortcut {
         sequence: "Q"
         enabled: !root.typing()
-        onActivated: root.togglePanel(0)
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.togglePanel(0) }
     }
     Shortcut {
         sequence: "F11"
-        onActivated: root.toggleFullscreen()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreen() }
     }
     // F: modo letra / "En reproducción" (igual que L), salvo mientras se
     // escribe en un campo de texto (búsquedas, URLs, etc.). Fullscreen queda
@@ -618,7 +618,7 @@ Window {
     Shortcut {
         sequence: "F"
         enabled: !root.typing()
-        onActivated: root.nowPlayingOpen = !root.nowPlayingOpen
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nowPlayingOpen = !root.nowPlayingOpen }
     }
 
     // ---- launcher data ---------------------------------------------------

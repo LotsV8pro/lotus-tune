@@ -27,6 +27,25 @@ Sfx::Sfx(QObject *parent)
     m_soundMap.insert("toggle", clickToggle);
     m_soundMap.insert("success", click);
     m_soundMap.insert("error", click);
+    preloadAll();
+}
+
+void Sfx::preloadAll()
+{
+    // Preload all sounds so the FIRST click is instant (QSoundEffect loads
+    // async; without this the first play() does nothing while it's Loading).
+    const QStringList paths = {
+        QStringLiteral("qrc:/sounds/click.wav"),
+        QStringLiteral("qrc:/sounds/click_toggle.wav"),
+        QStringLiteral("qrc:/sounds/click_play.wav"),
+        QStringLiteral("qrc:/sounds/click_like.wav")
+    };
+    for (const QString &path : paths) {
+        QSoundEffect *e = new QSoundEffect(this);
+        e->setSource(QUrl(path));
+        e->setVolume(m_volume);
+        m_effects.insert(path, e);
+    }
 }
 
 void Sfx::loadSettings()

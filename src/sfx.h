@@ -30,6 +30,7 @@ signals:
 private:
     void loadSettings();
     void saveSettings();
+    void preloadAll();
     void tryPlayWithSoundEffect(const QString &path);
     void playWithPw(const QString &path);
 
