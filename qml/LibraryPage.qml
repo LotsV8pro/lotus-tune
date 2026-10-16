@@ -429,16 +429,31 @@ Item {
                 }
             }
 
+            // Motivo real del fallo ("Playlist does not exist", "Falta ffprobe"…)
+            Text {
+                visible: String(jrow.modelData.state || "") === "error"
+                         && !!jrow.modelData.error
+                Layout.fillWidth: true
+                text: String(jrow.modelData.error || "")
+                color: Sys.danger
+                font.pixelSize: Theme.tSm
+                opacity: 0.85
+                elide: Text.ElideRight
+                maximumLineCount: 2
+                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+            }
+
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 4
                 radius: 2
                 color: Theme.mix(Sys.surface, Sys.text, 0.16)
+                visible: String(jrow.modelData.state || "") !== "error"
                 Rectangle {
                     width: parent.width * Math.max(0, Math.min(1, jrow.modelData.progress || 0))
                     height: parent.height
                     radius: 2
-                    color: String(jrow.modelData.state || "") === "error" ? Sys.danger : Sys.accent
+                    color: Sys.accent
                     Behavior on width { NumberAnimation { duration: Theme.fastMs } }
                 }
             }

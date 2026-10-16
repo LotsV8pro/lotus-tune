@@ -33,6 +33,22 @@ bool isAudioFile(const QString &path)
     return false;
 }
 
+// ¿Está mutagen disponible para yt-dlp? Se comprueba una sola vez por sesión
+// (python3 -c "import mutagen"). Sólo condiciona incrustar la portada en
+// formatos que lo requieren (Opus/Ogg).
+bool mutagenAvailable()
+{
+    static const bool ok = [] {
+        QProcess p;
+        p.start(QStringLiteral("python3"),
+                {QStringLiteral("-c"), QStringLiteral("import mutagen")});
+        if (!p.waitForFinished(4000))
+            return false;
+        return p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
+    }();
+    return ok;
+}
+
 } // namespace
 
 Downloads::Downloads(QObject *parent)
@@ -232,7 +248,7 @@ void Downloads::startNext()
         outTemplate = safeSegment(j.name) + QStringLiteral(".%(ext)s");
     }
 
-    const QStringList args{
+    QStringList args{
         QStringLiteral("--no-config"),
         QStringLiteral("--newline"),
         // Todo (audio, .part, miniaturas, info.json) se escribe DIRECTAMENTE
@@ -244,11 +260,30 @@ void Downloads::startNext()
         QStringLiteral("--audio-format"), QStringLiteral("best"),
         QStringLiteral("--audio-quality"), QStringLiteral("0"),
         QStringLiteral("--embed-metadata"),
-        QStringLiteral("--embed-thumbnail"),
         QStringLiteral("--write-info-json"),
         QStringLiteral("-o"), outTemplate,
-        j.url,
     };
+
+    // --embed-thumbnail en Opus/Ogg usa mutagen; si no está instalado yt-dlp
+    // falla en el postprocesado ("module mutagen was not found"). La portada
+    // de la app sale del .info.json, así que sólo incrustamos si es posible.
+    if (mutagenAvailable())
+        args << QStringLiteral("--embed-thumbnail");
+
+    // Sesión de YT Music: las listas PRIVADAS del usuario (p. ej. "Vibes")
+    // sin cookies devuelven "YouTube said: The playlist does not exist", así
+    // que adjuntamos el cookies.txt del login integrado igual que hace el
+    // catálogo para buscar/abrir listas.
+    const QString cookies = QDir::homePath()
+        + QStringLiteral("/.config/lotus-tune/cookies.txt");
+    if (QFile::exists(cookies)
+        && (j.url.contains(QLatin1String("youtube.com"))
+            || j.url.contains(QLatin1String("youtu.be"))
+            || j.url.contains(QLatin1String("music.youtube.com")))) {
+        args << QStringLiteral("--cookies") << cookies;
+    }
+
+    args << j.url;
 
     m_proc.setProgram(QStringLiteral("yt-dlp"));
     m_proc.setArguments(args);
