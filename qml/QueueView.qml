@@ -171,8 +171,12 @@ Item {
                                          && catalog.videoIdOf(row.url) !== ""
                             revealed: rowHover.hovered
                             liked: {
+                                // Sin depender de likedReady: isLiked ya es
+                                // autoritativo y toggleLiked sube la revisión,
+                                // así el corazón se marca al instante (también
+                                // en pistas locales, resueltas por su .info.json).
                                 const rev = catalog.likedRevision
-                                return catalog.likedReady && catalog.isLiked(row.url)
+                                return catalog.isLiked(row.url)
                             }
                             onToggled: catalog.toggleLiked(row.url, rowLike.liked)
                         }

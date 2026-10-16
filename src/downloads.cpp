@@ -210,6 +210,8 @@ void Downloads::startNext()
     j.error.clear();
     m_lastError.clear();
     m_buf.clear();
+    m_plItem = 0;
+    m_plTotal = 0;
 
     m_busy = true;
     emit changed();
@@ -232,6 +234,11 @@ void Downloads::startNext()
     const QStringList args{
         QStringLiteral("--no-config"),
         QStringLiteral("--newline"),
+        // Todo (audio, .part, miniaturas, info.json) se escribe DIRECTAMENTE
+        // en la carpeta de la app; nada pasa por ~/Downloads ni por /tmp, así
+        // que no hay que "mover" ficheros al terminar.
+        QStringLiteral("-P"), QStringLiteral("home:") + m_folder,
+        QStringLiteral("-P"), QStringLiteral("temp:") + m_folder,
         QStringLiteral("--extract-audio"),
         QStringLiteral("--audio-format"), QStringLiteral("best"),
         QStringLiteral("--audio-quality"), QStringLiteral("0"),
@@ -266,20 +273,39 @@ void Downloads::readStdout()
         if (line.isEmpty() || m_current < 0)
             continue;
 
+        // Cabecera de cada pista de una lista: "Downloading item 3 of 20".
+        // Permite traducir el % por-pista a un % global de la lista.
+        static const QRegularExpression reItem(
+            QStringLiteral("Downloading item ([0-9]+) of ([0-9]+)"));
+        const QRegularExpressionMatch mi = reItem.match(line);
+        if (mi.hasMatch()) {
+            m_plItem = mi.captured(1).toInt();
+            m_plTotal = mi.captured(2).toInt();
+        }
+
         // Ignora el progreso del postprocesado ("[ExtractAudio]"), solo nos
         // interesa la barra de descarga.
         static const QRegularExpression reProgress(
             QStringLiteral("\\[download\\]\\s+([0-9]+(?:\\.[0-9]+)?)%"));
         const QRegularExpressionMatch m = reProgress.match(line);
         if (m.hasMatch()) {
-            const int p = qBound(0, qRound(m.captured(1).toDouble()), 100);
+            const double frac = qBound(0.0, m.captured(1).toDouble() / 100.0, 1.0);
+            // Con varias pistas: un solo 0-100 % de TODA la lista
+            // ((completadas + fracción actual) / total). En pistas sueltas,
+            // el % de siempre.
+            int p;
+            if (m_plTotal > 1 && m_plItem > 0)
+                p = qBound(0, qRound(((m_plItem - 1) + frac) / m_plTotal * 100.0), 100);
+            else
+                p = qBound(0, qRound(frac * 100.0), 100);
             if (p != m_jobs[m_current].progress) {
                 m_jobs[m_current].progress = p;
                 emit jobsChanged();
             }
         }
 
-        if (line.contains(QLatin1String("has been downloaded")))
+        if (line.contains(QLatin1String("has been downloaded"))
+            && (m_plTotal <= 1 || m_plItem >= m_plTotal))
             m_jobs[m_current].progress = 100;
 
         // Guarda el último error real para mostrarlo si el proceso falla.

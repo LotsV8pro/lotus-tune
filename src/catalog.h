@@ -216,6 +216,10 @@ private:
     QString m_plSetId;         // setVideoId pendiente (quitar de una lista)
     QProcess m_likedProc;      // one-shot "me gusta" (LM) para el estado de las filas
     QSet<QString> m_likedIds;  // videoIds en "me gusta"
+    // Ruta local (fichero descargado) -> videoId de YouTube, resuelto una sola
+    // vez leyendo el .info.json hermano. Permite dar "me gusta" a las pistas
+    // locales como si fueran de YouTube (mismo videoId, misma sincronización).
+    mutable QHash<QString, QString> m_localIdCache;
     int m_likedRevision = 0;
     bool m_likedReady = false;
     qint64 m_likedTs = 0;      // marca de la última carga de red (epoch secs)
