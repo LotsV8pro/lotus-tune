@@ -373,6 +373,21 @@ Window {
                 return sources.list[i].name
         return ""
     }
+    // Destino activo del rail lateral. La página "library" cubre dos entradas:
+    // "Biblioteca" (listas/colección) y "Descargas" (fuente local o la pestaña
+    // Descargadas). Sin esto, al pulsar "Descargas" se iluminaba "Biblioteca"
+    // y la entrada del rail parecía no hacer nada.
+    function activeNavId() {
+        if (page !== "library")
+            return page
+        if (libPage.showingTracks)
+            // La lista "Me gusta" (LM) abierta resalta su entrada del rail.
+            return catalog.openPlaylistId === "LM" ? "liked" : "library"
+        if (libPage.localSelected || libPage.libraryTab === 4)
+            return "downloads"
+        return "library"
+    }
+
     function pageTitle() {
         if (page === "search")
             return "Buscar"
@@ -1475,13 +1490,20 @@ Window {
                 Sidebar {
                     id: sidebar
                     anchors.fill: parent
-                    page: root.page
+                    page: root.activeNavId()
                     trackTitle: root.currentTitle
                     trackArtist: root.currentArtist
                     trackThumb: root.currentThumb
                     playing: player.playing
                     engineStatus: player.engineStatus
-                    onNavigate: (p) => root.navTo(p)
+                    onNavigate: (p) => {
+                        // "Biblioteca" vuelve a la fuente de streaming activa
+                        // (si venías de la fuente local, para no dejar el rail
+                        // iluminando "Descargas" tras pulsar "Biblioteca").
+                        if (p === "library" && libPage.localSelected)
+                            libPage.selectedSourceId = sources.activeId
+                        root.navTo(p)
+                    }
                     onSettingsRequested: root.toggleSettings()
                     onNowPlayingRequested: root.nowPlayingOpen = true
                     // "Me gusta": abre la lista LM de YouTube Music sin reproducir.
@@ -1490,9 +1512,11 @@ Window {
                         catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                                         "Me gusta")
                     }
-                    // "Descargas": Biblioteca con la fuente local seleccionada.
+                    // "Descargas": Biblioteca con la fuente local y la pestaña
+                    // "Descargadas" activas (deja claro que estás en Descargas).
                     onDownloadsRequested: {
                         libPage.selectedSourceId = "local"
+                        libPage.libraryTab = 4
                         root.navTo("library")
                     }
                     // Clic en una lista: se abre y, cuando llegue, se muestra
