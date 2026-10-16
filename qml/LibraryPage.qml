@@ -395,7 +395,7 @@ Item {
                         if (s === "done" || s === "finished" || s === "completed") return "Listo"
                         if (s === "queued" || s === "pending") return "En cola"
                         if (s === "canceled" || s === "cancelled") return "Cancelado"
-                        return Math.round((jrow.modelData.progress || 0) * 100) + "%"
+                        return Math.round(jrow.modelData.progress || 0) + "%"
                     }
                     color: String(jrow.modelData.state || "") === "error" ? Sys.danger : Sys.textDim
                     font.pixelSize: Theme.tSm
@@ -810,6 +810,23 @@ Item {
                                 color: Sys.accent
                                 weight: 1.8
                             }
+                        }
+
+                        // Corazón: "me gusta" desde la propia biblioteca y desde
+                        // "Local / Descargas" (las pistas locales resuelven su
+                        // videoId por el .info.json y sincronizan con YT Music).
+                        LikeButton {
+                            id: libRowLike
+                            Layout.alignment: Qt.AlignVCenter
+                            interactive: catalog.loginState === "ok"
+                                         && catalog.videoIdOf(modelData.url) !== ""
+                            revealed: trowMouse.containsMouse
+                            liked: {
+                                const rev = catalog.likedRevision
+                                return catalog.isLiked(modelData.url)
+                            }
+                            onToggled: catalog.toggleLiked(modelData.url,
+                                                            libRowLike.liked)
                         }
 
                         Text {

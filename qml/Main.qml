@@ -538,11 +538,11 @@ Window {
 
     Shortcut {
         sequence: "Ctrl+,"
-        onActivated: root.toggleSettings()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleSettings() }
     }
     Shortcut {
         sequence: "Ctrl+Space"
-        onActivated: root.toggleLauncher()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleLauncher() }
     }
     // Espacio: reproducir / pausar (salvo escribiendo en un campo).
     Shortcut {
@@ -748,7 +748,7 @@ Window {
     // Esc "atrás": cierra overlays/panel o sale de pantalla completa.
     Shortcut {
         sequence: "Escape"
-        onActivated: root.goBack()
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.goBack() }
     }
 
     // ---- queue -----------------------------------------------------------
@@ -2126,7 +2126,10 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: tg.toggled()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("toggle")
+                    tg.toggled()
+                }
             }
         }
 
@@ -2158,7 +2161,10 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: ch.picked()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("toggle")
+                    ch.picked()
+                }
             }
         }
 
@@ -2235,7 +2241,10 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: pb.clicked()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    pb.clicked()
+                }
             }
         }
 
@@ -2268,7 +2277,10 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: gb.clicked()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    gb.clicked()
+                }
             }
         }
 
@@ -2333,7 +2345,10 @@ Window {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.settingsOpen = false
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            root.settingsOpen = false
+                        }
                     }
                 }
             }

@@ -96,6 +96,11 @@ private:
     bool m_cancelling = false;
     QString m_lastError;     // último "ERROR:" visto en la salida
     QByteArray m_buf;
+    // Progreso global de una lista: yt-dlp emite "Downloading item X of Y" y
+    // luego el % de cada pista. Se combinan para mostrar UN 0-100 % del total
+    // en vez de reiniciar a 0 en cada canción.
+    int m_plItem = 0;
+    int m_plTotal = 0;
 
     QString m_folder;
     QVariantList m_local;

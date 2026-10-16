@@ -771,6 +771,36 @@ QString Catalog::videoIdOf(const QString &urlOrId) const
     if (s.isEmpty())
         return {};
 
+    // Fichero local descargado: el .info.json hermano guarda el videoId real de
+    // YouTube. Así las pistas locales se pueden "marcar" y sincronizar con YT
+    // Music igual que las de la nube. Se cachea por ruta (I/O sólo la 1ª vez).
+    if (s.startsWith(QLatin1String("file://"))) {
+        const QString path = QUrl(s).toLocalFile();
+        const auto cached = m_localIdCache.constFind(path);
+        if (cached != m_localIdCache.constEnd())
+            return cached.value();
+        QString id;
+        const QFileInfo fi(path);
+        const QStringList candidates{
+            path + QStringLiteral(".info.json"),
+            fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
+                + QStringLiteral(".info.json"),
+        };
+        for (const QString &info : candidates) {
+            QFile f(info);
+            if (!f.open(QIODevice::ReadOnly))
+                continue;
+            const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+            const QString wid = o.value(QStringLiteral("id")).toString().trimmed();
+            if (!wid.isEmpty()) {
+                id = wid;
+                break;
+            }
+        }
+        m_localIdCache.insert(path, id);
+        return id;
+    }
+
     int i = s.indexOf(QLatin1String("watch?v="));
     if (i >= 0) {
         QString id = s.mid(i + 8);
