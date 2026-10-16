@@ -312,6 +312,16 @@ Window {
             out.push({ label: "Copiar enlace", icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         }
+        // Pista descargada dentro de una lista: permite desinstalar la lista
+        // entera (borra la carpeta de descarga).
+        if (String(t.source || "") === "local" && String(t.folder || "")) {
+            out.push({ separator: true })
+            out.push({ label: "Desinstalar descarga", icon: "trash", danger: true,
+                       action: function() {
+                           root.confirmRemoveDownload(String(t.folder || ""),
+                                                      String(t.folder || ""))
+                       } })
+        }
         return out
     }
 
@@ -337,7 +347,52 @@ Window {
         if (url)
             out.push({ label: "Copiar enlace", icon: "link",
                        action: function() { root.copyToClipboard(url) } })
+        // Si la lista está descargada, se puede desinstalar (borra los archivos).
+        const dlFolder = root.downloadedFolderFor(url, c.name)
+        if (dlFolder) {
+            out.push({ separator: true })
+            out.push({ label: "Desinstalar descarga", icon: "trash", danger: true,
+                       action: function() { root.confirmRemoveDownload(dlFolder, c.name) } })
+        }
         return out
+    }
+
+    // Carpeta de descarga (primer nivel) que corresponde a una lista, por su
+    // URL (metadatos) o, como respaldo, por su nombre sanitizado.
+    function downloadedFolderFor(url, name) {
+        if (typeof downloads === "undefined")
+            return ""
+        const fs = downloads.folders
+        const u = String(url || "")
+        if (u !== "") {
+            for (var i = 0; i < fs.length; i++)
+                if (String(fs[i].url || "") === u)
+                    return String(fs[i].folder || "")
+        }
+        const nm = String(name || "")
+        if (nm !== "") {
+            const want = downloads.listFolderName(nm)
+            for (var j = 0; j < fs.length; j++)
+                if (String(fs[j].folder || "") === want)
+                    return String(fs[j].folder || "")
+        }
+        return ""
+    }
+
+    function confirmRemoveDownload(folder, name) {
+        const f = String(folder || "")
+        if (!f)
+            return
+        root.askConfirm("¿Desinstalar la descarga de «" + (name || f)
+                        + "»? Se borrarán los archivos descargados.",
+                        "Desinstalar", function() {
+                            if (typeof libPage !== "undefined"
+                                    && libPage.localFilterActive === f)
+                                libPage.localFilter = ""
+                            if (typeof downloads !== "undefined")
+                                downloads.removeList(f)
+                            root.toast("Descarga desinstalada")
+                        })
     }
 
     // Lista guardada en la biblioteca local (Barra lateral): reproducir, abrir,
@@ -1667,6 +1722,7 @@ Window {
                         onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                         onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
                         onShuffleListRequested: root.shuffleTracks(catalog.tracks)
+                        onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
                     }
                 }
             }

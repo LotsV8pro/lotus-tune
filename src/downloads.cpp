@@ -240,9 +240,19 @@ void Downloads::startNext()
     //   pista    -> <artista> - <título>.<ext>
     QString outTemplate;
     if (j.playlist) {
-        const QString dir = m_folder + QLatin1Char('/') + safeSegment(j.name);
+        const QString seg = safeSegment(j.name);
+        const QString dir = m_folder + QLatin1Char('/') + seg;
         QDir().mkpath(dir);
-        outTemplate = safeSegment(j.name)
+        // Marca de identidad de la lista descargada: guarda el nombre original
+        // y su URL para poder emparejarla después (desinstalar, abrir, etc.),
+        // aunque el nombre visible cambie o el título esté sanitizado.
+        QJsonObject meta;
+        meta.insert(QStringLiteral("name"), j.name);
+        meta.insert(QStringLiteral("url"), j.url);
+        QFile mf(dir + QStringLiteral("/.lotus-list.json"));
+        if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+        outTemplate = seg
             + QStringLiteral("/%(playlist_index|)s%(title)s.%(ext)s");
     } else {
         QDir().mkpath(m_folder);
@@ -447,6 +457,18 @@ QVariantList Downloads::folders() const
         m.insert(QStringLiteral("folder"), f);
         m.insert(QStringLiteral("count"), tr.size());
         m.insert(QStringLiteral("thumb"), thumb);
+        // Metadatos de la lista (si existen): nombre original y URL de origen.
+        QFile mf(m_folder + QLatin1Char('/') + f
+                 + QStringLiteral("/.lotus-list.json"));
+        if (mf.open(QIODevice::ReadOnly)) {
+            const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
+            const QString nm = o.value(QStringLiteral("name")).toString().trimmed();
+            const QString u = o.value(QStringLiteral("url")).toString().trimmed();
+            if (!nm.isEmpty())
+                m.insert(QStringLiteral("name"), nm);
+            if (!u.isEmpty())
+                m.insert(QStringLiteral("url"), u);
+        }
         out.append(m);
     }
     return out;
@@ -599,4 +621,48 @@ void Downloads::openFolder()
         return;
     QDir().mkpath(m_folder);
     QProcess::startDetached(QStringLiteral("xdg-open"), {m_folder});
+}
+
+QString Downloads::listFolderName(const QString &name) const
+{
+    return safeSegment(name);
+}
+
+void Downloads::removeList(const QString &folder)
+{
+    // Sólo se permite borrar una carpeta de PRIMER nivel dentro de la carpeta
+    // de descargas (nunca la raíz ni rutas con separadores o "..").
+    const QString f = folder.trimmed();
+    if (f.isEmpty() || f.contains(QLatin1Char('/'))
+        || f.contains(QLatin1Char('\\')) || f == QLatin1String(".")
+        || f == QLatin1String(".."))
+        return;
+    const QDir root(m_folder);
+    const QString canon = QDir::cleanPath(root.absoluteFilePath(f));
+    const QString rootCanon = QDir::cleanPath(root.absolutePath());
+    if (canon == rootCanon
+        || !canon.startsWith(rootCanon + QLatin1Char('/')))
+        return;   // fuera de la carpeta de descargas
+
+    // Si esa lista se está descargando (o está en cola), se cancela antes de
+    // borrar para que yt-dlp no vuelva a crear la carpeta.
+    bool killCurrent = false;
+    for (int i = 0; i < m_jobs.size(); ++i) {
+        if (!m_jobs[i].playlist || safeSegment(m_jobs[i].name) != f)
+            continue;
+        if (m_jobs[i].state == QLatin1String("queued"))
+            setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));
+        else if (i == m_current)
+            killCurrent = true;
+    }
+    if (killCurrent && m_proc.state() != QProcess::NotRunning) {
+        m_cancelling = true;
+        m_proc.kill();
+    }
+
+    QDir(canon).removeRecursively();
+    // Reescanea para que la lista desaparezca al instante de la UI.
+    refreshLocal();
+    emit jobsChanged();
+    emit changed();
 }
