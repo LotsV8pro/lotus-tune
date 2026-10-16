@@ -224,7 +224,33 @@ Item {
 
     // ---- descargas (backend `downloads`; puede no existir todavía) --------
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
-    readonly property var dlLocal: (typeof downloads !== "undefined") ? downloads.local : []
+    // Listas descargadas (una carpeta = una lista) y pistas sueltas.
+    readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
+    readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
+    // Carpeta seleccionada ("" = todas): al pulsar una lista descargada se
+    // filtra la lista de canciones a esa carpeta.
+    property string localFilter: ""
+    // La carpeta elegida sólo cuenta si sigue existiendo (p. ej. tras borrar
+    // los archivos); si no, se muestra todo.
+    readonly property string localFilterActive: {
+        if (page.localFilter === "")
+            return ""
+        for (var i = 0; i < page.dlFolders.length; i++)
+            if (String(page.dlFolders[i].folder) === page.localFilter)
+                return page.localFilter
+        return ""
+    }
+    readonly property var dlLocal: {
+        if (page.localFilterActive === "")
+            return page.dlLocalAll
+        const out = []
+        for (var i = 0; i < page.dlLocalAll.length; i++) {
+            const t = page.dlLocalAll[i]
+            if (String(t.folder || "") === page.localFilterActive)
+                out.push(t)
+        }
+        return out
+    }
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
 
     // ---- icono de acción (Glyph no incluye descarga/carpeta/refrescar) ----
@@ -1134,6 +1160,116 @@ Item {
                     title: page.selectedEntry ? page.selectedEntry.name
                                               : page.srcName(page.selectedSourceId)
                     note: page.selectedLocked ? page.srcNote(page.selectedSourceId) : ""
+                }
+
+                // ---- Listas descargadas (una carpeta = una lista) --------
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: page.dlFolders.length > 0 ? 112 : 0
+                    visible: (page.localSelected || page.libraryTab === 4)
+                             && page.dlFolders.length > 0
+                    clip: true
+
+                    ListView {
+                        id: folderStrip
+                        anchors.fill: parent
+                        orientation: ListView.Horizontal
+                        spacing: Theme.s3
+                        model: page.dlFolders
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        delegate: Item {
+                            id: fcell
+                            required property var modelData
+                            width: 128
+                            height: folderStrip.height
+
+                            Rectangle {
+                                id: fthumb
+                                width: parent.width
+                                height: 84
+                                radius: Theme.rMd
+                                color: Sys.surfaceAlt
+                                clip: true
+                                Image {
+                                    anchors.fill: parent
+                                    source: fcell.modelData.thumb || ""
+                                    visible: source !== ""
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                    sourceSize.width: 256
+                                    sourceSize.height: 168
+                                }
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    width: 22
+                                    height: 22
+                                    visible: !fcell.modelData.thumb
+                                    kind: "download"
+                                    color: Sys.textDim
+                                }
+                                Rectangle {
+                                    anchors.fill: parent
+                                    radius: Theme.rMd
+                                    color: "transparent"
+                                    border.width: page.localFilterActive
+                                                  === fcell.modelData.folder ? 2 : 0
+                                    border.color: Sys.accent
+                                }
+                            }
+                            Text {
+                                anchors.top: fthumb.bottom
+                                anchors.topMargin: 4
+                                width: parent.width
+                                text: (fcell.modelData.name || "")
+                                      + " · " + (fcell.modelData.count || 0)
+                                color: page.localFilterActive === fcell.modelData.folder
+                                       ? Sys.accent : Sys.text
+                                font.pixelSize: Theme.tXs
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    page.localFilter = (page.localFilterActive
+                                                        === fcell.modelData.folder)
+                                        ? "" : fcell.modelData.folder
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Aviso/limpiar filtro de lista descargada.
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: page.localFilterActive !== ""
+                    spacing: Theme.s2
+
+                    Text {
+                        text: "‹ Todas las descargas"
+                        color: Sys.accent
+                        font.pixelSize: Theme.tSm
+                        font.weight: Font.DemiBold
+                        TapHandler {
+                            onTapped: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.localFilter = ""
+                            }
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Lista: " + page.localFilterActive
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tSm
+                        elide: Text.ElideRight
+                    }
                 }
 
                 // ---- LOCAL: descargas (lista virtualizada) ----------------
