@@ -198,6 +198,12 @@ Item {
         return false
     }
 
+    // ¿Se puede descargar la lista abierta? (URL http real; incluye listas que
+    // no son del usuario.)
+    function canDownloadTracks() {
+        return String(catalog.openListUrl || "").indexOf("http") === 0
+    }
+
     // Menú (⋮) de la lista abierta: reutiliza el menú de covers con los datos
     // de la lista en curso.
     function openHeaderMenu(x, y) {
@@ -650,6 +656,38 @@ Item {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); page.playRequested(catalog.tracks, 0) }
+                            }
+                        }
+
+                        // Descargar la lista (funciona también con listas que no
+                        // son del usuario: usa la URL real de la lista abierta).
+                        Rectangle {
+                            Layout.preferredWidth: 38
+                            Layout.preferredHeight: 38
+                            radius: Theme.rMd
+                            visible: page.canDownloadTracks()
+                            color: dlMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                            border.width: 0
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 16
+                                height: 16
+                                kind: "download"
+                                color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                            }
+                            MouseArea {
+                                id: dlMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    if (typeof downloads !== "undefined")
+                                        downloads.downloadPlaylist(
+                                            String(catalog.openListUrl || ""),
+                                            String(catalog.tracksTitle || ""))
+                                }
                             }
                         }
 

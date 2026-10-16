@@ -70,6 +70,7 @@ qt_add_resources(lotus-tune "ui_sounds"
         sounds/click_toggle.wav
         sounds/click_play.wav
         sounds/click_like.wav
+        sounds/silence.wav
 )
 
 # Ship the embedded YT Music login helper and the "mis listas" API helper

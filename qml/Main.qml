@@ -448,15 +448,30 @@ Window {
     // la que venías (normalmente Inicio), así Esc o el botón «atrás» de la
     // barra superior vuelven ahí y no a la portada de Biblioteca.
     property var navStack: []
+    // Pila «adelante» (botón lateral del ratón): se rellena al ir atrás y se
+    // vacía en cuanto se navega a otro sitio.
+    property var forwardStack: []
+
+    // Estado navegable actual (página + si es la vista de pistas de biblioteca).
+    function curState() {
+        return { p: page, t: (page === "library" ? libPage.showingTracks : false) }
+    }
+    function applyState(s) {
+        if (!s) return
+        page = s.p
+        if (s.p === "library")
+            libPage.showingTracks = !!s.t
+    }
 
     // Navega a `p` guardando la página actual en la pila (force: guarda
     // aunque sea la misma página, p.ej. Biblioteca → vista de pistas).
     function pushPage(p, force) {
         if (p !== page || force) {
-            let s = navStack.concat([page])
+            let s = navStack.concat([curState()])
             if (s.length > 12)
                 s = s.slice(s.length - 12)
             navStack = s
+            forwardStack = []
         }
         page = p
     }
@@ -467,10 +482,31 @@ Window {
             return false
         const prev = navStack[navStack.length - 1]
         navStack = navStack.slice(0, -1)
-        page = prev
-        if (prev === "library")
-            libPage.showingTracks = false
+        forwardStack = forwardStack.concat([curState()])
+        applyState(prev)
         return true
+    }
+
+    // Va a la página siguiente (botón lateral «adelante» del ratón).
+    function navForward() {
+        if (forwardStack.length === 0)
+            return false
+        const nxt = forwardStack[forwardStack.length - 1]
+        forwardStack = forwardStack.slice(0, -1)
+        navStack = navStack.concat([curState()])
+        applyState(nxt)
+        return true
+    }
+
+    // Botones laterales del ratón (4 = atrás, 5 = adelante): los invoca el
+    // filtro de eventos de la ventana (MouseNavFilter en main.cpp).
+    function mouseNavBack() {
+        if (typeof sfx !== "undefined") sfx.play("tap")
+        goBack()
+    }
+    function mouseNavForward() {
+        if (typeof sfx !== "undefined") sfx.play("tap")
+        navForward()
     }
 
     // Navegación raíz (barra lateral / Inicio): guardamos de dónde venimos.
@@ -764,6 +800,21 @@ Window {
     Shortcut {
         sequence: "Escape"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.goBack() }
+    }
+
+    // ---- botones laterales del ratón (4 = atrás, 5 = adelante) ------------
+    // Va al fondo (z:-1) y sólo acepta esos dos botones, así no estorba al
+    // resto de la interfaz: los clics normales llegan a los items de encima.
+    MouseArea {
+        anchors.fill: parent
+        z: -1
+        acceptedButtons: Qt.BackButton | Qt.ForwardButton
+        onPressed: (mouse) => {
+            if (mouse.button === Qt.BackButton)
+                root.mouseNavBack()
+            else if (mouse.button === Qt.ForwardButton)
+                root.mouseNavForward()
+        }
     }
 
     // ---- queue -----------------------------------------------------------
