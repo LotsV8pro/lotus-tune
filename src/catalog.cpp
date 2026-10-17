@@ -346,23 +346,43 @@ QString Catalog::ytmApiPath()
     return beside;
 }
 
+// Propósitos que van en segundo plano: son best-effort, no deben bloquear a
+// nadie ni informar error si algo los pisa. Son dos: la radio del autoplay
+// (pide más pistas) y la precarga de las radios de Inicio (pide pocas, para
+// estar lista en ~1,4 s).
+static bool isBackgroundPurpose(const QString &purpose)
+{
+    return purpose == QLatin1String("radio")
+        || purpose == QLatin1String("prefetch");
+}
+
 // ---------------------------------------------------------------- fetch ----
+
+bool Catalog::cancelBackgroundFetch()
+{
+    if (!m_busy || !isBackgroundPurpose(m_purpose))
+        return false;
+    if (m_proc.state() != QProcess::NotRunning) {
+        // La marca hace que el finished() posterior se ignore en silencio (si
+        // no, informaría de un fallo que no interesa a nadie).
+        m_killed = true;
+        m_proc.kill();
+        m_proc.waitForFinished(300);
+    }
+    m_busy = false;
+    return true;
+}
 
 void Catalog::startFetch(const QString &program, const QStringList &args,
                          const QString &purpose, const QString &title)
 {
-    if (m_busy) {
-        // Una radio en vuelo es siempre best-effort (autoplay o precarga al
-        // pasar el ratón): una petición explícita del usuario la pisa sin
-        // más. Cualquier otra operación en marcha sigue esperando como antes.
-        if (m_purpose != QLatin1String("radio")) {
-            fail(QStringLiteral("Espera a que termine la operación actual"));
-            return;
-        }
-        m_killed = true;
-        m_proc.kill();
-        m_proc.waitForFinished(300);
-        m_busy = false;
+    // Una consulta en segundo plano (radio del autoplay o precarga de las
+    // radios de Inicio) es siempre best-effort: una petición explícita del
+    // usuario la pisa sin más. Cualquier otra operación en marcha sigue
+    // esperando como antes.
+    if (m_busy && !cancelBackgroundFetch()) {
+        fail(QStringLiteral("Espera a que termine la operación actual"));
+        return;
     }
 
     m_busy = true;
@@ -384,9 +404,8 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
 
 // Una radio de YouTube Music no es una lista normal: el identificador
 // «RDAMVM<videoId>» lo entiende sólo yt-dlp (la API interna devuelve vacío y
-// dispara el respaldo, que es lo que hacía que tardara ~20 s) y no hace falta
-// traer 500 pistas para que la reproducción no se agote: con ~80 (≈5 h de
-// música) basta, y se descarga en ~2 s.
+// dispara el respaldo, que es lo que hacía que tardara ~20 s) y el tope de
+// pistas es lo único que decide lo que tarda (ver runYtdlp()).
 static bool isRadioTarget(const QString &target)
 {
     return target.contains(QLatin1String("list=RDAMVM"))
@@ -404,9 +423,14 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
 
     // Caché en memoria: reabrir una lista ya cargada no lanza ningún proceso y
     // responde al instante. Solo para listas; la búsqueda siempre va a la red.
+    // Una precarga de fondo en vuelo no debe impedirlo (es justo lo que hace
+    // que abrir una radio de «Para ti» sea instantáneo): se cancela y se sirve.
     const QString key = cacheKeyFor(target);
-    if (!m_busy && purpose == QLatin1String("playlist")
+    const bool bgBusy = m_busy && isBackgroundPurpose(m_purpose);
+    if (purpose == QLatin1String("playlist") && (!m_busy || bgBusy)
         && m_playlistCache.contains(key)) {
+        if (bgBusy)
+            cancelBackgroundFetch();
         const QVariantList cached = m_playlistCache.value(key);
         const QString cachedTitle = m_playlistTitles.value(key);
         m_fastFallback.clear();
@@ -548,12 +572,30 @@ void Catalog::openUrl(const QString &url, const QString &name)
 // Radio/autoplay de YouTube Music: la lista que la propia app reproduce "a
 // continuación" de un vídeo es la mix RDAMVM<videoId>. yt-dlp la resuelve como
 // playlist plana (la semilla primero y luego la autorradio). Se usa a propósito
-// el propósito "radio" (no "playlist") para que run() omita la vía rápida de la
+// un propósito de fondo (no "playlist") para que run() omita la vía rápida de la
 // API interna (ytm_api.py devuelve vacío para RDAMVM...) y acabe en runYtdlp(),
-// que ya adjunta las cookies de YT Music. El resultado sí se cachea, para que
-// sirva además de precarga: al pasar el ratón sobre la tarjeta de una radio de
-// «Recomendado para ti» su lista ya está lista cuando el usuario hace clic.
+// que ya adjunta las cookies de YT Music.
+//
+// Hay dos variantes, y la diferencia es el tope de pistas, que es lo único que
+// decide el tiempo de espera (YouTube entrega la lista página a página):
+//   · fetchRadio()    — la del autoplay: pide 80 (≈5 h) porque va sin
+//                       interrumpir a nadie.
+//   · prefetchRadio() — la precarga de las radios de Inicio: pide 25 (≈1,4 s),
+//                       justo lo que verá quien abra la radio a mano. Al
+//                       guardarla igualmente en caché de listas, abrirla a
+//                       continuación sale al instante.
 void Catalog::fetchRadio(const QString &videoId, const QString &title)
+{
+    runRadio(videoId, title, QStringLiteral("radio"));
+}
+
+void Catalog::prefetchRadio(const QString &videoId, const QString &title)
+{
+    runRadio(videoId, title, QStringLiteral("prefetch"));
+}
+
+void Catalog::runRadio(const QString &videoId, const QString &title,
+                       const QString &purpose)
 {
     const QString v = videoId.trimmed();
     if (v.isEmpty())
@@ -566,7 +608,7 @@ void Catalog::fetchRadio(const QString &videoId, const QString &title)
     const QString target =
         QStringLiteral("https://www.youtube.com/watch?v=") + v
         + QStringLiteral("&list=RDAMVM") + v;
-    run(target, QStringLiteral("radio"),
+    run(target, purpose,
         title.trimmed().isEmpty() ? QStringLiteral("Radio") : title.trimmed());
 }
 
@@ -1200,12 +1242,12 @@ bool Catalog::handleOutput(const QByteArray &json)
 
     if (m_purpose == QLatin1String("search")) {
         m_results = list;
-    } else if (m_purpose == QLatin1String("radio")) {
+    } else if (isBackgroundPurpose(m_purpose)) {
         // La radio no reemplaza la cola: el reproductor la usa solo para
         // ampliar «a continuación» tras la pista semilla. Sí se cachea con su
-        // clave normal (list:RDAMVM<semilla>), para que si se precargó con
-        // antelación —al pasar el ratón sobre su tarjeta— abrirla desde
-        // «Recomendado para ti» sea instantánea.
+        // clave normal (list:RDAMVM<semilla>), para que la precarga que se
+        // hace en segundo plano desde Inicio deje la lista lista y abrirla
+        // desde «Recomendado para ti» sea instantánea.
         cachePlaylist(m_pendingKey, list, m_pendingTitle);
         emit radioReady(m_radioSeed, list);
         // Si mientras cargaba el usuario abrió la radio a mano, ese mismo

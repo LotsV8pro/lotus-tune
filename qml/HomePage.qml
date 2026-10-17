@@ -211,7 +211,11 @@ Item {
         searchHistory = []
     }
 
-    Component.onCompleted: refreshSearchHistory()
+    Component.onCompleted: {
+        refreshSearchHistory()
+        if (visible)
+            startRecPrefetch()
+    }
 
     // ---- recomendaciones: radios a partir del historial ------------------
     function recCards() {
@@ -262,6 +266,61 @@ Item {
             return true
         }
         return false
+    }
+
+    // ---- precarga en segundo plano de las radios de «Para ti» ------------
+    // Traer la lista de una radio cuesta ~1,4 s FIJOS de red (dos idas y
+    // vueltas a YouTube Music; da igual pedir 8 que 25 pistas). Para que el
+    // clic sea instantáneo, las radios de «Recomendado para ti» se van
+    // trayendo solas, de una en una, mientras Inicio está a la vista: cuando
+    // el usuario pulsa, ya están en la caché en memoria de listas.
+    //
+    // Es best-effort: la precarga es preemptible, así que cualquier acción
+    // explícita del usuario la pisa sin más. Cada semilla se precarga una
+    // sola vez por sesión.
+    property var recPrefetchQueue: []
+    property var recPrefetched: ({})
+
+    function startRecPrefetch() {
+        if (typeof catalog === "undefined" || !page.ytmOk)
+            return
+        const cards = page.recCards()
+        for (var i = 0; i < cards.length; i++) {
+            const d = cards[i]
+            if (d.kind === "radio" && d.trackId && !page.recPrefetched[d.trackId])
+                page.recPrefetchQueue.push({ id: d.trackId, title: d.title })
+        }
+        if (page.recPrefetchQueue.length && !recPrefetchTimer.running)
+            recPrefetchTimer.start()
+    }
+
+    Timer {
+        id: recPrefetchTimer
+        interval: 400
+        repeat: true
+        running: false
+        onTriggered: {
+            if (typeof catalog === "undefined" || catalog.busy)
+                return   // en cuanto esté libre, se reanuda
+            while (page.recPrefetchQueue.length) {
+                const it = page.recPrefetchQueue.shift()
+                if (page.recPrefetched[it.id])
+                    continue
+                page.recPrefetched[it.id] = true
+                catalog.prefetchRadio(it.id, it.title)
+                return
+            }
+            recPrefetchTimer.stop()
+        }
+    }
+
+    // Al mostrarse Inicio (y cuando cambia el historial, que rehace las
+    // tarjetas) se pone en marcha la ronda de precarga.
+    onVisibleChanged: if (visible) page.startRecPrefetch()
+
+    Connections {
+        target: catalog
+        function onLibraryChanged() { if (page.visible) page.startRecPrefetch() }
     }
 
     // ---- radios de YouTube (estado de animo / genero) --------------------
@@ -639,12 +698,15 @@ Item {
                     onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
                     onPlayClicked: page.openRec(modelData, true)
                     // Al pasar el ratón sobre una radio ya se descarga su lista
-                    // (en segundo plano, sin bloquear nada): al clicar aparece
-                    // al instante en lugar de tardar ~1.6 s.
+                    // (en segundo plano, sin bloquear nada) si aún no lo había
+                    // hecho la ronda de precarga de la página.
                     onHoveredChanged: if (hovered && modelData
                                           && modelData.kind === "radio"
-                                          && modelData.trackId)
-                        catalog.fetchRadio(modelData.trackId, modelData.title)
+                                          && modelData.trackId
+                                          && !page.recPrefetched[modelData.trackId]) {
+                        page.recPrefetched[modelData.trackId] = true
+                        catalog.prefetchRadio(modelData.trackId, modelData.title)
+                    }
                 }
             }
 
