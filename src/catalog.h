@@ -69,8 +69,11 @@ public:
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
     // Autorradio de YouTube Music para un videoId (lo que la propia app pone
     // "a continuación"): resuelve la mix RDAMVM<videoId> con yt-dlp y emite
-    // radioReady() con la lista, sin tocar la cola ni la caché de listas.
-    Q_INVOKABLE void fetchRadio(const QString &videoId);
+    // radioReady() con la lista, sin tocar la cola. Se guarda además en la
+    // caché de listas, de modo que sirve para precargar la radio con
+    // antelación (al pasar el ratón sobre su tarjeta) y abrirla al instante.
+    Q_INVOKABLE void fetchRadio(const QString &videoId,
+                                const QString &title = QString());
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -191,6 +194,13 @@ private:
     QProcess m_proc;
     QString m_purpose;
     QString m_radioSeed;   // videoId semilla de la radio en curso
+    // El usuario abrió a mano una lista que ya se estaba trayendo en segundo
+    // plano (precarga de una radio al pasar el ratón): el resultado en vuelo se
+    // sirve además como lista abierta, sin volver a descargarlo.
+    bool m_promotePending = false;
+    // Un proceso best-effort (radio) anulado al ceder el paso a otra petición:
+    // su finished() posterior se ignora en lugar de informar un fallo.
+    bool m_killed = false;
     QString m_pendingTitle;
     QString m_currentSource;
     bool m_busy = false;

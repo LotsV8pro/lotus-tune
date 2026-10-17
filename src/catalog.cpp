@@ -249,6 +249,12 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     m_proc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_proc, &QProcess::finished, this,
             [this](int code, QProcess::ExitStatus) {
+                // Proceso anulado al ceder el paso a una petición explícita
+                // del usuario: no hay nada que informar.
+                if (m_killed) {
+                    m_killed = false;
+                    return;
+                }
                 const QByteArray out = m_proc.readAllStandardOutput();
                 if (code == 0 && handleOutput(out)) {
                     m_busy = false;
@@ -346,8 +352,17 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
                          const QString &purpose, const QString &title)
 {
     if (m_busy) {
-        fail(QStringLiteral("Espera a que termine la operación actual"));
-        return;
+        // Una radio en vuelo es siempre best-effort (autoplay o precarga al
+        // pasar el ratón): una petición explícita del usuario la pisa sin
+        // más. Cualquier otra operación en marcha sigue esperando como antes.
+        if (m_purpose != QLatin1String("radio")) {
+            fail(QStringLiteral("Espera a que termine la operación actual"));
+            return;
+        }
+        m_killed = true;
+        m_proc.kill();
+        m_proc.waitForFinished(300);
+        m_busy = false;
     }
 
     m_busy = true;
@@ -413,7 +428,17 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         return;
     }
 
+    // Ya se está trayendo esta misma lista en segundo plano (precarga de una
+    // radio al pasar el ratón). No se relanza el proceso: se espera el que
+    // está en vuelo y su resultado se sirve como lista abierta.
+    if (m_busy && m_pendingKey == key) {
+        if (purpose == QLatin1String("playlist"))
+            m_promotePending = true;   // sólo se activa, nunca se quita
+        return;
+    }
+
     m_pendingKey = key;
+    m_promotePending = false;
 
     m_fastFallback.clear();
     m_fastFallbackTitle.clear();
@@ -523,10 +548,12 @@ void Catalog::openUrl(const QString &url, const QString &name)
 // Radio/autoplay de YouTube Music: la lista que la propia app reproduce "a
 // continuación" de un vídeo es la mix RDAMVM<videoId>. yt-dlp la resuelve como
 // playlist plana (la semilla primero y luego la autorradio). Se usa a propósito
-// el propósito "radio" (no "playlist") para que run() omita tanto la caché en
-// memoria como la vía rápida de la API interna (ytm_api.py devuelve vacío para
-// RDAMVM...) y acabe en runYtdlp(), que ya adjunta las cookies de YT Music.
-void Catalog::fetchRadio(const QString &videoId)
+// el propósito "radio" (no "playlist") para que run() omita la vía rápida de la
+// API interna (ytm_api.py devuelve vacío para RDAMVM...) y acabe en runYtdlp(),
+// que ya adjunta las cookies de YT Music. El resultado sí se cachea, para que
+// sirva además de precarga: al pasar el ratón sobre la tarjeta de una radio de
+// «Recomendado para ti» su lista ya está lista cuando el usuario hace clic.
+void Catalog::fetchRadio(const QString &videoId, const QString &title)
 {
     const QString v = videoId.trimmed();
     if (v.isEmpty())
@@ -539,7 +566,8 @@ void Catalog::fetchRadio(const QString &videoId)
     const QString target =
         QStringLiteral("https://www.youtube.com/watch?v=") + v
         + QStringLiteral("&list=RDAMVM") + v;
-    run(target, QStringLiteral("radio"), QStringLiteral("Radio"));
+    run(target, QStringLiteral("radio"),
+        title.trimmed().isEmpty() ? QStringLiteral("Radio") : title.trimmed());
 }
 
 void Catalog::syncLiked()
@@ -1173,9 +1201,21 @@ bool Catalog::handleOutput(const QByteArray &json)
     if (m_purpose == QLatin1String("search")) {
         m_results = list;
     } else if (m_purpose == QLatin1String("radio")) {
-        // La radio no reemplaza la cola ni se cachea: el reproductor la usa
-        // solo para ampliar "a continuación" tras la pista semilla.
+        // La radio no reemplaza la cola: el reproductor la usa solo para
+        // ampliar «a continuación» tras la pista semilla. Sí se cachea con su
+        // clave normal (list:RDAMVM<semilla>), para que si se precargó con
+        // antelación —al pasar el ratón sobre su tarjeta— abrirla desde
+        // «Recomendado para ti» sea instantánea.
+        cachePlaylist(m_pendingKey, list, m_pendingTitle);
         emit radioReady(m_radioSeed, list);
+        // Si mientras cargaba el usuario abrió la radio a mano, ese mismo
+        // resultado sirve como lista abierta (no se vuelve a descargar).
+        if (m_promotePending) {
+            m_promotePending = false;
+            m_tracks = list;
+            m_tracksTitle = m_pendingTitle;
+            emit tracksReady(list, m_pendingTitle);
+        }
     } else {
         QString title = m_pendingTitle;
         if (title.isEmpty())
