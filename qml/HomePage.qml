@@ -248,6 +248,12 @@ Item {
             return true
         }
         if (d.trackId) {
+            // La primera pista de la radio es la propia semilla: se resuelve
+            // YA (con prioridad) mientras yt-dlp trae el resto de la lista, de
+            // modo que al llegar no se espere otra vez a la resolución y suene
+            // de inmediato.
+            if (typeof player !== "undefined")
+                player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
             page.openListRequested(!!play)
             catalog.openUrl(
                 "https://music.youtube.com/watch?v=" + d.trackId
