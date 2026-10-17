@@ -367,6 +367,17 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     }
 }
 
+// Una radio de YouTube Music no es una lista normal: el identificador
+// «RDAMVM<videoId>» lo entiende sólo yt-dlp (la API interna devuelve vacío y
+// dispara el respaldo, que es lo que hacía que tardara ~20 s) y no hace falta
+// traer 500 pistas para que la reproducción no se agote: con ~80 (≈5 h de
+// música) basta, y se descarga en ~2 s.
+static bool isRadioTarget(const QString &target)
+{
+    return target.contains(QLatin1String("list=RDAMVM"))
+        || target.contains(QLatin1String("start_radio=1"));
+}
+
 void Catalog::run(const QString &target, const QString &purpose, const QString &title)
 {
     if (target.isEmpty())
@@ -387,7 +398,8 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         m_fastFallbackTitle.clear();
         m_openPlaylistId.clear();
         if (target.contains(QLatin1String("youtube.com"))
-            && key.startsWith(QLatin1String("list:")))
+            && key.startsWith(QLatin1String("list:"))
+            && !isRadioTarget(target))
             m_openPlaylistId = key.mid(QStringLiteral("list:").size());
         m_error.clear();
         // Diferido: no reentramos en QML desde dentro de la propia llamada.
@@ -410,7 +422,10 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     // Vía rápida de listas: para playlists de YouTube Music, la API interna
     // devuelve todas las pistas en ~0.5 s (sin arrancar yt-dlp, que tarda
     // varios segundos). Se usa cuando hay sesión; si no, se cae a yt-dlp.
-    if (purpose == QLatin1String("playlist") && ytmLoggedIn()) {
+    // Las radios (RDAMVM/start_radio) se saltan este atajo: ytm_api.py no las
+    // conoce y su respuesta vacía sólo servía para demorar el respaldo.
+    if (purpose == QLatin1String("playlist") && ytmLoggedIn()
+        && !isRadioTarget(target)) {
         const QRegularExpression re(
             QStringLiteral("list=([A-Za-z0-9_-]+)"));
         const QRegularExpressionMatch m = re.match(target);
@@ -439,7 +454,11 @@ void Catalog::runYtdlp(const QString &target, const QString &purpose,
         QStringLiteral("--no-warnings"),
         QStringLiteral("--ignore-errors"),
         QStringLiteral("--no-plugin-dirs"),
-        QStringLiteral("--playlist-end=500"),
+        // Una radio no necesita 500 pistas: con ~80 (≈5 h) la reproducción no
+        // se agota y la lista llega en ~2 s en lugar de ~19 s.
+        (purpose == QLatin1String("radio") || isRadioTarget(target))
+            ? QStringLiteral("--playlist-end=80")
+            : QStringLiteral("--playlist-end=500"),
     };
     // Flat SoundCloud set entries are bare url_transparent stubs without
     // title/uploader/duration (yt-dlp SoundcloudSetIE._extract_set passes only
