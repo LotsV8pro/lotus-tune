@@ -449,15 +449,19 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
 void Catalog::runYtdlp(const QString &target, const QString &purpose,
                        const QString &title)
 {
+    // Una radio no necesita 500 pistas: la API de YouTube la trae página a
+    // página, así que el tope decide el tiempo de espera. La radio abierta
+    // como lista (las de «Para ti») bloquea la vista, así que se pide corta:
+    // 25 pistas ≈1.4 s y ≈2 h de música. La de autoplay llega en segundo
+    // plano sin interrumpir, así que se pide más larga.
+    const int radioEnd = purpose == QLatin1String("radio") ? 80 : 25;
     QStringList args{
         QStringLiteral("-J"),
         QStringLiteral("--no-warnings"),
         QStringLiteral("--ignore-errors"),
         QStringLiteral("--no-plugin-dirs"),
-        // Una radio no necesita 500 pistas: con ~80 (≈5 h) la reproducción no
-        // se agota y la lista llega en ~2 s en lugar de ~19 s.
         (purpose == QLatin1String("radio") || isRadioTarget(target))
-            ? QStringLiteral("--playlist-end=80")
+            ? QStringLiteral("--playlist-end=%1").arg(radioEnd)
             : QStringLiteral("--playlist-end=500"),
     };
     // Flat SoundCloud set entries are bare url_transparent stubs without
