@@ -1602,14 +1602,18 @@ Window {
     }
 
     // ---- layout ----------------------------------------------------------
+    // Interfaz de "islas flotantes": el fondo de la ventana (Sys.bg) hace de
+    // escritorio y cada zona —rail, cabecera, contenido, panel y barra de
+    // reproducción— es una superficie redondeada separada por `panelGap`.
     ColumnLayout {
         anchors.fill: parent
-        spacing: 0
+        anchors.margins: Theme.panelMargin
+        spacing: Theme.panelGap
 
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 0
+            spacing: Theme.panelGap
 
             Item {
                 id: sideCol
@@ -1673,12 +1677,10 @@ Window {
                 }
             }
 
-            Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Sys.border }
-
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                spacing: 0
+                spacing: Theme.panelGap
 
                 TopBar {
                     Layout.fillWidth: true
@@ -1691,74 +1693,72 @@ Window {
                     onSettingsRequested: root.toggleSettings()
                 }
 
-                StackLayout {
-                    id: stack
+                Panel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    currentIndex: root.pageIndex(root.page)
+                    clipContent: true
 
-                    // Cambio de página inmediato: sin fundido ni transición.
-                    onCurrentIndexChanged: {
-                        // Recarga el historial de búsquedas de Inicio (se
-                        // escribe desde Buscar mientras no está visible).
-                        homePage.refreshSearchHistory()
-                    }
+                    StackLayout {
+                        id: stack
+                        anchors.fill: parent
+                        currentIndex: root.pageIndex(root.page)
 
-                    HomePage {
-                        id: homePage
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        onPlayRequested: (list, idx) => root.playTracks(list, idx)
-                        onNavigateRequested: (p) => root.navTo(p)
-                        onOpenListRequested: (play) => root.beginOpenList(play)
-                        onOpenSettingsRequested: {
-                            root.listLoading = false
-                            root.pendingPlay = false
-                            root.settingsOpen = true
+                        // Cambio de página inmediato: sin fundido ni transición.
+                        onCurrentIndexChanged: {
+                            // Recarga el historial de búsquedas de Inicio (se
+                            // escribe desde Buscar mientras no está visible).
+                            homePage.refreshSearchHistory()
                         }
-                        onOpenLauncherRequested: root.toggleLauncher()
-                        // Chip del historial: abre Buscar y re-ejecuta la query.
-                        onSearchRequested: (q) => {
-                        root.navTo("search")
-                        searchPage.startSearch(q)
+
+                        HomePage {
+                            id: homePage
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            onPlayRequested: (list, idx) => root.playTracks(list, idx)
+                            onNavigateRequested: (p) => root.navTo(p)
+                            onOpenListRequested: (play) => root.beginOpenList(play)
+                            onOpenSettingsRequested: {
+                                root.listLoading = false
+                                root.pendingPlay = false
+                                root.settingsOpen = true
+                            }
+                            onOpenLauncherRequested: root.toggleLauncher()
+                            // Chip del historial: abre Buscar y re-ejecuta la query.
+                            onSearchRequested: (q) => {
+                            root.navTo("search")
+                            searchPage.startSearch(q)
+                            }
                         }
-                    }
-                    SearchPage {
-                        id: searchPage
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        onPlayRequested: (list, idx) => root.playTracks(list, idx)
-                        onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
-                        onEnqueueRequested: (t) => root.enqueueTrack(t)
-                    }
-                    LibraryPage {
-                        id: libPage
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        onPlayRequested: (list, idx) => root.playTracks(list, idx)
-                        onEnqueueRequested: (t) => root.enqueueTrack(t)
-                        // Cover: abrir (false) o abrir y reproducir (true).
-                        onOpenListRequested: (play) => root.beginOpenList(play)
-                        onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
-                        onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
-                        onShuffleListRequested: root.shuffleTracks(libPage.viewTracks())
-                        onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
-                        onDownloadMenuRequested: (folder, name, x, y) => root.showDownloadMenu(folder, name, x, y)
-                        onDownloadOpenRequested: (folder) => {
-                            // Abre la lista descargada como playlist guardando
-                            // el paso atrás (la vista de lista de Descargas).
-                            root.pushPage("library", true)
-                            libPage.openDownloadPlaylist(folder)
+                        SearchPage {
+                            id: searchPage
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            onPlayRequested: (list, idx) => root.playTracks(list, idx)
+                            onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                            onEnqueueRequested: (t) => root.enqueueTrack(t)
+                        }
+                        LibraryPage {
+                            id: libPage
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            onPlayRequested: (list, idx) => root.playTracks(list, idx)
+                            onEnqueueRequested: (t) => root.enqueueTrack(t)
+                            // Cover: abrir (false) o abrir y reproducir (true).
+                            onOpenListRequested: (play) => root.beginOpenList(play)
+                            onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                            onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
+                            onShuffleListRequested: root.shuffleTracks(libPage.viewTracks())
+                            onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
+                            onDownloadMenuRequested: (folder, name, x, y) => root.showDownloadMenu(folder, name, x, y)
+                            onDownloadOpenRequested: (folder) => {
+                                // Abre la lista descargada como playlist guardando
+                                // el paso atrás (la vista de lista de Descargas).
+                                root.pushPage("library", true)
+                                libPage.openDownloadPlaylist(folder)
+                            }
                         }
                     }
                 }
-            }
-
-            Rectangle {
-                visible: root.panelOpen
-                Layout.preferredWidth: 1
-                Layout.fillHeight: true
-                color: Sys.border
             }
 
             RightPanel {
@@ -1777,8 +1777,6 @@ Window {
                 onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
             }
         }
-
-        Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: Sys.border }
 
         PlayerBar {
             Layout.fillWidth: true

@@ -2,13 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Barra de reproducción: tarjeta FLOTANTE ultra fina (Theme.playerBarH = 56)
-// con 8 px de margen exterior. El item raíz vive en un ColumnLayout a ancho
-// completo, así que el margen se dibuja DENTRO (la tarjeta es la que flota).
+// Barra de reproducción: UNA isla flotante (Panel) de Theme.playerBarH de
+// alto. El item raíz es transparente y Main.qml lo coloca a lo ancho del
+// ColumnLayout, separado del resto por `panelGap`; la superficie redondeada,
+// el borde sutil y la sombra suave los pone `Panel`.
 //
 // Contenido: portada + título/artista, transporte compacto (acento solo en
 // play), progreso fino de 2 px con tiempos discretos, dos botones callados
-// (cola y letras) y volumen mínimo. Sin sombras ni capas extra.
+// (cola y letras) y volumen mínimo. Sin capas ni efectos extra.
 Rectangle {
     id: bar
 
@@ -46,8 +47,8 @@ Rectangle {
     property bool scrubbing: false
     property real scrubPos: 0
 
-    // Altura del item = tarjeta + 2 márgenes (8 px arriba y abajo).
-    implicitHeight: Theme.playerBarH + Theme.s2 * 2
+    // Altura de la isla: la barra mide exactamente lo que su superficie.
+    implicitHeight: Theme.playerBarH
     color: "transparent"
 
     readonly property color _ui: Theme.hover(Sys.surface)
@@ -79,16 +80,13 @@ Rectangle {
         TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
     }
 
-    // ---- tarjeta flotante --------------------------------------------
-    Rectangle {
-        id: card
+    // ---- isla flotante -----------------------------------------------
+    // Una sola superficie redondeada: radio (Theme.rPanel), borde sutil y
+    // sombra suave vienen de `Panel`. El contenido va ENCIMA, transparente,
+    // con aire generoso a los lados y apenas un suspiro arriba y abajo.
+    Panel {
+        id: island
         anchors.fill: parent
-        anchors.margins: Theme.s2
-        radius: Theme.rLg
-        color: Sys.surface
-        border.width: 1
-        border.color: Sys.border
-        clip: true
 
         Item {
             id: barRow

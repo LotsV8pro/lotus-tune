@@ -2,9 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Barra superior por página. Plana y silenciosa: atrás (si aplica), el título
-// de la página y dos accesos discretos (lanzador y ajustes). Sin subtítulo, sin
-// sombra inferior y sin bordes pesados: la jerarquía viene del aire.
+// Barra superior por página. Ahora es UNA isla flotante: todo el contenido vive
+// dentro de un `Panel` redondeado con sombra suave, el mismo ladrillo que usa
+// el resto de la interfaz. Atrás (si aplica), el título de la página y dos
+// accesos discretos (lanzador y ajustes). Sin subtítulo y sin separadores: la
+// jerarquía viene del aire.
 Rectangle {
     id: top
 
@@ -18,76 +20,81 @@ Rectangle {
 
     color: "transparent"
 
-    RowLayout {
+    // Isla: la superficie redondeada y su sombra las pone el propio `Panel`.
+    Panel {
         anchors.fill: parent
-        anchors.leftMargin: Theme.s4
-        anchors.rightMargin: Theme.s3
-        spacing: Theme.s1
 
-        // Atrás: sólo cuando la página es hija de otra.
-        Rectangle {
-            visible: top.showBack
-            Layout.alignment: Qt.AlignVCenter
-            width: Theme.rowThin
-            height: Theme.rowThin
-            radius: Theme.rMd
-            color: backHover.hovered ? Theme.hover(Sys.surface) : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-            HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
-            Glyph {
-                anchors.centerIn: parent
-                width: 16; height: 16
-                kind: "chevron-left"
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.s4
+            anchors.rightMargin: Theme.s3
+            spacing: Theme.s2
+
+            // Atrás: sólo cuando la página es hija de otra. Diana circular.
+            Rectangle {
+                visible: top.showBack
+                Layout.alignment: Qt.AlignVCenter
+                width: Theme.rowThin
+                height: Theme.rowThin
+                radius: width / 2
+                color: backHover.hovered ? Theme.hover(Sys.surface) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 16; height: 16
+                    kind: "chevron-left"
+                    color: Sys.text
+                }
+                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.backRequested() } }
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignVCenter
+                text: top.title
                 color: Sys.text
+                font.pixelSize: Theme.tLg
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+                maximumLineCount: 1
             }
-            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.backRequested() } }
-        }
 
-        Text {
-            Layout.alignment: Qt.AlignVCenter
-            text: top.title
-            color: Sys.text
-            font.pixelSize: Theme.tLg
-            font.weight: Font.DemiBold
-            elide: Text.ElideRight
-            maximumLineCount: 1
-        }
+            Item { Layout.fillWidth: true }
 
-        Item { Layout.fillWidth: true }
-
-        // Lanzador: un acceso callado, no un campo con borde.
-        Rectangle {
-            Layout.alignment: Qt.AlignVCenter
-            width: Theme.rowThin
-            height: Theme.rowThin
-            radius: Theme.rMd
-            color: launcherHover.hovered ? Theme.hover(Sys.surface) : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-            HoverHandler { id: launcherHover; cursorShape: Qt.PointingHandCursor }
-            Glyph {
-                anchors.centerIn: parent
-                width: 17; height: 17
-                kind: "search"
-                color: launcherHover.hovered ? Sys.text : Sys.textDim
+            // Lanzador: un acceso callado, no un campo con borde. Diana circular.
+            Rectangle {
+                Layout.alignment: Qt.AlignVCenter
+                width: Theme.rowThin
+                height: Theme.rowThin
+                radius: width / 2
+                color: launcherHover.hovered ? Theme.hover(Sys.surface) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                HoverHandler { id: launcherHover; cursorShape: Qt.PointingHandCursor }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 17; height: 17
+                    kind: "search"
+                    color: launcherHover.hovered ? Sys.text : Sys.textDim
+                }
+                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
             }
-            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
-        }
 
-        Rectangle {
-            Layout.alignment: Qt.AlignVCenter
-            width: Theme.rowThin
-            height: Theme.rowThin
-            radius: Theme.rMd
-            color: gearHover.hovered ? Theme.hover(Sys.surface) : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-            HoverHandler { id: gearHover; cursorShape: Qt.PointingHandCursor }
-            Glyph {
-                anchors.centerIn: parent
-                width: 17; height: 17
-                kind: "gear"
-                color: gearHover.hovered ? Sys.text : Sys.textDim
+            Rectangle {
+                Layout.alignment: Qt.AlignVCenter
+                width: Theme.rowThin
+                height: Theme.rowThin
+                radius: width / 2
+                color: gearHover.hovered ? Theme.hover(Sys.surface) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                HoverHandler { id: gearHover; cursorShape: Qt.PointingHandCursor }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 17; height: 17
+                    kind: "gear"
+                    color: gearHover.hovered ? Sys.text : Sys.textDim
+                }
+                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
             }
-            TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
         }
     }
 }

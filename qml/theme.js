@@ -20,6 +20,15 @@ var rMd = 10
 var rLg = 14
 var rXl = 18
 
+// ---- superficies flotantes ------------------------------------------
+// La interfaz se compone de "islas" redondeadas que flotan sobre el fondo de
+// la ventana. Estos tokens gobiernan su radio, la separación con los bordes y
+// entre islas, y la sombra suave que las despega del fondo.
+var rPanel = 20          // radio de las islas (sidebar, barra, contenido…)
+var panelMargin = 14     // aire con el borde de la ventana (deja sitio a la sombra)
+var panelGap = 10        // aire entre islas
+var panelBorderAlpha = 0.11   // filo luminoso que separa la isla del fondo
+
 // Type scale (px). One ramp for the whole app: quiet by default, one clear
 // step for the page title and the now-playing title.
 var tXs = 10
