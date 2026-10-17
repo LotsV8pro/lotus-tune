@@ -40,6 +40,7 @@ qt_add_qml_module(lotus-tune
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/Panel.qml
         qml/Sidebar.qml
         qml/TopBar.qml
         qml/PlayerBar.qml

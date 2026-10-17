@@ -28,7 +28,7 @@ Item {
         anchors.fill: parent
         clip: true
         model: qv.tracks
-        spacing: 2
+        spacing: Theme.s1
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: 400
 
@@ -45,8 +45,12 @@ Item {
             width: ListView.view.width
             height: Theme.rowCompact
             radius: Theme.rMd
-            color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.12)
-                   : (rowHover.hovered ? Theme.hover(Sys.bg) : "transparent")
+            // Fila en curso: fondo redondeado con un velo de acento y un aro
+            // muy tenue. El resto, sólo una superficie al pasar el ratón.
+            color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.14)
+                   : (rowHover.hovered ? Theme.hover(Sys.surface) : "transparent")
+            border.width: index === qv.currentIndex ? 1 : 0
+            border.color: Theme.alpha(Sys.accent, 0.20)
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             HoverHandler {
@@ -127,7 +131,7 @@ Item {
                     Layout.preferredWidth: 34
                     Layout.preferredHeight: 34
                     Layout.alignment: Qt.AlignVCenter
-                    radius: Theme.rSm
+                    radius: Theme.rMd
                     clip: true
                     color: Sys.surfaceAlt
                     Image {

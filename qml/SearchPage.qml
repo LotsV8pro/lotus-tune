@@ -91,28 +91,32 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !page.locked
-            spacing: Theme.s2
+            spacing: Theme.s3
 
-            // ---- campo de búsqueda ----------------------------------------
-            Rectangle {
+            // ---- campo de búsqueda (isla flotante) ------------------------
+            // Una superficie redondeada que flota sobre la página, con borde
+            // sutil (acento al enfocar) y relleno interior holgado. El radio
+            // `rLg` mantiene la escala: aquí nada es pastilla salvo los "slots".
+            Panel {
                 id: field
                 Layout.fillWidth: true
-                Layout.preferredHeight: 44
-                radius: Theme.rMd
-                color: Sys.surface
-                border.width: 1
-                border.color: input.activeFocus ? Sys.accent : Sys.border
-                Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+                Layout.preferredHeight: 52
+                radius: Theme.rLg
+                color: Sys.surfaceAlt
+                borderColor: input.activeFocus ? Sys.accent
+                                               : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+                Behavior on borderColor { ColorAnimation { duration: Theme.fastMs } }
 
                 Glyph {
                     id: searchIcon
                     anchors.left: parent.left
-                    anchors.leftMargin: Theme.s3
+                    anchors.leftMargin: Theme.s4
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 15
-                    height: 15
+                    width: 16
+                    height: 16
                     kind: "search"
-                    color: Sys.textDim
+                    color: input.activeFocus ? Sys.accent : Sys.textDim
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
 
                 TextInput {
@@ -143,13 +147,13 @@ Item {
                 Rectangle {
                     id: clearBtn
                     visible: input.text.length > 0
-                    width: 24
-                    height: 24
-                    radius: Theme.rSm
+                    width: Theme.rowThin
+                    height: Theme.rowThin
+                    radius: width / 2
                     anchors.right: parent.right
-                    anchors.rightMargin: 10
+                    anchors.rightMargin: Theme.s2
                     anchors.verticalCenter: parent.verticalCenter
-                    color: clearMa.containsMouse ? Theme.hover(Sys.surface) : "transparent"
+                    color: clearMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
@@ -171,6 +175,7 @@ Item {
             // ---- estado ----------------------------------------------------
             Text {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.s1
                 visible: catalog.busy
                 text: "Buscando…"
                 color: Sys.textDim
@@ -178,6 +183,7 @@ Item {
             }
             Text {
                 Layout.fillWidth: true
+                Layout.leftMargin: Theme.s1
                 visible: !catalog.busy && catalog.results.length > 0
                 text: catalog.results.length + " resultados para «"
                       + catalog.resultsQuery + "»"
@@ -193,7 +199,7 @@ Item {
                 Layout.fillHeight: true
                 clip: true
                 model: catalog.results
-                spacing: 2
+                spacing: Theme.s1
                 boundsBehavior: Flickable.StopAtBounds
                 reuseItems: true
                 cacheBuffer: 600
@@ -216,7 +222,7 @@ Item {
 
                     width: ListView.view.width
                     height: Theme.rowH
-                    radius: Theme.rMd
+                    radius: Theme.rLg
                     color: rrowMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -287,7 +293,7 @@ Item {
                             Layout.preferredWidth: 34
                             Layout.preferredHeight: 34
                             Layout.alignment: Qt.AlignVCenter
-                            radius: Theme.rSm
+                            radius: Theme.rMd
                             clip: true
                             color: Sys.surfaceAlt
 
@@ -367,9 +373,13 @@ Item {
             }
 
             // ---- vacío / ayuda --------------------------------------------
+            // Estado vacío: un texto centrado y con aire, sin caja. Es la misma
+            // voz silenciosa que el estado "bloqueado": la jerarquía es el aire.
             Text {
                 Layout.fillWidth: true
-                Layout.topMargin: Theme.s4
+                Layout.maximumWidth: 520
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.s5
                 visible: !catalog.busy && catalog.results.length === 0
                 text: "Escribe algo y pulsa Enter. Se usa la extracción directa "
                       + "de la fuente: sin anuncios, sin navegador."
@@ -377,7 +387,7 @@ Item {
                 font.pixelSize: Theme.tMd
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                lineHeight: 1.3
+                lineHeight: 1.35
             }
         }
     }
