@@ -72,8 +72,12 @@ public:
     // radioReady() con la lista, sin tocar la cola. Se guarda además en la
     // caché de listas, de modo que sirve para precargar la radio con
     // antelación (al pasar el ratón sobre su tarjeta) y abrirla al instante.
+    // fetchRadio() pide 80 pistas (autoplay); prefetchRadio() sólo 25, para
+    // que la precarga de Inicio termine en ~1,4 s.
     Q_INVOKABLE void fetchRadio(const QString &videoId,
                                 const QString &title = QString());
+    Q_INVOKABLE void prefetchRadio(const QString &videoId,
+                                   const QString &title = QString());
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -139,6 +143,14 @@ signals:
 
 private:
     void run(const QString &target, const QString &purpose, const QString &title);
+    // Punto común de fetchRadio()/prefetchRadio(): sólo cambia el propósito,
+    // que es lo que decide el tope de pistas y el tiempo de espera.
+    void runRadio(const QString &videoId, const QString &title,
+                  const QString &purpose);
+    // Cancela una consulta de fondo en vuelo (radio/autoplay o precarga). Es
+    // best-effort, así que pierde siempre frente a una acción del usuario.
+    // Devuelve true si había una y se ha cancelado.
+    bool cancelBackgroundFetch();
     // Ruta clásica con yt-dlp (usada directamente o como respaldo de la vía
     // rápida de playlists por la API interna de YouTube Music).
     void runYtdlp(const QString &target, const QString &purpose, const QString &title);
