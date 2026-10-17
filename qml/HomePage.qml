@@ -638,6 +638,13 @@ Item {
                     coverB: page.coverB(modelData.title)
                     onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
                     onPlayClicked: page.openRec(modelData, true)
+                    // Al pasar el ratón sobre una radio ya se descarga su lista
+                    // (en segundo plano, sin bloquear nada): al clicar aparece
+                    // al instante en lugar de tardar ~1.6 s.
+                    onHoveredChanged: if (hovered && modelData
+                                          && modelData.kind === "radio"
+                                          && modelData.trackId)
+                        catalog.fetchRadio(modelData.trackId, modelData.title)
                 }
             }
 
