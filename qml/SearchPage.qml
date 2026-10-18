@@ -204,10 +204,13 @@ Item {
                 reuseItems: true
                 cacheBuffer: 600
                 // Al llegar resultados nuevos, cuece las primeras pistas: un
-                // clic en la cabecera de la lista suena al instante.
+                // clic en la cabecera de la lista suena al instante. Se cuecen
+                // unas cuantas (no sólo la primera) porque, al no descartar ya
+                // el hover la precarga en vuelo, terminan todas y la lista
+                // entera responde rápido.
                 onCountChanged: {
                     const arr = catalog.results
-                    const n = Math.min(3, arr ? arr.length : 0)
+                    const n = Math.min(8, arr ? arr.length : 0)
                     for (let i = 0; i < n; i++) {
                         const t = arr[i]
                         if (t && t.url)

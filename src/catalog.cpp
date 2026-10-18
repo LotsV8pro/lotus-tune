@@ -547,6 +547,19 @@ void Catalog::search(const QString &query)
         return;
     }
     m_resultsQuery = q;
+
+    // Vía rápida: la API interna de YT Music busca en ~0.6 s lo que yt-dlp
+    // tarda ~2.4 s (arranca la extracción completa en cada búsqueda). Sólo con
+    // sesión iniciada y en YouTube Music; si la API falla o no devuelve nada,
+    // el respaldo (m_fastFallback) reintenta con yt-dlp automáticamente.
+    if (source == QLatin1String("ytm") && ytmLoggedIn()) {
+        m_fastFallback = m_sources->searchPrefix(source) + q;
+        m_fastFallbackTitle = q;
+        startFetch(QStringLiteral("python3"),
+                   {ytmApiPath(), QStringLiteral("search"), q},
+                   QStringLiteral("search"), q);
+        return;
+    }
     run(m_sources->searchPrefix(source) + q, QStringLiteral("search"), q);
 }
 

@@ -542,18 +542,18 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
             m_resolveFront.append(url);
         while (m_resolveFront.size() > 8)
             m_resolveFront.removeFirst();
-        // Descarta lo que se esté resolviendo ahora mismo para atender esto ya.
-        // Un clic (`urgent`) descarta cualquier cosa; un hover sólo una
-        // resolución de fondo y sólo si lleva un mínimo (>500 ms), para no
-        // reiniciar el trabajo de yt-dlp por un simple barrido del ratón. Nunca
-        // se descarta si un load() está esperando esa misma resolución: sería
-        // dejar la pista pulsada sin cargar.
+        // El hover NO descarta lo que se esté resolviendo: sólo reordena (lo
+        // puesto a mano en `front` corre justo después). Antes un barrido del
+        // ratón mataba la precarga de fondo en vuelo y ésta NUNCA terminaba,
+        // que es justo lo que hacía que una canción buscada tardara en sonar.
+        // Sólo un clic real (`urgent`) adelanta lo que haya en curso, porque el
+        // usuario ya ha elegido otra pista y no puede esperar. Nunca se descarta
+        // si un load() espera esa misma resolución: sería dejar sin cargar la
+        // pista pulsada.
         const bool canKill = m_resolver.state() != QProcess::NotRunning
                 && m_resolvingUrl != url
-                && (urgent
-                    || (!m_resolvingFront && m_pendingLoadUrl != m_resolvingUrl
-                        && m_resolveStart > 0
-                        && QDateTime::currentMSecsSinceEpoch() - m_resolveStart > 500));
+                && urgent
+                && m_pendingLoadUrl != m_resolvingUrl;
         if (canKill) {
             // La pista abandonada se re-encola AL FINAL (antes iba al principio,
             // y una pista ya descartada se re-resolvía en bucle bloqueando las
