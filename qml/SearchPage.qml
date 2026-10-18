@@ -162,15 +162,15 @@ Item {
             visible: !page.locked
             spacing: Theme.s3
 
-            // ---- campo de búsqueda (isla flotante) ------------------------
-            // Una superficie redondeada que flota sobre la página, con borde
-            // sutil (acento al enfocar) y relleno interior holgado. El radio
-            // `rLg` mantiene la escala: aquí nada es pastilla salvo los "slots".
+            // ---- campo de búsqueda (píldora flotante) ---------------------
+            // Una cápsula que flota sobre la página, con borde sutil (acento
+            // al enfocar) y relleno interior holgado. Radio `rPill`: la barra
+            // de búsqueda es la píldora principal de la vista.
             Panel {
                 id: field
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52
-                radius: Theme.rLg
+                radius: Theme.rPill
                 color: Sys.surfaceAlt
                 borderColor: input.activeFocus ? Sys.accent
                                                : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
@@ -228,7 +228,7 @@ Item {
                     visible: input.text.length > 0
                     width: Theme.rowThin
                     height: Theme.rowThin
-                    radius: width / 2
+                    radius: Theme.rPill
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.s2
                     anchors.verticalCenter: parent.verticalCenter
@@ -271,17 +271,25 @@ Item {
                 elide: Text.ElideRight
             }
 
-            // ---- resultados (lista virtualizada) --------------------------
-            ListView {
-                id: results
+            // ---- resultados (lista virtualizada) — isla flotante --------
+            Panel {
+                id: resultsIsland
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-                model: catalog.results
-                spacing: Theme.s1
-                boundsBehavior: Flickable.StopAtBounds
-                reuseItems: true
-                cacheBuffer: 600
+                radius: Theme.rPanel
+                color: Sys.surfaceAlt
+                clipContent: true
+
+                ListView {
+                    id: results
+                    anchors.fill: parent
+                    anchors.margins: Theme.s2
+                    clip: true
+                    model: catalog.results
+                    spacing: Theme.s1
+                    boundsBehavior: Flickable.StopAtBounds
+                    reuseItems: true
+                    cacheBuffer: 600
                 // Al llegar resultados nuevos, cuece las primeras pistas: un
                 // clic en la cabecera de la lista suena al instante. Se cuecen
                 // unas cuantas (no sólo la primera) porque, al no descartar ya
@@ -305,7 +313,7 @@ Item {
                     width: ListView.view.width
                     height: Theme.rowH
                     radius: Theme.rLg
-                    color: rrowMouse.containsMouse ? Theme.hover(Sys.surface) : "transparent"
+                    color: rrowMouse.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
@@ -377,7 +385,7 @@ Item {
                             Layout.alignment: Qt.AlignVCenter
                             radius: Theme.rMd
                             clip: true
-                            color: Sys.surfaceAlt
+                            color: Sys.surface
 
                             Image {
                                 anchors.fill: parent
@@ -452,6 +460,7 @@ Item {
                         }
                     }
                 }
+            }
             }
 
             // ---- vacío / ayuda --------------------------------------------

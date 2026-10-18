@@ -28,7 +28,8 @@ Item {
         anchors.fill: parent
         clip: true
         model: qv.tracks
-        spacing: Theme.s1
+        // Píldoras separadas por aire: una fila = una cápsula.
+        spacing: Theme.s2
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: 400
 
@@ -44,9 +45,10 @@ Item {
 
             width: ListView.view.width
             height: Theme.rowCompact
-            radius: Theme.rMd
-            // Fila en curso: fondo redondeado con un velo de acento y un aro
-            // muy tenue. El resto, sólo una superficie al pasar el ratón.
+            // Cada fila es una píldora: cápsula que flota sobre el panel.
+            radius: Theme.rPill
+            // Fila en curso: la píldora se enciende con un velo de acento y un
+            // aro muy tenue. El resto, sólo una superficie al pasar el ratón.
             color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.14)
                    : (rowHover.hovered ? Theme.hover(Sys.surface) : "transparent")
             border.width: index === qv.currentIndex ? 1 : 0
@@ -87,8 +89,8 @@ Item {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: Theme.s2
-                anchors.rightMargin: Theme.s2
+                anchors.leftMargin: Theme.s3
+                anchors.rightMargin: Theme.s3
                 spacing: Theme.s2
 
                 // índice / ecualizador
@@ -195,11 +197,22 @@ Item {
                     }
                 }
 
-                Text {
+                // Duración como píldora tenue: agrupa el metadato a la derecha
+                // y ordena la lectura de la fila.
+                Rectangle {
                     Layout.alignment: Qt.AlignVCenter
-                    text: Theme.mmss(row.duration)
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tSm
+                    implicitWidth: durText.implicitWidth + Theme.s2 * 2
+                    implicitHeight: 20
+                    radius: Theme.rPill
+                    color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.16)
+                                                     : Theme.alpha(Sys.text, 0.05)
+                    Text {
+                        id: durText
+                        anchors.centerIn: parent
+                        text: Theme.mmss(row.duration)
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tSm
+                    }
                 }
             }
         }

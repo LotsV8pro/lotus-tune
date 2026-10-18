@@ -1,5 +1,6 @@
 #include "downloads.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -24,6 +25,17 @@ const char *const kAudioExts[] = {
     "mp3", "flac", "m4a", "opus", "ogg", "wav", "webm", "mka",
 };
 
+// Restos parciales que yt-dlp deja al interrumpirse una descarga; se limpian
+// al cancelar/fallar (y, si quedan huérfanos de otra sesión, al arrancar).
+bool isPartialName(const QString &name)
+{
+    const QString low = name.toLower();
+    return low.endsWith(QLatin1String(".part"))
+        || low.endsWith(QLatin1String(".ytdl"))
+        || low.endsWith(QLatin1String(".temp"))
+        || low.contains(QLatin1String(".part-frag"));
+}
+
 bool isAudioFile(const QString &path)
 {
     const QString ext = QFileInfo(path).suffix().toLower();
@@ -33,21 +45,10 @@ bool isAudioFile(const QString &path)
     return false;
 }
 
-// ¿Está mutagen disponible para yt-dlp? Se comprueba una sola vez por sesión
-// (python3 -c "import mutagen"). Sólo condiciona incrustar la portada en
-// formatos que lo requieren (Opus/Ogg).
-bool mutagenAvailable()
-{
-    static const bool ok = [] {
-        QProcess p;
-        p.start(QStringLiteral("python3"),
-                {QStringLiteral("-c"), QStringLiteral("import mutagen")});
-        if (!p.waitForFinished(4000))
-            return false;
-        return p.exitStatus() == QProcess::NormalExit && p.exitCode() == 0;
-    }();
-    return ok;
-}
+// Antigüedad mínima (segundos) para considerar huérfano un resto parcial al
+// arrancar: así no se borra uno reanudable de un cierre reciente, pero sí la
+// basura que dejó una sesión abortada hace horas.
+constexpr qint64 kOrphanAgeSecs = 6 * 3600;
 
 } // namespace
 
@@ -82,6 +83,10 @@ Downloads::Downloads(QObject *parent)
     });
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this,
             [this](const QString &) { m_watchDebounce.start(); });
+
+    // Limpia restos parciales huérfanos (de una sesión abortada) antes de la
+    // primera sincronización.
+    sweepOrphans(kOrphanAgeSecs);
 
     // Primera sincronización al arrancar.
     refreshLocal();
@@ -118,6 +123,13 @@ void Downloads::setFolder(const QString &dir)
     refreshLocal();
 }
 
+int Downloads::activeProgress() const
+{
+    if (m_current < 0 || m_current >= m_jobs.size())
+        return -1;
+    return m_jobs[m_current].progress;
+}
+
 // ---------------------------------------------------------------- jobs ----
 
 QVariantList Downloads::jobs() const
@@ -128,6 +140,10 @@ QVariantList Downloads::jobs() const
         QVariantMap m;
         m.insert(QStringLiteral("name"), j.name);
         m.insert(QStringLiteral("url"), j.url);
+        m.insert(QStringLiteral("playlist"), j.playlist);
+        // Carpeta destino de una lista ("" en pistas sueltas), para que la UI
+        // pueda dar feedback dentro de la propia lista.
+        m.insert(QStringLiteral("folder"), j.folder);
         m.insert(QStringLiteral("progress"), j.progress);
         m.insert(QStringLiteral("state"), j.state);
         m.insert(QStringLiteral("error"), j.error);
@@ -137,20 +153,61 @@ QVariantList Downloads::jobs() const
 }
 
 // Crea un nombre de carpeta/archivo seguro (yt-dlp también escapa, pero la
-// ruta base no debe contener separadores ni caracteres prohibidos).
+// ruta base no debe contener separadores ni caracteres prohibidos, ni exceder
+// el límite del sistema de ficheros con títulos largos en UTF-8).
 QString Downloads::safeSegment(const QString &text)
 {
     QString s = text.trimmed();
-    s.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|\\p{Cc}]")),
+    s.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|\\p{Cc}\\p{Cf}]")),
               QStringLiteral("_"));
-    // Puntos/espacios finales problemáticos en algunos sistemas de ficheros.
+    // Colapsa espacios repetidos para nombres más limpios.
+    s.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
     while (s.endsWith(QLatin1Char('.')) || s.endsWith(QLatin1Char(' ')))
         s.chop(1);
     if (s.isEmpty())
         s = QStringLiteral("descarga");
-    if (s.size() > 160)
-        s = s.left(160);
+
+    // Recorta por BYTES, no por caracteres: un nombre UTF-8 puede ocupar varios
+    // bytes por carácter y desbordar el límite (255) del sistema de ficheros.
+    // Se cortan code points enteros para no dejar un surrogate suelto.
+    static constexpr int kMaxBytes = 180;
+    while (s.toUtf8().size() > kMaxBytes && !s.isEmpty()) {
+        const QChar last = s.at(s.size() - 1);
+        s.chop(last.isLowSurrogate() && s.size() >= 2 ? 2 : 1);
+    }
+    // El recorte puede dejar un punto/espacio final otra vez.
+    while (s.endsWith(QLatin1Char('.')) || s.endsWith(QLatin1Char(' ')))
+        s.chop(1);
+    if (s.isEmpty())
+        s = QStringLiteral("descarga");
     return s;
+}
+
+// Carpeta de primer nivel única para una lista. Reutiliza la existente si es
+// la MISMA lista (metadatos con la misma URL) para reanudar/completar; si el
+// nombre colisiona con OTRA lista, le añade un sufijo "(2)", "(3)"…
+QString Downloads::uniqueListFolder(const QString &seg, const QString &url) const
+{
+    const QString base = m_folder + QLatin1Char('/') + seg;
+    if (!QDir(base).exists())
+        return seg;
+
+    QFile mf(base + QStringLiteral("/.lotus-list.json"));
+    if (mf.open(QIODevice::ReadOnly)) {
+        const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
+        const QString prev = o.value(QStringLiteral("url")).toString().trimmed();
+        if (!url.isEmpty() && prev == url)
+            return seg;   // misma lista: se reutiliza y se reanuda
+    }
+
+    for (int i = 2; i < 10000; ++i) {
+        const QString cand = QStringLiteral("%1 (%2)").arg(seg).arg(i);
+        if (!QDir(m_folder + QLatin1Char('/') + cand).exists())
+            return cand;
+    }
+    return QStringLiteral("%1 (%2)")
+        .arg(seg)
+        .arg(QDateTime::currentMSecsSinceEpoch());
 }
 
 void Downloads::enqueue(const Job &job)
@@ -200,6 +257,27 @@ void Downloads::setJob(int index, const QString &state, const QString &error)
     m_jobs[index].error = error;
 }
 
+// Marca un job como fallido con un mensaje LEGIBLE, avisa a la UI y, si era la
+// descarga en curso, libera el proceso y arranca la siguiente de la cola.
+void Downloads::failJob(int index, const QString &message)
+{
+    if (index < 0 || index >= m_jobs.size())
+        return;
+    const bool wasCurrent = (index == m_current);
+    setJob(index, QStringLiteral("error"), message);
+    if (wasCurrent) {
+        m_current = -1;
+        m_busy = false;
+    }
+    const QString name = m_jobs[index].name;
+    emit jobsChanged();
+    emit changed();
+    emit downloadError(name, message);
+    emit activeProgressChanged();
+    if (wasCurrent)
+        startNext();
+}
+
 void Downloads::startNext()
 {
     if (m_current >= 0)
@@ -217,6 +295,7 @@ void Downloads::startNext()
         if (m_busy) {
             m_busy = false;
             emit changed();
+            emit activeProgressChanged();
         }
         return;
     }
@@ -226,6 +305,7 @@ void Downloads::startNext()
     j.progress = 0;
     j.state = QStringLiteral("downloading");
     j.error.clear();
+    j.folder.clear();
     m_lastError.clear();
     m_buf.clear();
     m_plItem = 0;
@@ -234,15 +314,27 @@ void Downloads::startNext()
     m_busy = true;
     emit changed();
     emit jobsChanged();
+    emit activeProgressChanged();
 
     // -o relativo a -P home (la carpeta de la app):
     //   playlist -> <name>/<índice><título>.<ext>
     //   pista    -> <artista> - <título>.<ext>
     QString outTemplate;
+    QString archivePath;
     if (j.playlist) {
-        const QString seg = safeSegment(j.name);
+        const QString seg = uniqueListFolder(safeSegment(j.name), j.url);
+        j.folder = seg;
         const QString dir = m_folder + QLatin1Char('/') + seg;
-        QDir().mkpath(dir);
+        if (!QDir().mkpath(dir)) {
+            failJob(idx, QStringLiteral("No se pudo crear la carpeta «%1». "
+                                        "Comprueba los permisos.").arg(dir));
+            return;
+        }
+        if (!QFileInfo(dir).isWritable()) {
+            failJob(idx, QStringLiteral("La carpeta de descargas no tiene "
+                                        "permiso de escritura: %1").arg(dir));
+            return;
+        }
         // Marca de identidad de la lista descargada: guarda el nombre original
         // y su URL para poder emparejarla después (desinstalar, abrir, etc.),
         // aunque el nombre visible cambie o el título esté sanitizado.
@@ -252,34 +344,55 @@ void Downloads::startNext()
         QFile mf(dir + QStringLiteral("/.lotus-list.json"));
         if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
             mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+        // Archivo de descargas por lista: evita re-bajar pistas ya completadas
+        // al reanudar. Vive DENTRO de la carpeta, así que desinstalar la lista
+        // también lo borra (una descarga nueva vuelve a bajar todo).
+        archivePath = dir + QStringLiteral("/.lotus-archive.txt");
         outTemplate = seg
             + QStringLiteral("/%(playlist_index|)s%(title)s.%(ext)s");
     } else {
-        QDir().mkpath(m_folder);
+        if (!QDir().mkpath(m_folder) || !QFileInfo(m_folder).isWritable()) {
+            failJob(idx, QStringLiteral("No se puede escribir en la carpeta de "
+                                        "descargas: %1").arg(m_folder));
+            return;
+        }
         outTemplate = safeSegment(j.name) + QStringLiteral(".%(ext)s");
     }
 
     QStringList args{
         QStringLiteral("--no-config"),
         QStringLiteral("--newline"),
-        // Todo (audio, .part, miniaturas, info.json) se escribe DIRECTAMENTE
-        // en la carpeta de la app; nada pasa por ~/Downloads ni por /tmp, así
-        // que no hay que "mover" ficheros al terminar.
+        // Todo (audio, .part, restos…) se escribe DIRECTAMENTE en la carpeta
+        // de la app; nada pasa por ~/Downloads ni por /tmp, así que no hay que
+        // "mover" ficheros al terminar.
         QStringLiteral("-P"), QStringLiteral("home:") + m_folder,
         QStringLiteral("-P"), QStringLiteral("temp:") + m_folder,
+        // SÓLO audio: elige la mejor pista de audio ya comprimida (m4a/opus)
+        // para NO re-codificar y ocupar lo mínimo; si no hay, cae a `best`.
+        QStringLiteral("-f"),
+        QStringLiteral("bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio/best"),
         QStringLiteral("--extract-audio"),
         QStringLiteral("--audio-format"), QStringLiteral("best"),
         QStringLiteral("--audio-quality"), QStringLiteral("0"),
         QStringLiteral("--embed-metadata"),
-        QStringLiteral("--write-info-json"),
+        // Sin miniatura embebida y sin `.info.json`: menos peso, menos
+        // postprocesado y sin depender de mutagen.
+        QStringLiteral("--no-embed-thumbnail"),
+        QStringLiteral("--no-write-info-json"),
+        // Reanudable y sin volver a bajar lo que ya está.
+        QStringLiteral("--continue"),
+        QStringLiteral("--no-overwrites"),
+        // Progreso machine-readable: índice/total de la lista + % de la pista
+        // actual, con un prefijo reconocible para calcular UN 0-100 % TOTAL.
+        QStringLiteral("--progress-template"),
+        QStringLiteral("download:##LT##%(info.playlist_index)s|"
+                       "%(info.n_entries)s|%(progress._percent_str)s"),
         QStringLiteral("-o"), outTemplate,
     };
 
-    // --embed-thumbnail en Opus/Ogg usa mutagen; si no está instalado yt-dlp
-    // falla en el postprocesado ("module mutagen was not found"). La portada
-    // de la app sale del .info.json, así que sólo incrustamos si es posible.
-    if (mutagenAvailable())
-        args << QStringLiteral("--embed-thumbnail");
+    // Archivo de descargas por lista (sólo listas).
+    if (!archivePath.isEmpty())
+        args << QStringLiteral("--download-archive") << archivePath;
 
     // Sesión de YT Music: las listas PRIVADAS del usuario (p. ej. "Vibes")
     // sin cookies devuelven "YouTube said: The playlist does not exist", así
@@ -300,14 +413,31 @@ void Downloads::startNext()
     m_proc.setArguments(args);
     m_proc.start();
     if (!m_proc.waitForStarted(3000)) {
-        setJob(m_current, QStringLiteral("error"),
-               QStringLiteral("No se pudo ejecutar yt-dlp"));
-        m_current = -1;
-        m_busy = false;
-        emit jobsChanged();
-        emit changed();
-        startNext();
+        failJob(idx, QStringLiteral("No se pudo ejecutar yt-dlp. "
+                                    "¿Está instalado?"));
     }
+}
+
+// Actualiza el progreso AGREGADO (0-100 de TODA la lista) a partir de la
+// fracción (0..1) de la pista actual y lo publica sólo cuando cambia.
+void Downloads::updateProgress(double frac)
+{
+    if (m_current < 0 || m_current >= m_jobs.size())
+        return;
+    frac = qBound(0.0, frac, 1.0);
+
+    int p;
+    if (m_plTotal > 1 && m_plItem > 0)
+        p = qBound(0, qRound(((m_plItem - 1) + frac) / m_plTotal * 100.0), 100);
+    else
+        p = qBound(0, qRound(frac * 100.0), 100);
+
+    if (p == m_jobs[m_current].progress)
+        return;
+    m_jobs[m_current].progress = p;
+    emit jobsChanged();
+    emit progressChanged(m_jobs[m_current].name, p);
+    emit activeProgressChanged();
 }
 
 void Downloads::readStdout()
@@ -320,8 +450,24 @@ void Downloads::readStdout()
         if (line.isEmpty() || m_current < 0)
             continue;
 
-        // Cabecera de cada pista de una lista: "Downloading item 3 of 20".
-        // Permite traducir el % por-pista a un % global de la lista.
+        // Formato preferente, el que pedimos con --progress-template:
+        //   ##LT##<índice>|<total>|<pct>%
+        static const QRegularExpression reTpl(
+            QStringLiteral("##LT##\\s*([^|]*)\\|\\s*([^|]*)\\|\\s*"
+                           "([0-9]+(?:\\.[0-9]+)?)%"));
+        const QRegularExpressionMatch mt = reTpl.match(line);
+        if (mt.hasMatch()) {
+            const int item = mt.captured(1).toInt();
+            const int total = mt.captured(2).toInt();
+            if (item > 0)
+                m_plItem = item;
+            if (total > 0)
+                m_plTotal = total;
+            updateProgress(mt.captured(3).toDouble() / 100.0);
+            continue;   // es una línea de progreso: nada más que mirar
+        }
+
+        // Compatibilidad con yt-dlp antiguos: "Downloading item 3 of 20".
         static const QRegularExpression reItem(
             QStringLiteral("Downloading item ([0-9]+) of ([0-9]+)"));
         const QRegularExpressionMatch mi = reItem.match(line);
@@ -330,35 +476,105 @@ void Downloads::readStdout()
             m_plTotal = mi.captured(2).toInt();
         }
 
-        // Ignora el progreso del postprocesado ("[ExtractAudio]"), solo nos
-        // interesa la barra de descarga.
+        // Barra clásica "[download]  12.3%": respaldo por si no hay template.
         static const QRegularExpression reProgress(
             QStringLiteral("\\[download\\]\\s+([0-9]+(?:\\.[0-9]+)?)%"));
         const QRegularExpressionMatch m = reProgress.match(line);
-        if (m.hasMatch()) {
-            const double frac = qBound(0.0, m.captured(1).toDouble() / 100.0, 1.0);
-            // Con varias pistas: un solo 0-100 % de TODA la lista
-            // ((completadas + fracción actual) / total). En pistas sueltas,
-            // el % de siempre.
-            int p;
-            if (m_plTotal > 1 && m_plItem > 0)
-                p = qBound(0, qRound(((m_plItem - 1) + frac) / m_plTotal * 100.0), 100);
-            else
-                p = qBound(0, qRound(frac * 100.0), 100);
-            if (p != m_jobs[m_current].progress) {
-                m_jobs[m_current].progress = p;
-                emit jobsChanged();
-            }
-        }
-
-        if (line.contains(QLatin1String("has been downloaded"))
-            && (m_plTotal <= 1 || m_plItem >= m_plTotal))
-            m_jobs[m_current].progress = 100;
+        if (m.hasMatch())
+            updateProgress(m.captured(1).toDouble() / 100.0);
 
         // Guarda el último error real para mostrarlo si el proceso falla.
         const int err = line.indexOf(QLatin1String("ERROR:"));
         if (err >= 0)
             m_lastError = line.mid(err + 6).trimmed();
+    }
+}
+
+// Traduce los errores más comunes de yt-dlp a mensajes legibles en español.
+QString Downloads::friendlyError(const QString &raw)
+{
+    const QString r = raw.trimmed();
+    if (r.isEmpty())
+        return QStringLiteral("La descarga falló.");
+
+    const QString low = r.toLower();
+    auto has = [&low](const char *needle) {
+        return low.contains(QLatin1String(needle));
+    };
+
+    if (has("does not exist") || has("not found") || has("unavailable")
+        || has("404") || has("removed"))
+        return QStringLiteral("La lista no existe, es privada o ya no está "
+                              "disponible.");
+    if (has("private") || has("members-only") || has("sign in")
+        || has("login") || has("logged") || has("cookies")
+        || has("account"))
+        return QStringLiteral("Contenido privado: inicia sesión en Ajustes y "
+                              "vuelve a intentarlo.");
+    if (has("unsupported url") || has("is not a valid url")
+        || has("invalid url"))
+        return QStringLiteral("La dirección no es compatible.");
+    if (has("ffmpeg") || has("ffprobe") || has("postprocessing")
+        || has("post-process"))
+        return QStringLiteral("Falta ffmpeg para procesar el audio.");
+    if (has("timed out") || has("timeout") || has("temporary failure")
+        || has("getaddrinfo") || has("unable to download") || has("network")
+        || has("connection") || has("resolve") || has("http error")
+        || has("ssl"))
+        return QStringLiteral("Fallo de red. Comprueba tu conexión e "
+                              "inténtalo de nuevo.");
+    if (has("no space") || has("disk") || has("read-only")
+        || has("permission denied"))
+        return QStringLiteral("No hay espacio o la carpeta de descargas no "
+                              "tiene permiso de escritura.");
+    if (has("requested format is not available")
+        || has("no video formats") || has("no formats"))
+        return QStringLiteral("No hay ningún formato de audio disponible.");
+
+    // Sin coincidencia: usa el mensaje original (ya recortado por yt-dlp).
+    return r;
+}
+
+int Downloads::countAudioFiles(const QString &dir)
+{
+    QDir d(dir);
+    if (!d.exists())
+        return 0;
+    const QStringList names = d.entryList(QDir::Files | QDir::NoDotAndDotDot);
+    int n = 0;
+    for (const QString &f : names)
+        if (isAudioFile(f))
+            ++n;
+    return n;
+}
+
+void Downloads::removePartials(const QString &dir)
+{
+    QDir d(dir);
+    if (!d.exists())
+        return;
+    const QStringList names = d.entryList(QDir::Files | QDir::NoDotAndDotDot);
+    for (const QString &n : names)
+        if (isPartialName(n))
+            d.remove(n);
+}
+
+void Downloads::sweepOrphans(qint64 ageSecs)
+{
+    if (m_folder.isEmpty() || !QDir(m_folder).exists())
+        return;
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    QDirIterator it(m_folder,
+                    {QStringLiteral("*.part"), QStringLiteral("*.part-Frag*"),
+                     QStringLiteral("*.part-frag*"), QStringLiteral("*.ytdl"),
+                     QStringLiteral("*.temp")},
+                    QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QFileInfo fi(path);
+        // Sólo huérfanos "viejos": lo reciente puede ser una sesión reanudable.
+        if (fi.lastModified().toUTC().secsTo(now) >= ageSecs)
+            QFile::remove(path);
     }
 }
 
@@ -371,26 +587,57 @@ void Downloads::finishJob(int code)
     const int idx = m_current;
     m_current = -1;
 
+    const Job job = m_jobs[idx];   // copia: nombre, playlist y carpeta
+    const QString dir = job.folder.isEmpty()
+        ? m_folder
+        : m_folder + QLatin1Char('/') + job.folder;
+
     if (m_cancelling) {
+        // Cancelado a mitad: borra los restos parciales para no dejar basura.
+        removePartials(dir);
         setJob(idx, QStringLiteral("error"), QStringLiteral("Cancelado"));
-    } else if (code == 0) {
-        setJob(idx, QStringLiteral("done"));
-        m_jobs[idx].progress = 100;
-    } else {
-        setJob(idx, QStringLiteral("error"),
-               m_lastError.isEmpty()
-                   ? QStringLiteral("yt-dlp terminó con código %1").arg(code)
-                   : m_lastError);
-    }
-
-    emit jobsChanged();
-    emit changed();
-
-    if (m_cancelling) {
         m_cancelling = false;
         m_busy = false;
+        emit jobsChanged();
         emit changed();
+        emit activeProgressChanged();
         return;  // cancelAll() ya marcó el resto de la cola
+    }
+
+    if (code == 0) {
+        // Éxito, pero una lista VACÍA (o sin pistas bajables) también es un
+        // fallo: yt-dlp puede salir con 0 y no haber escrito nada.
+        if (job.playlist && countAudioFiles(dir) == 0) {
+            const QString msg = QStringLiteral("La lista está vacía o no se "
+                                               "pudo descargar ninguna pista.");
+            setJob(idx, QStringLiteral("error"), msg);
+            emit jobsChanged();
+            emit changed();
+            emit downloadError(job.name, msg);
+            startNext();
+            refreshLocal();
+            return;
+        }
+        removePartials(dir);
+        setJob(idx, QStringLiteral("done"));
+        m_jobs[idx].progress = 100;
+        emit jobsChanged();
+        emit changed();
+        emit progressChanged(job.name, 100);
+        emit downloadCompleted(job.name, job.folder);
+        emit activeProgressChanged();
+    } else {
+        // Fallo: limpia parciales y publica un motivo legible.
+        const QString raw = m_lastError.isEmpty()
+            ? QStringLiteral("yt-dlp terminó con código %1").arg(code)
+            : m_lastError;
+        const QString msg = friendlyError(raw);
+        removePartials(dir);
+        setJob(idx, QStringLiteral("error"), msg);
+        emit jobsChanged();
+        emit changed();
+        emit downloadError(job.name, msg);
+        emit activeProgressChanged();
     }
 
     // Siguiente de la cola y refresco automático de la biblioteca local.
@@ -407,6 +654,7 @@ void Downloads::cancelAll()
     }
 
     if (m_proc.state() != QProcess::NotRunning) {
+        // finishJob() limpiará los restos parciales del job en curso.
         m_cancelling = true;
         m_proc.kill();
     }
@@ -492,8 +740,9 @@ QVariantMap Downloads::makeLocalTrack(const QString &path) const
              QUrl::fromLocalFile(fi.absoluteFilePath()).toString());
     t.insert(QStringLiteral("source"), QStringLiteral("local"));
 
-    // yt-dlp con --write-info-json deja "<archivo>.info.json" junto al audio.
-    // Se prueban ambas variantes (con y sin extensión del media) por si acaso.
+    // Compatibilidad con bibliotecas antiguas: si existe un `.info.json`
+    // hermano (de versiones que sí lo escribían), enriquece la pista con su
+    // título, artista duración y portada. Las descargas nuevas ya no lo crean.
     const QStringList candidates{
         fi.absolutePath() + QLatin1Char('/') + fi.fileName()
             + QStringLiteral(".info.json"),
@@ -648,7 +897,12 @@ void Downloads::removeList(const QString &folder)
     // borrar para que yt-dlp no vuelva a crear la carpeta.
     bool killCurrent = false;
     for (int i = 0; i < m_jobs.size(); ++i) {
-        if (!m_jobs[i].playlist || safeSegment(m_jobs[i].name) != f)
+        if (!m_jobs[i].playlist)
+            continue;
+        // La carpeta resuelta manda; si aún no se resolvió (job en cola) se
+        // compara por el nombre saneado.
+        if (m_jobs[i].folder.isEmpty() ? safeSegment(m_jobs[i].name) != f
+                                       : m_jobs[i].folder != f)
             continue;
         if (m_jobs[i].state == QLatin1String("queued"))
             setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));

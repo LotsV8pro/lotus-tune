@@ -45,14 +45,26 @@ ColumnLayout {
         lineHeight: 1.25
     }
 
-    Text {
+    // Indicación de acción como píldora tenue: se enciende con el ratón.
+    Rectangle {
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: Theme.s1
-        text: "Elige una fuente activa en la barra lateral"
-        color: actMa.hovered ? Sys.text : Sys.accent
-        font.pixelSize: Theme.tSm
-        font.weight: Font.Medium
+        implicitWidth: actText.implicitWidth + Theme.pillHPad * 2
+        implicitHeight: Theme.pillH
+        radius: Theme.rPill
+        color: actMa.containsMouse ? Theme.alpha(Sys.accent, 0.14) : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+        Text {
+            id: actText
+            anchors.centerIn: parent
+            text: "Elige una fuente activa en la barra lateral"
+            color: actMa.containsMouse ? Sys.accent : Sys.textDim
+            font.pixelSize: Theme.tSm
+            font.weight: Font.Medium
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        }
+
         MouseArea {
             id: actMa
             anchors.fill: parent

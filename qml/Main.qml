@@ -2148,9 +2148,14 @@ Window {
         anchors.fill: parent
         z: 60
         visible: root.settingsOpen
-        color: Sys.bg
+        // Fondo atenuado (como el resto de modales): Ajustes es, además, UNA
+        // isla flotante más sobre el shell.
+        color: Qt.rgba(0, 0, 0, 0.5)
         opacity: root.settingsOpen ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+
+        // Bloquea el clic hacia el shell mientras Ajustes está abierto.
+        MouseArea { anchors.fill: parent }
 
         // ---- componentes reutilizables del panel -------------------------
         // Tarjeta de sección: título discreto + superficie con 1 borde.
@@ -2174,8 +2179,10 @@ Window {
                 implicitHeight: body.implicitHeight + Theme.s4 * 2
                 radius: Theme.rLg
                 color: Sys.surface
+                // Mismo filo tenue que las islas: la jerarquía la marca el aire,
+                // no una línea dura.
                 border.width: 1
-                border.color: Sys.border
+                border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
 
                 ColumnLayout {
                     id: body
@@ -2299,9 +2306,9 @@ Window {
             property string text: ""
             property bool selected: false
             signal picked()
-            implicitWidth: chLabel.implicitWidth + Theme.s5
-            height: 30
-            radius: Theme.rSm
+            implicitWidth: chLabel.implicitWidth + Theme.pillHPad * 2
+            height: Theme.pillH
+            radius: Theme.rPill
             color: ch.selected ? Sys.accentDim
                                : (chHover.containsMouse ? Theme.hover(Sys.surface) : "transparent")
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -2382,7 +2389,7 @@ Window {
             signal clicked()
             implicitWidth: pbLabel.implicitWidth + Theme.s5
             height: 36
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: pbHover.containsMouse ? Theme.active(Sys.accent) : Sys.accent
             scale: pbHover.pressed ? 0.97 : 1
             Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -2416,7 +2423,7 @@ Window {
             signal clicked()
             implicitWidth: gbLabel.implicitWidth + Theme.s4
             height: 34
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: gbHover.containsMouse
                    ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Sys.surfaceAlt))
                    : (gb.danger ? "transparent" : Sys.surfaceAlt)
@@ -2465,13 +2472,26 @@ Window {
             }
         }
 
+        // La isla de Ajustes: misma superficie redondeada y mismo filo tenue
+        // que el resto del shell. El contenido va encima con su propio relleno.
+        Panel {
+            id: settingsIsland
+            anchors.fill: parent
+            anchors.margins: Theme.panelMargin
+            radius: Theme.rPanel
+            // Fondo base (el mismo que la ventana): así las tarjetas de sección
+            // (`surface`) y los botones (`surfaceAlt`) conservan su contraste.
+            color: Sys.bg
+            clipContent: true
+        }
+
         ColumnLayout {
             id: settingsLayout
             anchors.fill: parent
-            anchors.leftMargin: Theme.s4
-            anchors.rightMargin: Theme.s4
-            anchors.topMargin: Theme.s3
-            anchors.bottomMargin: Theme.s3
+            anchors.leftMargin: Theme.panelMargin + Theme.s4
+            anchors.rightMargin: Theme.panelMargin + Theme.s4
+            anchors.topMargin: Theme.panelMargin + Theme.s3
+            anchors.bottomMargin: Theme.panelMargin + Theme.s3
             spacing: Theme.s3
 
             // ---- cabecera -----------------------------------------------
@@ -2511,12 +2531,6 @@ Window {
                         }
                     }
                 }
-            }
-
-            Rectangle { // separador de cabecera
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                color: Sys.borderSubtle
             }
 
             Flickable {
@@ -2734,15 +2748,9 @@ Window {
                                 required property var modelData
                                 required property int index
                                 Layout.fillWidth: true
+                                // Aire entre cuentas en vez de una línea divisoria.
+                                Layout.topMargin: index > 0 ? Theme.s5 : 0
                                 spacing: Theme.s3
-
-                                Rectangle { // divider entre cuentas
-                                    Layout.fillWidth: true
-                                    Layout.topMargin: Theme.s2
-                                    visible: index > 0
-                                    height: 1
-                                    color: Sys.borderSubtle
-                                }
 
                                 RowLayout {
                                     Layout.fillWidth: true

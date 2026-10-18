@@ -97,12 +97,15 @@ Item {
                     readonly property bool on: side.page === modelData.id
                     readonly property bool primary: index < 3
 
-                    visible: side.expanded || navRow.primary
+                    // La entrada activa se marca con una PÍLDORA (cápsula) y se
+                    // mantiene visible aunque el rail esté plegado: así "Descargas"
+                    // o "Me gusta" siguen iluminadas sin tener que desplegar.
+                    visible: side.expanded || navRow.primary || navRow.on
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.rowCompact
                     Layout.topMargin: !side.expanded ? Theme.s1
                                       : (index === 3 ? Theme.s4 : Theme.s2)
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     color: navRow.on ? Sys.accentDim
                                      : (navHover.hovered ? Theme.hover(Sys.surface) : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }

@@ -55,8 +55,11 @@ Item {
             height: card.coverSize
             radius: card.round ? width / 2 : Theme.rLg
             clip: true
+            // Filo tenue siempre visible (despega la portada del fondo, como
+            // una isla) que se aviva en acento al pasar el ratón.
             border.width: 1
-            border.color: card.hovered ? Theme.alpha(Sys.text, 0.14) : "transparent"
+            border.color: card.hovered ? Theme.alpha(Sys.accent, 0.50)
+                                       : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
             Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
             gradient: Gradient {
@@ -85,16 +88,16 @@ Item {
                 visible: card.thumb.length === 0
             }
 
-            // Etiqueta (YT / RADIO / …)
+            // Etiqueta (YT / RADIO / …) en píldora.
             Rectangle {
                 visible: card.badge.length > 0
                 anchors.left: parent.left
                 anchors.top: parent.top
                 anchors.margins: Theme.s2
                 height: 18
-                radius: Theme.rSm
+                radius: Theme.rPill
                 color: Theme.alpha(Sys.bg, 0.72)
-                implicitWidth: badgeLabel.implicitWidth + 14
+                implicitWidth: badgeLabel.implicitWidth + Theme.pillHPad
                 Text {
                     id: badgeLabel
                     anchors.centerIn: parent
@@ -145,7 +148,7 @@ Item {
             id: playBtn
             width: 36
             height: 36
-            radius: 18
+            radius: Theme.rPill
             color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
             anchors.right: cover.right
             anchors.rightMargin: Theme.s2
