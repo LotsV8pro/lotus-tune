@@ -195,6 +195,8 @@ void Player::startMpv()
         QStringLiteral("--volume=%1").arg(m_volume),
         QStringLiteral("--gapless-audio=yes"),
         QStringLiteral("--no-sub"),
+        QStringLiteral("--sub-auto=no"),
+        QStringLiteral("--audio-buffer=0.2"),
         QStringLiteral("--audio-display=no"),  // no incrustar carátulas
         QStringLiteral("--cache=no"),          // sin caché de red en disco/memoria
         QStringLiteral("--demuxer-max-bytes=3MiB"),

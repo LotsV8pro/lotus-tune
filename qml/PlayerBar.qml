@@ -8,8 +8,9 @@ import "theme.js" as Theme
 // el borde sutil y la sombra suave los pone `Panel`.
 //
 // Contenido: portada + título/artista, transporte compacto (acento solo en
-// play), progreso fino de 2 px con tiempos discretos, dos botones callados
-// (cola y letras) y volumen mínimo. Sin capas ni efectos extra.
+// play), progreso fino de 2 px con tiempos discretos, cuatro accesos callados
+// (me gusta, añadir a lista, cola y letras) y volumen mínimo. Sin capas ni
+// efectos extra.
 Rectangle {
     id: bar
 

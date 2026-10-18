@@ -75,6 +75,13 @@ public:
     // que no tienen fichero de metadatos.
     Q_INVOKABLE QString listFolderName(const QString &name) const;
 
+    // Métodos utilitarios públicos / testeables:
+    static QString safeSegment(const QString &text);
+    static QString friendlyError(const QString &raw);
+    static void removePartials(const QString &dir);
+    static int countAudioFiles(const QString &dir);
+    QString uniqueListFolder(const QString &seg, const QString &url) const;
+
 signals:
     void changed();
     void jobsChanged();
@@ -120,20 +127,8 @@ private:
     QVariantMap makeLocalTrack(const QString &path) const;
     QString artistForPath(const QString &dir) const;
 
-    // Convierte un texto arbitrario en un segmento de ruta seguro
-    // (sin separadores ni caracteres prohibidos, recortado por bytes).
-    static QString safeSegment(const QString &text);
-    // Carpeta única de primer nivel para una lista: reutiliza la existente si
-    // es la misma (URL coincidente en los metadatos) y si no, añade "(2)"…
-    QString uniqueListFolder(const QString &seg, const QString &url) const;
-    // Borra restos de descargas parciales (.part/.ytdl/.temp) de una carpeta.
-    static void removePartials(const QString &dir);
     // Barrido, al arrancar, de restos huérfanos más viejos que `ageSecs`.
     void sweepOrphans(qint64 ageSecs);
-    // Traduce un error crudo de yt-dlp a un mensaje legible en español.
-    static QString friendlyError(const QString &raw);
-    // Nº de ficheros de audio en una carpeta (detecta listas vacías).
-    static int countAudioFiles(const QString &dir);
 
     QProcess m_proc;
     QVector<Job> m_jobs;

@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.19)
 
-project(lotus-tune VERSION 0.1.0 LANGUAGES CXX)
+project(lotus-tune VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia Test)
 
 qt_standard_project_setup()
 
@@ -91,5 +91,20 @@ target_link_libraries(lotus-tune PRIVATE
     Qt6::Sql
     Qt6::Multimedia
 )
+
+enable_testing()
+add_executable(lotus-tune-tests
+    tests/test_all.cpp
+    src/downloads.cpp
+    src/player.cpp
+    src/appconfig.cpp
+)
+target_include_directories(lotus-tune-tests PRIVATE src)
+target_link_libraries(lotus-tune-tests PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+add_test(NAME AllTests COMMAND lotus-tune-tests)
 
 install(TARGETS lotus-tune RUNTIME DESTINATION bin)

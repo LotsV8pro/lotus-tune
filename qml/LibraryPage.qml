@@ -135,6 +135,34 @@ Item {
         return String(catalog.openListUrl || "").indexOf("http") === 0
     }
 
+    // URL de la lista abierta, sirva del catálogo o de una lista ya descargada
+    // (en ese caso la guardada en sus metadatos). Vacía si no se puede bajar.
+    function viewListUrl() {
+        if (page.localPlaylistOpen)
+            return page.openDownloadInfo
+                   ? String(page.openDownloadInfo.url || "") : ""
+        return String(catalog.openListUrl || "")
+    }
+
+    // ¿La lista abierta se puede (re)descargar? (tiene URL http real)
+    readonly property bool viewDownloadable: page.viewListUrl().indexOf("http") === 0
+
+    // Job de descarga de la lista abierta (el más reciente con su misma URL),
+    // sirva del catálogo o de una lista descargada. Null si no hay ninguno.
+    readonly property var viewDlJob: {
+        if (typeof downloads === "undefined")
+            return null
+        const u = page.viewListUrl()
+        if (u === "")
+            return null
+        const js = downloads.jobs
+        let found = null
+        for (let i = 0; i < js.length; i++)
+            if (String(js[i].url || "") === u)
+                found = js[i]   // gana el último (el más reciente)
+        return found
+    }
+
     // Job de descarga de la lista abierta (el más reciente con su misma URL),
     // para dar feedback de progreso DENTRO de la propia vista de la lista.
     readonly property var dlTracksJob: {
@@ -209,6 +237,25 @@ Item {
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
+
+    // ---- feedback de errores de descarga --------------------------------
+    // Último motivo de fallo publicado por el backend (`downloadError`), con el
+    // nombre de la lista, para mostrarlo como aviso legible dentro de la página.
+    property string lastDownloadError: ""
+    property string lastErrorName: ""
+
+    Connections {
+        target: (typeof downloads !== "undefined") ? downloads : null
+        function onDownloadError(name, message) {
+            page.lastErrorName = String(name || "")
+            page.lastDownloadError = String(message || "")
+        }
+        // Al completarse (o reintentarse) la misma lista, se retira el aviso.
+        function onDownloadCompleted(name) {
+            if (String(name || "") === page.lastErrorName)
+                page.lastDownloadError = ""
+        }
+    }
 
     // ---- lista descargada abierta COMO PLAYLIST --------------------------
     // Al pulsar una lista descargada se abre como una playlist de verdad (vista
@@ -334,6 +381,34 @@ Item {
                 ctx.lineTo(X(11.7), Y(7.2))
                 ctx.stroke()
             }
+        }
+    }
+
+    // ---- isla flotante de sección ---------------------------------------
+    // Superficie redondeada con un filo luminoso muy tenue y un ColumnLayout
+    // interior. El aire (pad) y el hueco (spacing) marcan la jerarquía; el alto
+    // lo fija el contenido salvo que la isla rellene (Layout.fillHeight).
+    // Sin sombras ni efectos: en un fondo tan oscuro el borde claro es lo que
+    // realmente despega la isla del fondo.
+    component Island: Rectangle {
+        id: island
+
+        property real pad: Theme.s4
+        property alias spacing: inner.spacing
+
+        implicitHeight: inner.implicitHeight + island.pad * 2
+        radius: Theme.rPanel
+        color: Sys.surface
+        border.width: 1
+        border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+
+        default property alias content: inner.data
+
+        ColumnLayout {
+            id: inner
+            anchors.fill: parent
+            anchors.margins: island.pad
+            spacing: Theme.s3
         }
     }
 
@@ -483,15 +558,20 @@ Item {
     // ====================================================================
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.s5
-        spacing: Theme.s4
+        anchors.margins: Theme.panelMargin
+        spacing: Theme.panelGap
 
         // ---- vista de pistas de la playlist abierta ----------------------
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: page.showingTracks
-            spacing: Theme.s3
+            spacing: Theme.panelGap
+
+            // Cabecera hero de la lista, en isla flotante.
+            Island {
+                Layout.fillWidth: true
+                spacing: Theme.s3
 
             RowLayout {
                 Layout.fillWidth: true
@@ -797,9 +877,16 @@ Item {
                     }
                 }
             }
+            }
 
-            // Lista virtualizada: filas de altura fija, reutilizadas al hacer
-            // scroll (reuseItems + cacheBuffer) para mantener la RAM baja.
+            // Lista virtualizada, en isla flotante: filas de altura fija,
+            // reutilizadas al hacer scroll (reuseItems + cacheBuffer) para
+            // mantener la RAM baja.
+            Island {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                pad: Theme.s2
+
             ListView {
                 id: tracksList
                 Layout.fillWidth: true
@@ -968,6 +1055,7 @@ Item {
                     }
                 }
             }
+            }
         }
 
         // ---- biblioteca: desplegable de fuentes + covers ------------------
@@ -977,12 +1065,12 @@ Item {
             visible: !page.showingTracks
             spacing: Theme.s3
 
-            // 0) pestañas de sección: solo texto, subrayado de acento en la
-            //    activa. Sin cajas ni fondos.
+            // 0) pestañas de sección: DOS píldoras (Biblioteca / Descargadas).
+            //    La activa se rellena con un tinte de acento y un filo claro.
             RowLayout {
                 id: libTabs
                 Layout.fillWidth: true
-                spacing: Theme.s5
+                spacing: Theme.s2
 
                 readonly property var items: [
                     { t: 0, name: "Biblioteca" },
@@ -991,33 +1079,47 @@ Item {
 
                 Repeater {
                     model: libTabs.items
-                    delegate: Item {
+                    delegate: Rectangle {
                         id: tabItem
                         required property var modelData
                         readonly property bool on: page.libraryTab === modelData.t
-                        implicitWidth: tabLabel.implicitWidth
-                        implicitHeight: 28
+                        Layout.preferredHeight: Theme.pillH
+                        implicitWidth: tabLabel.implicitWidth + Theme.pillHPad * 2
+                        radius: Theme.rPill
+                        color: tabItem.on
+                               ? Sys.accentDim
+                               : (tabMa.containsMouse ? Theme.hover(Sys.surfaceAlt)
+                                                      : Sys.surfaceAlt)
+                        border.width: 1
+                        border.color: tabItem.on
+                                      ? Theme.alpha(Sys.accent, 0.55)
+                                      : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
-                        Text {
-                            id: tabLabel
-                            anchors.top: parent.top
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: tabItem.modelData.name
-                            color: tabItem.on ? Sys.text : Sys.textDim
-                            font.pixelSize: Theme.tBase
-                            font.weight: tabItem.on ? Font.DemiBold : Font.Normal
-                        }
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.bottom: parent.bottom
-                            height: 2
-                            radius: 1
-                            color: Sys.accent
-                            visible: tabItem.on
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s1
+                            Glyph {
+                                visible: tabItem.on
+                                Layout.preferredWidth: 12
+                                Layout.preferredHeight: 12
+                                kind: tabItem.modelData.t === 4 ? "download" : "library"
+                                color: Sys.accent
+                            }
+                            Text {
+                                id: tabLabel
+                                text: tabItem.modelData.name
+                                color: tabItem.on ? Sys.accent : Sys.textDim
+                                font.pixelSize: Theme.tMd
+                                font.weight: tabItem.on ? Font.DemiBold : Font.Medium
+                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            }
                         }
                         MouseArea {
+                            id: tabMa
                             anchors.fill: parent
+                            hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.libraryTab = tabItem.modelData.t }
                         }
@@ -1026,7 +1128,63 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            // 2) añadir playlist por URL
+            // Aviso legible del último fallo de descarga (señal downloadError).
+            Island {
+                Layout.fillWidth: true
+                pad: Theme.s3
+                visible: page.lastDownloadError !== ""
+                color: Theme.alpha(Sys.danger, 0.10)
+                border.color: Theme.alpha(Sys.danger, 0.40)
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s2
+                    Glyph {
+                        Layout.preferredWidth: 15
+                        Layout.preferredHeight: 15
+                        Layout.alignment: Qt.AlignVCenter
+                        kind: "x"
+                        color: Sys.danger
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: (page.lastErrorName !== ""
+                               ? "«" + page.lastErrorName + "»: " : "")
+                              + page.lastDownloadError
+                        color: Sys.danger
+                        font.pixelSize: Theme.tSm
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                    Rectangle {
+                        Layout.preferredWidth: Theme.pillH
+                        Layout.preferredHeight: Theme.pillH
+                        radius: Theme.rPill
+                        color: errCloseMa.containsMouse ? Theme.hover(Sys.surfaceAlt)
+                                                        : "transparent"
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        Glyph {
+                            anchors.centerIn: parent
+                            width: 13
+                            height: 13
+                            kind: "x"
+                            color: errCloseMa.containsMouse ? Sys.text : Sys.textDim
+                        }
+                        MouseArea {
+                            id: errCloseMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { page.lastDownloadError = ""; page.lastErrorName = "" }
+                        }
+                    }
+                }
+            }
+
+            // 2) añadir playlist por URL (isla flotante con píldoras)
+            Island {
+                Layout.fillWidth: true
+                spacing: Theme.s2
+
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
@@ -1034,7 +1192,7 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: 160
                     Layout.preferredHeight: Theme.rowThin
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     color: Sys.surface
                     border.width: 1
                     border.color: nameInput.activeFocus ? Sys.accent : Sys.borderSubtle
@@ -1064,7 +1222,7 @@ Item {
                     id: urlField
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.rowThin
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     color: Sys.surface
                     border.width: 1
                     border.color: urlInput.activeFocus ? Sys.accent : Sys.borderSubtle
@@ -1097,7 +1255,7 @@ Item {
                 Rectangle {
                     Layout.preferredWidth: 88
                     Layout.preferredHeight: Theme.rowThin
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     color: addMa.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                     scale: addMa.pressed ? 0.96 : 1
                     Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -1127,11 +1285,16 @@ Item {
                     urlInput.text = ""
                 }
             }
+            }
 
             // 3) descargas activas (visibles desde cualquier fuente)
-            ColumnLayout {
+            Island {
                 Layout.fillWidth: true
                 visible: page.dlJobs.length > 0
+                spacing: Theme.s2
+
+            ColumnLayout {
+                Layout.fillWidth: true
                 spacing: Theme.s2
 
                 SectionHeader {
@@ -1204,6 +1367,7 @@ Item {
                     }
                     Item { Layout.fillWidth: true }
                 }
+            }
             }
 
             // 4) contenido de la biblioteca (o de las descargas)
