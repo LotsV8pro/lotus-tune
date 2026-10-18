@@ -30,13 +30,82 @@ Item {
 
     readonly property int rowHeight: Theme.rowH
 
+    // ---- búsqueda predictiva (search-as-you-type) -------------------------
+    // Al teclear, tras una pausa breve se busca sola (sin pulsar Enter). El
+    // motor (Catalog) es un QProcess único: si ya hay una operación en curso
+    // una nueva búsqueda FALLA con «Espera a que termine la operación actual».
+    // Por eso, antes de buscar se comprueba catalog.busy y, si lo está, se
+    // programa un reintento corto en vez de llamar directamente.
+    property int debounceMs: 300        // pausa de tecleo antes de buscar
+    property int minQuery: 2            // longitud mínima para buscar solo
+    property int retryMs: 250           // espera entre reintentos (backend ocupado)
+    property int retryMax: 40           // tope de reintentos (≈10 s): nunca en bucle
+    property int retryCount: 0
+    property string lastQuery: ""       // última búsqueda enviada (evita repetirla)
+    property string pendingQuery: ""    // búsqueda en espera de que el backend libre
+
+    // Único punto que llama a catalog.search(): centralizar aquí el control de
+    // busy evita el error de «operación en curso». Si el backend está ocupado
+    // guarda la consulta y reintenta en breve (con tope de reintentos).
+    function dispatchSearch(q) {
+        q = String(q || "").trim()
+        if (q.length === 0)
+            return
+        if (catalog.busy) {
+            if (retryCount >= retryMax) {   // demasiado tiempo ocupado: desiste
+                pendingQuery = ""
+                retryCount = 0
+                return
+            }
+            retryCount++
+            pendingQuery = q
+            retryTimer.restart()
+            return
+        }
+        retryCount = 0
+        pendingQuery = ""
+        page.lastQuery = q
+        results.positionViewAtBeginning()   // toda búsqueda nueva empieza arriba
+        catalog.search(q)
+    }
+
+    // Búsqueda explícita: Enter, chip del Historial o «Buscar el artista».
+    // Sí pasa por el historial de búsquedas recientes (como hasta ahora).
     function runSearch() {
         const q = String(input.text || "").trim()
         if (q.length === 0)
             return
-        results.positionViewAtBeginning()   // toda búsqueda nueva empieza arriba
+        page.lastQuery = ""       // Enter relanza aunque repita la consulta
         pushHistory(q)
-        catalog.search(q)
+        dispatchSearch(q)
+    }
+
+    // Búsqueda predictiva (la dispara el debounce). NO toca el historial: se
+    // guardaría cada prefijo que se teclea. El historial sigue reservado a las
+    // búsquedas explícitas (Enter / chips) y no relanza la MISMA consulta.
+    function autoSearch() {
+        const q = String(input.text || "").trim()
+        if (q.length < minQuery || q === lastQuery)
+            return
+        dispatchSearch(q)
+    }
+
+    // Pausa de tecleo: cada pulsación la reinicia, así sólo se busca cuando el
+    // usuario para (una búsqueda por pausa, no por carácter).
+    Timer {
+        id: debounceTimer
+        interval: page.debounceMs
+        repeat: false
+        onTriggered: page.autoSearch()
+    }
+
+    // Reintento mientras el backend está ocupado: una sola vez por disparo y se
+    // reprograma sólo si sigue ocupado, con tope en retryMax (nada de bucles).
+    Timer {
+        id: retryTimer
+        interval: page.retryMs
+        repeat: false
+        onTriggered: page.dispatchSearch(page.pendingQuery)
     }
 
     // API externa (chips del Historial en Inicio): rellena el campo y busca.
@@ -132,6 +201,16 @@ Item {
                     selectByMouse: true
                     Keys.onReturnPressed: { event.accepted = true; page.runSearch() }
                     Keys.onEnterPressed: { event.accepted = true; page.runSearch() }
+                    // Búsqueda predictiva: cada cambio reinicia la pausa; si aún
+                    // no hay letras suficientes no se busca (se cancela la espera).
+                    onTextChanged: {
+                        if (input.text.trim().length < page.minQuery) {
+                            debounceTimer.stop()
+                            page.pendingQuery = ""
+                            return
+                        }
+                        debounceTimer.restart()
+                    }
                 }
                 Text {
                     visible: input.text.length === 0
@@ -384,8 +463,10 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.s5
                 visible: !catalog.busy && catalog.results.length === 0
-                text: "Escribe algo y pulsa Enter. Se usa la extracción directa "
-                      + "de la fuente: sin anuncios, sin navegador."
+                text: "Escribe al menos " + page.minQuery + " letras y los "
+                      + "resultados aparecen solos (también puedes pulsar Enter). "
+                      + "Se usa la extracción directa de la fuente: sin anuncios, "
+                      + "sin navegador."
                 color: Sys.textDim
                 font.pixelSize: Theme.tMd
                 horizontalAlignment: Text.AlignHCenter

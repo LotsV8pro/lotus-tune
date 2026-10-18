@@ -19,6 +19,10 @@
 #  include <sys/prctl.h>
 #endif
 
+// Máximo de resolutores yt-dlp simultáneos: la precarga de listas ("cocer"
+// streams por adelantado) avanza hasta 3x más rápida sin cambiar prioridades.
+namespace { constexpr int kMaxResolvers = 3; }
+
 Player::Player(QObject *parent)
     : QObject(parent)
 {
@@ -36,66 +40,24 @@ Player::Player(QObject *parent)
     connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Player::saveStreamCache);
     loadStreamCache();
 
-    // Tope de tiempo por pre-resolución: red de seguridad ante un yt-dlp colgado
-    // (no ante una resolución normal, que tarda ~2.5 s). Si aún así un load()
-    // está esperando esta pista, no se abandona a mpv (su resolución interna es
-    // bastante más lenta): se concede un único margen extra antes de matarla.
-    m_resolveTimer.setSingleShot(true);
-    m_resolveTimer.setInterval(12000);
-    connect(&m_resolveTimer, &QTimer::timeout, this, [this] {
-        if (m_resolver.state() == QProcess::NotRunning)
-            return;
-        if (!m_resolveGrace && !m_pendingLoadUrl.isEmpty()
-                && m_pendingLoadUrl == m_resolvingUrl) {
-            m_resolveGrace = true;
-            m_resolveTimer.start(20000);
-            return;
-        }
-        m_resolver.kill();   // finished() limpia el estado y sigue con la cola
-    });
-
-    m_resolver.setProcessChannelMode(QProcess::SeparateChannels);
-    connect(&m_resolver, &QProcess::finished, this, [this](int code, QProcess::ExitStatus) {
-        m_resolveTimer.stop();
-        m_resolveGrace = false;
-        const QString url = m_resolvingUrl;
-        m_resolvingUrl.clear();
-        m_resolvingFront = false;
-        if (code == 0) {
-            const QByteArray out = m_resolver.readAllStandardOutput().trimmed();
-            const QList<QByteArray> lines = out.split('\n');
-            for (const QByteArray &l : lines) {
-                const QString s = QString::fromUtf8(l).trimmed();
-                if (s.startsWith(QLatin1String("http"))) {
-                    m_resolved.insert(url, s);
-                    m_resolvedAt.insert(url, QDateTime::currentSecsSinceEpoch());
-                    m_cacheDirty = true;
-                    m_cacheSaveTimer.start();
-                    // Tope en memoria: descarta las más antiguas.
-                    if (m_resolved.size() > 300) {
-                        QStringList keys = m_resolvedAt.keys();
-                        std::sort(keys.begin(), keys.end(),
-                                  [this](const QString &a, const QString &b) {
-                                      return m_resolvedAt.value(a) < m_resolvedAt.value(b);
-                                  });
-                        for (int i = 0; i < keys.size() && m_resolved.size() > 300; ++i) {
-                            m_resolved.remove(keys.at(i));
-                            m_resolvedAt.remove(keys.at(i));
-                        }
-                    }
-                    qInfo() << "[player] pre-resuelta" << url << "->" << s.left(60) << "...";
-                    break;
-                }
-            }
-        }
-        // Un load() que estaba esperando a esta misma pista: ya hay URL directa
-        // (o, si la resolución falló, cae a que mpv la resuelva por su cuenta).
-        if (!url.isEmpty() && m_pendingLoadUrl == url) {
-            m_pendingLoadUrl.clear();
-            loadImpl(url, /*allowResolve=*/m_resolved.contains(url));
-        }
-        resolveQueue();
-    });
+    // Pool de resolutores: hasta kMaxResolvers yt-dlp en paralelo. Cada slot
+    // lleva su propio proceso y temporizador; resolveQueue() sólo arranca los
+    // procesos que la cola necesite, así que 3 yt-dlp se ven únicamente cuando
+    // hay cola suficiente (nunca por tener el pool grande).
+    for (int i = 0; i < kMaxResolvers; ++i) {
+        auto *job = new ResolveJob;
+        m_jobs.append(job);
+        job->proc.setProcessChannelMode(QProcess::SeparateChannels);
+        // Tope de tiempo por pre-resolución: red de seguridad ante un yt-dlp
+        // colgado (no ante una resolución normal, que tarda ~2.5 s). Si aún así
+        // un load() está esperando esta pista, no se abandona a mpv: se concede
+        // un único margen extra antes de matarla.
+        job->timer.setSingleShot(true);
+        job->timer.setInterval(12000);
+        connect(&job->timer, &QTimer::timeout, this, [this, job] { onResolveTimeout(job); });
+        connect(&job->proc, &QProcess::finished, this,
+                [this, job](int code, QProcess::ExitStatus) { onResolveFinished(job, code); });
+    }
 
     startMpv();
     m_connectTimer.start();
@@ -116,6 +78,19 @@ Player::~Player()
         if (m_proc.state() != QProcess::NotRunning)
             m_proc.kill();
     }
+    // Detén los resolutores del pool: sin el disconnect, matar un yt-dlp aquí
+    // dispararía finished() (y con él más resoluciones) durante la destrucción;
+    // sin el kill+wait, un yt-dlp podría quedar huérfano.
+    for (ResolveJob *job : m_jobs) {
+        job->timer.stop();
+        QObject::disconnect(&job->proc, nullptr, this, nullptr);
+        if (job->proc.state() != QProcess::NotRunning) {
+            job->proc.kill();
+            job->proc.waitForFinished(700);
+        }
+        delete job;
+    }
+    m_jobs.clear();
 }
 
 // Las URLs de music.youtube.com tardan ~1 s más en resolverse que las de
@@ -128,7 +103,9 @@ QString Player::normalizeUrl(const QString &url)
     return url;
 }
 
-namespace { constexpr qint64 kStreamCacheTtlSec = 3 * 3600; }
+namespace {
+constexpr qint64 kStreamCacheTtlSec = 3 * 3600;
+}  // namespace
 
 void Player::loadStreamCache()
 {
@@ -485,7 +462,7 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
     // Nunca se la pasamos a mpv para que la resuelva: su yt-dlp interno es
     // bastante más lento (en vídeos sólo-HLS supera los 25 s). La UI muestra
     // "Cargando…" mientras tanto y, si falla, caemos a mpv (loadImpl(false)).
-    if (url != m_resolvingUrl)
+    if (!isResolving(url))
         enqueueResolve(url, true, /*urgent=*/true);
     m_pendingLoadUrl = url;
     m_position = 0;
@@ -526,20 +503,23 @@ void Player::clearPrefetch()
 //
 // `urgent` (clic del usuario) adelanta SIEMPRE lo que se esté resolviendo, sea
 // de hover o de fondo, porque el usuario ya ha elegido otra pista. Sin `urgent`
-// (hover) sólo se descarta una resolución de fondo que lleve un mínimo, para no
-// reiniciar el trabajo de yt-dlp por un simple barrido del ratón.
+// (hover) sólo se reordena: nunca se descarta trabajo ya empezado. Nunca se
+// descarta, además, si un load() espera esa misma resolución: sería dejar sin
+// cargar la pista pulsada.
 void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
 {
     const QString url = normalizeUrl(rawUrl);
     if (url.isEmpty() || !url.startsWith(QLatin1String("http")))
         return;   // sólo hay que resolver streams de red (los locales son ya directos)
-    if (m_resolved.contains(url) || m_resolvingUrl == url)
-        return;
+    if (m_resolved.contains(url) || isResolving(url))
+        return;   // dedupe: nunca dos resoluciones del MISMO url a la vez
     if (front) {
         m_resolveQueue.removeAll(url);
-        const bool already = m_resolveFront.contains(url);
-        if (!already)
-            m_resolveFront.append(url);
+        // La cola front es LIFO: el hover MÁS RECIENTE (la fila donde está el
+        // ratón, la que el usuario está a punto de pulsar) se resuelve antes
+        // que los hovers antiguos. Re-encolar refresca esa recencia.
+        m_resolveFront.removeAll(url);
+        m_resolveFront.append(url);
         while (m_resolveFront.size() > 8)
             m_resolveFront.removeFirst();
         // El hover NO descarta lo que se esté resolviendo: sólo reordena (lo
@@ -547,26 +527,27 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
         // ratón mataba la precarga de fondo en vuelo y ésta NUNCA terminaba,
         // que es justo lo que hacía que una canción buscada tardara en sonar.
         // Sólo un clic real (`urgent`) adelanta lo que haya en curso, porque el
-        // usuario ya ha elegido otra pista y no puede esperar. Nunca se descarta
-        // si un load() espera esa misma resolución: sería dejar sin cargar la
-        // pista pulsada.
-        const bool canKill = m_resolver.state() != QProcess::NotRunning
-                && m_resolvingUrl != url
-                && urgent
-                && m_pendingLoadUrl != m_resolvingUrl;
-        if (canKill) {
-            // La pista abandonada se re-encola AL FINAL (antes iba al principio,
-            // y una pista ya descartada se re-resolvía en bucle bloqueando las
-            // pre-cargas nuevas).
-            if (!m_resolvingUrl.isEmpty())
-                m_resolveQueue.append(m_resolvingUrl);
-            m_resolvingUrl.clear();
-            m_resolvingFront = false;
-            m_resolver.kill();
-            return;   // finished() vuelve a llamar a resolveQueue()
+        // usuario ya ha elegido otra pista y no puede esperar. Con el pool sólo
+        // se mata si NO hay ningún slot libre: si lo hay, la urgente arranca de
+        // inmediato sin tocar lo que ya está en vuelo.
+        if (urgent && !hasFreeJob()) {
+            ResolveJob *victim = pickVictim(url);
+            if (victim) {
+                // La pista abandonada se re-encola AL FINAL (antes iba al
+                // principio, y una pista ya descartada se re-resolvía en bucle
+                // bloqueando las pre-cargas nuevas). Se limpia su url ANTES de
+                // matarla para que su finished() no la vuelva a procesar.
+                const QString abandoned = victim->url;
+                victim->url.clear();
+                victim->front = false;
+                if (!abandoned.isEmpty())
+                    m_resolveQueue.append(abandoned);
+                while (m_resolveQueue.size() > 24)
+                    m_resolveQueue.removeFirst();
+                victim->proc.kill();   // finished() vuelve a llamar a resolveQueue()
+                return;
+            }
         }
-        if (already)
-            return;
     } else {
         if (m_resolveQueue.contains(url) || m_resolveFront.contains(url))
             return;
@@ -577,18 +558,47 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
     resolveQueue();
 }
 
+// Rellena todos los slots libres del pool con trabajo pendiente. Al consumir
+// una URL por slot (y parar en cuanto no queda nada) nunca se levantan más
+// yt-dlp de los necesarios: 3 solo cuando hay cola suficiente.
 void Player::resolveQueue()
 {
-    if (m_resolver.state() != QProcess::NotRunning)
-        return;
-    if (m_resolveFront.isEmpty() && m_resolveQueue.isEmpty())
-        return;
-    const bool front = !m_resolveFront.isEmpty();
-    const QString url = front ? m_resolveFront.takeFirst()
-                              : m_resolveQueue.takeFirst();
-    m_resolvingFront = front;
-    m_resolveStart = QDateTime::currentMSecsSinceEpoch();
-    m_resolveGrace = false;
+    for (ResolveJob *job : m_jobs) {
+        if (job->proc.state() != QProcess::NotRunning)
+            continue;
+        bool front = false;
+        const QString url = takeNextResolve(front);
+        if (url.isEmpty())
+            return;   // no queda trabajo: deja los slots libres dormidos
+        startResolve(job, url, front);
+    }
+}
+
+// Siguiente URL a resolver: primero la cola prioritaria (hover más reciente
+// primero, LIFO) y después la de fondo (orden de la lista, FIFO). Descarta lo
+// ya resuelto o en vuelo en otro slot.
+QString Player::takeNextResolve(bool &front)
+{
+    for (int pass = 0; pass < 2; ++pass) {
+        QStringList &list = (pass == 0) ? m_resolveFront : m_resolveQueue;
+        while (!list.isEmpty()) {
+            const QString url = (pass == 0) ? list.takeLast() : list.takeFirst();
+            if (m_resolved.contains(url) || isResolving(url))
+                continue;
+            front = (pass == 0);
+            return url;
+        }
+    }
+    front = false;
+    return QString();
+}
+
+void Player::startResolve(ResolveJob *job, const QString &url, bool front)
+{
+    job->front = front;
+    job->start = QDateTime::currentMSecsSinceEpoch();
+    job->grace = false;
+    job->url = url;
     qInfo() << "[player] resolviendo" << (front ? "(hover)" : "(lista)") << url;
     QStringList args{
         QStringLiteral("--no-warnings"),
@@ -607,13 +617,130 @@ void Player::resolveQueue()
              << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
     }
     args << url;
-    m_resolvingUrl = url;
-    m_resolver.setProgram(QStringLiteral("yt-dlp"));
-    m_resolver.setArguments(args);
-    m_resolver.start();
-    m_resolveTimer.start();
-    if (!m_resolver.waitForStarted(3000))
+    job->proc.setProgram(QStringLiteral("yt-dlp"));
+    job->proc.setArguments(args);
+    // Si la app muere (incluso con SIGKILL), el yt-dlp del slot recibe SIGTERM
+    // y no queda huérfano consumiendo CPU/red. Se fija antes de CADA arranque
+    // porque el mismo QProcess se reutiliza para varias resoluciones.
+    job->proc.setChildProcessModifier([] {
+#ifdef Q_OS_LINUX
+        ::prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+    });
+    job->proc.start();
+    job->timer.start();
+    if (!job->proc.waitForStarted(3000)) {
         qWarning() << "[player] failed to start yt-dlp resolver";
+        // Sin proceso no habrá finished(): libera el slot y, si un load()
+        // esperaba esta pista, deja que mpv la resuelva por su cuenta.
+        job->timer.stop();
+        job->url.clear();
+        job->front = false;
+        if (!url.isEmpty() && m_pendingLoadUrl == url) {
+            m_pendingLoadUrl.clear();
+            loadImpl(url, /*allowResolve=*/false);
+        }
+    }
+}
+
+bool Player::isResolving(const QString &url) const
+{
+    for (const ResolveJob *job : m_jobs) {
+        if (job->proc.state() != QProcess::NotRunning && job->url == url)
+            return true;
+    }
+    return false;
+}
+
+bool Player::hasFreeJob() const
+{
+    for (const ResolveJob *job : m_jobs) {
+        if (job->proc.state() == QProcess::NotRunning)
+            return true;
+    }
+    return false;
+}
+
+// Elige qué resolución en curso descartar para atender una urgente. Nunca la
+// misma URL pedida ni una que un load() esté esperando. Prefiere descartar una
+// de fondo antes que una prioritaria y, a igualdad, la más reciente (es la que
+// menos trabajo lleva hecho).
+Player::ResolveJob *Player::pickVictim(const QString &url)
+{
+    ResolveJob *victim = nullptr;
+    for (ResolveJob *job : m_jobs) {
+        if (job->proc.state() == QProcess::NotRunning || job->url.isEmpty())
+            continue;
+        if (job->url == url || job->url == m_pendingLoadUrl)
+            continue;
+        if (!victim) {
+            victim = job;
+            continue;
+        }
+        if (victim->front && !job->front)
+            victim = job;
+        else if (victim->front == job->front && job->start > victim->start)
+            victim = job;
+    }
+    return victim;
+}
+
+void Player::onResolveFinished(ResolveJob *job, int code)
+{
+    job->timer.stop();
+    job->grace = false;
+    const QString url = job->url;
+    job->url.clear();
+    job->front = false;
+    if (code == 0) {
+        const QByteArray out = job->proc.readAllStandardOutput().trimmed();
+        const QList<QByteArray> lines = out.split('\n');
+        for (const QByteArray &l : lines) {
+            const QString s = QString::fromUtf8(l).trimmed();
+            if (s.startsWith(QLatin1String("http"))) {
+                m_resolved.insert(url, s);
+                m_resolvedAt.insert(url, QDateTime::currentSecsSinceEpoch());
+                m_cacheDirty = true;
+                m_cacheSaveTimer.start();
+                // Tope en memoria: descarta las más antiguas.
+                if (m_resolved.size() > 300) {
+                    QStringList keys = m_resolvedAt.keys();
+                    std::sort(keys.begin(), keys.end(),
+                              [this](const QString &a, const QString &b) {
+                                  return m_resolvedAt.value(a) < m_resolvedAt.value(b);
+                              });
+                    for (int i = 0; i < keys.size() && m_resolved.size() > 300; ++i) {
+                        m_resolved.remove(keys.at(i));
+                        m_resolvedAt.remove(keys.at(i));
+                    }
+                }
+                qInfo() << "[player] pre-resuelta" << url << "->" << s.left(60) << "...";
+                break;
+            }
+        }
+    }
+    // Un load() que estaba esperando a esta misma pista (en cualquiera de los
+    // slots): ya hay URL directa (o, si la resolución falló, cae a que mpv la
+    // resuelva por su cuenta).
+    if (!url.isEmpty() && m_pendingLoadUrl == url) {
+        m_pendingLoadUrl.clear();
+        loadImpl(url, /*allowResolve=*/m_resolved.contains(url));
+    }
+    resolveQueue();
+}
+
+void Player::onResolveTimeout(ResolveJob *job)
+{
+    if (job->proc.state() == QProcess::NotRunning)
+        return;
+    // Si un load() espera esta pista, se concede un único margen extra antes de
+    // matarla (la resolución interna de mpv es bastante más lenta).
+    if (!job->grace && !m_pendingLoadUrl.isEmpty() && m_pendingLoadUrl == job->url) {
+        job->grace = true;
+        job->timer.start(20000);
+        return;
+    }
+    job->proc.kill();   // finished() limpia el estado y sigue con la cola
 }
 
 void Player::stopPlayback()

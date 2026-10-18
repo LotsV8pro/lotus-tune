@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QSet>
+#include <QTimer>
 #include <QVariantList>
 
 class SourceManager;
@@ -45,6 +46,7 @@ class Catalog : public QObject
 
 public:
     explicit Catalog(SourceManager *sources, QObject *parent = nullptr);
+    ~Catalog() override;
 
     bool busy() const { return m_busy; }
     QString error() const { return m_error; }
@@ -194,6 +196,24 @@ private:
                        const QString &title);
     void forgetCachedPlaylist(const QString &key);
 
+    // ---- caché en disco de listas ----------------------------------------
+    // Fichero JSON en QStandardPaths::CacheLocation (playlists.json) con las
+    // listas ya cargadas y su marca de tiempo: permite reabrir cualquier lista
+    // (una radio incluida) al instante aunque la app se haya reiniciado.
+    static QString playlistsFile();
+    // Lee el fichero al arrancar y siembra la caché en memoria (las más
+    // recientes), sin marcarlo sucio.
+    void loadPlaylistCache();
+    // Volcado diferido de la caché a disco (destino del QTimer single-shot).
+    void savePlaylistCache();
+    // Sirve una lista desde el fichero (si no está caducada) cuando no está en
+    // memoria; la vía rápida la usa como último recurso antes de la red.
+    bool cachedPlaylistFromDisk(const QString &key, QVariantList *tracks,
+                                QString *title) const;
+    // Marca la entrada como recién cargada (marca de tiempo) y programa el
+    // volcado diferido a disco.
+    void rememberPlaylistForDisk(const QString &key);
+
     // ---- persistencia del conjunto "me gusta" ----------------------------
     // Fichero JSON junto al estado de la biblioteca (library.json).
     static QString likedFile();
@@ -227,6 +247,14 @@ private:
     QHash<QString, QString> m_playlistTitles;
     QList<QString> m_cacheOrder;   // orden FIFO para evacuar la caché
     QString m_pendingKey;          // clave de la carga de lista en curso
+    // Marca de tiempo (epoch secs) de cada entrada de la caché, para el TTL del
+    // fichero en disco (playlists.json).
+    QHash<QString, qint64> m_playlistCacheAt;
+    // Claves descartadas (ediciones/reordenados) que hay que borrar del fichero
+    // en el próximo volcado: sin esto, reabrir la lista la traería vieja.
+    QSet<QString> m_cacheForgotten;
+    QTimer m_cacheSaveTimer;       // volcado diferido de la caché a disco
+    bool m_cacheDirty = false;     // ¿hay cambios pendientes de guardar?
     QVariantList m_playlists;
     QVariantList m_recent;
     QVariantList m_ytmLibrary;
