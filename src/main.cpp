@@ -224,8 +224,58 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
     return SingleInstance::Primary;
 }
 
+// ---------------------------------------------------------------------------
+// Ajustes que SOLO pueden aplicarse antes de que el cargador dinámico cargue el
+// driver gráfico (libQt6Gui enlaza libGLX/libEGL). qputenv() dentro de main()
+// llega tarde: el vendor ya se ha cargado. Así que, si faltan, nos
+// re-ejecutamos UNA vez con ellos puestos. El re-exec conserva el PID, de modo
+// que es transparente para systemd (una sola unidad) y para la instancia única.
+//
+//   · MANGOHUD=0 — MangoHud viene activado en el entorno de sesión y añade
+//     ~23 MB de RSS a un reproductor que no dibuja overlays.
+//   · __GLX_VENDOR_LIBRARY_NAME=mesa — libGLX carga el vendor de la GPU al
+//     arrancar; con render por software no se usa GL, así que cargamos el de
+//     Mesa (~18 MB) en lugar del de NVIDIA (~47 MB).
+//
+// Escape hatch: LOTUS_TUNE_NO_TWEAKS=1 desactiva ambos.
+// ---------------------------------------------------------------------------
+static void ensureFrugalExecEnv(char *argv[])
+{
+    if (qEnvironmentVariableIsSet("_LOTUS_TUNE_ENV_READY")
+        || qEnvironmentVariableIsSet("LOTUS_TUNE_NO_TWEAKS"))
+        return;
+
+    bool changed = false;
+    if (qgetenv("MANGOHUD") != "0") {
+        qputenv("MANGOHUD", "0");
+        changed = true;
+    }
+    // Sólo cuando el render es por software (el backend por defecto): si el
+    // usuario fuerza un backend de GPU, se respeta su elección. La sesión ya
+    // trae __GLX_VENDOR_LIBRARY_NAME=nvidia, así que hay que sobrescribirlo
+    // (no basta con rellenarlo si falta).
+    if (qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")
+        && qgetenv("__GLX_VENDOR_LIBRARY_NAME") != "mesa") {
+        qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
+        changed = true;
+    }
+    if (!changed)
+        return;
+
+    qputenv("_LOTUS_TUNE_ENV_READY", "1");
+    char exe[4096];
+    const qint64 n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (n <= 0)
+        return;
+    exe[n] = '\0';
+    ::execv(exe, argv);
+    // Si execv falla, seguimos con el proceso actual (sin los retoques).
+}
+
 int main(int argc, char *argv[])
 {
+    ensureFrugalExecEnv(argv);
+
     qInstallMessageHandler(rawMessageHandler);
 
     // Render por software de Qt Quick: evita por completo el contexto OpenGL,
@@ -234,10 +284,34 @@ int main(int argc, char *argv[])
     // en el perfil medido). Solo se fija si el usuario no lo ha forzado ya,
     // para poder volver a GL con QT_QUICK_BACKEND=rhi|software|... si hiciera
     // falta. Debe correr antes de QGuiApplication.
-    if (qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND"))
+    const bool softwareBackend = qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND");
+    if (softwareBackend)
         qputenv("QT_QUICK_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "basic");
+
+    // Este reproductor nunca decodifica vídeo: los sonidos de interfaz usan
+    // QSoundEffect (solo audio). Desactivar el sondeo de aceleración por
+    // hardware de Qt Multimedia evita que su backend ffmpeg cargue VA-API,
+    // VDPAU, CUDA y el driver de vídeo de NVIDIA, y de paso que haga la
+    // primera llamada a GL que arrastra el vendor completo del driver
+    // (~40-65 MB de RSS). Debe correr antes de construir QGuiApplication.
+    if (qEnvironmentVariableIsEmpty("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "");
+    if (qEnvironmentVariableIsEmpty("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
+        qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", "");
+
+    // Con render por software no se usa GL nunca. Si GLVND acaba cargando un
+    // vendor (libGLX/libEGL son DT_NEEDED de libQt6Gui), que sea el de Mesa
+    // (pequeño) y no el de NVIDIA (libnvidia-glcore + libnvidia-gpucomp,
+    // ~47 MB). Sólo cuando elegimos software, para no degradar a quien fuerce
+    // QT_QUICK_BACKEND=rhi a propósito.
+    if (softwareBackend) {
+        if (qEnvironmentVariableIsEmpty("__GLX_VENDOR_LIBRARY_NAME"))
+            qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
+        if (qEnvironmentVariableIsEmpty("LIBGL_ALWAYS_SOFTWARE"))
+            qputenv("LIBGL_ALWAYS_SOFTWARE", "1");
+    }
 
     // Entorno frugal de Qt Quick (debe correr antes de QGuiApplication).
     applyPerfEnv();

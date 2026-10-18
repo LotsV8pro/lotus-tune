@@ -508,6 +508,19 @@ def playlist(list_id):
     return tracks
 
 
+def search(query, limit=40):
+    """Búsqueda de canciones en YT Music (endpoint search). Rápido (~0.5 s).
+
+    Devuelve las pistas (canciones + vídeos) en orden de relevancia. Se usa la
+    vía interna en vez de arrancar yt-dlp (que tarda ~2.4 s en extraer lo mismo):
+    es lo que hace que «buscar» sea casi instantáneo. Los álbumes, listas y
+    artistas del resultado se ignoran a propósito: la app busca canciones."""
+    resp = post_json("search", {"query": query})
+    tracks, seen = [], set()
+    _collect_tracks(resp, tracks, seen)
+    return tracks[:limit]
+
+
 def library():
     """Playlists guardadas/creadas del usuario."""
     for browse_id in LIBRARY_IDS:
@@ -705,6 +718,13 @@ def cmd_playlist(list_id):
     return 0
 
 
+def cmd_search(query):
+    tracks = search(query)
+    json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_rate(video_id, rating):
     resp = rate(video_id, rating)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -777,7 +797,8 @@ def main():
     args = sys.argv[1:]
     if not args:
         print(
-            "uso: ytm_api.py library | playlist <id> | playlistinfo <id> | "
+            "uso: ytm_api.py library | search <q> | playlist <id> | "
+            "playlistinfo <id> | "
             "rate <v> <r> | addpl <p> <v> | rmpl <p> <v> <s> | "
             "createpl <title> [priv] | renamepl <id> <title> | "
             "setplpriv <id> <priv> | deletepl <id>",
@@ -788,6 +809,10 @@ def main():
     try:
         if cmd == "library":
             return cmd_library()
+        if cmd == "search":
+            if len(args) < 2:
+                raise YtmError("falta la consulta de búsqueda")
+            return cmd_search(" ".join(args[1:]))
         if cmd == "playlist":
             if len(args) < 2:
                 raise YtmError("falta el id de la playlist")
