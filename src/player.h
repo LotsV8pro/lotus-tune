@@ -6,6 +6,7 @@
 #include <QTimer>
 
 #include <QHash>
+#include <QVector>
 
 // Playback engine: mpv running headless (no video) with a JSON IPC socket.
 //
@@ -111,19 +112,26 @@ private:
     QTimer m_connectTimer;
     QTimer m_posFlush;
     QString m_socketPath;
-    // Pre-resolución en background: proceso yt-dlp --get-url y caché
-    // (url de página -> url de stream directa).
-    QProcess m_resolver;
-    // Aborta una pre-resolución que se eterniza (p. ej. vídeos que sólo tienen
-    // HLS y obligan a yt-dlp a resolver retos JS): así una pista lenta no
-    // bloquea las demás de la cola (al pulsarla, mpv la resolverá por su cuenta).
-    QTimer m_resolveTimer;
-    // Margen extra ya concedido a la resolución en curso (evita prorrogar sin fin).
-    bool m_resolveGrace = false;
-    QString m_resolvingUrl;
-    // ¿La resolución en curso es de prioridad (hover) o de fondo (lista)?
-    bool m_resolvingFront = false;
-    qint64 m_resolveStart = 0;
+    // Pre-resolución en background: pool de resolutores yt-dlp --get-url y
+    // caché (url de página -> url de stream directa). Cada "slot" tiene su
+    // propio proceso, temporizador y la URL que está resolviendo, de modo que
+    // la precarga de fondo ("cocer" streams por adelantado) avanza en paralelo
+    // sin cambiar la semántica de prioridades de las colas.
+    struct ResolveJob {
+        QProcess proc;
+        // Aborta una pre-resolución que se eterniza (p. ej. vídeos que sólo
+        // tienen HLS y obligan a yt-dlp a resolver retos JS): así una pista
+        // lenta no bloquea las demás de la cola (al pulsarla, mpv la resolverá
+        // por su cuenta).
+        QTimer timer;
+        // Margen extra ya concedido a esta resolución (evita prorrogar sin fin).
+        bool grace = false;
+        QString url;
+        // ¿Esta resolución es de prioridad (hover) o de fondo (lista)?
+        bool front = false;
+        qint64 start = 0;
+    };
+    QVector<ResolveJob *> m_jobs;
     QStringList m_resolveFront;   // cola prioritaria (hover)
     QStringList m_resolveQueue;   // cola de fondo (siguientes de la lista)
     QHash<QString, QString> m_resolved;
@@ -136,7 +144,22 @@ private:
     bool m_cacheDirty = false;
     // Encapsula el alta en las colas (dedup, prioridad, cancelación de fondo).
     void enqueueResolve(const QString &url, bool front, bool urgent = false);
+    // Rellena los slots libres con trabajo pendiente (front antes que fondo).
     void resolveQueue();
+    // Saca la siguiente URL a resolver; `front` indica de qué cola salió.
+    // Descarta las ya resueltas o en vuelo en otro slot (dedupe).
+    QString takeNextResolve(bool &front);
+    // Lanza un yt-dlp en el slot dado para resolver `url`.
+    void startResolve(ResolveJob *job, const QString &url, bool front);
+    // ¿Hay algún slot resolviendo `url` ahora mismo?
+    bool isResolving(const QString &url) const;
+    // ¿Queda algún slot libre para arrancar otro yt-dlp?
+    bool hasFreeJob() const;
+    // Elige qué resolución en curso descartar para atender una urgente.
+    ResolveJob *pickVictim(const QString &url);
+    // Callbacks por slot: fin de proceso y timeout de resolución.
+    void onResolveFinished(ResolveJob *job, int code);
+    void onResolveTimeout(ResolveJob *job);
     // Nº de reintentos seguidos de la pista actual (para fallos transitorios
     // de yt-dlp/YouTube). Se resetea al empezar a sonar una pista distinta.
     int m_retry = 0;

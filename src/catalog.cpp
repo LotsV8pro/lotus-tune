@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -16,6 +17,8 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <algorithm>
+
 #include <QDebug>
 
 // TTL de la caché de "me gusta" en disco: 24 h. Dentro de esa ventana el
@@ -23,11 +26,26 @@
 // syncLiked() siempre fuerza el fetch ignorando la TTL.
 static constexpr qint64 kLikedTtlSecs = 24 * 60 * 60;
 
+// Caché en disco de listas (playlists.json): misma idea que la TTL de "me
+// gusta" y que streams.json del reproductor. 24 h de validez y un tope de 300
+// entradas (las más antiguas se podan) para que el fichero no crezca sin freno.
+static constexpr qint64 kPlaylistTtlSecs = 24 * 60 * 60;
+static constexpr int kPlaylistCacheMax = 300;
+
 Catalog::Catalog(SourceManager *sources, QObject *parent)
     : QObject(parent)
     , m_sources(sources)
 {
     loadLibrary();
+
+    // Caché en disco de listas: se vuelca en diferido (igual que streams.json
+    // del reproductor) para no escribir en cada carga, y se lee ya en el
+    // arranque para que reabrir una lista (o una radio precargada) sea
+    // instantáneo incluso tras reiniciar la app.
+    m_cacheSaveTimer.setSingleShot(true);
+    m_cacheSaveTimer.setInterval(2500);
+    connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Catalog::savePlaylistCache);
+    loadPlaylistCache();
 
     // Real in-app YT Music login state: the Netscape cookies.txt written by the
     // embedded WebKit login window (tools/ytm_login.py) is the source of truth.
@@ -303,6 +321,13 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     }
 }
 
+Catalog::~Catalog()
+{
+    // Al salir, vuelca ya lo que quede pendiente: sin esto, una lista cargada
+    // justo antes de cerrar no llegaría a persistir (el volcado va diferido).
+    savePlaylistCache();
+}
+
 QString Catalog::stateFile()
 {
     const QString dir = QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
@@ -421,35 +446,50 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     if (purpose == QLatin1String("playlist"))
         m_openListUrl = target;
 
-    // Caché en memoria: reabrir una lista ya cargada no lanza ningún proceso y
-    // responde al instante. Solo para listas; la búsqueda siempre va a la red.
+    // Caché de listas: reabrir una ya cargada no lanza ningún proceso y
+    // responde al instante. Se mira primero la memoria y, si falla, el fichero
+    // en disco (playlists.json), de modo que también es instantáneo tras
+    // reiniciar. Solo para listas; la búsqueda siempre va a la red.
     // Una precarga de fondo en vuelo no debe impedirlo (es justo lo que hace
     // que abrir una radio de «Para ti» sea instantáneo): se cancela y se sirve.
     const QString key = cacheKeyFor(target);
     const bool bgBusy = m_busy && isBackgroundPurpose(m_purpose);
-    if (purpose == QLatin1String("playlist") && (!m_busy || bgBusy)
-        && m_playlistCache.contains(key)) {
-        if (bgBusy)
-            cancelBackgroundFetch();
-        const QVariantList cached = m_playlistCache.value(key);
-        const QString cachedTitle = m_playlistTitles.value(key);
-        m_fastFallback.clear();
-        m_fastFallbackTitle.clear();
-        m_openPlaylistId.clear();
-        if (target.contains(QLatin1String("youtube.com"))
-            && key.startsWith(QLatin1String("list:"))
-            && !isRadioTarget(target))
-            m_openPlaylistId = key.mid(QStringLiteral("list:").size());
-        m_error.clear();
-        // Diferido: no reentramos en QML desde dentro de la propia llamada.
-        QTimer::singleShot(0, this, [this, cached, cachedTitle]() {
-            m_tracks = cached;
-            m_tracksTitle = cachedTitle;
-            m_busy = false;   // servir de caché nunca deja la UI bloqueada
-            emit tracksReady(cached, cachedTitle);
-            emit changed();
-        });
-        return;
+    if (purpose == QLatin1String("playlist") && (!m_busy || bgBusy)) {
+        QVariantList cached;
+        QString cachedTitle;
+        bool hit = m_playlistCache.contains(key);
+        if (hit) {
+            cached = m_playlistCache.value(key);
+            cachedTitle = m_playlistTitles.value(key);
+        } else {
+            // No está en memoria: puede seguir en la caché en disco de una
+            // sesión anterior. Si es así se sirve igual de rápido (sin red) y
+            // se asciende a memoria para las próximas veces.
+            hit = cachedPlaylistFromDisk(key, &cached, &cachedTitle);
+            if (hit)
+                cachePlaylist(key, cached, cachedTitle);
+        }
+        if (hit) {
+            if (bgBusy)
+                cancelBackgroundFetch();
+            m_fastFallback.clear();
+            m_fastFallbackTitle.clear();
+            m_openPlaylistId.clear();
+            if (target.contains(QLatin1String("youtube.com"))
+                && key.startsWith(QLatin1String("list:"))
+                && !isRadioTarget(target))
+                m_openPlaylistId = key.mid(QStringLiteral("list:").size());
+            m_error.clear();
+            // Diferido: no reentramos en QML desde dentro de la propia llamada.
+            QTimer::singleShot(0, this, [this, cached, cachedTitle]() {
+                m_tracks = cached;
+                m_tracksTitle = cachedTitle;
+                m_busy = false;   // servir de caché nunca deja la UI bloqueada
+                emit tracksReady(cached, cachedTitle);
+                emit changed();
+            });
+            return;
+        }
     }
 
     // Ya se está trayendo esta misma lista en segundo plano (precarga de una
@@ -1048,7 +1088,7 @@ void Catalog::saveLikedToDisk() const
         f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
 
-// ------------------------------------------------- caché en memoria ----
+// ------------------------------------------- caché de listas (memoria) ----
 
 // Normaliza el `list=<id>` de YouTube: la misma lista abierta por URL, por id
 // o desde "mis listas" comparte entrada de caché. El resto de destinos
@@ -1074,6 +1114,7 @@ void Catalog::cachePlaylist(const QString &key, const QVariantList &tracks,
             const QString old = m_cacheOrder.takeFirst();
             m_playlistCache.remove(old);
             m_playlistTitles.remove(old);
+            m_playlistCacheAt.remove(old);
         }
     }
     m_playlistCache.insert(key, tracks);
@@ -1085,14 +1126,195 @@ void Catalog::forgetCachedPlaylist(const QString &key)
     m_playlistCache.remove(key);
     m_playlistTitles.remove(key);
     m_cacheOrder.removeAll(key);
+    m_playlistCacheAt.remove(key);
+    // También se descarta la copia en disco: si no, la próxima apertura la
+    // serviría vieja (p. ej. tras quitar o reordenar una pista, o al forzar el
+    // refresco de "Liked Music").
+    m_cacheForgotten.insert(key);
+    m_cacheDirty = true;
+    m_cacheSaveTimer.start();
 }
 
-// Olvida las listas cacheadas en memoria: la próxima apertura las recarga.
+// Olvida las listas cacheadas (memoria y disco): la próxima apertura las
+// recarga. Se usa al cerrar sesión y para "refrescar" la biblioteca.
 void Catalog::invalidatePlaylistCache()
 {
     m_playlistCache.clear();
     m_playlistTitles.clear();
     m_cacheOrder.clear();
+    m_playlistCacheAt.clear();
+    m_cacheForgotten.clear();
+    // El fichero también se olvida: sin esto, reabrir una lista "invalidada"
+    // volvería a servirse desde disco.
+    QFile::remove(playlistsFile());
+    m_cacheDirty = false;
+}
+
+// ------------------------------------------------- caché en disco ----
+
+// Caché en disco de listas ya cargadas (persiste entre reinicios). Vive en la
+// caché del usuario, como streams.json del reproductor.
+QString Catalog::playlistsFile()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+           + QStringLiteral("/playlists.json");
+}
+
+// Lee el fichero al arrancar y siembra la caché en memoria con las entradas
+// más recientes (respetando el tope de RAM de cachePlaylist). No lo marca
+// sucio: lo leído no necesita volver a escribirse. Un fichero corrupto o
+// ilegible se ignora sin más.
+void Catalog::loadPlaylistCache()
+{
+    QFile f(playlistsFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return;
+    QJsonParseError perr;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll(), &perr).object();
+    f.close();
+    if (perr.error != QJsonParseError::NoError || o.isEmpty())
+        return;
+
+    // Orden cronológico ascendente: al sembrar con cachePlaylist() (FIFO de 24)
+    // quedan en memoria las más recientes, justo como si se hubieran abierto.
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    QList<QPair<qint64, QString>> order;
+    order.reserve(o.size());
+    for (auto it = o.constBegin(); it != o.constEnd(); ++it)
+        order.append({qint64(it.value().toObject()
+                                 .value(QStringLiteral("t")).toDouble()),
+                      it.key()});
+    std::sort(order.begin(), order.end(),
+              [](const QPair<qint64, QString> &a,
+                 const QPair<qint64, QString> &b) {
+                  return a.first < b.first;
+              });
+    for (const auto &p : order) {
+        const qint64 ts = p.first;
+        if (ts <= 0 || now - ts > kPlaylistTtlSecs)
+            continue;   // caducada: no se siembra (se podará al guardar)
+        const QJsonObject e = o.value(p.second).toObject();
+        const QJsonArray arr = e.value(QStringLiteral("l")).toArray();
+        if (arr.isEmpty())
+            continue;
+        QVariantList tracks;
+        tracks.reserve(arr.size());
+        for (const QJsonValue &v : arr)
+            tracks.append(v.toObject().toVariantMap());
+        cachePlaylist(p.second, tracks, e.value(QStringLiteral("n")).toString());
+        m_playlistCacheAt.insert(p.second, ts);
+    }
+}
+
+// Sirve una lista desde el fichero (si sigue dentro de la TTL) cuando no está
+// en memoria. Lo usa la vía rápida de run() antes de lanzar ninguna consulta.
+bool Catalog::cachedPlaylistFromDisk(const QString &key, QVariantList *tracks,
+                                     QString *title) const
+{
+    if (key.isEmpty() || m_cacheForgotten.contains(key))
+        return false;
+    QFile f(playlistsFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    QJsonParseError perr;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll(), &perr).object();
+    f.close();
+    if (perr.error != QJsonParseError::NoError || o.isEmpty())
+        return false;
+    const QJsonObject e = o.value(key).toObject();
+    if (e.isEmpty())
+        return false;
+    const qint64 ts = qint64(e.value(QStringLiteral("t")).toDouble());
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (ts <= 0 || now - ts > kPlaylistTtlSecs)
+        return false;
+    const QJsonArray arr = e.value(QStringLiteral("l")).toArray();
+    if (arr.isEmpty())
+        return false;
+    QVariantList l;
+    l.reserve(arr.size());
+    for (const QJsonValue &v : arr)
+        l.append(v.toObject().toVariantMap());
+    if (tracks)
+        *tracks = l;
+    if (title)
+        *title = e.value(QStringLiteral("n")).toString();
+    return true;
+}
+
+// Marca una lista recién cargada con su marca de tiempo y programa el volcado
+// diferido (no se escribe en disco en cada carga).
+void Catalog::rememberPlaylistForDisk(const QString &key)
+{
+    if (key.isEmpty())
+        return;
+    m_cacheForgotten.remove(key);   // recién cargada: ya no hay que borrarla
+    m_playlistCacheAt.insert(key, QDateTime::currentSecsSinceEpoch());
+    m_cacheDirty = true;
+    m_cacheSaveTimer.start();
+}
+
+// Vuelca la caché a disco. Parte de lo que ya había en el fichero (entradas
+// antiguas que no cupieron en memoria), lo fusiona con la caché en memoria,
+// poda lo caducado y recorta a las 300 entradas más recientes.
+void Catalog::savePlaylistCache()
+{
+    if (!m_cacheDirty)
+        return;
+    m_cacheDirty = false;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+
+    // El fichero se escribe entero y compacto; si estuviera corrupto se parte
+    // de vacío (la memoria lo regenera).
+    QJsonObject o;
+    QFile f(playlistsFile());
+    if (f.open(QIODevice::ReadOnly)) {
+        o = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+    }
+    for (const QString &key : m_cacheForgotten)
+        o.remove(key);
+    m_cacheForgotten.clear();
+    for (auto it = m_playlistCache.constBegin(); it != m_playlistCache.constEnd();
+         ++it) {
+        QJsonArray arr;
+        for (const QVariant &v : it.value())
+            arr.append(QJsonObject::fromVariantMap(v.toMap()));
+        o.insert(it.key(),
+                 QJsonObject{
+                     {QStringLiteral("t"),
+                      QJsonValue(double(m_playlistCacheAt.value(it.key(), now)))},
+                     {QStringLiteral("n"), m_playlistTitles.value(it.key())},
+                     {QStringLiteral("l"), arr},
+                 });
+    }
+
+    // Poda: fuera lo caducado, y sólo las 300 entradas más recientes.
+    QList<QPair<qint64, QString>> items;
+    items.reserve(o.size());
+    for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+        const qint64 ts = qint64(it.value().toObject()
+                                     .value(QStringLiteral("t")).toDouble());
+        if (ts <= 0 || now - ts > kPlaylistTtlSecs)
+            continue;
+        items.append({ts, it.key()});
+    }
+    std::sort(items.begin(), items.end(),
+              [](const QPair<qint64, QString> &a,
+                 const QPair<qint64, QString> &b) {
+                  return a.first > b.first;   // más recientes primero
+              });
+    if (items.size() > kPlaylistCacheMax)
+        items = items.mid(0, kPlaylistCacheMax);
+
+    QJsonObject out;
+    for (const auto &p : items)
+        out.insert(p.second, o.value(p.second));
+
+    QDir().mkpath(QFileInfo(playlistsFile()).absolutePath());
+    QFile w(playlistsFile());
+    if (w.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        w.write(QJsonDocument(out).toJson(QJsonDocument::Compact));
 }
 
 // ------------------------------------------------------------ login ----
@@ -1262,6 +1484,7 @@ bool Catalog::handleOutput(const QByteArray &json)
         // hace en segundo plano desde Inicio deje la lista lista y abrirla
         // desde «Recomendado para ti» sea instantánea.
         cachePlaylist(m_pendingKey, list, m_pendingTitle);
+        rememberPlaylistForDisk(m_pendingKey);
         emit radioReady(m_radioSeed, list);
         // Si mientras cargaba el usuario abrió la radio a mano, ese mismo
         // resultado sirve como lista abierta (no se vuelve a descargar).
@@ -1281,6 +1504,7 @@ bool Catalog::handleOutput(const QByteArray &json)
         m_tracksTitle = title;
         // Guarda en la caché en memoria: reabrir esta lista será instantáneo.
         cachePlaylist(m_pendingKey, list, title);
+        rememberPlaylistForDisk(m_pendingKey);
         emit tracksReady(list, title);
     }
     emit changed();
