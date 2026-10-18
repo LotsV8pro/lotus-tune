@@ -76,6 +76,11 @@ public:
     // resoluciones viejas bloqueando las nuevas.
     Q_INVOKABLE void clearPrefetch();
 
+    // Normaliza la URL de página: las de music.youtube.com tardan ~1 s más en
+    // resolverse que las de www.youtube.com (mismo vídeo). Devolver siempre la
+    // forma www hace que resolver sea más rápido y comparta caché.
+    static QString normalizeUrl(const QString &url);
+
 signals:
     void stateChanged();
     void positionChanged();
@@ -99,10 +104,6 @@ private:
     void loadImpl(const QString &url, bool allowResolve);
     // Traduce m_quality al selector "--ytdl-format" de yt-dlp.
     QString ytdlFormat() const;
-    // Normaliza la URL de página: las de music.youtube.com tardan ~1 s más en
-    // resolverse que las de www.youtube.com (mismo vídeo). Devolver siempre la
-    // forma www hace que resolver sea más rápido y comparta caché.
-    static QString normalizeUrl(const QString &url);
     void loadStreamCache();
     void saveStreamCache();
 

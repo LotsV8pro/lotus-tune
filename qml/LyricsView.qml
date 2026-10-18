@@ -613,39 +613,66 @@ Item {
     // ---- sincronía fina (aparece al pasar el ratón) -------------------
     HoverHandler { id: lyricHover }
 
-    RowLayout {
+    Rectangle {
         visible: lv.showSynced && lyricHover.hovered
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: Theme.s3
         anchors.bottomMargin: Theme.s3
-        spacing: Theme.s2
+        height: Theme.pillH
+        radius: Theme.rPill
+        color: Sys.surface
+        border.width: 1
+        border.color: Sys.borderSubtle
         opacity: 0.95
 
-        Text {
-            text: "−"
-            color: offMinus.hovered ? Sys.accent : Sys.textDim
-            font.pixelSize: Theme.tXl
-            font.weight: Font.DemiBold
-            HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) } }
-        }
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.s2
+            anchors.rightMargin: Theme.s2
+            spacing: Theme.s2
 
-        Text {
-            Layout.alignment: Qt.AlignVCenter
-            text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + " s"
-            color: Sys.textDim
-            font.pixelSize: Theme.tXs
-            font.weight: Font.DemiBold
-        }
+            Rectangle {
+                width: 22
+                height: 22
+                radius: 11
+                color: offMinus.hovered ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "−"
+                    color: offMinus.hovered ? Sys.accent : Sys.textDim
+                    font.pixelSize: Theme.tBase
+                    font.weight: Font.DemiBold
+                }
+                HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) } }
+            }
 
-        Text {
-            text: "+"
-            color: offPlus.hovered ? Sys.accent : Sys.textDim
-            font.pixelSize: Theme.tXl
-            font.weight: Font.DemiBold
-            HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
-            TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) } }
+            Text {
+                Layout.alignment: Qt.AlignVCenter
+                text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + " s"
+                color: Sys.textDim
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+            }
+
+            Rectangle {
+                width: 22
+                height: 22
+                radius: 11
+                color: offPlus.hovered ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: offPlus.hovered ? Sys.accent : Sys.textDim
+                    font.pixelSize: Theme.tBase
+                    font.weight: Font.DemiBold
+                }
+                HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) } }
+            }
         }
     }
 }

@@ -12,6 +12,7 @@
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStringList>
+#include <QStorageInfo>
 #include <QUrl>
 
 #include <utility>
@@ -33,6 +34,8 @@ bool isPartialName(const QString &name)
     return low.endsWith(QLatin1String(".part"))
         || low.endsWith(QLatin1String(".ytdl"))
         || low.endsWith(QLatin1String(".temp"))
+        || low.endsWith(QLatin1String(".tmp"))
+        || low.contains(QLatin1String(".temp-"))
         || low.contains(QLatin1String(".part-frag"));
 }
 
@@ -162,6 +165,8 @@ QString Downloads::safeSegment(const QString &text)
               QStringLiteral("_"));
     // Colapsa espacios repetidos para nombres más limpios.
     s.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
+    while (s.startsWith(QLatin1Char('.')) || s.startsWith(QLatin1Char(' ')))
+        s.remove(0, 1);
     while (s.endsWith(QLatin1Char('.')) || s.endsWith(QLatin1Char(' ')))
         s.chop(1);
     if (s.isEmpty())
@@ -175,10 +180,15 @@ QString Downloads::safeSegment(const QString &text)
         const QChar last = s.at(s.size() - 1);
         s.chop(last.isLowSurrogate() && s.size() >= 2 ? 2 : 1);
     }
-    // El recorte puede dejar un punto/espacio final otra vez.
+    // El recorte puede dejar un punto/espacio final o inicial otra vez.
+    while (s.startsWith(QLatin1Char('.')) || s.startsWith(QLatin1Char(' ')))
+        s.remove(0, 1);
     while (s.endsWith(QLatin1Char('.')) || s.endsWith(QLatin1Char(' ')))
         s.chop(1);
-    if (s.isEmpty())
+
+    QString checkNoUnderscores = s;
+    checkNoUnderscores.remove(QLatin1Char('_'));
+    if (checkNoUnderscores.trimmed().isEmpty())
         s = QStringLiteral("descarga");
     return s;
 }
@@ -316,6 +326,14 @@ void Downloads::startNext()
     emit jobsChanged();
     emit activeProgressChanged();
 
+    // Comprueba espacio libre antes de descargar (mínimo 50 MB para audio).
+    const QStorageInfo storage(m_folder);
+    if (storage.isValid() && storage.bytesAvailable() > 0
+        && storage.bytesAvailable() < 50 * 1024 * 1024) {
+        failJob(idx, QStringLiteral("Espacio insuficiente en disco (menos de 50 MB disponibles)."));
+        return;
+    }
+
     // -o relativo a -P home (la carpeta de la app):
     //   playlist -> <name>/<índice><título>.<ext>
     //   pista    -> <artista> - <título>.<ext>
@@ -382,6 +400,9 @@ void Downloads::startNext()
         // Reanudable y sin volver a bajar lo que ya está.
         QStringLiteral("--continue"),
         QStringLiteral("--no-overwrites"),
+        // Resistencia de red: timeout y reintentos automáticos
+        QStringLiteral("--socket-timeout"), QStringLiteral("15"),
+        QStringLiteral("--retries"), QStringLiteral("3"),
         // Progreso machine-readable: índice/total de la lista + % de la pista
         // actual, con un prefijo reconocible para calcular UN 0-100 % TOTAL.
         QStringLiteral("--progress-template"),
@@ -389,6 +410,10 @@ void Downloads::startNext()
                        "%(info.n_entries)s|%(progress._percent_str)s"),
         QStringLiteral("-o"), outTemplate,
     };
+
+    // Si es pista suelta, evitar bajar playlists si la URL viene con &list=...
+    if (!j.playlist)
+        args << QStringLiteral("--no-playlist");
 
     // Archivo de descargas por lista (sólo listas).
     if (!archivePath.isEmpty())
@@ -502,6 +527,9 @@ QString Downloads::friendlyError(const QString &raw)
         return low.contains(QLatin1String(needle));
     };
 
+    if (has("ffmpeg") || has("ffprobe") || has("postprocessing")
+        || has("post-process"))
+        return QStringLiteral("Falta ffmpeg para procesar el audio.");
     if (has("does not exist") || has("not found") || has("unavailable")
         || has("404") || has("removed"))
         return QStringLiteral("La lista no existe, es privada o ya no está "
@@ -514,9 +542,6 @@ QString Downloads::friendlyError(const QString &raw)
     if (has("unsupported url") || has("is not a valid url")
         || has("invalid url"))
         return QStringLiteral("La dirección no es compatible.");
-    if (has("ffmpeg") || has("ffprobe") || has("postprocessing")
-        || has("post-process"))
-        return QStringLiteral("Falta ffmpeg para procesar el audio.");
     if (has("timed out") || has("timeout") || has("temporary failure")
         || has("getaddrinfo") || has("unable to download") || has("network")
         || has("connection") || has("resolve") || has("http error")
@@ -567,7 +592,7 @@ void Downloads::sweepOrphans(qint64 ageSecs)
     QDirIterator it(m_folder,
                     {QStringLiteral("*.part"), QStringLiteral("*.part-Frag*"),
                      QStringLiteral("*.part-frag*"), QStringLiteral("*.ytdl"),
-                     QStringLiteral("*.temp")},
+                     QStringLiteral("*.temp"), QStringLiteral("*.tmp")},
                     QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         const QString path = it.next();
