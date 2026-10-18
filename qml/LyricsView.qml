@@ -434,8 +434,11 @@ Item {
                     text: karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: karaoke ? Text.RichText : Text.PlainText
                     // Solo la activa canta: texto a pleno y con más peso; el
-                    // resto se apaga en `Sys.textDim` según la distancia.
-                    color: active ? Sys.text : Sys.textDim
+                    // resto se apaga en `Sys.textDim` según la distancia. La
+                    // frase activa lleva un matiz lavanda para subrayar que es
+                    // la que suena (cuando no hay karaoke palabra a palabra).
+                    color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
+                                  : Sys.textDim
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
                     font.weight: active ? Font.DemiBold : Font.Normal
@@ -503,9 +506,9 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 14
-        width: followRow.implicitWidth + 24
-        height: 32
-        radius: 16
+        width: followRow.implicitWidth + Theme.pillHPad * 2
+        height: Theme.pillH
+        radius: Theme.rPill
         color: followMa.containsMouse
                ? Theme.hover(Sys.surface) : Sys.surface
         border.width: 1

@@ -36,8 +36,8 @@ Item {
                 Layout.fillWidth: true
                 spacing: Theme.s2
 
-                // Pestañas discretas: pastilla redondeada de acento en la
-                // activa, sin subrayados ni líneas duras.
+                // Pestañas-píldora: cápsulas con acento suave en la activa,
+                // sin subrayados ni líneas duras.
                 Repeater {
                     model: [ { t: 0, name: "Cola", icon: "queue" },
                              { t: 1, name: "Letra", icon: "lyrics" } ]
@@ -45,15 +45,15 @@ Item {
                         id: tabItem
                         required property var modelData
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 34
+                        Layout.preferredHeight: Theme.pillH
                         readonly property bool on: panel.tab === modelData.t
 
                         HoverHandler { id: tabHover; cursorShape: Qt.PointingHandCursor }
 
                         Rectangle {
                             anchors.fill: parent
-                            radius: Theme.rMd
-                            color: tabItem.on ? Theme.alpha(Sys.accent, 0.14)
+                            radius: Theme.rPill
+                            color: tabItem.on ? Theme.alpha(Sys.accent, 0.16)
                                    : (tabHover.hovered ? Theme.hover(Sys.surface) : "transparent")
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         }
@@ -78,10 +78,11 @@ Item {
                     }
                 }
 
+                // Cerrar: píldora circular, del mismo alto que las pestañas.
                 Rectangle {
-                    Layout.preferredWidth: 30
-                    Layout.preferredHeight: 34
-                    radius: Theme.rMd
+                    Layout.preferredWidth: Theme.pillH
+                    Layout.preferredHeight: Theme.pillH
+                    radius: Theme.rPill
                     color: closeHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }

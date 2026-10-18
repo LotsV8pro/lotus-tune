@@ -98,7 +98,9 @@ Item {
                             id: row
                             visible: modelData.separator !== true
                             anchors.fill: parent
-                            radius: Theme.rMd
+                            // Cada entrada es una píldora: cápsula con acento
+                            // suave al pasar el ratón.
+                            radius: Theme.rPill
                             readonly property bool can: modelData.enabled !== false
                             readonly property bool on: hov.hovered && row.can
                             color: row.on ? Theme.alpha(Sys.accent, 0.12) : "transparent"

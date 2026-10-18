@@ -39,14 +39,14 @@ Item {
         onClicked: pel.canceled()
     }
 
-    Rectangle {
+    // Isla flotante: `Panel` da las esquinas redondeadas y el filo luminoso
+    // que despega el editor del fondo, sin sombras ni efectos.
+    Panel {
         id: card
         anchors.centerIn: parent
         width: Math.min(440, parent.width - 60)
         height: body.implicitHeight + Theme.s6 + Theme.s2
-        radius: Theme.rLg
-        color: Sys.surface
-        border.width: 0
+        radius: Theme.rPanel
         scale: pel.open ? 1 : 0.96
         Behavior on scale { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
 
@@ -79,7 +79,7 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
-                radius: Theme.rMd
+                radius: Theme.rPill
                 color: Sys.bg
                 border.width: 1
                 border.color: nameField.activeFocus ? Sys.accent : Sys.borderSubtle
@@ -124,9 +124,9 @@ Item {
                 Rectangle {
                     id: privToggle
                     property bool priv: false
-                    Layout.preferredHeight: 30
+                    Layout.preferredHeight: Theme.pillH
                     implicitWidth: privLabel.implicitWidth + 26
-                    radius: 15
+                    radius: Theme.rPill
                     color: privToggle.priv ? Sys.accentDim : Sys.surfaceAlt
                     border.width: 1
                     border.color: privToggle.priv ? Sys.accent : Sys.border
@@ -161,9 +161,9 @@ Item {
 
                 Rectangle {
                     visible: !pel.createMode
-                    Layout.preferredHeight: 38
-                    implicitWidth: delLabel.implicitWidth + 30
-                    radius: Theme.rMd
+                    Layout.preferredHeight: 34
+                    implicitWidth: delLabel.implicitWidth + 34
+                    radius: Theme.rPill
                     color: delHov.hovered
                            ? Qt.rgba(Sys.danger.r, Sys.danger.g, Sys.danger.b, 0.14)
                            : "transparent"
@@ -196,9 +196,9 @@ Item {
                 Item { Layout.fillWidth: true }
 
                 Rectangle {
-                    Layout.preferredHeight: 38
+                    Layout.preferredHeight: 34
                     implicitWidth: cancelLabel.implicitWidth + 34
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     color: cancelHov.hovered ? Theme.hover(Sys.surface) : "transparent"
                     border.width: 1
                     border.color: Sys.border
@@ -214,9 +214,9 @@ Item {
                 }
 
                 Rectangle {
-                    Layout.preferredHeight: 38
+                    Layout.preferredHeight: 34
                     implicitWidth: saveLabel.implicitWidth + 40
-                    radius: Theme.rMd
+                    radius: Theme.rPill
                     enabled: nameField.text.trim().length > 0
                     color: !enabled ? Sys.surfaceAlt
                            : (saveHov.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent)

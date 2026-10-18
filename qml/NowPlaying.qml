@@ -206,9 +206,9 @@ Rectangle {
         // ---- volumen: mute + barra + porcentaje ------------------------
         Rectangle {
             Layout.alignment: Qt.AlignVCenter
-            width: 34
-            height: 34
-            radius: Theme.rMd
+            width: 36
+            height: 36
+            radius: Theme.rPill
             color: muteMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             Glyph {
@@ -297,7 +297,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             width: 36
             height: 36
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: (!np.lyricsVisible || lyricsMa.containsMouse)
                    ? Theme.hover(Sys.bg) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -325,7 +325,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             width: 36
             height: 36
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: fsMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             Glyph {
@@ -348,7 +348,7 @@ Rectangle {
             Layout.alignment: Qt.AlignVCenter
             width: 36
             height: 36
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: closeMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
             Glyph {
@@ -412,7 +412,7 @@ Rectangle {
                 Rectangle {
                     id: bigCover
                     anchors.fill: parent
-                    radius: Theme.rLg
+                    radius: Theme.rXl
                     color: Sys.surfaceAlt
                     border.width: 1
                     border.color: Sys.borderSubtle
@@ -462,16 +462,25 @@ Rectangle {
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight
                 }
-                Text {
-                    Layout.fillWidth: true
+                // Origen de la pista como píldora: un chip lavanda muy tenue
+                // que informa sin ensuciar el título.
+                Rectangle {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.topMargin: Theme.s1
+                    Layout.preferredWidth: srcTag.implicitWidth + Theme.pillHPad
+                    Layout.preferredHeight: 20
+                    radius: Theme.rPill
                     visible: np.title.length > 0
-                    text: np.isStream ? "STREAM" : "LOCAL"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tXs
-                    font.weight: Font.DemiBold
-                    font.letterSpacing: 1.2
-                    horizontalAlignment: Text.AlignHCenter
-                    topPadding: Theme.s1
+                    color: Theme.alpha(Sys.accent, 0.12)
+                    Text {
+                        id: srcTag
+                        anchors.centerIn: parent
+                        text: np.isStream ? "STREAM" : "LOCAL"
+                        color: Sys.accent
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.2
+                    }
                 }
             }
 

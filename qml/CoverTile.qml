@@ -37,9 +37,12 @@ Rectangle {
         height: tile.height - 18
         radius: Theme.rLg
         color: tileMa.containsMouse ? Theme.hover(Sys.surface) : Sys.surface
-        border.width: 0
+        border.width: 1
+        border.color: tileMa.containsMouse ? Theme.alpha(Sys.accent, 0.45)
+                                           : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
         clip: true
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
         ColumnLayout {
             anchors.fill: parent
@@ -79,7 +82,7 @@ Rectangle {
                     anchors.margins: Theme.s2
                     width: 30
                     height: 30
-                    radius: 15
+                    radius: Theme.rPill
                     color: tile.overPlay ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                     opacity: tileMa.containsMouse ? 1 : 0
                     scale: tileMa.containsMouse
@@ -168,7 +171,7 @@ Rectangle {
             visible: tile.downloadable
             width: 30
             height: 30
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: dlMa.containsMouse ? Theme.hover(Sys.bg) : Sys.bg
             border.width: 0
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -192,7 +195,7 @@ Rectangle {
             visible: tile.removable
             width: 30
             height: 30
-            radius: Theme.rMd
+            radius: Theme.rPill
             color: rmMa.containsMouse ? Theme.alpha(Sys.danger, 0.16) : Sys.bg
             border.width: 0
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }

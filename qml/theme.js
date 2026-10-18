@@ -20,6 +20,12 @@ var rMd = 10
 var rLg = 14
 var rXl = 18
 
+// Pills: control cápsula (radio = alto/2). Chips, toggles, pestañas y
+// botones de acción/navegación. Úsese siempre con un `height` fijo.
+var rPill = 999          // radio "píldora"
+var pillH = 30           // alto estándar de una píldora
+var pillHPad = 14        // relleno horizontal de una píldora
+
 // ---- superficies flotantes ------------------------------------------
 // La interfaz se compone de "islas" redondeadas que flotan sobre el fondo de
 // la ventana. Estos tokens gobiernan su radio, la separación con los bordes y
