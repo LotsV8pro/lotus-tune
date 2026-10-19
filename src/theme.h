@@ -34,6 +34,10 @@ class AppTheme : public QObject
     Q_PROPERTY(QColor danger READ danger NOTIFY paletteChanged)
     Q_PROPERTY(bool followingSystem READ followingSystem NOTIFY paletteChanged)
     Q_PROPERTY(QString source READ source NOTIFY paletteChanged)
+    // "Fondo dinámico" (estilo Liner): la portada de la pista actual tiñe el
+    // escritorio y las islas se vuelven translúcidas. Lo decide la UI (se
+    // recuerda en appcfg); aquí sólo vive para que todos los QML reaccionen.
+    Q_PROPERTY(bool dynamicBg READ dynamicBg WRITE setDynamicBg NOTIFY washChanged)
 
 public:
     explicit AppTheme(QObject *parent = nullptr);
@@ -51,9 +55,17 @@ public:
     QColor danger() const { return m_danger; }
     bool followingSystem() const { return m_followSystem; }
     QString source() const { return m_source; }
+    bool dynamicBg() const { return m_dynamicBg; }
+    void setDynamicBg(bool on) {
+        if (m_dynamicBg == on)
+            return;
+        m_dynamicBg = on;
+        emit washChanged();
+    }
 
 signals:
     void paletteChanged();
+    void washChanged();
 
 private:
     void reload();
@@ -72,6 +84,7 @@ private:
     QVariantMap m_sys;   // parsed system palette (app-palette/colors json)
     QVariantMap m_over;  // parsed config.ini overrides
     bool m_followSystem = true;
+    bool m_dynamicBg = false;   // "Fondo dinámico" pedido por la UI (Main.qml)
 
     // resolved values
     QColor m_bg, m_surface, m_surfaceAlt, m_border, m_borderSubtle;

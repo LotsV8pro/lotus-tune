@@ -60,8 +60,16 @@ Downloads::Downloads(QObject *parent)
 {
     // Carpeta persistida por el usuario; si no hay, la de por defecto.
     const QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
-    const QString saved = s.value(QStringLiteral("downloadFolder")).toString();
-    m_folder = saved.trimmed().isEmpty() ? defaultFolder() : saved.trimmed();
+    QString saved = s.value(QStringLiteral("downloadFolder")).toString().trimmed();
+    // Un valor heredado de antiguas ejecuciones de prueba (carpetas temporales
+    // del tipo /tmp/lotus-tune-tests-XXXX) no es una carpeta real: se descarta
+    // y se usa la de por defecto, que además se recrea si falta.
+    if (!saved.isEmpty() && QDir(saved).isRelative())
+        saved.clear();   // ruta relativa: inservible fuera de su contexto
+    if (!saved.isEmpty() && QFileInfo(saved).absoluteFilePath()
+                               .startsWith(QDir::tempPath()))
+        saved.clear();
+    m_folder = saved.isEmpty() ? defaultFolder() : saved;
     QDir().mkpath(m_folder);
 
     // Un único proceso yt-dlp, con salida estándar y de error mezcladas para

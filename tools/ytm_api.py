@@ -10,6 +10,7 @@ Netscape) y consulta la API interna de YouTube Music (InnerTube) para:
                                 más nuevo primero (el nombre filtra los carruseles
                                 de discos de otros artistas de la misma página)
   album <browseId>              pistas de un álbum o sencillo
+  toptrack <artista>            pista principal del artista (semilla de radio)
   playlist <listId>           tracks de una playlist (rápido, sin yt-dlp)
   playlistinfo <listId>       título/descripción/privacidad/propiedad de una lista
   rate  <videoId> <rating>    vota LIKE | DISLIKE | INDIFFERENT
@@ -813,6 +814,59 @@ def album_tracks(browse_id, limit=200):
     return tracks[:limit]
 
 
+def top_track(query, limit=5):
+    """Pista principal de un artista: su canción más escuchada.
+
+    Busca artistas y toma la primera fila de la página del más relevante: la
+    primera musicResponsiveListItemRenderer con botón de reproducción (el
+    watchEndpoint del overlay) es el tema top de la sección «canciones
+    principales». Devuelve la pista completa (id, título, artista, miniatura)
+    para sembrar la radio del artista (RDAMVM sobre ella)."""
+    artists = search_artists(query, limit=limit)
+    if not artists:
+        return None
+    page = browse(artists[0]["browseId"], anon=True)
+    row = _first_top_row(page)
+    if not row:
+        return None
+    track = _track_of(row)
+    if not track:
+        return None
+    track["artist"] = artists[0].get("name", query)
+    return track
+
+
+def _first_top_row(node):
+    """Primera musicResponsiveListItemRenderer con watchEndpoint de reproducción."""
+    if isinstance(node, dict):
+        row = _playable_row(node)
+        if row:
+            return row
+        for value in node.values():
+            found = _first_top_row(value)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _first_top_row(item)
+            if found:
+                return found
+    return None
+
+
+def _playable_row(renderer):
+    """El renderer si es una fila de pista con botón de reproducción, else None."""
+    item = renderer.get("musicResponsiveListItemRenderer")
+    if not isinstance(item, dict):
+        return None
+    overlay = (item.get("overlay") or {}).get("musicItemThumbnailOverlayRenderer")
+    if not isinstance(overlay, dict):
+        return None
+    ep = ((overlay.get("content") or {}).get("musicPlayButtonRenderer") or {}
+          ).get("playNavigationEndpoint") or {}
+    return item if ep.get("watchEndpoint", {}).get("videoId") else None
+
+
 def library():
     """Playlists guardadas/creadas del usuario."""
     for browse_id in LIBRARY_IDS:
@@ -1038,6 +1092,17 @@ def cmd_album(browse_id):
     return 0
 
 
+def cmd_toptrack(query):
+    top = top_track(query)
+    if not top:
+        raise YtmError("no se encontró una pista principal para %r" % query)
+    out = dict(top)
+    out["videoId"] = top["id"]   # lo consume Catalog (resolveArtistRadio)
+    json.dump(out, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_rate(video_id, rating):
     resp = rate(video_id, rating)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -1138,6 +1203,10 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta el browseId del álbum")
             return cmd_album(args[1])
+        if cmd == "toptrack":
+            if len(args) < 2:
+                raise YtmError("falta el nombre del artista")
+            return cmd_toptrack(" ".join(args[1:]))
         if cmd == "playlist":
             if len(args) < 2:
                 raise YtmError("falta el id de la playlist")

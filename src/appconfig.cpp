@@ -19,7 +19,7 @@ static const char *kAppKeys[] = {
     "cookiesFromBrowser", "spotifyClientId", "spotifyUsername",
     "spotifyPassword", "tidalUsername", "tidalPassword", "defaultSource",
     "audioQuality", "discordRpc", "discordClientId", "downloadFolder",
-    "lyricsEnabled",
+    "lyricsEnabled", "autoplay", "dynamicBg",
     // Estado de la última sesión (cola + pista + volumen), restaurado en pausa
     // al arrancar. Se cargan al inicio igual que el resto de claves de la app.
     "sessionState", "playerVolume",

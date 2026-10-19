@@ -21,13 +21,11 @@
 
 #include <QDebug>
 
-// TTL de la caché de "me gusta" en disco: 24 h. Dentro de esa ventana el
-// arranque no consulta la red (nada bloquea las listas); el botón manual
-// syncLiked() siempre fuerza el fetch ignorando la TTL.
-static constexpr qint64 kLikedTtlSecs = 24 * 60 * 60;
+// El conjunto «me gusta» se sincroniza solo al arrancar y al hacer login
+// (refreshLikedSet); ya no se hace gating por TTL de 24 h, porque la consulta
+// a la API interna es asíncrona y barata. syncLiked() lo refuerza a demanda.
 
-// Caché en disco de listas (playlists.json): misma idea que la TTL de "me
-// gusta" y que streams.json del reproductor. 24 h de validez y un tope de 300
+// Caché en disco de listas (playlists.json): TTL de validez y un tope de 300
 // entradas (las más antiguas se podan) para que el fichero no crezca sin freno.
 static constexpr qint64 kPlaylistTtlSecs = 24 * 60 * 60;
 static constexpr int kPlaylistCacheMax = 300;
@@ -167,6 +165,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                         for (const QJsonValue &v :
                              root.value(QStringLiteral("entries")).toArray())
                             list.append(normalize(v.toObject().toVariantMap()));
+                    } else if (mode == QLatin1String("toptrack")) {
+                        m_topTrack = normalize(root.toVariantMap());
                     }
                 }
                 if (mode == QLatin1String("artists"))
@@ -175,6 +175,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit artistReady(arg, list);
                 else if (mode == QLatin1String("album"))
                     emit albumTracksReady(arg, list);
+                else if (mode == QLatin1String("toptrack"))
+                    emit artistTopTrackResolved(arg, m_topTrack);
             });
 
     // Acciones puntuales sobre YT Music (votar, añadir/quitar de lista). Van en
@@ -316,17 +318,33 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 const QJsonArray entries =
                     doc.object().value(QStringLiteral("entries")).toArray();
                 QSet<QString> ids;
+                QVariantList lmTracks;
                 for (const QJsonValue &v : entries) {
-                    const QString id =
-                        v.toObject().value(QStringLiteral("id")).toString();
+                    const QJsonObject o = v.toObject();
+                    const QString id = o.value(QStringLiteral("id")).toString();
                     if (!id.isEmpty())
                         ids.insert(id);
+                    lmTracks.append(normalize(o.toVariantMap()));
                 }
                 m_likedIds = ids;
                 m_likedReady = true;
                 m_likedTs = QDateTime::currentSecsSinceEpoch();
                 saveLikedToDisk();
                 ++m_likedRevision;
+                // La misma respuesta trae el contenido de la lista «Me gusta»
+                // (LM): lo dejamos en caché para que al pulsar «Me gusta» se vea
+                // al instante y sin volver a la red. Si la lista LM está abierta
+                // ahora mismo, la refrescamos en pantalla (así un unlike hecho
+                // en otro sitio quita la fila sin recargar).
+                if (!lmTracks.isEmpty()) {
+                    cachePlaylist(QStringLiteral("list:LM"), lmTracks,
+                                  QStringLiteral("Me gusta"));
+                    rememberPlaylistForDisk(QStringLiteral("list:LM"));
+                    if (m_openPlaylistId == QLatin1String("LM")) {
+                        m_tracks = lmTracks;
+                        emit changed();
+                    }
+                }
                 qInfo() << "[catalog] me gusta:" << m_likedIds.size() << "pistas";
                 emit likedChanged();
             });
@@ -796,6 +814,21 @@ void Catalog::fetchAlbumTracks(const QString &browseId)
               QStringLiteral("album"), id);
 }
 
+// Pista principal del artista (lo más escuchado): es la mejor semilla para su
+// radio sin pasar por "Radio de la canción". Si el proceso de artistas está
+// ocupado se rinde al instante (el menú cae a la radio de la pista pulsada).
+void Catalog::resolveArtistRadio(const QString &artistName)
+{
+    const QString name = artistName.trimmed();
+    if (name.isEmpty() || m_artistProc.state() != QProcess::NotRunning) {
+        emit artistTopTrackResolved(name, {});
+        return;
+    }
+    m_topTrack = {};
+    runArtist({ytmApiPath(), QStringLiteral("toptrack"), name},
+              QStringLiteral("toptrack"), name);
+}
+
 void Catalog::syncLiked()
 {
     if (m_sources->activeId() != QLatin1String("ytm")) {
@@ -1119,8 +1152,29 @@ void Catalog::setLiked(const QString &videoId, bool liked)
     // Sigue subiendo la revisión aunque no cambie: el voto ya se envió y las
     // filas/corazón deben repintarse con el estado decidido localmente.
     ++m_likedRevision;
-    // Persistir el conjunto local (conservando m_likedTs) para que un reinicio
-    // dentro de la TTL no pierda el voto recién hecho.
+    // La lista «Me gusta» (LM) acaba de quedar vieja en cualquier caso: se
+    // descarta su caché (memoria y disco) para que la próxima apertura traiga
+    // el contenido fresco de YouTube Music.
+    forgetCachedPlaylist(QStringLiteral("list:LM"));
+    // Y si la lista LM está abierta ahora mismo: al quitar el corazón la fila
+    // desaparece al instante (en YT esa pista ya no está en «Me gusta»). Sólo
+    // en la vista «Me gusta»: en otras listas abiertas el unlike no toca filas.
+    if (!liked && m_openPlaylistId == QLatin1String("LM")) {
+        bool removed = false;
+        for (int k = 0; k < m_tracks.size(); k++) {
+            if (videoIdOf(m_tracks.at(k).toMap()
+                              .value(QStringLiteral("url")).toString())
+                == videoId) {
+                m_tracks.removeAt(k);
+                removed = true;
+                break;
+            }
+        }
+        if (removed)
+            emit changed();
+    }
+    // Persistir el conjunto local (conservando m_likedTs) para que el arranque
+    // pinte el corazón al instante y no pierda el voto recién hecho.
     saveLikedToDisk();
     emit likedChanged();
 }
@@ -1140,8 +1194,7 @@ void Catalog::toggleLiked(const QString &videoIdOrUrl, bool currentlyLiked)
 
 void Catalog::refreshLikedSet()
 {
-    if (m_likedReady || !ytmLoggedIn()
-        || m_likedProc.state() != QProcess::NotRunning)
+    if (!ytmLoggedIn())
         return;
 
     // 1) Carga inmediata desde disco (sin red): el conjunto queda listo al
@@ -1152,11 +1205,10 @@ void Catalog::refreshLikedSet()
         emit likedChanged();
     }
 
-    // 2) Solo se consulta la red si no hay caché o si es más antigua que la TTL
-    //    (24 h). Con caché fresca no se lanza nada: el arranque no se bloquea.
-    const qint64 now = QDateTime::currentSecsSinceEpoch();
-    if (m_likedTs > 0 && now - m_likedTs < kLikedTtlSecs)
-        return;
+    // 2) Sincronización automática: la consulta a la red se lanza siempre que
+    //    hay sesión (arranque y login), no sólo cuando la caché caduca. Así
+    //    los «me gusta» que diste —o quitaste— en otro sitio se reflejan solos
+    //    sin pulsar nada. Es asíncrona y barata (una página de la API interna).
     launchLikedFetch();
 }
 
@@ -1483,6 +1535,7 @@ void Catalog::setLoginState(const QString &state)
     // Al iniciar sesión, traer automáticamente las listas guardadas y el
     // conjunto de "me gusta".
     if (state == QLatin1String("ok")) {
+        forgetCachedPlaylist(QStringLiteral("list:LM"));
         refreshYtmLibrary();
         refreshLikedSet();
     }

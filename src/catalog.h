@@ -89,6 +89,9 @@ public:
     Q_INVOKABLE void fetchArtist(const QString &browseId);
     // Pistas de un álbum o sencillo: albumTracksReady(browseId, tracks).
     Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
+    // Resuelve la pista principal de un artista para sembrar su radio
+    // ("Radio del artista" del menú contextual): emite artistTopTrackResolved.
+    Q_INVOKABLE void resolveArtistRadio(const QString &artistName);
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -149,6 +152,9 @@ signals:
     void artistReady(const QString &browseId, const QVariantList &albums);
     // Pistas de un álbum/sencillo recibidas (ver fetchAlbumTracks()).
     void albumTracksReady(const QString &browseId, const QVariantList &tracks);
+    // Resuelta la pista principal de un artista (ver resolveArtistRadio());
+    // `track` vacío si no se pudo resolver (la UI cae a la radio de la pista).
+    void artistTopTrackResolved(const QString &artistName, const QVariantMap &track);
     // loginState / loginError / loginUrl changed.
     void loginChanged();
     // Resultado de una interacción YT (votar / añadir / quitar de lista).
@@ -285,8 +291,9 @@ private:
     QProcess m_statusProc;     // one-shot token check at startup
     QProcess m_libraryProc;    // one-shot "mis listas" fetch (ytm_api.py)
     QProcess m_artistProc;     // one-shot artistas/discografía/álbumes (ytm_api.py)
-    QString m_artistMode;      // "artists" | "artist" | "album" (vacío: anulada)
+    QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (vacío: anulada)
     QString m_artistArg;       // dato que se devuelve en la señal
+    QVariantMap m_topTrack;    // pista principal resuelta (radio del artista)
     QProcess m_ytmProc;        // one-shot acciones (rate/addpl/rmpl)
     QString m_ytmOkMessage;    // mensaje de éxito asociado a la acción en curso
     QProcess m_plProc;         // one-shot gestión de listas (create/rename/delete/info)
