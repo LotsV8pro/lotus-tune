@@ -385,12 +385,11 @@ void Downloads::startNext()
         // "mover" ficheros al terminar.
         QStringLiteral("-P"), QStringLiteral("home:") + m_folder,
         QStringLiteral("-P"), QStringLiteral("temp:") + m_folder,
-        // SÓLO audio: elige la mejor pista de audio ya comprimida (m4a/opus)
-        // para NO re-codificar y ocupar lo mínimo; si no hay, cae a `best`.
+        // Tidal-style: Opus con compresión eficiente (mejor que m4a, calidad superior).
         QStringLiteral("-f"),
-        QStringLiteral("bestaudio[ext=m4a]/bestaudio[ext=opus]/bestaudio/best"),
+        QStringLiteral("bestaudio[ext=opus]/bestaudio/best"),
         QStringLiteral("--extract-audio"),
-        QStringLiteral("--audio-format"), QStringLiteral("best"),
+        QStringLiteral("--audio-format"), QStringLiteral("opus"),
         QStringLiteral("--audio-quality"), QStringLiteral("0"),
         QStringLiteral("--embed-metadata"),
         // Sin miniatura embebida y sin `.info.json`: menos peso, menos
