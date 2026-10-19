@@ -78,6 +78,10 @@ signals:
     void changed();
 
 private:
+    // Los tests (tests/test_all.cpp) ejercen el parseo de LRC y la búsqueda de
+    // línea activa —lógica pura— sin depender de la red.
+    friend class TestLotusTune;
+
     struct LrcLine {
         double time;    // segundos desde el inicio
         QString text;
