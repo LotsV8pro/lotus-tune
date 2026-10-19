@@ -98,11 +98,15 @@ add_executable(lotus-tune-tests
     src/downloads.cpp
     src/player.cpp
     src/appconfig.cpp
+    src/sources.cpp
+    src/lyrics.cpp
+    src/catalog.cpp
 )
 target_include_directories(lotus-tune-tests PRIVATE src)
 target_link_libraries(lotus-tune-tests PRIVATE
     Qt6::Core
     Qt6::Network
+    Qt6::Sql
     Qt6::Test
 )
 add_test(NAME AllTests COMMAND lotus-tune-tests)

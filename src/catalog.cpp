@@ -323,6 +323,13 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
 
 Catalog::~Catalog()
 {
+    // El chequeo de sesión que arranca el constructor no debe quedar suelto:
+    // si sigue en marcha se le mata (igual que ~Player con mpv y sus
+    // resolutores) para no dejar procesos huérfanos ni avisos al destruir.
+    if (m_statusProc.state() != QProcess::NotRunning) {
+        m_statusProc.kill();
+        m_statusProc.waitForFinished(500);
+    }
     // Al salir, vuelca ya lo que quede pendiente: sin esto, una lista cargada
     // justo antes de cerrar no llegaría a persistir (el volcado va diferido).
     savePlaylistCache();
