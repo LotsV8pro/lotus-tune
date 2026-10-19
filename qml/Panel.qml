@@ -17,7 +17,13 @@ Item {
     id: panel
 
     property real radius: Theme.rPanel
-    property color color: Sys.surface
+    // Con el "fondo dinámico" activado la isla se vuelve vidrio esmerilado:
+    // deja pasar un poco el wash de la portada (que ya viene "desenfocado" al
+    // ser una imagen diminuta ampliada), así que el tinte es suave y el texto
+    // mantiene el contraste. Sin fondo dinámico, superficie opaca de siempre.
+    property color color: Sys.dynamicBg
+                          ? Theme.alpha(Sys.surface, 0.84)
+                          : Sys.surface
     property color borderColor: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
     property real borderWidth: 1
     property bool clipContent: false

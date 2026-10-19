@@ -290,6 +290,16 @@ Window {
         const out = []
         out.push({ label: "Reproducir", icon: "play",
                    action: function() { root.playTracks([t], 0) } })
+        // Radio al estilo de YouTube Music (sólo pistas de YouTube): la de la
+        // propia canción y la del artista, cada una sembrada en su tema top.
+        if (vid !== "") {
+            out.push({ label: "Escuchar radio de esta canción", icon: "radio",
+                       action: function() { root.startSongRadio(t) } })
+            const artistName = String(t.artist || "")
+            if (artistName)
+                out.push({ label: "Radio de " + artistName, icon: "radio",
+                           action: function() { root.startArtistRadio(t) } })
+        }
         if (canYt)
             out.push({ label: "Añadir a lista de reproducción…", icon: "plus",
                        action: function() { root.openPlaylistPicker(vid) } })
@@ -870,6 +880,7 @@ Window {
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
+        Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
         player.setQuality(cfgGet("audioQuality") || "max")
         // El Client ID de la app ya va embebido en el backend; al usuario solo
         // le importa el interruptor de encendido/apagado.
@@ -947,6 +958,64 @@ Window {
     // La cola se agotó esperando esa radio: cuando llegue hay que arrancar
     // con la primera pista nueva (no sólo añadirla a la cola).
     property bool radioResumePending: false
+    // Radio pedida a mano desde el menú de la pista (no por autoplay): la
+    // cola se amplía igual, pero sin reanudar nada al terminar la semilla.
+    // El reintento está en manualRadioTimer: fetchRadio es best-effort y se
+    // ignora si el catálogo aún está ocupado con la petición anterior.
+    property bool manualRadioPending: false
+    property string manualRadioSeed: ""
+    // Nombre del artista cuya radio se está montando (menú «Radio de X»);
+    // vacío cuando no hay ninguna petición en curso.
+    property string artistRadioPending: ""
+    // Intentos hechos de la petición de radio manual (vea tryManualRadio).
+    property int manualRadioTries: 0
+
+    // «Escuchar radio de esta canción»: suena la pista al instante y la
+    // radio llega como colas «a continuación». Si el autoplay está activado,
+    // playTracks ya pide la radio con esa misma semilla; si no, la pedimos
+    // explícita y la reintentamos mientras el catálogo esté ocupado.
+    function startSongRadio(t) {
+        const vid = root.videoIdOf(String((t || {}).url || ""))
+        if (!vid)
+            return
+        root.playTracks([t], 0)
+        if (!root.autoplayEnabled)
+            root.requestManualRadio(vid)
+    }
+
+    // «Radio del artista»: primero hay que resolver su pista principal (la
+    // más escuchada), que suena como semilla, y luego llega su radio.
+    function startArtistRadio(t) {
+        const name = String((t || {}).artist || "")
+        if (!name)
+            return
+        root.artistRadioPending = name
+        root.toast("Montando la radio de " + name + "…")
+        catalog.resolveArtistRadio(name)
+    }
+
+    // Petición (con reintento) de la radio de una semilla ya en la cola.
+    function requestManualRadio(vid) {
+        root.manualRadioPending = true
+        root.manualRadioSeed = vid
+        root.manualRadioTries = 0
+        manualRadioTimer.restart()
+        root.tryManualRadio()
+    }
+
+    function tryManualRadio() {
+        if (!root.manualRadioPending)
+            return
+        root.manualRadioTries++
+        // fetchRadio no hace nada si el catálogo está ocupado; el timer
+        // reintenta cada segundo hasta 12 intentos y entonces desiste.
+        catalog.fetchRadio(root.manualRadioSeed)
+        if (root.manualRadioTries >= 12) {
+            root.manualRadioPending = false
+            root.manualRadioSeed = ""
+            root.toast("La radio no responde, inténtalo otra vez")
+        }
+    }
 
     // Copia normalizada de una pista: conserva title/artist/url/duration/
     // source/cover y, cuando la fuente los trae, album e index.
@@ -1374,6 +1443,12 @@ Window {
         root.autoplayRadioPending = false
         root.autoplayRadioSeed = ""
         root.radioResumePending = false
+        // Cualquier radio pedida a mano para la cola anterior ya no tiene
+        // sentido: se descarta su petición y su reintento.
+        root.manualRadioPending = false
+        root.manualRadioSeed = ""
+        root.artistRadioPending = ""
+        manualRadioTimer.stop()
         if (arr.length === 1 && root.autoplayEnabled) {
             const only = queue.get(0)
             const vid = only ? videoIdOf(only.url) : ""
@@ -1564,6 +1639,17 @@ Window {
         }
     }
 
+    // Reintento de la radio pedida a mano (menú de la pista): cada segundo se
+    // vuelve a lanzar hasta que el catálogo quede libre o se agoten los
+    // intentos (vea tryManualRadio).
+    Timer {
+        id: manualRadioTimer
+        interval: 1000
+        repeat: true
+        running: false
+        onTriggered: root.tryManualRadio()
+    }
+
     // Latido periódico para el progreso en Discord/MPRIS.
     Timer {
         interval: 1000
@@ -1733,12 +1819,21 @@ Window {
         // Radio/autoplay de YouTube Music: si venía de una sola canción,
         // añade las «siguientes» a la cola (sin duplicar la que ya suena).
         // Si además la cola se había agotado (autoplay al final), arranca con
-        // la primera de las nuevas en cuanto llegan.
+        // la primera de las nuevas en cuanto llegan. Las radios pedidas a mano
+        // desde el menú de la pista llegan por la misma señal y se amplían
+        // igual, pero sin reanudar nada.
         function onRadioReady(seed, tracks) {
-            if (!root.autoplayRadioPending || seed !== root.autoplayRadioSeed)
+            const isAuto = root.autoplayRadioPending
+                           && seed === root.autoplayRadioSeed
+            const isManual = root.manualRadioPending
+                             && seed === root.manualRadioSeed
+            if (!isAuto && !isManual)
                 return
             root.autoplayRadioPending = false
             root.autoplayRadioSeed = ""
+            root.manualRadioPending = false
+            root.manualRadioSeed = ""
+            manualRadioTimer.stop()
             radioWaitTimer.stop()
             const resume = root.radioResumePending
             root.radioResumePending = false
@@ -1779,6 +1874,21 @@ Window {
             root.artistBusy = false
             root.artistAlbums = albums || []
         }
+        // Resuelta la pista principal de un artista (menú «Radio de X»): la
+        // ponemos como semilla y su radio llega a continuación por la misma
+        // vía que la radio de canción.
+        function onArtistTopTrackResolved(name, track) {
+            if (name !== root.artistRadioPending)
+                return
+            root.artistRadioPending = ""
+            if (!track || !String(track.url || "")) {
+                root.toast("No se pudo montar la radio de " + name)
+                return
+            }
+            root.playTracks([track], 0)
+            if (!root.autoplayEnabled)
+                root.requestManualRadio(root.videoIdOf(String(track.url)))
+        }
         // Pistas de un álbum: arrancan la reproducción con el primer lote y
         // los siguientes se añaden sin cortar lo que suena (ver artistAdvance).
         function onAlbumTracksReady(browseId, tracks) {
@@ -1808,6 +1918,40 @@ Window {
                 return
             }
             root.artistAdvance()
+        }
+    }
+
+    // ---- fondo dinámico (wash estilo Liner) -------------------------------
+    // La portada de la pista actual teñida de fondo: se carga en un tamaño
+    // ínfimo (56 px) y se amplía a suavemente a toda la ventana, que es un
+    // desenfoque barato y sin GPU (el backend es de software y niri no tiene
+    // desenfoque de compositor). Las islas Panel van encima: opacas sin
+    // fondo dinámico, esmeriladas con él (vea Panel.qml). Se atenúa para no
+    // comer contraste al texto.
+    Item {
+        id: bgWash
+        anchors.fill: parent
+        visible: Sys.dynamicBg
+        opacity: washImg.status === Image.Ready ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 500 } }
+
+        Image {
+            id: washImg
+            anchors.fill: parent
+            source: Sys.dynamicBg ? root.currentThumb : ""
+            sourceSize.width: 56
+            sourceSize.height: 56
+            fillMode: Image.PreserveAspectCrop
+            smooth: true
+            asynchronous: true
+        }
+
+        // Vuelta al tono oscuro de la app: el wash sólo debe insinuarse por
+        // los canales entre islas, no sustituir al escritorio.
+        Rectangle {
+            anchors.fill: parent
+            color: Sys.bg
+            opacity: 0.55
         }
     }
 
@@ -2777,6 +2921,21 @@ Window {
                                 onToggled: {
                                     root.followSys = !root.followSys
                                     root.cfgSet("followSystem", root.followSys ? "true" : "false")
+                                    root.toast("Guardado en la configuración")
+                                }
+                            }
+                        }
+
+                        // Wash de la portada actual de fondo (estilo Liner):
+                        // pseudo-desenfoque sin GPU + islas esmeriladas.
+                        SettingRow {
+                            label: "Fondo dinámico"
+                            desc: "La portada de la pista tiñe el fondo y esmerila los paneles"
+                            Toggle {
+                                checked: Sys.dynamicBg
+                                onToggled: {
+                                    Sys.dynamicBg = !Sys.dynamicBg
+                                    root.cfgSet("dynamicBg", Sys.dynamicBg)
                                     root.toast("Guardado en la configuración")
                                 }
                             }
