@@ -5,6 +5,11 @@ Lee las cookies del login integrado (~/.config/lotus-tune/cookies.txt, formato
 Netscape) y consulta la API interna de YouTube Music (InnerTube) para:
 
   library                     playlists guardadas/creadas del usuario
+  artists <q>                   artistas que encuentra una búsqueda (no canciones)
+  artist <browseId> [nombre]    discografía del artista: álbums y sencillos, del
+                                más nuevo primero (el nombre filtra los carruseles
+                                de discos de otros artistas de la misma página)
+  album <browseId>              pistas de un álbum o sencillo
   playlist <listId>           tracks de una playlist (rápido, sin yt-dlp)
   playlistinfo <listId>       título/descripción/privacidad/propiedad de una lista
   rate  <videoId> <rating>    vota LIKE | DISLIKE | INDIFFERENT
@@ -35,6 +40,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -47,6 +53,10 @@ API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 BASE_URL = "https://music.youtube.com/youtubei/v1/"
 ORIGIN = "https://music.youtube.com"
 CLIENT_VERSION = "1.20240101.01.00"
+# User-Agent de navegador para las llamadas anónimas (sin cookies): el cliente
+# WEB_REMIX público responde igual, pero un UA de navegador evita filtros.
+ANON_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+           "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
 # Puntos de entrada: el primero es la página "mis listas"; los demás son
 # alternativas por si la API cambia el browseId o devuelve vacío.
@@ -116,11 +126,19 @@ def authorization(sapisid):
 
 # ------------------------------------------------------------------ api ----
 
-def post_json(endpoint, body):
-    """POST autenticado a un endpoint de youtubei/v1 y devuelve el JSON."""
-    cookies = read_cookies()
-    cookie_header = "; ".join("%s=%s" % (n, v) for n, v in cookies)
-    auth = authorization(sapisid_from(cookies))
+def post_json(endpoint, body, anon=False):
+    """POST a un endpoint de youtubei/v1 y devuelve el JSON.
+
+    Con sesión, firma la petición (SAPISIDHASH) y manda las cookies. Cuando
+    `anon` es true y no hay cookies legibles repite la llamada en anónimo: la
+    lectura pública (search/browse) funciona sin iniciar sesión.
+    """
+    cookies = None
+    try:
+        cookies = read_cookies()
+    except YtmError:
+        if not anon:
+            raise
 
     body["context"] = {
         "client": {
@@ -130,17 +148,21 @@ def post_json(endpoint, body):
             "gl": "ES",
         }
     }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Format-Version": "1",
+        "Origin": ORIGIN,
+        "Referer": ORIGIN + "/",
+    }
+    if cookies:
+        headers["Authorization"] = authorization(sapisid_from(cookies))
+        headers["Cookie"] = "; ".join("%s=%s" % (n, v) for n, v in cookies)
+    else:
+        headers["User-Agent"] = ANON_UA
     req = urllib.request.Request(
         "%s%s?key=%s&prettyPrint=false" % (BASE_URL, endpoint, API_KEY),
         data=json.dumps(body).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": auth,
-            "Cookie": cookie_header,
-            "X-Goog-Api-Format-Version": "1",
-            "Origin": ORIGIN,
-            "Referer": ORIGIN + "/",
-        },
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -155,9 +177,9 @@ def post_json(endpoint, body):
         raise YtmError("respuesta ilegible de %s" % endpoint)
 
 
-def browse(browse_id):
+def browse(browse_id, anon=False):
     """browse() público (mantiene nombre/compatibilidad internos)."""
-    return post_json("browse", {"browseId": browse_id})
+    return post_json("browse", {"browseId": browse_id}, anon=anon)
 
 
 # -------------------------------------------------------------- parsing ----
@@ -521,6 +543,276 @@ def search(query, limit=40):
     return tracks[:limit]
 
 
+# -------------------------------------------------- artistas y discografía ----
+
+def _norm(s):
+    """Minúsculas sin acentos ni espacios de sobra: para comparar nombres."""
+    s = unicodedata.normalize("NFD", str(s or "").lower().strip())
+    return "".join(c for c in s if unicodedata.category(c) != "Mn")
+
+
+def _subtitle_of(renderer):
+    """Texto de la(subtítulo) del renderer: suscriptores, año, tipo de disco."""
+    sub = renderer.get("subtitle") or {}
+    runs = sub.get("runs") or []
+    if runs:
+        return "".join(r.get("text", "") for r in runs).strip()
+    if sub.get("simpleText"):
+        return sub["simpleText"].strip()
+    return _flex_text(renderer, 1)
+
+
+_YEAR_RE = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
+
+
+def _year_of(text):
+    m = _YEAR_RE.search(text or "")
+    return int(m.group(1)) if m else 0
+
+
+def _collect_artists(node, found, seen):
+    """Recoge artistas: los browseId de canal (UC…) y de página de artista (MPC…).
+
+    La búsqueda de YT Music trae el artista principal en una tarjeta destacada
+    (musicCardShelfRenderer) y los relacionados en una estantería de filas. Las
+    filas que son canales de YouTube ajenos («Perfil • @usuario») se descartan:
+    sólo cuentan las que se anuncian como «Artista».
+    """
+    if isinstance(node, dict):
+        card = node.get("musicCardShelfRenderer")
+        if isinstance(card, dict):
+            _artist_from_card(card, found, seen)
+        for key in ("musicTwoRowItemRenderer", "musicResponsiveListItemRenderer"):
+            renderer = node.get(key)
+            if isinstance(renderer, dict):
+                bid = _browse_id_of(renderer)
+                if not (bid.startswith("UC") or bid.startswith("MPC")):
+                    continue
+                name = _title_of(renderer) or _flex_text(renderer, 0)
+                subtitle = _subtitle_of(renderer)
+                if "artista" not in _norm(subtitle):
+                    continue
+                if not name or bid in seen:
+                    continue
+                seen.add(bid)
+                found.append({
+                    "name": name,
+                    "browseId": bid,
+                    "thumb": _best_thumb(renderer),
+                    "subtitle": subtitle,
+                })
+        for value in node.values():
+            _collect_artists(value, found, seen)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_artists(item, found, seen)
+
+
+def _artist_from_card(card, found, seen):
+    """Artista destacado de la búsqueda: la tarjeta del resultado principal."""
+    title = card.get("title") or {}
+    runs = title.get("runs") or []
+    name = ""
+    bid = ""
+    if runs:
+        name = (runs[0].get("text") or "").strip()
+        nav = runs[0].get("navigationEndpoint") or {}
+        bid = (nav.get("browseEndpoint") or {}).get("browseId") or ""
+    if not bid:
+        nav = card.get("onTap") or {}
+        bid = (nav.get("browseEndpoint") or {}).get("browseId") or ""
+    if not name or not bid:
+        return
+    if not (bid.startswith("UC") or bid.startswith("MPC")) or bid in seen:
+        return
+    seen.add(bid)
+    sub = card.get("subtitle") or {}
+    sruns = sub.get("runs") or []
+    subtitle = "".join(r.get("text", "") for r in sruns) if sruns \
+        else (sub.get("simpleText") or "")
+    # Va delante de todo: es el mejor acierto de la búsqueda.
+    found.insert(0, {
+        "name": name,
+        "browseId": bid,
+        "thumb": _best_thumb(card),
+        "subtitle": subtitle,
+    })
+
+
+def search_artists(query, limit=12):
+    """Artistas del resultado de una búsqueda en YT Music (no canciones)."""
+    resp = post_json("search", {"query": query}, anon=True)
+    found, seen = [], set()
+    _collect_artists(resp, found, seen)
+    return found[:limit]
+
+
+# Prefijos de browseId que en una página de artista NO son un disco propio:
+# playlists (VL), canales (UC), la propia página (MPC), radios (RD/LP/VP/SE),
+# secciones (LA/FE/SP/MPU).
+_NOT_AN_ALBUM = ("VL", "UC", "MPC", "RD", "LA", "FE", "SP", "MPU", "LP",
+                 "VP", "SE")
+
+
+def _collect_albums(node, found, seen, artist_norm):
+    """Recoge discos (álbum/sencillo/EP/B.S.O.) de la discografía de un artista.
+
+    `artist_norm` es el nombre del artista normalizado: una página de artista
+    también trae carruseles de discos de OTHER (colaboraciones, «similar a…»),
+    y se descartan comparando el subtítulo del elemento con ese nombre.
+    """
+    if isinstance(node, dict):
+        for key in ("musicTwoRowItemRenderer", "musicResponsiveListItemRenderer"):
+            renderer = node.get(key)
+            if isinstance(renderer, dict):
+                bid = _browse_id_of(renderer)
+                if not bid or any(bid.startswith(p) for p in _NOT_AN_ALBUM):
+                    continue
+                title = _title_of(renderer) or _flex_text(renderer, 0)
+                if not title or bid in seen:
+                    continue
+                sub = _subtitle_of(renderer)
+                sn = _norm(sub)
+                if artist_norm and sn \
+                        and artist_norm not in sn and sn not in artist_norm:
+                    continue
+                seen.add(bid)
+                found.append({
+                    "title": title,
+                    "browseId": bid,
+                    "thumb": _best_thumb(renderer),
+                    "subtitle": sub,
+                    "year": _year_of(sub),
+                })
+        for value in node.values():
+            _collect_albums(value, found, seen, artist_norm)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_albums(item, found, seen, artist_norm)
+
+
+def artist_discography(browse_id, artist_name=""):
+    """Discografía completa de un artista: álbumes, sencillos, EPs… del más
+    nuevo primero.
+
+    La página de artista normal (UC… o MPC…) sólo trae carruseles de 10
+    elementos; la página «MPAD<id>» (la que abre su botón «Más») es la que
+    lista TODAS las grabaciones en una sola respuesta.
+    """
+    bid = (browse_id or "").strip()
+    if not bid:
+        return []
+    target = bid if bid.startswith("MPAD") else "MPAD" + bid
+    resp = browse(target, anon=True)
+    albums, seen = [], set()
+    _collect_albums(resp, albums, seen, "")
+    # Los sin fecha van al final, y entre los de un mismo año alfabéticamente.
+    albums.sort(key=lambda a: (-a["year"], str(a["title"]).lower()))
+    return albums[:80]
+
+
+def _nav_artist(renderer):
+    """Artista de la columna 1 que tenga enlace a canal/página de artista (UC/MPC).
+
+    En las filas de álbum la columna del artista puede faltar (y la siguiente
+    es el número de reproducciones): sólo cuentan los tramos enlazados.
+    """
+    cols = renderer.get("flexColumns") or []
+    if len(cols) < 2:
+        return ""
+    col = cols[1].get("musicResponsiveListItemFlexColumnRenderer") or {}
+    runs = ((col.get("text") or {}).get("runs") or [])
+    parts = []
+    for r in runs:
+        be = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {})
+        bid = be.get("browseId") or ""
+        if bid.startswith(("UC", "MPC")) and r.get("text"):
+            parts.append(r["text"].strip())
+    if not parts:
+        return ""
+    return ", ".join(parts)
+
+
+def _header_artist(resp):
+    """Artista principal de la cabecera de un álbum/sencillo (straplineTextOne)."""
+    strap = _find_key(resp, "straplineTextOne")
+    if isinstance(strap, dict):
+        runs = strap.get("runs") or []
+        if runs and runs[0].get("text"):
+            return runs[0]["text"].strip()
+    return ""
+
+
+def _collect_album_tracks(node, found, seen):
+    """Como _collect_tracks pero con el artista por enlace de canal (UC…)."""
+    if isinstance(node, dict):
+        for key in ("musicResponsiveListItemRenderer", "playlistVideoRenderer"):
+            renderer = node.get(key)
+            if isinstance(renderer, dict):
+                t = _track_of(renderer)
+                if t and t["id"] not in seen:
+                    seen.add(t["id"])
+                    artist = _nav_artist(renderer) or _nav_artist_of_sb(renderer)
+                    if artist:
+                        t["channel"] = artist
+                    found.append(t)
+        for value in node.values():
+            _collect_album_tracks(value, found, seen)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_album_tracks(item, found, seen)
+
+
+def _nav_artist_of_sb(renderer):
+    """Artista enlazado en shortBylineText (playlistVideoRenderer)."""
+    sb = renderer.get("shortBylineText") or {}
+    parts = []
+    for r in sb.get("runs") or []:
+        be = ((r.get("navigationEndpoint") or {}).get("browseEndpoint") or {})
+        bid = be.get("browseId") or ""
+        if bid.startswith(("UC", "MPC")) and r.get("text"):
+            parts.append(r["text"].strip())
+    return ", ".join(parts) if parts else ""
+
+
+def album_tracks(browse_id, limit=200):
+    """Pistas de un álbum/sencillo (browse + continuación de su estantería)."""
+    resp = browse(browse_id, anon=True)
+    tracks, seen = [], set()
+    shelf = _find_key(resp, "musicShelfRenderer")
+    items = shelf.get("contents") if isinstance(shelf, dict) else []
+    _collect_album_tracks(items, tracks, seen)
+
+    token = _token_from_items(items) if items else None
+    for _ in range(12):
+        if not token:
+            break
+        r = post_json("browse", {"continuation": token}, anon=True)
+        items = _continuation_items(r)
+        if not items:
+            cont = r.get("continuationContents") or {}
+            shelf_cont = cont.get("musicShelfContinuation") or {}
+            items = shelf_cont.get("contents") or []
+        found = []
+        _collect_album_tracks(items, found, seen)
+        if not found:
+            break
+        tracks.extend(found)
+        token = _token_from_items(items)
+
+    if not tracks:   # estructura inesperada: recoger del árbol entero
+        _collect_album_tracks(resp, tracks, seen)
+
+    # Sin enlace por fila (álbumes sin columna de artista): el de la cabecera.
+    hdr_artist = _header_artist(resp)
+    if hdr_artist:
+        for t in tracks:
+            ch = (t.get("channel") or "").strip()
+            if not ch or "reproducc" in ch.lower() or "view" in ch.lower():
+                t["channel"] = hdr_artist
+    return tracks[:limit]
+
+
 def library():
     """Playlists guardadas/creadas del usuario."""
     for browse_id in LIBRARY_IDS:
@@ -725,6 +1017,27 @@ def cmd_search(query):
     return 0
 
 
+def cmd_artists(query):
+    artists = search_artists(query)
+    json.dump({"artists": artists}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_artist(browse_id, name=""):
+    albums = artist_discography(browse_id, name)
+    json.dump({"albums": albums}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_album(browse_id):
+    tracks = album_tracks(browse_id)
+    json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_rate(video_id, rating):
     resp = rate(video_id, rating)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -813,6 +1126,18 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta la consulta de búsqueda")
             return cmd_search(" ".join(args[1:]))
+        if cmd == "artists":
+            if len(args) < 2:
+                raise YtmError("falta la consulta de búsqueda")
+            return cmd_artists(" ".join(args[1:]))
+        if cmd == "artist":
+            if len(args) < 2:
+                raise YtmError("falta el browseId del artista")
+            return cmd_artist(args[1], " ".join(args[2:]) if len(args) > 2 else "")
+        if cmd == "album":
+            if len(args) < 2:
+                raise YtmError("falta el browseId del álbum")
+            return cmd_album(args[1])
         if cmd == "playlist":
             if len(args) < 2:
                 raise YtmError("falta el id de la playlist")

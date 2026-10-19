@@ -13,6 +13,32 @@ Item {
     signal trackContextRequested(var track, real x, real y)
     // Deslizar una fila a la izquierda: añadir la pista a la cola.
     signal enqueueRequested(var track)
+    // Modo artistas: el campo busca artistas (y se abre su discografía al clic).
+    // El modo elegido se recuerda entre sesiones.
+    signal artistRequested(var artist)
+    property bool artistMode: false
+    // Resultados de la última búsqueda de artistas ({ name, browseId, thumb,
+    // subtitle }); sólo importa en modo artistas.
+    property var artistResults: []
+    // ¿Búsqueda de artistas en vuelo? (su proceso no usa catalog.busy).
+    property bool artistBusy: false
+
+    Component.onCompleted:
+        page.artistMode = (typeof appcfg !== "undefined")
+                          && appcfg.get("searchArtistMode") === "true"
+
+    // Cambia el modo y refresca la lista con el modo nuevo (si hay consulta).
+    function setArtistMode(v) {
+        if (v === page.artistMode)
+            return
+        page.artistMode = v
+        if (typeof appcfg !== "undefined") {
+            appcfg.set("searchArtistMode", v ? "true" : "false")
+            appcfg.save()
+        }
+        page.lastQuery = ""
+        page.autoSearch()
+    }
 
     // La rueda que sobra (lista al borde o puntero sobre el campo) se queda en
     // la página: nunca arrastra a un contenedor padre.
@@ -44,13 +70,22 @@ Item {
     property string lastQuery: ""       // última búsqueda enviada (evita repetirla)
     property string pendingQuery: ""    // búsqueda en espera de que el backend libre
 
-    // Único punto que llama a catalog.search(): centralizar aquí el control de
-    // busy evita el error de «operación en curso». Si el backend está ocupado
-    // guarda la consulta y reintenta en breve (con tope de reintentos).
+    // Único punto que llama a catalog.search()/searchArtists(): centralizar
+    // aquí el control de busy evita el error de «operación en curso». Si el
+    // backend está ocupado guarda la consulta y reintenta en breve (con tope
+    // de reintentos).
     function dispatchSearch(q) {
         q = String(q || "").trim()
         if (q.length === 0)
             return
+        if (page.artistMode) {
+            // Los artistas corren por su propio proceso del backend
+            // (m_artistProc): no les afecta el busy de las canciones.
+            page.lastQuery = q
+            page.artistBusy = true
+            catalog.searchArtists(q)
+            return
+        }
         if (catalog.busy) {
             if (retryCount >= retryMax) {   // demasiado tiempo ocupado: desiste
                 pendingQuery = ""
@@ -106,6 +141,19 @@ Item {
         interval: page.retryMs
         repeat: false
         onTriggered: page.dispatchSearch(page.pendingQuery)
+    }
+
+    // Llegan los artistas: se pinta la lista (el proceso emite aunque la
+    // página no esté visible: se ignora si ya no estamos en modo artistas).
+    Connections {
+        target: catalog
+        function onArtistsReady(artists) {
+            if (!page.artistMode)
+                return
+            page.artistBusy = false
+            page.artistResults = artists || []
+            artistList.positionViewAtBeginning()
+        }
     }
 
     // API externa (chips del Historial en Inicio): rellena el campo y busca.
@@ -251,21 +299,71 @@ Item {
                 }
             }
 
+            // ---- modo: Canciones / Artistas ----------------------------------
+            // La misma voz del campo, dos objetivos. Se recuerda cuál se eligió.
+            RowLayout {
+                Layout.leftMargin: Theme.s2
+                spacing: Theme.s2
+                Repeater {
+                    model: 2
+                    delegate: Rectangle {
+                        id: modePill
+                        required property int index
+                        readonly property bool on: (index === 0) ? !page.artistMode
+                                                                 : page.artistMode
+                        width: modeLabel.implicitWidth + Theme.pillHPad * 2
+                        height: Theme.pillH
+                        radius: Theme.rPill
+                        color: modePill.on ? Sys.accent : "transparent"
+                        border.width: modePill.on ? 0 : 1
+                        border.color: Theme.alpha(Sys.text, 0.28)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        Text {
+                            id: modeLabel
+                            anchors.centerIn: parent
+                            text: index === 0 ? "Canciones" : "Artistas"
+                            color: modePill.on ? Sys.bg : Sys.textDim
+                            font.pixelSize: Theme.tSm
+                            font.weight: modePill.on ? Font.DemiBold : Font.Normal
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.setArtistMode(modePill.index === 1)
+                            }
+                        }
+                    }
+                }
+            }
+
             // ---- estado ----------------------------------------------------
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
-                visible: catalog.busy
-                text: "Buscando…"
+                visible: catalog.busy || page.artistBusy
+                text: page.artistMode ? "Buscando artistas…" : "Buscando…"
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
             }
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
-                visible: !catalog.busy && catalog.results.length > 0
+                visible: !catalog.busy && !page.artistMode && catalog.results.length > 0
                 text: catalog.results.length + " resultados para «"
                       + catalog.resultsQuery + "»"
+                color: Sys.textDim
+                font.pixelSize: Theme.tSm
+                elide: Text.ElideRight
+            }
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s1
+                visible: page.artistMode && !page.artistBusy && page.artistResults.length > 0
+                text: page.artistResults.length + " artistas para «"
+                      + page.lastQuery + "»"
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
@@ -284,6 +382,7 @@ Item {
                     id: results
                     anchors.fill: parent
                     anchors.margins: Theme.s2
+                    visible: !page.artistMode
                     clip: true
                     model: catalog.results
                     spacing: Theme.s1
@@ -460,7 +559,95 @@ Item {
                         }
                     }
                 }
-            }
+                }
+
+                // ---- artistas (modo artistas) -------------------------------
+                ListView {
+                    id: artistList
+                    anchors.fill: parent
+                    anchors.margins: Theme.s2
+                    visible: page.artistMode
+                    clip: true
+                    model: page.artistResults
+                    spacing: Theme.s1
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: Rectangle {
+                        id: arow
+                        required property int index
+                        required property var modelData
+
+                        width: ListView.view.width
+                        height: 64
+                        radius: Theme.rLg
+                        color: arowMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                        MouseArea {
+                            id: arowMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: page.artistRequested(arow.modelData)
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.s3
+                            anchors.rightMargin: Theme.s3
+                            spacing: Theme.s3
+
+                            Rectangle {
+                                Layout.preferredWidth: 44
+                                Layout.preferredHeight: 44
+                                Layout.alignment: Qt.AlignVCenter
+                                radius: 22
+                                clip: true
+                                color: Sys.surface
+                                Image {
+                                    anchors.fill: parent
+                                    source: arow.modelData.thumb || ""
+                                    visible: source != ""
+                                    sourceSize.width: 44
+                                    sourceSize.height: 44
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    cache: true
+                                }
+                                Glyph {
+                                    anchors.centerIn: parent
+                                    width: 18
+                                    height: 18
+                                    visible: !arow.modelData.thumb
+                                    kind: "music"
+                                    color: Sys.textDim
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: arow.modelData.name || ""
+                                    color: Sys.text
+                                    font.pixelSize: Theme.tBase
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: arow.modelData.subtitle || ""
+                                    color: Sys.textDim
+                                    font.pixelSize: Theme.tSm
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // ---- vacío / ayuda --------------------------------------------
@@ -471,11 +658,18 @@ Item {
                 Layout.maximumWidth: 520
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: Theme.s5
-                visible: !catalog.busy && catalog.results.length === 0
-                text: "Escribe al menos " + page.minQuery + " letras y los "
-                      + "resultados aparecen solos (también puedes pulsar Enter). "
-                      + "Se usa la extracción directa de la fuente: sin anuncios, "
-                      + "sin navegador."
+                visible: !catalog.busy && !page.artistBusy
+                         && (page.artistMode
+                             ? page.artistResults.length === 0
+                             : catalog.results.length === 0)
+                text: page.artistMode
+                      ? "Escribe un nombre: al abrir un artista tienes su "
+                        + "discografía entera, del disco más nuevo al más "
+                        + "antiguo, con «Reproducir todo» y aleatorio."
+                      : "Escribe al menos " + page.minQuery + " letras y los "
+                        + "resultados aparecen solos (también puedes pulsar Enter). "
+                        + "Se usa la extracción directa de la fuente: sin anuncios, "
+                        + "sin navegador."
                 color: Sys.textDim
                 font.pixelSize: Theme.tMd
                 horizontalAlignment: Text.AlignHCenter

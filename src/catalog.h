@@ -80,6 +80,15 @@ public:
                                 const QString &title = QString());
     Q_INVOKABLE void prefetchRadio(const QString &videoId,
                                    const QString &title = QString());
+    // ---- Artistas -----------------------------------------------------------
+    // Búsqueda de artistas (no canciones): artistsReady() con una lista de
+    // { name, browseId, thumb, subtitle }; el acierto principal, primero.
+    Q_INVOKABLE void searchArtists(const QString &query);
+    // Discografía completa de un artista (álbumes, sencillos, EPs…), del más
+    // nuevo primero: artistReady(browseId, albums).
+    Q_INVOKABLE void fetchArtist(const QString &browseId);
+    // Pistas de un álbum o sencillo: albumTracksReady(browseId, tracks).
+    Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -134,6 +143,12 @@ signals:
     // Llegó la radio (autoplay) de YouTube Music: `tracks` es lo que sigue tras
     // el videoId semilla, para que la UI amplíe "a continuación".
     void radioReady(const QString &seedVideoId, const QVariantList &tracks);
+    // Resultados de la búsqueda de artistas (ver searchArtists()).
+    void artistsReady(const QVariantList &artists);
+    // Discografía recibida (ver fetchArtist()).
+    void artistReady(const QString &browseId, const QVariantList &albums);
+    // Pistas de un álbum/sencillo recibidas (ver fetchAlbumTracks()).
+    void albumTracksReady(const QString &browseId, const QVariantList &tracks);
     // loginState / loginError / loginUrl changed.
     void loginChanged();
     // Resultado de una interacción YT (votar / añadir / quitar de lista).
@@ -149,6 +164,13 @@ private:
     // que es lo que decide el tope de pistas y el tiempo de espera.
     void runRadio(const QString &videoId, const QString &title,
                   const QString &purpose);
+    // Lanza `python3 ytm_api.py <args...>` en m_artistProc (búsqueda de
+    // artistas, discografía y pistas de álbum). `mode` dice cómo interpretar la
+    // salida ("artists" | "artist" | "album") y `arg` es el dato que la UI
+    // reconoce en la respuesta. Sólo hay una petición en vuelo: una nueva
+    // anula a la anterior (cambiar de artista con su discografía aún llegando).
+    void runArtist(const QStringList &args, const QString &mode,
+                   const QString &arg);
     // Cancela una consulta de fondo en vuelo (radio/autoplay o precarga). Es
     // best-effort, así que pierde siempre frente a una acción del usuario.
     // Devuelve true si había una y se ha cancelado.
@@ -262,6 +284,9 @@ private:
     QProcess m_loginProc;      // dedicated: must not disturb m_proc searches
     QProcess m_statusProc;     // one-shot token check at startup
     QProcess m_libraryProc;    // one-shot "mis listas" fetch (ytm_api.py)
+    QProcess m_artistProc;     // one-shot artistas/discografía/álbumes (ytm_api.py)
+    QString m_artistMode;      // "artists" | "artist" | "album" (vacío: anulada)
+    QString m_artistArg;       // dato que se devuelve en la señal
     QProcess m_ytmProc;        // one-shot acciones (rate/addpl/rmpl)
     QString m_ytmOkMessage;    // mensaje de éxito asociado a la acción en curso
     QProcess m_plProc;         // one-shot gestión de listas (create/rename/delete/info)
