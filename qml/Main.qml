@@ -80,6 +80,10 @@ Window {
     // ---- preferencias nuevas (calidad, letras, Discord, descargas) --------
     property bool lyricsEnabled: true
     property bool discordEnabled: false
+    // Autoplay: al agotarse la cola se pide a YouTube Music la continuación
+    // (radio sembrada en la última pista) y la música no se corta. Activado
+    // por defecto; se recuerda entre sesiones.
+    property bool autoplayEnabled: true
 
     // ---- panel derecho (cola / letra) ------------------------------------
     property bool panelOpen: false
@@ -251,6 +255,7 @@ Window {
             return
         }
         root.autoplayRadioPending = false   // ya hay una cola puesta a mano
+        root.radioResumePending = false
         queue.append(root.queueRow(t))
         root.toast("Añadido a la cola")
         root.saveSession()
@@ -608,6 +613,7 @@ Window {
             return
         }
         if (root.settingsOpen) { root.settingsOpen = false; return }
+        if (root.artistOpen) { root.closeArtist(); return }
         if (root.nowPlayingOpen) { root.nowPlayingOpen = false; return }
         if (root.panelOpen) { root.panelOpen = false; return }
         if (root.fullscreen) { root.toggleFullscreen(); return }
@@ -863,6 +869,7 @@ Window {
         // Preferencias del reproductor, letras, Discord y descargas.
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
         discordEnabled = cfgGet("discordRpc") === "true"
+        autoplayEnabled = cfgGet("autoplay") !== "false"
         player.setQuality(cfgGet("audioQuality") || "max")
         // El Client ID de la app ya va embebido en el backend; al usuario solo
         // le importa el interruptor de encendido/apagado.
@@ -937,6 +944,9 @@ Window {
     // ¿Hay una radio/autoplay de YT Music en camino para la pista actual?
     property bool autoplayRadioPending: false
     property string autoplayRadioSeed: ""
+    // La cola se agotó esperando esa radio: cuando llegue hay que arrancar
+    // con la primera pista nueva (no sólo añadirla a la cola).
+    property bool radioResumePending: false
 
     // Copia normalizada de una pista: conserva title/artist/url/duration/
     // source/cover y, cuando la fuente los trae, album e index.
@@ -1055,6 +1065,108 @@ Window {
         queueShuffled = false
         // El orden de reproducción ha cambiado: lo pre-cargado ya no sirve.
         player.clearPrefetch()
+    }
+
+    // ---- Artista (búsqueda, discografía y «reproducir todo») --------------
+    // Ficha completa del artista: su discografía llega del más nuevo al más
+    // antiguo. «Reproducir todo» arranca con el primer disco y pide los
+    // demás de uno en uno, añadiendo sus pistas a la cola al vuelo; el
+    // aleatorio baraja la cola entera cuando está completa.
+    property bool artistOpen: false
+    property var artistCur: null           // { name, browseId, thumb }
+    property var artistAlbums: []
+    property bool artistBusy: false
+    // Qué espera la app de los álbumes: "" nada, "todo", "aleatorio", "album".
+    property string artistWant: ""
+    property string artistWantBrowse: ""   // browseId pedido en vuelo
+    property var artistFetchQueue: []      // browseIds que aún faltan
+    property bool artistStarted: false     // ya sonó la primera pista
+    property int artistAdded: 0            // pistas añadidas de la tanda
+
+    // Abre la ficha de un artista y pide su discografía.
+    function openArtist(a) {
+        if (!a || !a.browseId)
+            return
+        root.artistCur = a
+        root.artistAlbums = []
+        root.artistBusy = true
+        root.artistOpen = true
+        catalog.fetchArtist(a.browseId)
+    }
+
+    function closeArtist() {
+        root.artistOpen = false
+    }
+
+    // «Reproducir todo» / «Aleatorio» sobre la discografía cargada.
+    function artistPlayAll(albums, random) {
+        const list = albums || []
+        if (list.length === 0) {
+            root.toast("Este artista no tiene discos que reproducir")
+            return
+        }
+        root.artistWant = random ? "aleatorio" : "todo"
+        root.artistStarted = false
+        root.artistAdded = 0
+        root.artistFetchQueue = list.slice(1).map(a => String(a.browseId || ""))
+        root.artistWantBrowse = String(list[0].browseId || "")
+        root.toast("Añadiendo la discografía de "
+                   + String(root.artistCur ? root.artistCur.name : "") + "…")
+        catalog.fetchAlbumTracks(root.artistWantBrowse)
+    }
+
+    // Reproducir sólo un disco: la cola pasa a ser ese álbum.
+    function artistPlayAlbum(album) {
+        if (!album || !album.browseId)
+            return
+        root.artistWant = "album"
+        root.artistWantBrowse = String(album.browseId)
+        root.artistStarted = false
+        root.artistAdded = 0
+        catalog.fetchAlbumTracks(root.artistWantBrowse)
+    }
+
+    // Sigue la tanda de álbumes: pide el siguiente pendiente o cierra la
+    // operación (barajando la cola entera si era el aleatorio).
+    function artistAdvance() {
+        const nextBid = root.artistFetchQueue.length > 0
+                        ? root.artistFetchQueue.shift() : ""
+        if (nextBid) {
+            root.artistWantBrowse = nextBid
+            catalog.fetchAlbumTracks(nextBid)
+            return
+        }
+        const wasRandom = root.artistWant === "aleatorio"
+        const added = root.artistAdded
+        const who = root.artistCur ? String(root.artistCur.name) : ""
+        root.artistWant = ""
+        root.artistWantBrowse = ""
+        root.artistFetchQueue = []
+        if (wasRandom && queue.count > 1)
+            reshuffleQueue()
+        if (added > 0)
+            root.toast(added + " temas de " + who + " en la cola")
+    }
+
+    // Añade pistas al final de la cola sin repetir ninguna ya presente (por
+    // url). Devuelve cuántas entraron de verdad.
+    function appendTracksUnique(tracks) {
+        const have = {}
+        for (let i = 0; i < queue.count; i++) {
+            const q = queue.get(i)
+            if (q && q.url)
+                have[q.url] = true
+        }
+        let added = 0
+        for (let j = 0; j < tracks.length; j++) {
+            const t = tracks[j]
+            if (!t || !t.url || have[t.url])
+                continue
+            have[t.url] = true
+            queue.append(root.queueRow(t))
+            added++
+        }
+        return added
     }
 
     // ---- sesión persistente ---------------------------------------------
@@ -1261,7 +1373,8 @@ Window {
         // Music (las «siguientes» que usaría YouTube Music sin añadirlas a mano).
         root.autoplayRadioPending = false
         root.autoplayRadioSeed = ""
-        if (arr.length === 1) {
+        root.radioResumePending = false
+        if (arr.length === 1 && root.autoplayEnabled) {
             const only = queue.get(0)
             const vid = only ? videoIdOf(only.url) : ""
             if (vid && typeof catalog.fetchRadio === "function") {
@@ -1354,17 +1467,38 @@ Window {
         if (queueIndex + 1 < queue.count) {
             queueIndex++
             startCurrent()
-        } else {
-            player.stopPlayback()
-            currentTitle = ""
-            currentArtist = ""
-            currentThumb = ""
-            root.lyricsKey = ""
-            root.metaKey = ""
-            lyrics.clear()
-            discord.clear()
-            mpris.updatePlayback(false, 0, true)
+            return
         }
+        // Fin de la cola. Con el autoplay puesto no se corta: se pide a
+        // YouTube Music que continúe desde la última pista (llegará a ~1,4 s
+        // con prefetchRadio). Mientras llega, la última canción se queda en
+        // pantalla; el radioWaitTimer pone el silencio si la red no responde.
+        const vid = root.autoplayEnabled && queue.count > 0
+                    ? videoIdOf(queue.get(queueIndex).url) : ""
+        if (vid && typeof catalog.prefetchRadio === "function") {
+            root.autoplayRadioPending = true
+            root.autoplayRadioSeed = vid
+            root.radioResumePending = true
+            radioWaitTimer.restart()
+            catalog.prefetchRadio(vid, currentTitle)
+            return
+        }
+        root.stopAndClear()
+    }
+
+    // Silencio y limpieza al agotarse la cola sin autoplay: apaga el motor,
+    // el rótulo, la letra y los enrutadores externos. La cola se conserva
+    // (volver atrás con «prev» sigue teniendo por dónde).
+    function stopAndClear() {
+        player.stopPlayback()
+        currentTitle = ""
+        currentArtist = ""
+        currentThumb = ""
+        root.lyricsKey = ""
+        root.metaKey = ""
+        lyrics.clear()
+        discord.clear()
+        mpris.updatePlayback(false, 0, true)
     }
 
     function prev() {
@@ -1411,6 +1545,23 @@ Window {
         id: sessionSaveTimer
         interval: 700
         onTriggered: root.saveSession()
+    }
+
+    // Valvula del autoplay: si al agotarse la cola la continuacion de
+    // YouTube Music no llega en 12 s (red cortada, extractor bloqueado), se
+    // pone el silencio en lugar de dejar la interfaz esperando a nada.
+    Timer {
+        id: radioWaitTimer
+        interval: 12000
+        repeat: false
+        onTriggered: {
+            if (!root.autoplayRadioPending)
+                return
+            root.autoplayRadioPending = false
+            root.autoplayRadioSeed = ""
+            root.radioResumePending = false
+            root.stopAndClear()
+        }
     }
 
     // Latido periódico para el progreso en Discord/MPRIS.
@@ -1540,6 +1691,16 @@ Window {
                 // Una apertura fallida: nada que abrir ni reproducir después.
                 root.listLoading = false
                 root.pendingPlay = false
+                // Un fallo del backend deja sin efecto la radio/autoplay que
+                // estuviera en camino: no hay que esperarla más.
+                if (root.autoplayRadioPending) {
+                    root.autoplayRadioPending = false
+                    root.autoplayRadioSeed = ""
+                    if (root.radioResumePending) {
+                        root.radioResumePending = false
+                        root.stopAndClear()
+                    }
+                }
                 root.toast(catalog.error)
                 catalog.dismissError()
             }
@@ -1571,13 +1732,21 @@ Window {
         }
         // Radio/autoplay de YouTube Music: si venía de una sola canción,
         // añade las «siguientes» a la cola (sin duplicar la que ya suena).
+        // Si además la cola se había agotado (autoplay al final), arranca con
+        // la primera de las nuevas en cuanto llegan.
         function onRadioReady(seed, tracks) {
             if (!root.autoplayRadioPending || seed !== root.autoplayRadioSeed)
                 return
             root.autoplayRadioPending = false
             root.autoplayRadioSeed = ""
-            if (!tracks || !tracks.length)
+            radioWaitTimer.stop()
+            const resume = root.radioResumePending
+            root.radioResumePending = false
+            if (!tracks || !tracks.length) {
+                if (resume)
+                    root.stopAndClear()
                 return
+            }
             const have = {}
             const cur = toTrackList(queue)
             for (let i = 0; i < cur.length; i++) {
@@ -1598,6 +1767,47 @@ Window {
                 queue.append(root.queueRow(t))
             }
             root.saveSession()
+            if (resume && queueIndex + 1 < queue.count) {
+                queueIndex++
+                startCurrent()
+            }
+        }
+        // Discografía recibida: sólo vale la del artista abierto.
+        function onArtistReady(browseId, albums) {
+            if (!root.artistCur || browseId !== String(root.artistCur.browseId))
+                return
+            root.artistBusy = false
+            root.artistAlbums = albums || []
+        }
+        // Pistas de un álbum: arrancan la reproducción con el primer lote y
+        // los siguientes se añaden sin cortar lo que suena (ver artistAdvance).
+        function onAlbumTracksReady(browseId, tracks) {
+            if (root.artistWant === "" || browseId !== root.artistWantBrowse)
+                return   // respuesta de una petición ya anulada
+            if (!tracks || !tracks.length) {
+                if (root.artistWant === "album") {
+                    root.artistWant = ""
+                    root.artistWantBrowse = ""
+                    root.toast("Ese álbum no trae pistas reproducibles")
+                } else {
+                    root.artistAdvance()
+                }
+                return
+            }
+            if (!root.artistStarted) {
+                // Primer lote: la música empieza ya, sin esperar al resto.
+                root.playTracks(tracks, 0)
+                root.artistStarted = true
+                root.artistAdded += tracks.length
+            } else {
+                root.artistAdded += root.appendTracksUnique(tracks)
+            }
+            if (root.artistWant === "album") {
+                root.artistWant = ""
+                root.artistWantBrowse = ""
+                return
+            }
+            root.artistAdvance()
         }
     }
 
@@ -1736,6 +1946,8 @@ Window {
                             onPlayRequested: (list, idx) => root.playTracks(list, idx)
                             onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
+                            // Modo artistas: la ficha se abre a pantalla completa.
+                            onArtistRequested: (a) => root.openArtist(a)
                         }
                         LibraryPage {
                             id: libPage
@@ -2645,6 +2857,25 @@ Window {
                                 }
                             }
                         }
+
+                        // Al agotarse la cola, YouTube Music pone la
+                        // «siguiente canción» (radio sembrada en la última).
+                        SettingRow {
+                            label: "Reproducción automática"
+                            desc: "Al terminar la cola, sigue con canciones parecidas"
+                            Toggle {
+                                checked: root.autoplayEnabled
+                                onToggled: {
+                                    root.autoplayEnabled = !root.autoplayEnabled
+                                    root.cfgSet("autoplay", root.autoplayEnabled)
+                                    if (!root.autoplayEnabled) {
+                                        root.autoplayRadioPending = false
+                                        root.autoplayRadioSeed = ""
+                                        radioWaitTimer.stop()
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // ======================================================
@@ -3170,6 +3401,110 @@ Window {
                 }
             }
         }
+    }
+
+    // ---- ficha de artista (capa a pantalla completa) ----------------------
+    // Discografía del artista abierto desde la búsqueda de artistas. Por
+    // debajo de las cartas emergentes y los toasts (z 97/98) para que el
+    // aviso de «N temas en la cola» se siga leyendo con la ficha abierta.
+    ArtistPage {
+        id: artistOverlay
+        anchors.fill: parent
+        z: 64
+        visible: root.artistOpen
+        artist: root.artistCur
+        albums: root.artistAlbums
+        busy: root.artistBusy
+        onBackRequested: root.closeArtist()
+        onPlayAllRequested: (random) => root.artistPlayAll(root.artistAlbums, random)
+        onAlbumPlayRequested: (album) => root.artistPlayAlbum(album)
+    }
+
+    // ---- splash de arranque ------------------------------------------------
+    // El loto entra con un fundido y un leve crecimiento, aguanta, y se va
+    // desvaneciendo. Un Item dentro de la ventana (nada de segunda ventana:
+    // coste de RAM cero) que además traga los clics mientras dura (~1,3 s).
+    Item {
+        id: splashOverlay
+        anchors.fill: parent
+        z: 200
+        property bool done: false
+        visible: !done
+        transformOrigin: Item.Center
+
+        Rectangle {
+            anchors.fill: parent
+            color: Sys.bg
+        }
+
+        MouseArea {
+            anchors.fill: parent
+        }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: Theme.s4
+
+            LotusMark {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: 132
+                height: 120
+                petalColor: Sys.accent
+            }
+
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: "Lotus Tune"
+                color: Sys.text
+                font.pixelSize: Theme.tXl
+                font.weight: Font.DemiBold
+                font.letterSpacing: 2.5
+            }
+        }
+
+        SequentialAnimation {
+            id: splashAnim
+            ParallelAnimation {
+                NumberAnimation {
+                    target: splashOverlay
+                    property: "opacity"
+                    from: 0
+                    to: 1
+                    duration: 430
+                    easing.type: Easing.OutCubic
+                }
+                NumberAnimation {
+                    target: splashOverlay
+                    property: "scale"
+                    from: 0.86
+                    to: 1
+                    duration: 430
+                    easing.type: Easing.OutCubic
+                }
+            }
+            PauseAnimation { duration: 480 }
+            ParallelAnimation {
+                NumberAnimation {
+                    target: splashOverlay
+                    property: "opacity"
+                    from: 1
+                    to: 0
+                    duration: 420
+                    easing.type: Easing.InQuad
+                }
+                NumberAnimation {
+                    target: splashOverlay
+                    property: "scale"
+                    from: 1
+                    to: 1.06
+                    duration: 420
+                    easing.type: Easing.InQuad
+                }
+            }
+            PropertyAction { target: splashOverlay; property: "done"; value: true }
+        }
+
+        Component.onCompleted: splashAnim.start()
     }
 
 }

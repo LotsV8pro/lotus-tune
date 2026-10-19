@@ -110,6 +110,73 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit libraryChanged();
             });
 
+    // Artistas: búsqueda, discografía y pistas de álbum (ytm_api.py, vía anónima
+    // cuando no hay sesión). Proceso propio para no pisar búsquedas de canciones
+    // ni la apertura de listas; su respuesta llega por señales dedicadas.
+    m_artistProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_artistProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QByteArray out = m_artistProc.readAllStandardOutput();
+                const QString mode = m_artistMode;
+                const QString arg = m_artistArg;
+                m_artistMode.clear();
+                m_artistArg.clear();
+                if (mode.isEmpty())
+                    return;   // anulado por una petición nueva: se ignora
+                QVariantList list;
+                if (code == 0) {
+                    const QJsonDocument doc = QJsonDocument::fromJson(out);
+                    const QJsonObject root = doc.object();
+                    if (mode == QLatin1String("artists")) {
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("artists")).toArray()) {
+                            const QJsonObject o = v.toObject();
+                            if (o.value(QStringLiteral("browseId"))
+                                    .toString()
+                                    .isEmpty())
+                                continue;
+                            QVariantMap a;
+                            a.insert(QStringLiteral("name"),
+                                     o.value(QStringLiteral("name")).toString());
+                            a.insert(QStringLiteral("browseId"),
+                                     o.value(QStringLiteral("browseId")).toString());
+                            a.insert(QStringLiteral("thumb"),
+                                     o.value(QStringLiteral("thumb")).toString());
+                            a.insert(QStringLiteral("subtitle"),
+                                     o.value(QStringLiteral("subtitle")).toString());
+                            list.append(a);
+                        }
+                    } else if (mode == QLatin1String("artist")) {
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("albums")).toArray()) {
+                            const QJsonObject o = v.toObject();
+                            QVariantMap a;
+                            a.insert(QStringLiteral("title"),
+                                     o.value(QStringLiteral("title")).toString());
+                            a.insert(QStringLiteral("browseId"),
+                                     o.value(QStringLiteral("browseId")).toString());
+                            a.insert(QStringLiteral("thumb"),
+                                     o.value(QStringLiteral("thumb")).toString());
+                            a.insert(QStringLiteral("subtitle"),
+                                     o.value(QStringLiteral("subtitle")).toString());
+                            a.insert(QStringLiteral("year"),
+                                     o.value(QStringLiteral("year")).toInt());
+                            list.append(a);
+                        }
+                    } else if (mode == QLatin1String("album")) {
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("entries")).toArray())
+                            list.append(normalize(v.toObject().toVariantMap()));
+                    }
+                }
+                if (mode == QLatin1String("artists"))
+                    emit artistsReady(list);
+                else if (mode == QLatin1String("artist"))
+                    emit artistReady(arg, list);
+                else if (mode == QLatin1String("album"))
+                    emit albumTracksReady(arg, list);
+            });
+
     // Acciones puntuales sobre YT Music (votar, añadir/quitar de lista). Van en
     // su propio QProcess para no bloquear búsquedas ni "mis listas".
     m_ytmProc.setProcessChannelMode(QProcess::SeparateChannels);
@@ -670,6 +737,63 @@ void Catalog::runRadio(const QString &videoId, const QString &title,
         + QStringLiteral("&list=RDAMVM") + v;
     run(target, purpose,
         title.trimmed().isEmpty() ? QStringLiteral("Radio") : title.trimmed());
+}
+
+// ---- Artistas -------------------------------------------------------------
+// Los tres lanzados corren en m_artistProc (una petición a la vez); la salida
+// se interpreta en el finished() conectado en el constructor.
+
+void Catalog::runArtist(const QStringList &args, const QString &mode,
+                        const QString &arg)
+{
+    if (m_artistProc.state() != QProcess::NotRunning) {
+        // La petición nueva manda: se anula la anterior y su respuesta se
+        // ignora (m_artistMode queda vacío antes del kill).
+        m_artistMode.clear();
+        m_artistArg.clear();
+        m_artistProc.kill();
+        m_artistProc.waitForFinished(250);
+    }
+    m_artistMode = mode;
+    m_artistArg = arg;
+    // normalize() etiqueta las pistas con la fuente activa.
+    m_currentSource = m_sources->activeId();
+    m_artistProc.setProgram(QStringLiteral("python3"));
+    m_artistProc.setArguments(args);
+    m_artistProc.start();
+}
+
+void Catalog::searchArtists(const QString &query)
+{
+    const QString q = query.trimmed();
+    if (q.isEmpty()) {
+        emit artistsReady({});
+        return;
+    }
+    runArtist({ytmApiPath(), QStringLiteral("artists"), q},
+              QStringLiteral("artists"), q);
+}
+
+void Catalog::fetchArtist(const QString &browseId)
+{
+    const QString id = browseId.trimmed();
+    if (id.isEmpty()) {
+        emit artistReady(id, {});
+        return;
+    }
+    runArtist({ytmApiPath(), QStringLiteral("artist"), id},
+              QStringLiteral("artist"), id);
+}
+
+void Catalog::fetchAlbumTracks(const QString &browseId)
+{
+    const QString id = browseId.trimmed();
+    if (id.isEmpty()) {
+        emit albumTracksReady(id, {});
+        return;
+    }
+    runArtist({ytmApiPath(), QStringLiteral("album"), id},
+              QStringLiteral("album"), id);
 }
 
 void Catalog::syncLiked()
