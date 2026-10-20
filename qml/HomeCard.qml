@@ -53,14 +53,10 @@ Item {
             id: cover
             width: card.coverSize
             height: card.coverSize
-            radius: card.round ? width / 2 : Theme.rLg
+            // Radio ajustado (10 px), el del repo de referencia: portada
+            // limpia, sin filo — el hover (levantar 2 px) es lo que avisa.
+            radius: card.round ? width / 2 : Theme.rMd
             clip: true
-            // Filo tenue siempre visible (despega la portada del fondo, como
-            // una isla) que se aviva en acento al pasar el ratón.
-            border.width: 1
-            border.color: card.hovered ? Theme.alpha(Sys.accent, 0.50)
-                                       : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
-            Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
             gradient: Gradient {
                 GradientStop { position: 0.0; color: card.coverA }

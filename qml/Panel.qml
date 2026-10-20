@@ -1,14 +1,14 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Isla flotante: superficie redondeada con un filo luminoso muy tenue. Es el
-// ladrillo de la interfaz — el rail, la barra de título, la barra de
-// reproducción, el panel lateral y el contenido son todos `Panel`.
+// Isla flotante: superficie redondeada SIN filo (el borde claro se quitó: en
+// el lenguaje visual actual la separación la da el aire y el relleno, no la
+// línea). Es el ladrillo de la interfaz — el rail, la barra de título, la
+// barra de reproducción, el panel lateral y el contenido son todos `Panel`.
 //
 // Nota sobre la sombra: en un fondo tan oscuro (#151115) una sombra negra no
 // aporta contraste, así que la sensación de "flotar" la da el aire de
-// `panelMargin`/`panelGap` más el borde claro, que son las propiedades que
-// realmente se ven. Nada de efectos ni texturas: cero coste de render.
+// `panelMargin`/`panelGap`. Nada de efectos ni texturas: cero coste de render.
 //
 // Los hijos declarados dentro se colocan EN la superficie, de modo que
 // `clipContent` recorta el contenido a las esquinas de la isla (útil para
@@ -24,8 +24,8 @@ Item {
     property color color: Sys.dynamicBg
                           ? Theme.alpha(Sys.surface, 0.84)
                           : Sys.surface
-    property color borderColor: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
-    property real borderWidth: 1
+    property color borderColor: "transparent"
+    property real borderWidth: 0
     property bool clipContent: false
 
     default property alias content: surface.data

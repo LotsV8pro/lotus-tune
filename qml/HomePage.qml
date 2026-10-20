@@ -36,9 +36,12 @@ Item {
     // las fuentes: las canciones SUELTAS escuchadas (se excluyen las que
     // sonaron dentro de una playlist) y las 5 listas más recientes.
     property int picksPage: 0
-    readonly property int picksPerPage: 15
+    // Rejilla de accesos directos: 3 columnas × 2 filas, como en el repo de
+    // referencia (pantalla completa sin paginación larga; las flechas sólo
+    // aparecen si hay más de una página).
+    readonly property int picksPerPage: 6
     readonly property int picksCols: 3
-    readonly property int picksRows: 5
+    readonly property int picksRows: 2
 
     // Canciones sueltas recientes (catalog.recent, más nueva primero). Se
     // excluyen las que sonaron dentro de una playlist (`setId`) y las antiguas
@@ -348,36 +351,46 @@ Item {
         { q: "clásica para estudiar", t: "Clásica", s: "Enfoque", icon: "radio" }
     ]
 
-    // Título de sección: pequeño, en Sys.textDim, sin adornos.
-    component SectionTitle: Text {
-        color: Sys.textDim
-        font.pixelSize: Theme.tSm
-        font.weight: Font.DemiBold
-        font.letterSpacing: 1.1
-        elide: Text.ElideRight
+    // Título de sección: icono al color de acento + rotulo en negrita y
+    // mayusculas normalizadas (el estilo del repo de referencia: el icono
+    // presenta la seccion, el tamano la jerarquiza).
+    component SectionTitle: RowLayout {
+        id: secTitle
+
+        property string text: ""
+        property string icon: ""
+
+        spacing: Theme.s2
+        Glyph {
+            width: 17
+            height: 17
+            visible: secTitle.icon !== ""
+            kind: secTitle.icon
+            color: Sys.accent
+        }
+        Text {
+            Layout.fillWidth: true
+            text: secTitle.text
+            color: Sys.text
+            font.pixelSize: Theme.tLg
+            font.weight: Font.Bold
+            elide: Text.ElideRight
+        }
     }
 
-    // Isla flotante de sección: superficie redondeada con un filo luminoso muy
-    // tenue y un ColumnLayout interior. El aire (pad) y el hueco (spacing)
-    // marcan la jerarquía; el alto lo fija el contenido. Sin sombras: en un
-    // fondo tan oscuro el borde claro es lo que realmente despega la isla.
-    // Con el fondo dinámico activado la isla es translúcida: deja pasar el
-    // wash de la portada, así los carriles se tiñen de música en vez de
-    // quedarse en negro plano (y un punto más clara que el panel para que la
-    // retícula no quede plana sin fondo dinámico).
+    // Sección de Inicio: PLANA, sin caja ni filo — el contenido va directo
+    // sobre el fondo lavado, como en el repo de referencia. El aire (pad) y el
+    // hueco (spacing) marcan la jerarquía; el alto lo fija el contenido.
     component Island: Rectangle {
         id: island
 
-        property real pad: Theme.s4
+        property real pad: Theme.s2
         property alias spacing: inner.spacing
 
         implicitHeight: inner.implicitHeight + island.pad * 2
-        radius: Theme.rPanel
-        color: Sys.dynamicBg
-               ? Theme.alpha(Sys.surfaceAlt, 0.55)
-               : Theme.alpha(Sys.surfaceAlt, 0.9)
-        border.width: 1
-        border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+        radius: 0
+        color: "transparent"
+        border.width: 0
 
         default property alias content: inner.data
 
@@ -522,14 +535,15 @@ Item {
                 spacing: Theme.s3
                 visible: page.picksTotal > 0
 
+                // Sin rotulo: el saludo ya preside la pagina (como en el repo
+                // de referencia). Las flechas de paginas son discretas y sólo
+                // existen si hay mas de una pagina de accesos.
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s2
+                    visible: page.picksPages > 1
 
-                    SectionTitle {
-                        Layout.fillWidth: true
-                        text: "RECIENTE"
-                    }
+                    Item { Layout.fillWidth: true }
 
                     Rectangle {
                         Layout.preferredWidth: Theme.pillH
@@ -579,13 +593,15 @@ Item {
                     }
                 }
 
-                // Rejilla: 3 columnas × 5 filas (llenado por columnas).
+                // Rejilla: 3 columnas × 2 filas (llenado por columnas: con
+                // flow vertical el GridLayout agrupa por FILAS, así que el
+                // punto de envoltura es rows=2).
                 GridLayout {
                     Layout.fillWidth: true
-                    columns: page.picksCols
+                    rows: page.picksRows
                     flow: GridLayout.TopToBottom
                     columnSpacing: Theme.s3
-                    rowSpacing: 0
+                    rowSpacing: Theme.s2
 
                     Repeater {
                         model: page.picksPageItems()
@@ -596,9 +612,13 @@ Item {
                             required property int index
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.rowCompact
-                            radius: Theme.rPill
-                            color: pickMouse.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                            Layout.preferredHeight: 58
+                            // Pastilla siempre insinuada (como en el repo de
+                            // referencia): el acceso directo se ve accesible
+                            // sin pasar el raton encima.
+                            radius: Theme.rMd
+                            color: pickMouse.containsMouse
+                                   ? Theme.alpha(Sys.text, 0.11) : Theme.alpha(Sys.text, 0.055)
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                             RowLayout {
@@ -608,8 +628,8 @@ Item {
                                 spacing: Theme.s3
 
                                 Rectangle {
-                                    Layout.preferredWidth: 34
-                                    Layout.preferredHeight: 34
+                                    Layout.preferredWidth: 42
+                                    Layout.preferredHeight: 42
                                     radius: Theme.rSm
                                     color: Sys.surfaceAlt
                                     clip: true
@@ -617,16 +637,16 @@ Item {
                                         anchors.fill: parent
                                         source: pickRow.modelData.thumb || ""
                                         visible: source != ""
-                                        sourceSize.width: 34
-                                        sourceSize.height: 34
+                                        sourceSize.width: 42
+                                        sourceSize.height: 42
                                         fillMode: Image.PreserveAspectCrop
                                         asynchronous: true
                                         cache: true
                                     }
                                     Glyph {
                                         anchors.centerIn: parent
-                                        width: 15
-                                        height: 15
+                                        width: 16
+                                        height: 16
                                         visible: !pickRow.modelData.thumb
                                         kind: pickRow.modelData.kind === "liked"
                                               ? "heart"
@@ -644,6 +664,7 @@ Item {
                                         text: pickRow.modelData.title || ""
                                         color: Sys.text
                                         font.pixelSize: Theme.tBase
+                                        font.weight: Font.DemiBold
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
                                     }
@@ -687,7 +708,8 @@ Item {
 
                 SectionTitle {
                     Layout.fillWidth: true
-                    text: "RECOMENDADO PARA TI"
+                    icon: "disc"
+                    text: "Recomendado para ti"
                 }
 
                 ListView {
@@ -737,7 +759,8 @@ Item {
 
                 SectionTitle {
                     Layout.fillWidth: true
-                    text: "TUS PLAYLISTS"
+                    icon: "clock"
+                    text: "Tus playlists"
                 }
 
                 ListView {
@@ -791,7 +814,8 @@ Item {
 
                 SectionTitle {
                     Layout.fillWidth: true
-                    text: "RADIOS DE YOUTUBE"
+                    icon: "radio"
+                    text: "Radios de YouTube"
                 }
 
                 ListView {
@@ -840,7 +864,8 @@ Item {
 
                     SectionTitle {
                         Layout.fillWidth: true
-                        text: "HISTORIAL DE BÚSQUEDAS"
+                        icon: "search"
+                        text: "Búsquedas recientes"
                     }
 
                     Rectangle {

@@ -66,11 +66,12 @@ Item {
         { id: "downloads", label: "Descargas",  icon: "download" }
     ]
 
-    // La isla: una única superficie redondeada con sombra suave. El relleno
-    // interior (`Theme.s2`) mantiene el contenido lejos de las esquinas.
+    // Plano, al estilo del repo de referencia: el rail va directo sobre el
+    // fondo (sin caja); la jerarquía la marca el resaltado de la sección activa.
     Panel {
         anchors.fill: parent
         radius: Theme.rPanel
+        color: "transparent"
 
         ColumnLayout {
             anchors.fill: parent

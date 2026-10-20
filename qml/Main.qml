@@ -541,7 +541,16 @@ Window {
             root.toast("No hay ninguna canción sonando")
             return
         }
+        // El modo cine ocupa la ventana entera; sólo hay una vista letra a
+        // pantalla completa: la de dos columnas.
         root.fsLyricsOpen = true
+    }
+    // Alterna el modo cine (misma lógica para L, F y Ctrl+L).
+    function toggleFullscreenLyrics() {
+        if (root.fsLyricsOpen)
+            root.fsLyricsOpen = false
+        else
+            root.openFullscreenLyrics()
     }
     function closeFullscreenLyrics() {
         root.fsLyricsOpen = false
@@ -640,7 +649,6 @@ Window {
         }
         if (root.settingsOpen) { root.settingsOpen = false; return }
         if (root.artistOpen) { root.closeArtist(); return }
-        if (root.nowPlayingOpen) { root.nowPlayingOpen = false; return }
         if (root.panelOpen) { root.panelOpen = false; return }
         if (root.fullscreen) { root.toggleFullscreen(); return }
         if (navBack())
@@ -758,11 +766,13 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("toggle"); root.toggleRepeat() }
     }
-    // L: letra (abre "En reproducción"); Q: cola; F11: pantalla completa.
+    // L, F y Ctrl+L: letra a pantalla completa, el modo cine de dos columnas.
+    // Q: cola; F11: pantalla completa. (El antiguo «En reproducción» con la
+    // portada arriba y la letra abajo ya no existe: el cine lo sustituye.)
     Shortcut {
         sequence: "L"
         enabled: !root.typing()
-        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nowPlayingOpen = true }
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreenLyrics() }
     }
     Shortcut {
         sequence: "Q"
@@ -773,22 +783,22 @@ Window {
         sequence: "F11"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreen() }
     }
-    // F: modo letra / "En reproducción" (igual que L), salvo mientras se
-    // escribe en un campo de texto (búsquedas, URLs, etc.). Fullscreen queda
-    // en F11 (y Mod+Shift+F a nivel del compositor).
+    // F: modo cine de dos columnas, mientras no se escriba en un campo de
+    // texto (búsquedas, URLs, etc.). Fullscreen queda en F11 (y Mod+Shift+F
+    // a nivel del compositor).
     Shortcut {
         sequence: "F"
         enabled: !root.typing()
-        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nowPlayingOpen = !root.nowPlayingOpen }
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreenLyrics() }
     }
-    // Ctrl+L: letra a pantalla completa (modo cine). Alterna.
+    // Ctrl+L: igual que L y F. Éste sí se permite con la caja de búsqueda
+    // enfocada: Ctrl+L no escribe nada, así que no interfiere.
     Shortcut {
         sequence: "Ctrl+L"
-        enabled: !root.typing()
+        enabled: true
         onActivated: {
             if (typeof sfx !== "undefined") sfx.play("tap")
-            if (root.fsLyricsOpen) root.fsLyricsOpen = false
-            else root.openFullscreenLyrics()
+            root.toggleFullscreenLyrics()
         }
     }
 
@@ -884,10 +894,9 @@ Window {
             } else if (a.startsWith("--panel=")) {
                 const t = a.substring(8)
                 root.openPanel(t === "letras" || t === "lyrics" ? 1 : 0)
-            } else if (a === "--nowplaying") {
-                root.nowPlayingOpen = true
-            } else if (a === "--fslyrics") {
+            } else if (a === "--fslyrics" || a === "--nowplaying") {
                 // QA: abre directamente la letra a pantalla completa.
+                // (--nowplaying es el nombre antiguo del mismo modo.)
                 Qt.callLater(root.openFullscreenLyrics)
             } else if (a === "--shuffle") {
                 // QA: activa el aleatorio antes de cargar nada.
@@ -910,6 +919,10 @@ Window {
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
         Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
+        // Primer cálculo del lavado: si la sesión restaurada ya trae pista,
+        // su miniatura se desenfoca ahora (si no, lo hará el cambio de pista).
+        if (Sys.dynamicBg && root.currentThumb)
+            wash.setSource(root.currentThumb)
         // Modo de repetición (0/1/2) y karaoke por palabra. Se aplican al
         // backend para que el estado publicado nazca ya con el buen valor.
         {
@@ -973,6 +986,10 @@ Window {
     property string currentTitle: ""
     property string currentArtist: ""
     property string currentThumb: ""
+    // El lavado de fondo se recalcula con la miniatura de la pista actual:
+    // el backend la descarga, la desenfoca en la CPU y la publica por su
+    // proveedor («image://wash»). Sin fondo dinámico no se gasta red.
+    onCurrentThumbChanged: if (Sys.dynamicBg) wash.setSource(root.currentThumb)
     // videoId de YouTube de la pista en reproducción ("" si no aplica).
     property string currentVideoId: ""
     // Estado local de "me gusta" de la pista actual (se refresca al cambiarla).
@@ -996,7 +1013,6 @@ Window {
     // Compensación de la letra en segundos (+ adelanta, − retrasa). El backend
     // la publica para los widgets; las vistas la comparten por ahí mismo.
     property real lyricsOffset: 0
-    property bool nowPlayingOpen: false
     // Orden original de la lista cargada (para restaurar al apagar el aleatorio).
     property var originalOrder: []
     // ¿Refleja ya la cola el orden aleatorio?
@@ -2136,20 +2152,26 @@ Window {
         Image {
             id: washImg
             anchors.fill: parent
-            source: Sys.dynamicBg ? root.currentThumb : ""
-            sourceSize.width: 56
-            sourceSize.height: 56
+            // El desenfoque lo hace el backend en la CPU («wash»): una vela
+            // de 480 px tan suave que estirarla a pantalla completa no muestra
+            // ni un bloque. El serial rompe la caché al cambiar de pista.
+            source: Sys.dynamicBg && root.currentThumb
+                    ? "image://wash/" + wash.serial : ""
             fillMode: Image.PreserveAspectCrop
             smooth: true
             asynchronous: true
+            cache: false
         }
 
-        // Vuelta al tono oscuro de la app: el wash sólo debe insinuarse, pero
-        // lo bastante como para que el escritorio tenga color y no negro plano.
+        // El wash debe dejar RECONOCER la portada (no ser una mancha): el
+        // velo baja la luz arriba, donde van saludo y títulos, y deja pasar
+        // bastante color abajo.
         Rectangle {
             anchors.fill: parent
-            color: Sys.bg
-            opacity: 0.48
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.60) }
+                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.34) }
+            }
         }
     }
 
@@ -2192,7 +2214,7 @@ Window {
                         root.navTo(p)
                     }
                     onSettingsRequested: root.toggleSettings()
-                    onNowPlayingRequested: root.nowPlayingOpen = true
+                    onNowPlayingRequested: root.openFullscreenLyrics()
                     // "Me gusta": abre la lista LM de YouTube Music sin reproducir.
                     onLikedRequested: {
                         root.beginOpenList(false)
@@ -2245,10 +2267,15 @@ Window {
                     onSettingsRequested: root.toggleSettings()
                 }
 
+                // Contenido PLANO al estilo del repo de referencia: sin caja
+                // propia — las páginas van directas sobre el fondo lavado y
+                // sólo los diálogos (ajustes, panel lateral) mantienen
+                // superficie.
                 Panel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clipContent: true
+                    color: "transparent"
 
                     StackLayout {
                         id: stack
@@ -2350,7 +2377,7 @@ Window {
             onPrevRequested: root.prev()
             onShuffleToggled: root.toggleShuffle()
             onRepeatToggled: root.toggleRepeat()
-            onLyricsRequested: root.nowPlayingOpen = true
+            onLyricsRequested: root.openFullscreenLyrics()
             onQueueRequested: root.togglePanel(0)
             onLyricsPanelRequested: root.togglePanel(1)
             onSeekRequested: (secs) => player.seek(secs)
@@ -2363,33 +2390,6 @@ Window {
         }
     }
 
-    // ---- "En reproduccion" (portada grande + letra) ----------------------
-    NowPlaying {
-        id: nowPlaying
-        anchors.fill: parent
-        z: 65
-        open: root.nowPlayingOpen
-        title: root.currentTitle
-        artist: root.currentArtist
-        thumb: root.currentThumb
-        playing: player.playing
-        position: player.position
-        duration: player.duration
-        shuffle: root.shuffle
-        repeatMode: root.repeatMode
-        onCloseRequested: root.nowPlayingOpen = false
-        onToggleRequested: root.togglePlay()
-        onNextRequested: root.next()
-        onPrevRequested: root.prev()
-        onShuffleToggled: root.toggleShuffle()
-        onRepeatToggled: root.toggleRepeat()
-        onSeekRequested: (secs) => player.seek(secs)
-        // El botón «expand» de Now Playing abre el modo cine de letra en vez
-        // de pasar la ventana entera a pantalla completa.
-        fullscreenFallback: false
-        onFullscreenRequested: root.openFullscreenLyrics()
-    }
-
     // ---- letra a pantalla completa (modo cine) ----------------------------
     FullscreenLyrics {
         id: fsLyrics
@@ -2400,11 +2400,17 @@ Window {
         playing: player.playing
         position: player.position
         duration: player.duration
+        shuffleOn: root.shuffle
+        repeatVal: root.repeatMode
+        liked: root.currentLiked
         onCloseRequested: root.fsLyricsOpen = false
         onToggleRequested: root.togglePlay()
         onNextRequested: root.next()
         onPrevRequested: root.prev()
         onSeekRequested: (secs) => player.seek(secs)
+        onShuffleRequested: root.toggleShuffle()
+        onRepeatRequested: root.toggleRepeat()
+        onLikeRequested: root.toggleLike()
     }
 
     // ---- selector de lista (añadir a playlist) ---------------------------
@@ -3156,6 +3162,10 @@ Window {
                                 onToggled: {
                                     Sys.dynamicBg = !Sys.dynamicBg
                                     root.cfgSet("dynamicBg", Sys.dynamicBg)
+                                    // Al encenderlo a media sesión, el lavado
+                                    // se calcula ya con la pista actual.
+                                    if (Sys.dynamicBg && root.currentThumb)
+                                        wash.setSource(root.currentThumb)
                                     root.toast("Guardado en la configuración")
                                 }
                             }
@@ -3317,7 +3327,7 @@ Window {
                         }
                         SettingRow {
                             label: "Letra a pantalla completa"
-                            desc: "Modo cine sobre la portada; también con Ctrl+L"
+                            desc: "Modo cine de dos columnas; también con L, F o Ctrl+L"
                             GhostButton {
                                 text: "Abrir"
                                 onClicked: root.openFullscreenLyrics()
