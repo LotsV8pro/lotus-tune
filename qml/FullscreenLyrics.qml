@@ -25,6 +25,10 @@ Rectangle {
     property string title: ""
     property string artist: ""
     property string thumb: ""
+    // ID de YouTube de la pista actual: la portada grande del cine lo necesita
+    // para pedir las variantes nítitas del arte (las miniaturas de la API van
+    // a 120 px).
+    property string videoId: ""
     property bool playing: false
     property real position: 0
     property real duration: 0
@@ -41,6 +45,10 @@ Rectangle {
     signal shuffleRequested()
     signal repeatRequested()
     signal likeRequested()
+    // Clic derecho sobre la columna de la pista: mismo menú de canción que en
+    // las listas (radio, cola, biblioteca…). Clic en el artista: ir a su página.
+    signal trackMenuRequested(real x, real y)
+    signal artistRequested(string name)
 
     Behavior on opacity {
         NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic }
@@ -70,6 +78,14 @@ Rectangle {
         color: Theme.mix(Sys.bg, "#1b2a44", 0.28)
         opacity: 0.66
     }
+    // Tocho anti-pasada: el cine no tiene color propio, así que los clics en
+    // cualquier hueco sin mando ni letra atravesaban la ventana y acababan en
+    // la playlist de detrás. Éste se queda los que nadie más quiera.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        z: -1
+    }
     // Aura de acento en la parte baja, muy tenue.
     Rectangle {
         anchors.left: parent.left
@@ -79,6 +95,21 @@ Rectangle {
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
             GradientStop { position: 1.0; color: Theme.alpha(Sys.accent, 0.10) }
+        }
+    }
+
+    // Zona de clic derecho sobre la columna izquierda entera (portada, título
+    // y artista): abre el menú de la pista. Sólo acepta el derecho, así que
+    // no interfiere con botones ni con el arrastre de la letra.
+    MouseArea {
+        anchors.left: leftCol.left
+        anchors.right: leftCol.right
+        anchors.top: leftCol.top
+        anchors.bottom: leftCol.bottom
+        acceptedButtons: Qt.RightButton
+        onClicked: {
+            const p = mapToItem(null, mouse.x, mouse.y)
+            fl.trackMenuRequested(p.x, p.y)
         }
     }
 
@@ -117,13 +148,10 @@ Rectangle {
         spacing: Theme.s4
 
         // Portada grande con el «me gusta» incrustado en la esquina inferior
-        // izquierda (el puesto del «+» del repo de referencia).
-        // Cascada de resolución: la portada del reproductor suele ser una
-        // miniatura mediana y aquí se muestra MUY grande (en pantallas de
-        // alta densidad, más de 1000 px reales), así que se piden variantes
-        // cada vez mayores de la misma imagen de YouTube —maxres, luego hq—
-        // hasta dar con la más nítida; si ninguna existe, la base. Así se ve
-        // clara, sin pixelar, en cada cover.
+        // izquierda (el puesto del «+» del repo de referencia). `ArtImage` se
+        // encarga de la cascada de resolución (maxres → hq → miniatura) con el
+        // ID REAL de la pista: las miniaturas de la API vienen a 120 px y aquí
+        // la portada es enorme — sin cascada se pixelaba.
         Rectangle {
             id: coverBox
             Layout.alignment: Qt.AlignHCenter
@@ -133,53 +161,11 @@ Rectangle {
             color: Sys.surfaceAlt
             clip: true
 
-            readonly property int px: Math.round(width * Screen.devicePixelRatio)
-            // El ID de YouTube puede venir como «watch?v=ID» (URLs de pista)
-            // o como «/vi_webp/ID/...» (miniaturas de la API). Se prueban
-            // ambas; sin ID no hay cascada y se usa la miniatura tal cual.
-            readonly property string vi: {
-                var m = /v=([\w-]{11})/.exec(fl.thumb)
-                if (!m)
-                    m = /\/vi(?:_webp)?\/([\w-]{11})\//.exec(fl.thumb)
-                return m ? m[1] : ""
-            }
-            readonly property string maxSrc: vi
-                ? "https://i.ytimg.com/vi/" + vi + "/maxresdefault.jpg" : ""
-            readonly property string hqSrc: vi
-                ? "https://i.ytimg.com/vi/" + vi + "/hqdefault.jpg" : ""
-
-            Image {
-                id: coverBase
+            ArtImage {
                 anchors.fill: parent
-                source: fl.thumb
-                visible: status === Image.Ready
-                sourceSize.width: coverBox.px
-                sourceSize.height: coverBox.px
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
-            }
-            Image {
-                id: coverHq
-                anchors.fill: parent
-                source: coverBox.hqSrc
-                visible: status === Image.Ready && coverHi.status !== Image.Ready
-                sourceSize.width: coverBox.px
-                sourceSize.height: coverBox.px
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
-            }
-            Image {
-                id: coverHi
-                anchors.fill: parent
-                source: coverBox.maxSrc
-                visible: status === Image.Ready
-                sourceSize.width: coverBox.px
-                sourceSize.height: coverBox.px
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
+                src: fl.thumb
+                videoId: fl.videoId
+                showIconWhenEmpty: false
             }
             Rectangle {
                 anchors.left: parent.left
@@ -230,10 +216,22 @@ Rectangle {
                     weight: 1.3
                 }
                 Text {
+                    id: flArtist
+                    property bool hot: flArtistHover.hovered
                     text: fl.artist.length ? fl.artist : "—"
                     color: Sys.textDim
                     font.pixelSize: Theme.tSm
+                    font.underline: flArtistHover.hovered
                     elide: Text.ElideRight
+                    HoverHandler { id: flArtistHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("tap")
+                            if (fl.artist.length)
+                                fl.artistRequested(fl.artist)
+                        }
+                    }
                 }
             }
         }
@@ -249,7 +247,7 @@ Rectangle {
                 id: posLabel
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: Theme.mmss(fl.position)
+                text: Theme.mmss(track.scrubbing ? track.scrubSec : fl.position)
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
                 width: 38
@@ -270,9 +268,15 @@ Rectangle {
                 anchors.rightMargin: Theme.s2
                 anchors.verticalCenter: parent.verticalCenter
                 height: 14
-
+                // Arrastre con el botón pulsado: la barra, la bola y el reloj
+                // siguen al cursor en vivo y el seek de verdad se pide al
+                // soltar. Antes sólo había clic suelto y el «mantener y
+                // deslizar» no hacía nada.
+                property bool scrubbing: false
+                property real scrubSec: 0
+                readonly property real shown: scrubbing ? scrubSec : fl.position
                 readonly property real frac: fl.duration > 0
-                                             ? Theme.clamp(fl.position / fl.duration, 0, 1) : 0
+                                             ? Theme.clamp(shown / fl.duration, 0, 1) : 0
 
                 Rectangle {
                     anchors.left: parent.left
@@ -305,10 +309,25 @@ Rectangle {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: (mouse) => {
-                        if (fl.duration > 0 && parent.width > 0)
-                            fl.seekRequested(mouse.x / parent.width * fl.duration)
+                    function secAt(mx) {
+                        if (parent.width <= 0)
+                            return 0
+                        return Math.max(0, Math.min(1, mx / parent.width)) * fl.duration
                     }
+                    onPressed: (mouse) => {
+                        track.scrubbing = true
+                        track.scrubSec = secAt(mouse.x)
+                    }
+                    onPositionChanged: (mouse) => {
+                        if (track.scrubbing)
+                            track.scrubSec = secAt(mouse.x)
+                    }
+                    onReleased: (mouse) => {
+                        track.scrubbing = false
+                        if (fl.duration > 0)
+                            fl.seekRequested(secAt(mouse.x))
+                    }
+                    onCanceled: track.scrubbing = false
                 }
             }
         }

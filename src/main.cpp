@@ -17,6 +17,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMouseEvent>
+#include <QQuickItem>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -61,6 +62,21 @@ protected:
     {
         if (ev->type() == QEvent::MouseButtonPress) {
             const auto *me = static_cast<QMouseEvent *>(ev);
+            // Clic fuera del campo de texto activo: le quita el foco, como en
+            // la web. Sin esto la caja de «Buscar» se queda focuseada aunque
+            // se pinche en otra parte, los atajos (F, L, M, Space…) siguen
+            // filtrándose por estar «escribiendo» y mueren hasta reiniciar.
+            // Se hace aquí porque el `Item` de Qt 6.12 aún no tiene la señal
+            // containsMousePressed con la que se resolvería sólo en QML.
+            auto *win = qobject_cast<QQuickWindow *>(parent());
+            if (win && win->activeFocusItem()) {
+                QQuickItem *focus = win->activeFocusItem();
+                const QPointF p = me->position();
+                const QPointF o = focus->mapToScene(QPointF(0, 0));
+                const QRectF r(o, QSizeF(focus->width(), focus->height()));
+                if (!r.contains(p))
+                    QMetaObject::invokeMethod(focus, "clearFocus");
+            }
             const char *fn = nullptr;
             if (me->button() == Qt::BackButton)
                 fn = "mouseNavBack";

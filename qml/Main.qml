@@ -74,6 +74,11 @@ Window {
     // ---- overlays ------------------------------------------------------
     property bool settingsOpen: false
     property bool launcherOpen: false
+    // Resultados remotos del launcher: al escribir 3+ caracteres se lanza una
+    // búsqueda real en la fuente activa y las mejores canciones aparecen en su
+    // propio bloque, bajo «MÚSICA». `launcherQ` es la consulta en vuelo.
+    property var launcherMusic: []
+    property string launcherQ: ""
     property bool followSys: true
     property var launcherRows: []
 
@@ -105,6 +110,11 @@ Window {
     property var ctxItems: []
     property real ctxX: 0
     property real ctxY: 0
+
+    // El foco de los campos de texto se quita solo al pulsar fuera, como en la
+    // web: lo hace MouseNavFilter en C++ (la señal containsMousePressed de
+    // Item no existe en Qt 6.12). Así los atajos (F, L, M, Space…) no mueren
+    // por quedarse «escribiendo» en una caja de búsqueda ya olvidada.
 
     function showContextMenu(items, x, y) {
         const out = []
@@ -497,7 +507,20 @@ Window {
         return ""
     }
 
-    function toggleSettings() { launcherOpen = false; settingsOpen = !settingsOpen }
+    function toggleSettings() { closeLauncher(); settingsOpen = !settingsOpen }
+    // Cerrar el launcher de verdad: el foco tiene que salir del campo SIEMPRE.
+    // Si se queda puesto, `typing()` sigue devolviendo true y los atajos de la
+    // ventana (F, L, Space, M, flechas…) quedan muertos hasta que el launcher
+    // se vuelva a abrir y cerrar por su ramal bueno. Por eso TODAS las salidas
+    // del launcher pasan por aquí.
+    function closeLauncher() {
+        launcherOpen = false
+        launcherMusic = []
+        launcherQ = ""
+        launcherSearch.stop()
+        if (launchInput)
+            launchInput.focus = false
+    }
     function toggleLauncher() {
         settingsOpen = false
         if (!launcherOpen) {
@@ -507,10 +530,10 @@ Window {
             // (F, Space, flechas…) no se disparan mientras se escribe.
             if (launchInput)
                 launchInput.forceActiveFocus()
+            if (launchInput.text.trim().length >= 3)
+                launcherSearch.restart()
         } else {
-            launcherOpen = false
-            if (launchInput)
-                launchInput.focus = false   // el foco vuelve a la ventana
+            closeLauncher()
         }
     }
 
@@ -641,12 +664,7 @@ Window {
         if (root.confirmOpen) { root.confirmOpen = false; return }
         if (root.editorOpen) { root.editorOpen = false; return }
         if (root.playlistPickerOpen) { root.playlistPickerOpen = false; return }
-        if (root.launcherOpen) {
-            root.launcherOpen = false
-            if (launchInput)
-                launchInput.focus = false
-            return
-        }
+        if (root.launcherOpen) { root.closeLauncher(); return }
         if (root.settingsOpen) { root.settingsOpen = false; return }
         if (root.artistOpen) { root.closeArtist(); return }
         if (root.panelOpen) { root.panelOpen = false; return }
@@ -808,20 +826,25 @@ Window {
             return
         if (row.kind === "source") {
             if (row.locked) {
-                launcherOpen = false
+                closeLauncher()
                 settingsOpen = true
             } else {
                 sources.select(row.id)
-                launcherOpen = false
+                closeLauncher()
                 page = "search"
             }
         } else if (row.kind === "playlist") {
             root.beginOpenList(false)
             catalog.openPlaylist(row.i)
-            launcherOpen = false
+            closeLauncher()
         } else if (row.kind === "recent") {
             root.playTracks(catalog.recent, row.i)
-            launcherOpen = false
+            closeLauncher()
+        } else if (row.kind === "music") {
+            // Pone en cola el resultado pulsado y los que quedaron detrás de
+            // él en la búsqueda, como una lista normal.
+            root.playTracks(launcherMusic, row.i)
+            closeLauncher()
         }
     }
 
@@ -861,7 +884,63 @@ Window {
             }
             out.push({ h: false, kind: "recent", i: i, t: r.title || "", s: r.artist || "" })
         }
+        if (q) {
+            for (let i = 0; i < launcherMusic.length; i++) {
+                const e = launcherMusic[i]
+                if (!i)
+                    out.push({ h: true, t: "MÚSICA" })
+                out.push({ h: false, kind: "music", i: i,
+                           t: e.title || "", s: e.artist || "" })
+            }
+        }
         launcherRows = out
+    }
+
+    // Anti-rebote del launcher: 450 ms después de la última tecla se lanza la
+    // búsqueda remota (evita una llamada a la API por cada letra).
+    Timer {
+        id: launcherSearch
+        interval: 450
+        onTriggered: {
+            if (!root.launcherOpen)
+                return
+            const q = launchInput.text.trim()
+            if (q.length < 3) {
+                root.launcherMusic = []
+                return
+            }
+            root.launcherQ = q
+            catalog.search(q)
+        }
+    }
+
+    // Llegan los resultados de esa búsqueda: nos quedamos con las primeras
+    // canciones (descartamos podcasts y listas) y las convertimos al formato
+    // que consume `playTracks`.
+    Connections {
+        target: catalog
+        function onChanged() {
+            if (!root.launcherOpen || root.launcherQ.length < 3)
+                return
+            if (catalog.busy || String(catalog.resultsQuery) !== root.launcherQ)
+                return
+            const rs = catalog.results
+            const m = []
+            for (let i = 0; i < rs.length && m.length < 7; i++) {
+                const e = rs[i]
+                const parts = String(e.channel || "").split(" • ")
+                const kind = (parts[0] || "").toLowerCase()
+                if (kind !== "canción" && kind !== "cancion"
+                    && kind !== "song" && kind !== "vídeo" && kind !== "video")
+                    continue
+                m.push({ title: e.title || "", artist: parts[1] || "",
+                         thumb: e.thumbnail || e.thumb || "",
+                         url: e.url || "" })
+            }
+            root.launcherMusic = m
+            if (launchInput)
+                root.buildLauncher(launchInput.text)
+        }
     }
 
     // ---- navigation ------------------------------------------------------
@@ -1244,6 +1323,62 @@ Window {
         root.artistBusy = true
         root.artistOpen = true
         catalog.fetchArtist(a.browseId)
+    }
+
+    // Ficha de la pista en curso para los menús contextuales de la barra y del
+    // cine: se monta con lo que publican el reproductor y la app.
+    function nowPlayingTrack() {
+        const vid = String(root.currentVideoId || "")
+        return {
+            title: String(root.currentTitle || ""),
+            artist: String(root.currentArtist || ""),
+            url: vid !== "" ? "https://www.youtube.com/watch?v=" + vid
+                             : String(player.currentUrl()),
+            thumb: String(root.currentThumb || ""),
+            cover: String(root.currentThumb || ""),
+            duration: Number(player.duration || 0),
+            liked: root.currentLiked === true,
+            source: ""
+        }
+    }
+
+    // Los nombres sueltos de artista (barra, cine) no traen browseId: se busca
+    // y se abre el que más se parezca —los primeros resultados de la búsqueda—,
+    // con preferencia por el que se llame exactamente igual.
+    property string artistNavPending: ""
+    function openArtistByName(name) {
+        const n = String(name || "").trim()
+        if (n === "" || root.artistNavPending !== "")
+            return
+        root.artistNavPending = n
+        catalog.searchArtists(n)
+    }
+
+    // Llegan los artistas buscados: abrir el elegido y olvidarse de la espera.
+    Connections {
+        target: catalog
+        function onArtistsReady(artists) {
+            const n = root.artistNavPending
+            if (n === "")
+                return
+            root.artistNavPending = ""
+            const list = artists || []
+            if (list.length === 0) {
+                root.toast("No encuentro a " + n)
+                return
+            }
+            const ln = n.toLowerCase()
+            let pick = null
+            for (const a of list) {
+                if (String(a.name || "").trim().toLowerCase() === ln) {
+                    pick = a
+                    break
+                }
+            }
+            if (!pick)
+                pick = list[0]
+            root.openArtist(pick)
+        }
     }
 
     function closeArtist() {
@@ -2387,6 +2522,8 @@ Window {
             canInteract: catalog.loginState === "ok"
             onLikeRequested: root.toggleLike()
             onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
+            onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
+            onArtistRequested: (name) => root.openArtistByName(name)
         }
     }
 
@@ -2397,6 +2534,7 @@ Window {
         title: root.currentTitle
         artist: root.currentArtist
         thumb: root.currentThumb
+        videoId: root.currentVideoId
         playing: player.playing
         position: player.position
         duration: player.duration
@@ -2411,6 +2549,11 @@ Window {
         onShuffleRequested: root.toggleShuffle()
         onRepeatRequested: root.toggleRepeat()
         onLikeRequested: root.toggleLike()
+        onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
+        onArtistRequested: (name) => {
+            root.closeFullscreenLyrics()
+            root.openArtistByName(name)
+        }
     }
 
     // ---- selector de lista (añadir a playlist) ---------------------------
@@ -3672,7 +3815,7 @@ Window {
 
         MouseArea { // click outside closes
             anchors.fill: parent
-            onClicked: root.launcherOpen = false
+            onClicked: root.closeLauncher()
         }
 
         Rectangle {
@@ -3720,8 +3863,8 @@ Window {
                             font.pixelSize: Theme.tBase
                             clip: true
                             text: ""
-                            onTextChanged: root.buildLauncher(text)
-                            Keys.onEscapePressed: root.launcherOpen = false
+                            onTextChanged: { root.buildLauncher(text); launcherSearch.restart() }
+                            Keys.onEscapePressed: root.closeLauncher()
                         }
                         Text {
                             text: "Esc"
