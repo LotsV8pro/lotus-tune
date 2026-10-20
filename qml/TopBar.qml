@@ -20,9 +20,11 @@ Rectangle {
 
     color: "transparent"
 
-    // Isla: la superficie redondeada y su sombra las pone el propio `Panel`.
+    // Isla: la superficie la pone el propio `Panel`, pero en el lenguaje plano
+    // actual la barra va directa sobre el fondo (sin caja ni filo).
     Panel {
         anchors.fill: parent
+        color: "transparent"
 
         RowLayout {
             anchors.fill: parent

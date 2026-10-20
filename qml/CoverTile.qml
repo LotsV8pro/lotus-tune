@@ -29,20 +29,16 @@ Rectangle {
     color: "transparent"
     border.width: 0
 
-    Rectangle {                       // tarjeta (con canalón derecha/abajo)
-        id: card
+    Rectangle {                       // tarjeta SIN caja: portada directa y
+        id: card                      // texto debajo, como en el repo base
         x: 0
         y: 0
         width: tile.width - 14
         height: tile.height - 18
-        radius: Theme.rLg
-        color: tileMa.containsMouse ? Theme.hover(Sys.surface) : Sys.surface
-        border.width: 1
-        border.color: tileMa.containsMouse ? Theme.alpha(Sys.accent, 0.45)
-                                           : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
-        clip: true
-        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-        Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+        radius: Theme.rMd
+        color: "transparent"
+        border.width: 0
+        clip: false
 
         ColumnLayout {
             anchors.fill: parent

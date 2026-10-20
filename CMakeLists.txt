@@ -33,6 +33,8 @@ qt_add_executable(lotus-tune
     src/sfx.h
     src/sfx.cpp
     src/perf.h
+    src/wash.h
+    src/wash.cpp
 )
 
 qt_add_qml_module(lotus-tune
@@ -59,7 +61,6 @@ qt_add_qml_module(lotus-tune
         qml/CoverTile.qml
         qml/ContextMenu.qml
         qml/PlaylistEditor.qml
-        qml/NowPlaying.qml
         qml/LyricsView.qml
         qml/FullscreenLyrics.qml
 )

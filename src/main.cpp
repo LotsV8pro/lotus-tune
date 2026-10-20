@@ -9,6 +9,7 @@
 #include "player.h"
 #include "sources.h"
 #include "theme.h"
+#include "wash.h"
 
 #include <QDir>
 #include <QFile>
@@ -385,6 +386,13 @@ int main(int argc, char *argv[])
 
     Sfx sfx;
     engine.rootContext()->setContextProperty(QStringLiteral("sfx"), &sfx);
+
+    // Lavado de fondo: desenfoque real en CPU de la miniatura de la pista,
+    // servido por proveedor de imágenes («image://wash/<serial>»). Así el
+    // fondo y el modo cine salen en vela suave, sin bloques ni pixelado.
+    Wash wash(&engine);
+    engine.addImageProvider(QStringLiteral("wash"), new WashProvider(&wash));
+    engine.rootContext()->setContextProperty(QStringLiteral("wash"), &wash);
 
     QQmlComponent component(&engine);
     component.loadFromModule("LotusTune", "Main");

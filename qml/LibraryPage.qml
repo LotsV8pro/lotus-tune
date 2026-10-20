@@ -384,23 +384,21 @@ Item {
         }
     }
 
-    // ---- isla flotante de sección ---------------------------------------
-    // Superficie redondeada con un filo luminoso muy tenue y un ColumnLayout
-    // interior. El aire (pad) y el hueco (spacing) marcan la jerarquía; el alto
-    // lo fija el contenido salvo que la isla rellene (Layout.fillHeight).
-    // Sin sombras ni efectos: en un fondo tan oscuro el borde claro es lo que
-    // realmente despega la isla del fondo.
+        // ---- seccion plana de contenido --------------------------------------
+    // Sin caja ni filo: la cabecera de la lista, la rejilla y las pistas van
+    // directas sobre el fondo, como en el repo de referencia. El aire (pad) y
+    // el hueco (spacing) marcan la jerarquia; el alto lo fija el contenido
+    // salvo que la seccion rellene (Layout.fillHeight).
     component Island: Rectangle {
         id: island
 
-        property real pad: Theme.s4
+        property real pad: Theme.s2
         property alias spacing: inner.spacing
 
         implicitHeight: inner.implicitHeight + island.pad * 2
-        radius: Theme.rPanel
-        color: Sys.surface
-        border.width: 1
-        border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+        radius: 0
+        color: "transparent"
+        border.width: 0
 
         default property alias content: inner.data
 
@@ -577,36 +575,11 @@ Item {
                 Layout.fillWidth: true
                 spacing: Theme.s3
 
-                // ---- volver ----
-                Rectangle {
-                    Layout.alignment: Qt.AlignTop
-                    Layout.preferredWidth: 32
-                    Layout.preferredHeight: 32
-                    radius: Theme.rMd
-                    color: backMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
-                    border.width: 0
-                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                    Glyph {
-                        anchors.centerIn: parent
-                        width: 15
-                        height: 15
-                        kind: "back"
-                        color: backMa.containsMouse ? Sys.accent : Sys.textDim
-                    }
-                    MouseArea {
-                        id: backMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.showPlaylists() }
-                    }
-                }
-
-                // ---- portada (hero estilo Sonora) ------------------------
+                // ---- portada (hero) --------------------------------------
                 Rectangle {
                     Layout.alignment: Qt.AlignBottom
-                    Layout.preferredWidth: 140
-                    Layout.preferredHeight: 140
+                    Layout.preferredWidth: 168
+                    Layout.preferredHeight: 168
                     radius: Theme.rLg
                     color: Sys.surfaceAlt
                     border.width: 0
@@ -617,8 +590,8 @@ Item {
                         anchors.fill: parent
                         source: page.viewCover()
                         visible: status === Image.Ready
-                        sourceSize.width: 280
-                        sourceSize.height: 280
+                        sourceSize.width: 336
+                        sourceSize.height: 336
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -651,8 +624,8 @@ Item {
                         Layout.fillWidth: true
                         text: page.viewTitle()
                         color: Sys.text
-                        font.pixelSize: Theme.t2xl
-                        font.weight: Font.DemiBold
+                        font.pixelSize: Theme.t3xl
+                        font.weight: Font.Bold
                         elide: Text.ElideRight
                         maximumLineCount: 2
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere

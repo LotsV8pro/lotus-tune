@@ -2,16 +2,17 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Letra a pantalla completa (modo cine). Es el mismo motor de letra que el
-// panel y Now Playing (`LyricsView`, con el karaoke por palabra y el
-// «iluminar la frase entera» idénticos), pero sobre un fondo lavando la
-// portada y con los controles de transporte abajo. Los mandos se esconden
-// solos tras unos segundos sin mover el ratón y vuelven al moverlo.
+// Letra a pantalla completa (modo cine). El reparto es el del reproductor de
+// referencia: columna izquierda con la portada, el título y la artista, el
+// progreso, el transporte y el volumen; a la derecha, la letra leída grande y
+// alineada por la izquierda. Arriba a la izquierda el botón de recogida
+// (flecha abajo) y arriba al centro la pastilla de compensación de tiempo.
+// La columna izquierda es fija: no se esconde nunca (como en el repo base).
 //
-// Reutilizar LyricsView es deliberado: así la letra que ve el usuario aquí, en
-// el panel y en los widgets del escritorio (que leen el estado que publica la
-// app) es literalmente la misma representación. Sin tarjetas ni cajas: la
-// letra flota sobre el fondo, como el resto de la interfaz.
+// La letra es `LyricsView` —el mismo motor que el panel y Now Playing— para
+// que lo que ve el usuario aquí, en el panel y en los widgets del escritorio
+// (que leen el estado que publica la app) sea literalmente la misma
+// representación.
 Rectangle {
     id: fl
     anchors.fill: parent
@@ -27,12 +28,19 @@ Rectangle {
     property bool playing: false
     property real position: 0
     property real duration: 0
+    // Estado real del reproductor para los conmutadores del transporte.
+    property bool shuffleOn: false
+    property int repeatVal: 0
+    property bool liked: false
 
     signal closeRequested()
     signal toggleRequested()
     signal nextRequested()
     signal prevRequested()
     signal seekRequested(real secs)
+    signal shuffleRequested()
+    signal repeatRequested()
+    signal likeRequested()
 
     Behavior on opacity {
         NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic }
@@ -41,29 +49,28 @@ Rectangle {
     readonly property var ply: (typeof player !== "undefined") ? player : null
 
     // ---- lavado de portada ------------------------------------------------
-    // La portada a 64 px ampliada a toda la pantalla (desenfoque barato sin
-    // GPU) bajo un velo profundo teñido de acento: da el «más azul» que se
-    // pidió sin comerse el contraste de la letra.
+    // Desenfoque REAL hecho en el backend (CPU): vela suave que, estirada a
+    // toda la pantalla, sale sin bloques pero dejando reconocer la portada.
     Image {
         id: washImg
         anchors.fill: parent
-        source: fl.open ? fl.thumb : ""
-        sourceSize.width: 64
-        sourceSize.height: 64
+        source: fl.open && fl.thumb ? "image://wash/" + wash.serial : ""
         fillMode: Image.PreserveAspectCrop
         smooth: true
         asynchronous: true
+        cache: false
         opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
     }
-    // Velo: fondo de la app casi opaco, mezclado con un azul profundo para que
-    // el modo cine sea más frío y nítido que el resto de ventanas.
+    // Velo: fondo de la app mezclado con un azul profundo para que el modo
+    // cine sea más frío y nítido que el resto de ventanas. Bajo la letra, el
+    // velo que exige el contraste; sobre la columna, la portada manda.
     Rectangle {
         anchors.fill: parent
         color: Theme.mix(Sys.bg, "#1b2a44", 0.28)
-        opacity: 0.80
+        opacity: 0.66
     }
-    // Aura de acento en la parte baja (por donde van los controles), muy tenue.
+    // Aura de acento en la parte baja, muy tenue.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
@@ -76,176 +83,122 @@ Rectangle {
     }
 
     // ---- letra ------------------------------------------------------------
+    // Columna derecha, lectura por la izquierda y mucho más grande que en el
+    // panel; la pastilla de sincronía sube al centro del encabezado y acompaña
+    // siempre a la ventana (los mandos NO se esconden: como en el repo de
+    // referencia, la columna izquierda es permanente).
     LyricsView {
         id: lyric
-        anchors.left: parent.left
+        anchors.left: leftCol.right
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.bottom: chromeTop.bottom
-        anchors.topMargin: Theme.s6
-        // En modo cine la columna es más ancha y la letra, mucho más grande.
-        lineSize: Math.max(24, Math.min(38, Math.round(fl.width / 42)))
-        activeBoost: Math.round(lineSize * 0.18)
-        maxLineWidth: Math.min(fl.width * 0.82, 1180)
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.s6
+        anchors.rightMargin: Theme.s4
+        lineSize: Math.max(24, Math.min(36, Math.round(fl.width / 44)))
+        activeBoost: Math.round(lineSize * 0.20)
+        maxLineWidth: Math.min(fl.width * 0.52, 1180)
         edgeColor: Theme.mix(Sys.bg, "#1b2a44", 0.28)
+        leftAlign: true
+        pillTop: true
+        pillShown: fl.open
     }
 
-    // ---- cabecera ---------------------------------------------------------
-    Item {
-        id: header
+    // ---- columna izquierda: portada, datos y mandos ------------------------
+    // Centrada en el borde izquierdo, con el ancho de la portada como regla.
+    // Es PERMANENTE (como en el repo de referencia): no se esconde al mover el
+    // ratón; la letra grande ya ocupa su propia columna a la derecha.
+    ColumnLayout {
+        id: leftCol
         anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: 96
-        visible: fl.chromeVisible
-        opacity: fl.chromeVisible ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Math.max(Theme.s5, Math.round(fl.width * 0.05))
+        width: Math.round(Math.max(210, Math.min(fl.height * 0.40, fl.width * 0.30)))
+        spacing: Theme.s4
 
-        // Pista al centro, en una línea; artista debajo.
+        // Portada grande con el «me gusta» incrustado en la esquina inferior
+        // izquierda (el puesto del «+» del repo de referencia).
+        Rectangle {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.preferredWidth: leftCol.width
+            Layout.preferredHeight: leftCol.width
+            radius: Theme.rMd
+            color: Sys.surfaceAlt
+            clip: true
+
+            Image {
+                anchors.fill: parent
+                source: fl.thumb
+                visible: status === Image.Ready
+                sourceSize.width: Math.round(leftCol.width * 2)
+                sourceSize.height: Math.round(leftCol.width * 2)
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+            }
+            Rectangle {
+                anchors.left: parent.left
+                anchors.bottom: parent.bottom
+                anchors.margins: Theme.s3
+                width: 34
+                height: 34
+                radius: 17
+                color: fl.liked ? Sys.accent : Theme.alpha(Sys.bg, 0.55)
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 17
+                    height: 17
+                    kind: fl.liked ? "heart" : "heart-outline"
+                    color: fl.liked ? Sys.onAccent : Sys.text
+                }
+                MouseArea {
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.likeRequested() }
+                }
+            }
+        }
+
+        // Pista y artista, centrados bajo la portada.
         ColumnLayout {
-            anchors.centerIn: parent
-            width: Math.min(fl.width - 220, 760)
+            Layout.fillWidth: true
             spacing: 2
             Text {
                 Layout.fillWidth: true
                 text: fl.title.length ? fl.title : "—"
                 color: Sys.text
-                font.pixelSize: Theme.tXl
-                font.weight: Font.DemiBold
+                font.pixelSize: Theme.tLg
+                font.weight: Font.Bold
                 horizontalAlignment: Text.AlignHCenter
                 elide: Text.ElideRight
             }
-            Text {
-                Layout.fillWidth: true
-                text: fl.artist.length ? fl.artist : "—"
-                color: Sys.textDim
-                font.pixelSize: Theme.tMd
-                horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
-            }
-        }
-
-        // Salida (arriba derecha): deja el modo cine.
-        Rectangle {
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.rightMargin: Theme.s5
-            anchors.topMargin: Theme.s4
-            width: 40
-            height: 40
-            radius: width / 2
-            color: exitMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-            Glyph {
-                anchors.centerIn: parent
-                width: 20; height: 20
-                kind: "chevron-down"
-                color: Sys.text
-                weight: 1.8
-            }
-            MouseArea {
-                id: exitMa
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.closeRequested() }
-            }
-        }
-    }
-
-    // Ancla invisible: la letra ocupa hasta aquí y lo de abajo es el "chrome".
-    Item {
-        id: chromeTop
-        anchors.bottom: controls.top
-    }
-
-    // ---- controles (transporte + progreso) --------------------------------
-    Item {
-        id: controls
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 116
-        visible: fl.chromeVisible
-        opacity: fl.chromeVisible ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
-
-        RowLayout {
-            id: transport
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.top: parent.top
-            anchors.topMargin: Theme.s3
-            spacing: Theme.s4
-
-            Rectangle {
-                width: 46; height: 46; radius: 23
-                color: prevMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
-                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 6
                 Glyph {
-                    anchors.centerIn: parent
-                    width: 22; height: 22
-                    kind: "prev"
-                    color: Sys.text
+                    width: 12
+                    height: 12
+                    kind: "disc"
+                    color: Sys.textDim
+                    weight: 1.3
                 }
-                MouseArea {
-                    id: prevMa
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.prevRequested() }
-                }
-            }
-
-            Rectangle {
-                width: 58; height: 58; radius: 29
-                color: Sys.accent
-                scale: playMa.containsMouse ? 1.05 : 1
-                Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                Glyph {
-                    anchors.centerIn: parent
-                    width: 26; height: 26
-                    kind: fl.playing ? "pause" : "play"
-                    color: Sys.onAccent
-                }
-                MouseArea {
-                    id: playMa
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.toggleRequested() }
-                }
-            }
-
-            Rectangle {
-                width: 46; height: 46; radius: 23
-                color: nextMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
-                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                Glyph {
-                    anchors.centerIn: parent
-                    width: 22; height: 22
-                    kind: "next"
-                    color: Sys.text
-                }
-                MouseArea {
-                    id: nextMa
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.nextRequested() }
+                Text {
+                    text: fl.artist.length ? fl.artist : "—"
+                    color: Sys.textDim
+                    font.pixelSize: Theme.tSm
+                    elide: Text.ElideRight
                 }
             }
         }
 
-        // ---- progreso fino con tiempos ------------------------------------
+        // Progreso: tiempo · barra clicable · tiempo.
         Item {
-            id: seekRow
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            anchors.leftMargin: Theme.s5
-            anchors.rightMargin: Theme.s5
-            anchors.bottomMargin: Theme.s5
-            height: 26
+            Layout.fillWidth: true
+            Layout.topMargin: Theme.s2
+            implicitHeight: 22
+            height: 22
 
             Text {
                 id: posLabel
@@ -254,7 +207,7 @@ Rectangle {
                 text: Theme.mmss(fl.position)
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
-                width: Theme.mmss(fl.duration).length > 4 ? 46 : 38
+                width: 38
             }
             Text {
                 id: durLabel
@@ -264,14 +217,12 @@ Rectangle {
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
             }
-
-            // Pista de progreso clicable (arrastre incluido).
             Item {
                 id: track
                 anchors.left: posLabel.right
                 anchors.right: durLabel.left
-                anchors.leftMargin: Theme.s3
-                anchors.rightMargin: Theme.s3
+                anchors.leftMargin: Theme.s2
+                anchors.rightMargin: Theme.s2
                 anchors.verticalCenter: parent.verticalCenter
                 height: 14
 
@@ -297,12 +248,13 @@ Rectangle {
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.left: parent.left
-                    anchors.leftMargin: Math.max(0, parent.width * parent.frac - 6)
-                    width: 12; height: 12; radius: 6
+                    anchors.leftMargin: Math.max(0, parent.width * parent.frac - 5)
+                    width: 10
+                    height: 10
+                    radius: 5
                     color: Sys.accent
                     visible: seekMa.pressed || seekMa.containsMouse
                 }
-
                 MouseArea {
                     id: seekMa
                     anchors.fill: parent
@@ -315,44 +267,216 @@ Rectangle {
                 }
             }
         }
-    }
 
-    // ---- auto-ocultación de mandos ----------------------------------------
-    // Al abrir (o al mover el ratón) los mandos salen; tras 2,8 s quietos se
-    // esconden y la pantalla se queda sólo con la letra.
-    readonly property bool chromeVisible: _chrome
-    property bool _chrome: false
+        // Transporte: aleatorio · anterior · reproducir · siguiente · repetir.
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: Theme.s3
 
-    Timer {
-        id: chromeTimer
-        interval: 2800
-        running: false
-        onTriggered: fl._chrome = false
-    }
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                radius: 18
+                color: shMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 18
+                    height: 18
+                    kind: "shuffle"
+                    color: fl.shuffleOn ? Sys.accent : Sys.textDim
+                }
+                MouseArea {
+                    id: shMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.shuffleRequested() }
+                }
+            }
 
-    function showChrome() {
-        fl._chrome = true
-        chromeTimer.restart()
-    }
+            Rectangle {
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
+                radius: 21
+                color: prevMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 22
+                    height: 22
+                    kind: "prev"
+                    color: Sys.text
+                }
+                MouseArea {
+                    id: prevMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.prevRequested() }
+                }
+            }
 
-    // Captura los movimientos de ratón en toda la ventana del modo cine.
-    MouseArea {
-        anchors.fill: parent
-        // Dejad que los clics pasen a la letra y a los controles: sólo nos
-        // interesa la posición del cursor para reactivar los mandos.
-        acceptedButtons: Qt.NoButton
-        hoverEnabled: true
-        onPositionChanged: fl.showChrome()
-        onContainsMouseChanged: if (containsMouse) fl.showChrome()
-    }
+            Rectangle {
+                Layout.preferredWidth: 52
+                Layout.preferredHeight: 52
+                radius: 26
+                color: Sys.accent
+                scale: playMa.containsMouse ? 1.05 : 1
+                Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 24
+                    height: 24
+                    kind: fl.playing ? "pause" : "play"
+                    color: Sys.onAccent
+                }
+                MouseArea {
+                    id: playMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.toggleRequested() }
+                }
+            }
 
-    // Al abrir, mandos visibles un rato; al cerrar, los reseteamos.
-    onOpenChanged: {
-        if (open) {
-            showChrome()
-        } else {
-            _chrome = false
-            chromeTimer.stop()
+            Rectangle {
+                Layout.preferredWidth: 42
+                Layout.preferredHeight: 42
+                radius: 21
+                color: nextMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 22
+                    height: 22
+                    kind: "next"
+                    color: Sys.text
+                }
+                MouseArea {
+                    id: nextMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.nextRequested() }
+                }
+            }
+
+            Rectangle {
+                Layout.preferredWidth: 36
+                Layout.preferredHeight: 36
+                radius: 18
+                color: rpMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 18
+                    height: 18
+                    kind: fl.repeatVal === 2 ? "repeat-one" : "repeat"
+                    color: fl.repeatVal > 0 ? Sys.accent : Sys.textDim
+                }
+                MouseArea {
+                    id: rpMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.repeatRequested() }
+                }
+            }
+        }
+
+        // Volumen: altavoz y barra corta, centrados.
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Theme.s1
+            spacing: Theme.s2
+
+            Glyph {
+                width: 16
+                height: 16
+                kind: (fl.ply && fl.ply.volume > 0) ? "volume" : "volume-x"
+                color: Sys.textDim
+            }
+            Item {
+                Layout.preferredWidth: Math.round(leftCol.width * 0.46)
+                Layout.preferredHeight: 16
+
+                readonly property real frac: fl.ply ? Theme.clamp(fl.ply.volume / 100, 0, 1) : 0
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: 3
+                    radius: 2
+                    color: Theme.alpha(Sys.text, 0.16)
+                }
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width * parent.frac
+                    height: 3
+                    radius: 2
+                    color: Sys.accent
+                }
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.left: parent.left
+                    anchors.leftMargin: Math.max(0, parent.width * parent.frac - 4)
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: Sys.accent
+                    visible: volMa.pressed || volMa.containsMouse
+                }
+                MouseArea {
+                    id: volMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: (mouse) => {
+                        if (fl.ply && parent.width > 0)
+                            fl.ply.setVolume(Math.round(mouse.x / parent.width * 100))
+                    }
+                    onPositionChanged: (mouse) => {
+                        if (pressed && fl.ply && parent.width > 0)
+                            fl.ply.setVolume(Math.round(Theme.clamp(mouse.x / parent.width, 0, 1) * 100))
+                    }
+                }
+            }
         }
     }
+
+    // ---- recogida (arriba a la izquierda, square suave) ---------------------
+    // Flecha abajo en un cuadrado redondeado: deja el modo cine, en el mismo
+    // puesto que en el repo de referencia.
+    Rectangle {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: Theme.s5
+        anchors.topMargin: Theme.s4
+        width: 38
+        height: 38
+        radius: Theme.rMd
+        color: exitMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : Theme.alpha(Sys.text, 0.08)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Glyph {
+            anchors.centerIn: parent
+            width: 20
+            height: 20
+            kind: "chevron-down"
+            color: Sys.text
+            weight: 1.8
+        }
+        MouseArea {
+            id: exitMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); fl.closeRequested() }
+        }
+    }
+
+    // El modo cine ya no esconde los mandos: la columna izquierda es fija, la
+    // letra y la portada conviven siempre (reparto del repo de referencia).
 }

@@ -26,6 +26,15 @@ Item {
     // Ancho máximo de la columna de lectura: en pantalla completa el panel
     // derecho es gigante y una línea de 2000 px es imposible de leer.
     property real maxLineWidth: 820
+    // Lectura por la izquierda (modo cine, como en el repo de referencia):
+    // la columna arranca en el borde del área en vez de centrarse. Panel y
+    // Now Playing siguen centrados (valor por defecto).
+    property bool leftAlign: false
+    // Pastilla de sincronía: arriba al centro (modo cine) y visible mientras
+    // los mandos están a la vista (`pillShown`). Por defecto: abajo a la
+    // derecha, al pasar el ratón.
+    property bool pillTop: false
+    property bool pillShown: false
     // Color real del fondo del panel; con él se difuminan los bordes.
     property color edgeColor: Sys.surface
 
@@ -69,7 +78,7 @@ Item {
 
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
-    readonly property real colW: Math.max(140, Math.min(width - sidePad * 2, maxLineWidth))
+    readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
     readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
     // Media altura: así la primera y la última línea también pueden centrarse.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
@@ -437,7 +446,7 @@ Item {
         Column {
             id: lyricCol
             width: lv.colW
-            x: Math.max(0, (syncedFlick.width - width) / 2)
+            x: lv.leftAlign ? lv.sidePad : Math.max(0, (syncedFlick.width - width) / 2)
             topPadding: lv.pinTop
             bottomPadding: lv.pinBottom
             spacing: lv.lineGap
@@ -473,7 +482,7 @@ Item {
                     opacity: Math.min(1, lv.lineOpacity(index)
                                          + (lineMa.containsMouse ? 0.22 : 0))
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                    horizontalAlignment: Text.AlignHCenter
+                    horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
                     lineHeight: 1.32
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
                     Behavior on color { ColorAnimation { duration: Theme.medMs } }
@@ -636,16 +645,22 @@ Item {
         }
     }
 
-    // ---- sincronía fina (aparece al pasar el ratón) -------------------
+    // ---- sincronía fina: en el panel aparece al pasar el ratón; en el -----
+    // modo cine sube al centro del encabezado (como en el repo de referencia)
+    // y acompaña a los mandos.
     HoverHandler { id: lyricHover }
 
     Rectangle {
-        visible: lv.showSynced && lyricHover.hovered
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        visible: lv.showSynced && (lv.pillShown || lyricHover.hovered)
+        anchors.horizontalCenter: lv.pillTop ? parent.horizontalCenter : undefined
+        anchors.top: lv.pillTop ? parent.top : undefined
+        anchors.topMargin: Theme.s4
+        anchors.right: lv.pillTop ? undefined : parent.right
+        anchors.bottom: lv.pillTop ? undefined : parent.bottom
         anchors.rightMargin: Theme.s3
         anchors.bottomMargin: Theme.s3
         height: Theme.pillH
+        width: offRow.implicitWidth + Theme.s4
         radius: Theme.rPill
         color: Sys.surface
         border.width: 1
@@ -653,9 +668,8 @@ Item {
         opacity: 0.95
 
         RowLayout {
-            anchors.fill: parent
-            anchors.leftMargin: Theme.s2
-            anchors.rightMargin: Theme.s2
+            id: offRow
+            anchors.centerIn: parent
             spacing: Theme.s2
 
             Rectangle {
@@ -673,6 +687,14 @@ Item {
                 }
                 HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) } }
+            }
+
+            Glyph {
+                Layout.alignment: Qt.AlignVCenter
+                width: 12
+                height: 12
+                kind: "clock"
+                color: Sys.textDim
             }
 
             Text {
