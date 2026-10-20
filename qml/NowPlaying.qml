@@ -23,7 +23,8 @@ Rectangle {
     property string thumb: ""
     property bool playing: false
     property bool shuffle: false
-    property bool repeat: false
+    // 0 = sin repetición, 1 = repetir lista, 2 = repetir canción.
+    property int repeatMode: 0
     property real position: 0
     property real duration: 0
 
@@ -701,15 +702,15 @@ Rectangle {
                     width: 40
                     height: 40
                     radius: width / 2
-                    color: np.repeat ? Sys.accentDim
+                    color: np.repeatMode !== 0 ? Sys.accentDim
                            : (repeatMaN.containsMouse ? Theme.hover(Sys.bg) : "transparent")
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
                         width: 18
                         height: 18
-                        kind: "repeat"
-                        color: np.repeat ? Sys.accent
+                        kind: np.repeatMode === 2 ? "repeat-one" : "repeat"
+                        color: np.repeatMode !== 0 ? Sys.accent
                                : (repeatMaN.containsMouse ? Sys.accent : Sys.textDim)
                     }
                     MouseArea {

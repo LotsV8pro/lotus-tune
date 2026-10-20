@@ -20,6 +20,12 @@ static const char *kAppKeys[] = {
     "spotifyPassword", "tidalUsername", "tidalPassword", "defaultSource",
     "audioQuality", "discordRpc", "discordClientId", "downloadFolder",
     "lyricsEnabled", "autoplay", "dynamicBg",
+    // Ajustes de letra (compensación de tiempo, karaoke por palabra) y de la
+    // vista Now Playing (mostrar u ocultar la letra). La compensación vivía
+    // fuera de esta lista, así que NO se recuperaba al arrancar.
+    "lyricsOffset", "karaokeWords", "npLyrics",
+    // Modo de repetición elegido (0/1/2), además de su reflejo en la sesión.
+    "repeatMode",
     // Estado de la última sesión (cola + pista + volumen), restaurado en pausa
     // al arrancar. Se cargan al inicio igual que el resto de claves de la app.
     "sessionState", "playerVolume",

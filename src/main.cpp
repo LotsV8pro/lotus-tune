@@ -360,6 +360,9 @@ int main(int argc, char *argv[])
     // Letras sincronizadas (LRCLIB) para la vista "Now Playing".
     Lyrics lyrics;
     engine.rootContext()->setContextProperty(QStringLiteral("lyrics"), &lyrics);
+    // El motor alimenta el estado de letras publicado para los widgets de
+    // inir (posición y play/pausa del reloj). Ver Lyrics::setEngine.
+    lyrics.setEngine(&player);
 
     // Discord Rich Presence.
     DiscordRpc discord;

@@ -532,6 +532,21 @@ Window {
         root.visibility = fullscreen ? Window.FullScreen : Window.Windowed
     }
 
+    // Abre la letra a pantalla completa (modo cine). Si la ventana no estaba
+    // ya en pantalla completa del compositor, ésta sólo ocupa la ventana de la
+    // app: en niri el "fullscreen" real lo manda el compositor, y el overlay
+    // ya cubre toda la ventana.
+    function openFullscreenLyrics() {
+        if (!root.currentTitle) {
+            root.toast("No hay ninguna canción sonando")
+            return
+        }
+        root.fsLyricsOpen = true
+    }
+    function closeFullscreenLyrics() {
+        root.fsLyricsOpen = false
+    }
+
     // ---- navegación con pila («atrás») ------------------------------------
     // Pila simple de páginas: al abrir una lista/álbum se guarda la página de
     // la que venías (normalmente Inicio), así Esc o el botón «atrás» de la
@@ -613,6 +628,7 @@ Window {
     // o —al final— vuelve a la página anterior (una lista/álbum → Inicio).
     function goBack() {
         if (root.ctxOpen) { root.ctxOpen = false; return }
+        if (root.fsLyricsOpen) { root.fsLyricsOpen = false; return }
         if (root.confirmOpen) { root.confirmOpen = false; return }
         if (root.editorOpen) { root.editorOpen = false; return }
         if (root.playlistPickerOpen) { root.playlistPickerOpen = false; return }
@@ -765,6 +781,16 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.nowPlayingOpen = !root.nowPlayingOpen }
     }
+    // Ctrl+L: letra a pantalla completa (modo cine). Alterna.
+    Shortcut {
+        sequence: "Ctrl+L"
+        enabled: !root.typing()
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            if (root.fsLyricsOpen) root.fsLyricsOpen = false
+            else root.openFullscreenLyrics()
+        }
+    }
 
     // ---- launcher data ---------------------------------------------------
     function launcherActivate(row) {
@@ -860,6 +886,9 @@ Window {
                 root.openPanel(t === "letras" || t === "lyrics" ? 1 : 0)
             } else if (a === "--nowplaying") {
                 root.nowPlayingOpen = true
+            } else if (a === "--fslyrics") {
+                // QA: abre directamente la letra a pantalla completa.
+                Qt.callLater(root.openFullscreenLyrics)
             } else if (a === "--shuffle") {
                 // QA: activa el aleatorio antes de cargar nada.
                 shuffle = true
@@ -881,6 +910,27 @@ Window {
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
         Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
+        // Modo de repetición (0/1/2) y karaoke por palabra. Se aplican al
+        // backend para que el estado publicado nazca ya con el buen valor.
+        {
+            const rm = parseInt(cfgGet("repeatMode"))
+            root.repeatMode = (rm >= 1 && rm <= 2) ? rm : 0
+            mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
+                                  : root.repeatMode === 2 ? "Track" : "None")
+        }
+        root.karaokeWords = cfgGet("karaokeWords") !== "false"
+        if (typeof lyrics !== "undefined")
+            lyrics.karaoke = root.karaokeWords
+        // Compensación guardada: el backend la publica tal cual para que los
+        // widgets del escritorio cuadren con el audio desde el primer segundo.
+        {
+            const lo = parseFloat(cfgGet("lyricsOffset"))
+            if (!isNaN(lo)) {
+                root.lyricsOffset = Math.round(lo * 20) / 20
+                if (typeof lyrics !== "undefined")
+                    lyrics.setPublishedOffset(root.lyricsOffset)
+            }
+        }
         player.setQuality(cfgGet("audioQuality") || "max")
         // El Client ID de la app ya va embebido en el backend; al usuario solo
         // le importa el interruptor de encendido/apagado.
@@ -934,7 +984,18 @@ Window {
     // Pista objetivo del selector (botón + de una fila o de la barra inferior).
     property string pickerVideoId: ""
     property bool shuffle: false
-    property bool repeat: false
+    // Repetición en tres estados (ciclo del botón): 0 = apagada, 1 = repetir
+    // la LISTA (al agotarse vuelve a la primera pista), 2 = repetir la CANCIÓN
+    // actual. Antes era un booleano que sólo significaba «repetir la canción».
+    property int repeatMode: 0
+    // Letra a pantalla completa (modo cine, estilo Liner): overlay sobre todo.
+    property bool fsLyricsOpen: false
+    // Karaoke palabra a palabra con las vistas que traigan tiempos por palabra;
+    // si se apaga (o no hay tiempos), la línea entera se ilumina al cantarla.
+    property bool karaokeWords: true
+    // Compensación de la letra en segundos (+ adelanta, − retrasa). El backend
+    // la publica para los widgets; las vistas la comparten por ahí mismo.
+    property real lyricsOffset: 0
     property bool nowPlayingOpen: false
     // Orden original de la lista cargada (para restaurar al apagar el aleatorio).
     property var originalOrder: []
@@ -969,6 +1030,12 @@ Window {
     property string artistRadioPending: ""
     // Intentos hechos de la petición de radio manual (vea tryManualRadio).
     property int manualRadioTries: 0
+    // ---- recambio de pista fallida ----------------------------------------
+    // Una pista de YouTube puede venir de una lista cuyo vídeo ya no existe
+    // (borrado, bloqueado): tras los reintentos del motor se busca en YouTube
+    // Music otra versión de la MISMA canción y se sustituye en la fila. Si no
+    // la hay, se avanza con un aviso. Sólo se intenta una vez por pista.
+    property string swapVideoId: ""
 
     // «Escuchar radio de esta canción»: suena la pista al instante y la
     // radio llega como colas «a continuación». Si el autoplay está activado,
@@ -1248,7 +1315,7 @@ Window {
         appcfg.set("playerVolume", String(player.volume))
         if (queue.count > 0) {
             const st = { queue: toTrackList(queue), index: queueIndex,
-                         shuffle: shuffle, repeat: repeat }
+                         shuffle: shuffle, repeatMode: repeatMode }
             appcfg.set("sessionState", JSON.stringify(st))
         }
         appcfg.save()
@@ -1290,7 +1357,16 @@ Window {
                         : (t.liked === true)
                 }
                 shuffle = st.shuffle === true
-                repeat = st.repeat === true
+                // repeatMode (número) o la antigua booleana `repeat`: ambas
+                // se aceptan. Sin nada repetible en la cola, apaga.
+                if (typeof st.repeatMode === "number")
+                    root.repeatMode = Math.max(0, Math.min(2, st.repeatMode))
+                else if (st.repeat === true)
+                    root.repeatMode = 2
+                else
+                    root.repeatMode = 0
+                mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
+                                      : root.repeatMode === 2 ? "Track" : "None")
                 // La cola guardada YA está en el orden de reproducción (si el
                 // aleatorio estaba activo, ya viene barajada): marcarla como tal
                 // evita que el primer next() la vuelva a barajar y cambie el
@@ -1368,9 +1444,25 @@ Window {
     }
 
     function toggleRepeat() {
-        repeat = !repeat
-        toast(repeat ? "Repetir activado" : "Repetir desactivado")
+        // Ciclo del botón de repetición: apagada → lista → canción → apagada.
+        root.repeatMode = (root.repeatMode + 1) % 3
+        cfgSet("repeatMode", root.repeatMode)
+        mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
+                              : root.repeatMode === 2 ? "Track" : "None")
+        toast(root.repeatMode === 0 ? "Repetición desactivada"
+            : root.repeatMode === 1 ? "Repetir la lista" : "Repetir la canción")
         root.saveSession()
+    }
+
+    // Compensación de la letra (segundos). Se guarda en la configuración, se
+    // manda al backend —que la publica para los widgets del escritorio— y las
+    // vistas en pantalla la recogen solas al llegar el aviso.
+    function setLyricsOffset(v) {
+        const x = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // pasos de 50 ms
+        root.lyricsOffset = x
+        cfgSet("lyricsOffset", x.toFixed(2))
+        if (typeof lyrics !== "undefined")
+            lyrics.setPublishedOffset(x)
     }
 
     // ---- integraciones (letras / Discord / MPRIS) ------------------------
@@ -1544,6 +1636,13 @@ Window {
             startCurrent()
             return
         }
+        // Fin de la cola con la LISTA en repetición: se vuelve a la primera
+        // pista sin pedir autoplay (la música ya vuelve sola).
+        if (root.repeatMode === 1 && queue.count > 0) {
+            queueIndex = 0
+            startCurrent()
+            return
+        }
         // Fin de la cola. Con el autoplay puesto no se corta: se pide a
         // YouTube Music que continúe desde la última pista (llegará a ~1,4 s
         // con prefetchRadio). Mientras llega, la última canción se queda en
@@ -1589,12 +1688,68 @@ Window {
         }
     }
 
+    // Recambio de vídeo muerto: lanza la búsqueda de otra versión de la MISMA
+    // canción (el vídeo original está borrado o bloqueado). Devuelve true si
+    // hay que esperar al recambio; el resultado atiende la fila en
+    // onAlternateResolved. La marca `swapTriedKey` es el «artista|título», así
+    // que una misma canción sólo intenta el recambio una vez: si el vídeo de
+    // recambio también falla, pasa a la siguiente (no buclea).
+    property string swapTriedKey: ""
+    function trySwap() {
+        if (!root.currentTitle)
+            return false
+        const key = root.currentArtist + "|" + root.currentTitle
+        if (root.swapTriedKey === key)
+            return false
+        const idx = root.queueIndex
+        const row = idx >= 0 && idx < queue.count ? queue.get(idx) : null
+        const vid = row ? root.videoIdOf(String(row.url || "")) : ""
+        if (!vid)
+            return false
+        root.swapTriedKey = key
+        root.swapVideoId = vid
+        console.warn("[queue] vídeo no disponible, buscando otra versión:", vid)
+        catalog.resolveAlternate(root.currentArtist, root.currentTitle, vid,
+                                 player.duration)
+        swapWaitTimer.restart()
+        return true
+    }
+
+    // Válvula del recambio: si la búsqueda no contesta en 12 s (sin sesión
+    // YTM, red cortada…), se avanza a la siguiente pista.
+    Timer {
+        id: swapWaitTimer
+        interval: 12000
+        onTriggered: root.swapGiveUp()
+    }
+
+    // El recambio no llegó (o no lo hubo): aviso y siguiente pista.
+    function swapGiveUp() {
+        if (root.swapVideoId.length === 0)
+            return
+        root.swapVideoId = ""
+        swapWaitTimer.stop()
+        toast("«" + root.currentTitle + "» no está disponible; avanzando")
+        root.next()
+    }
+
     Connections {
         target: player
         function onEndOfFile(ok) {
-            if (!ok)
+            if (!ok) {
+                // Pista fallida (tras los dos reintentos del motor): antes de
+                // avanzar se busca otra versión de la misma canción, si es que
+                // el vídeo original ya no existe.
+                if (root.trySwap())
+                    return
                 console.warn("[queue] pista fallida, avanzando")
-            if (root.repeat && root.currentTitle.length > 0) {
+                if (root.currentTitle.length > 0)
+                    root.toast("No se pudo reproducir «" + root.currentTitle + "»")
+                root.next()
+                return
+            }
+            // Repetir SÓLO la canción: se vuelve a arrancar la misma pista.
+            if (root.repeatMode === 2 && root.currentTitle.length > 0) {
                 root.startCurrent()
                 return
             }
@@ -1767,6 +1922,49 @@ Window {
                 root.editorTitle = String(info.title)
             if (info.privacy)
                 root.editorPrivate = (String(info.privacy).toUpperCase() === "PRIVATE")
+        }
+        // Respuesta a la búsqueda de recambio de una pista cuyo vídeo murió:
+        // se sustituye la fila de la cola con el vídeo nuevo y se arranca esa
+        // misma fila. La cola del usuario queda arreglada en el sitio (su
+        // playlist local ya no vuelve a fallar en esa canción).
+        function onAlternateResolved(key, track) {
+            if (!root.swapVideoId || String(key) !== root.swapVideoId)
+                return
+            swapWaitTimer.stop()
+            const idx = root.queueIndex
+            let row = idx >= 0 && idx < queue.count ? queue.get(idx) : null
+            const t = track || {}
+            // La cola cambió mientras se buscaba (el usuario avanzó): se
+            // descarta el recambio, ya no pinta nada sustituir esa fila.
+            if (row && root.videoIdOf(String(row.url || "")) !== root.swapVideoId)
+                row = null
+            if (!row || !t.url) {
+                root.swapVideoId = ""
+                if (row)
+                    root.toast("«" + row.title + "» no está disponible")
+                root.next()
+                return
+            }
+            const newVid = root.videoIdOf(String(t.url))
+            if (newVid === root.swapVideoId) {
+                // La búsqueda devolvió el mismo vídeo roto: ya no hay más que
+                // intentar; pasa a la siguiente.
+                root.swapVideoId = ""
+                root.toast("«" + row.title + "» no está disponible")
+                root.next()
+                return
+            }
+            console.warn("[queue] vídeo muerto " + root.swapVideoId
+                         + " -> recambio " + newVid)
+            queue.set(idx, { title: row.title, artist: row.artist,
+                             url: String(t.url),
+                             duration: Number(t.duration) > 0 ? t.duration : row.duration,
+                             source: row.source, thumb: t.thumb || row.thumb,
+                             cover: row.cover, album: row.album,
+                             liked: row.liked, setId: row.setId })
+            root.swapVideoId = ""
+            root.toast("Suena otra versión de «" + row.title + "»")
+            root.startCurrent()
         }
     }
 
@@ -1946,12 +2144,12 @@ Window {
             asynchronous: true
         }
 
-        // Vuelta al tono oscuro de la app: el wash sólo debe insinuarse por
-        // los canales entre islas, no sustituir al escritorio.
+        // Vuelta al tono oscuro de la app: el wash sólo debe insinuarse, pero
+        // lo bastante como para que el escritorio tenga color y no negro plano.
         Rectangle {
             anchors.fill: parent
             color: Sys.bg
-            opacity: 0.55
+            opacity: 0.48
         }
     }
 
@@ -2131,6 +2329,7 @@ Window {
                     root.startCurrent()
                 }
                 onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                onFullscreenLyricsRequested: root.openFullscreenLyrics()
             }
         }
 
@@ -2145,7 +2344,7 @@ Window {
             currentThumb: root.currentThumb
             volume: player.volume
             shuffle: root.shuffle
-            repeat: root.repeat
+            repeatMode: root.repeatMode
             onToggle: root.togglePlay()
             onNextRequested: root.next()
             onPrevRequested: root.prev()
@@ -2177,13 +2376,34 @@ Window {
         position: player.position
         duration: player.duration
         shuffle: root.shuffle
-        repeat: root.repeat
+        repeatMode: root.repeatMode
         onCloseRequested: root.nowPlayingOpen = false
         onToggleRequested: root.togglePlay()
         onNextRequested: root.next()
         onPrevRequested: root.prev()
         onShuffleToggled: root.toggleShuffle()
         onRepeatToggled: root.toggleRepeat()
+        onSeekRequested: (secs) => player.seek(secs)
+        // El botón «expand» de Now Playing abre el modo cine de letra en vez
+        // de pasar la ventana entera a pantalla completa.
+        fullscreenFallback: false
+        onFullscreenRequested: root.openFullscreenLyrics()
+    }
+
+    // ---- letra a pantalla completa (modo cine) ----------------------------
+    FullscreenLyrics {
+        id: fsLyrics
+        open: root.fsLyricsOpen
+        title: root.currentTitle
+        artist: root.currentArtist
+        thumb: root.currentThumb
+        playing: player.playing
+        position: player.position
+        duration: player.duration
+        onCloseRequested: root.fsLyricsOpen = false
+        onToggleRequested: root.togglePlay()
+        onNextRequested: root.next()
+        onPrevRequested: root.prev()
         onSeekRequested: (secs) => player.seek(secs)
     }
 
@@ -3058,6 +3278,49 @@ Window {
                                         root.fetchLyrics()
                                     }
                                 }
+                            }
+                        }
+                        SettingRow {
+                            label: "Karaoke palabra a palabra"
+                            desc: "Enciende cada palabra al cantarla; si no hay tiempos, frase entera"
+                            Toggle {
+                                checked: root.karaokeWords
+                                onToggled: {
+                                    root.karaokeWords = !root.karaokeWords
+                                    root.cfgSet("karaokeWords", root.karaokeWords)
+                                    lyrics.karaoke = root.karaokeWords
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: "Compensación de tiempo"
+                            desc: "Adelanta (+) o retrasa (−) la letra respecto al audio"
+                            RowLayout {
+                                spacing: Theme.s2
+                                Text {
+                                    text: (root.lyricsOffset > 0 ? "+" : "")
+                                          + root.lyricsOffset.toFixed(1) + " s"
+                                    color: Math.abs(root.lyricsOffset) > 0.001
+                                           ? Sys.accent : Sys.textDim
+                                    font.pixelSize: Theme.tSm
+                                    font.weight: Font.DemiBold
+                                }
+                                GhostButton {
+                                    text: "−"
+                                    onClicked: root.setLyricsOffset(root.lyricsOffset - 0.1)
+                                }
+                                GhostButton {
+                                    text: "+"
+                                    onClicked: root.setLyricsOffset(root.lyricsOffset + 0.1)
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: "Letra a pantalla completa"
+                            desc: "Modo cine sobre la portada; también con Ctrl+L"
+                            GhostButton {
+                                text: "Abrir"
+                                onClicked: root.openFullscreenLyrics()
                             }
                         }
                     }

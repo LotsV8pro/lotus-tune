@@ -150,11 +150,18 @@ Item {
             h = (h * 31 + s.charCodeAt(i)) >>> 0
         return h
     }
+    // El hueco sin imagen se pinta de AZUL profundo con una variación sutil
+    // por semilla (200°–246°, azul → azul-violeta): Inicio gana color y
+    // pierde negro, en la línea del modo cine.
     function coverA(seed) {
-        return Qt.hsla(((page._hash(seed) % 360) / 360), 0.33, 0.30, 1)
+        var h = page._hash(seed)
+        var hue = (200 + (h % 46)) / 360
+        return Qt.hsla(hue, 0.42, 0.34, 1)
     }
     function coverB(seed) {
-        return Qt.hsla((((page._hash(seed) >> 3) % 360) / 360), 0.30, 0.10, 1)
+        var h = page._hash(seed)
+        var hue = (200 + ((h >> 3) % 46)) / 360
+        return Qt.hsla(hue, 0.45, 0.12, 1)
     }
 
     // ---- saludo fechado --------------------------------------------------
@@ -354,6 +361,10 @@ Item {
     // tenue y un ColumnLayout interior. El aire (pad) y el hueco (spacing)
     // marcan la jerarquía; el alto lo fija el contenido. Sin sombras: en un
     // fondo tan oscuro el borde claro es lo que realmente despega la isla.
+    // Con el fondo dinámico activado la isla es translúcida: deja pasar el
+    // wash de la portada, así los carriles se tiñen de música en vez de
+    // quedarse en negro plano (y un punto más clara que el panel para que la
+    // retícula no quede plana sin fondo dinámico).
     component Island: Rectangle {
         id: island
 
@@ -362,7 +373,9 @@ Item {
 
         implicitHeight: inner.implicitHeight + island.pad * 2
         radius: Theme.rPanel
-        color: Sys.surface
+        color: Sys.dynamicBg
+               ? Theme.alpha(Sys.surfaceAlt, 0.55)
+               : Theme.alpha(Sys.surfaceAlt, 0.9)
         border.width: 1
         border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
 
@@ -381,14 +394,14 @@ Item {
         id: pageFlick
         anchors.fill: parent
         contentWidth: width
-        contentHeight: content.implicitHeight + Theme.s5 * 2
+        contentHeight: content.implicitHeight + Theme.s4 * 2
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
             id: content
             x: Theme.s5
-            y: Theme.s5
+            y: Theme.s4
             width: pageFlick.width - Theme.s5 * 2
             spacing: Theme.panelGap
 
@@ -664,6 +677,57 @@ Item {
                 }
             }
 
+            // ---- recomendaciones (radios del historial) — isla ---------
+            // Justo después de RECIENTE: es lo que más a mano está (al estilo
+            // de los «Made for you» de Spotify).
+            Island {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+                visible: page.recCards().length > 0
+
+                SectionTitle {
+                    Layout.fillWidth: true
+                    text: "RECOMENDADO PARA TI"
+                }
+
+                ListView {
+                    id: recView
+                    visible: page.recCards().length > 0
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: page.rowHeight
+                    orientation: ListView.Horizontal
+                    clip: true
+                    spacing: page.cardSpacing
+                    model: page.recCards()
+                    reuseItems: true
+                    cacheBuffer: 600
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: HomeCard {
+                        required property var modelData
+                        title: modelData.title
+                        subtitle: modelData.sub
+                        icon: modelData.icon
+                        badge: modelData.kind === "liked" ? "YT" : "RADIO"
+                        coverA: modelData.kind === "liked"
+                                ? Sys.accentDim : page.coverA(modelData.title)
+                        coverB: page.coverB(modelData.title)
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
+                        onPlayClicked: page.openRec(modelData, true)
+                        // Al pasar el ratón sobre una radio ya se descarga su lista
+                        // (en segundo plano, sin bloquear nada) si aún no lo había
+                        // hecho la ronda de precarga de la página.
+                        onHoveredChanged: if (hovered && modelData
+                                              && modelData.kind === "radio"
+                                              && modelData.trackId
+                                              && !page.recPrefetched[modelData.trackId]) {
+                            page.recPrefetched[modelData.trackId] = true
+                            catalog.prefetchRadio(modelData.trackId, modelData.title)
+                        }
+                    }
+                }
+            }
+
             // ---- TUS PLAYLISTS (YouTube Music) — isla ------------------
             // Sólo listas: las canciones sueltas se buscan en Buscar.
             Island {
@@ -717,55 +781,6 @@ Item {
                     color: Sys.textDim
                     font.pixelSize: Theme.tSm
                     opacity: 0.8
-                }
-            }
-
-            // ---- recomendaciones (radios del historial) — isla ---------
-            Island {
-                Layout.fillWidth: true
-                spacing: Theme.s3
-                visible: page.recCards().length > 0
-
-                SectionTitle {
-                    Layout.fillWidth: true
-                    text: "RECOMENDADO PARA TI"
-                }
-
-                ListView {
-                    id: recView
-                    visible: page.recCards().length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: page.rowHeight
-                    orientation: ListView.Horizontal
-                    clip: true
-                    spacing: page.cardSpacing
-                    model: page.recCards()
-                    reuseItems: true
-                    cacheBuffer: 600
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    delegate: HomeCard {
-                        required property var modelData
-                        title: modelData.title
-                        subtitle: modelData.sub
-                        icon: modelData.icon
-                        badge: modelData.kind === "liked" ? "YT" : "RADIO"
-                        coverA: modelData.kind === "liked"
-                                ? Sys.accentDim : page.coverA(modelData.title)
-                        coverB: page.coverB(modelData.title)
-                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
-                        onPlayClicked: page.openRec(modelData, true)
-                        // Al pasar el ratón sobre una radio ya se descarga su lista
-                        // (en segundo plano, sin bloquear nada) si aún no lo había
-                        // hecho la ronda de precarga de la página.
-                        onHoveredChanged: if (hovered && modelData
-                                              && modelData.kind === "radio"
-                                              && modelData.trackId
-                                              && !page.recPrefetched[modelData.trackId]) {
-                            page.recPrefetched[modelData.trackId] = true
-                            catalog.prefetchRadio(modelData.trackId, modelData.title)
-                        }
-                    }
                 }
             }
 

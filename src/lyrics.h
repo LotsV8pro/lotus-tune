@@ -5,12 +5,15 @@
 #include <QStringList>
 #include <QUrl>
 #include <QVariantList>
+#include <QVariantMap>
 #include <QVector>
 
 class QJsonArray;
 class QJsonObject;
 class QNetworkAccessManager;
 class QNetworkReply;
+class Player;
+class QTimer;
 
 // Letras de canciones (YouTube Music -> LRCLIB -> NetEase, sin API key), tal
 // que así expuesta a QML como la context property `lyrics`.
@@ -48,9 +51,19 @@ class Lyrics : public QObject
     Q_PROPERTY(QVariantList lines READ lines NOTIFY changed) // [{time, text}]
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed)
+    // Ajuste de sincronía en segundos (positivo = adelantar el frente). Vive
+    // aquí y no en la vista para que viaje también en el estado publicado.
+    Q_PROPERTY(double offset READ offset WRITE setOffset NOTIFY changed)
+    // «Karaoke por palabra»: con tiempos por palabra la línea activa se enciende
+    // letra a letra. Si se apaga, la línea entera se ilumina al cantarla.
+    Q_PROPERTY(bool karaoke READ karaoke WRITE setKaraoke NOTIFY changed)
 
 public:
     explicit Lyrics(QObject *parent = nullptr);
+
+    // El motor de reproducción: sólo se usa para publicar la posición en el
+    // estado de letras (los widgets del escritorio sincronizan con ella).
+    void setEngine(Player *player);
 
     bool loading() const { return m_loading; }
     bool hasLyrics() const { return m_hasLyrics; }
@@ -59,6 +72,10 @@ public:
     QString synced() const { return m_synced; }
     QString error() const { return m_error; }
     QString trackKey() const { return m_trackKey; }
+    double offset() const { return m_offset; }
+    void setOffset(double v);
+    bool karaoke() const { return m_karaoke; }
+    void setKaraoke(bool on);
     // Líneas ya parseadas (con sus segundos). Es la fuente única de verdad
     // para pintar y para lineIndexAt(), así el índice y la fila resaltada
     // nunca pueden desincronizarse.
@@ -73,6 +90,10 @@ public:
     Q_INVOKABLE void clear();
     // Índice de la línea LRC activa en `seconds`, -1 si aún no empieza o no hay.
     Q_INVOKABLE int lineIndexAt(double seconds);
+    // Main.qml publica aquí el ajuste de sincronía (mismo valor que la
+    // propiedad `offset`, para que no haya dos fuentes de verdad). Lo ve QML
+    // porque es Q_INVOKABLE y PUBLICO: los privados no se exponen.
+    Q_INVOKABLE void setPublishedOffset(double v) { setOffset(v); }
 
 signals:
     void changed();
@@ -159,6 +180,28 @@ private:
     bool trySonoraCache();
     // Adopta líneas ya construidas (con palabras) como letra sincronizada.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source);
+
+    // ---- estado publicado para el escritorio (widgets inir) ---------------
+    // La app vuelca su estado de letras en ~/.local/state/lotus-tune/ para que
+    // los widgets de la pantalla de bloqueo y del escritorio pinten EXACTAMENTE
+    // la misma letra, con el mismo reloj y el mismo ajuste de sincronía:
+    //   lyrics.json          → líneas (con palabras), meta de la pista, offset
+    //                          y modo karaoke; se escribe al cambiar de pista,
+    //                          de letra o de ajuste.
+    //   lyrics-runtime.json  → posición/estado del motor con marca de tiempo;
+    //                          en reproducción cada ~1 s y al pausar o buscar.
+    // El reloj viaja aquí y no por MPRIS porque la posición de mpv es real
+    // (microsegundos) mientras la del bus llega redondeada para otros casos.
+private:
+    void publishTrack();          // pista nueva: reescribir ambos ficheros
+    void publishLines();          // letra resuelta (o descartada): letras + meta
+    void publishRuntime();        // posición/offset/playing al vuelo (ligero)
+    void removePublished();       // sin letra o app fuera: borrar los ficheros
+    // El motor y el latido de publicación (posición cada ~1 s en reproducción).
+    Player *m_engine = nullptr;
+    QTimer *m_runtimeBeat = nullptr;
+    double m_offset = 0.0;
+    bool m_karaoke = true;
 
     QNetworkAccessManager *m_net = nullptr;
     QString m_trackKey;

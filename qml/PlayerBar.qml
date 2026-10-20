@@ -25,7 +25,8 @@ Rectangle {
     property string currentThumb: ""
     property int volume: 70
     property bool shuffle: false
-    property bool repeat: false
+    // 0 = sin repetición, 1 = repetir lista, 2 = repetir canción.
+    property int repeatMode: 0
     // videoId de la pista actual + estado de "me gusta" (YouTube Music).
     property string videoId: ""
     property bool liked: false
@@ -245,8 +246,8 @@ Rectangle {
 
                     BarButton {
                         diameter: 30; glyph: 15
-                        kind: "repeat"
-                        active: bar.repeat
+                        kind: bar.repeatMode === 2 ? "repeat-one" : "repeat"
+                        active: bar.repeatMode !== 0
                         iconColor: Sys.text
                         onTapped: { if (typeof sfx !== 'undefined') sfx.play('toggle'); bar.repeatToggled() }
                     }

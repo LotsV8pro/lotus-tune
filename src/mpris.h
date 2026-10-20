@@ -56,6 +56,9 @@ public:
     Q_INVOKABLE void updatePlayback(bool playing, double positionSeconds,
                                     bool stopped = false);
     Q_INVOKABLE void setShuffle(bool shuffle);
+    // Estado de repetición del botón de la app ("None" | "Playlist" |
+    // "Track"), para que los controles del sistema lo pinten igual.
+    Q_INVOKABLE void setLoopStatus(const QString &status);
     // Refleja en el bus el volumen fijado por la app (0..150 %).
     Q_INVOKABLE void updateVolume(int percent);
 

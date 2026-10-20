@@ -18,6 +18,8 @@ Item {
     signal closeRequested()
     signal trackActivated(int index)
     signal trackContextRequested(var track, real x, real y)
+    // Pedir la letra a pantalla completa (modo cine) desde la pestaña LETRA.
+    signal fullscreenLyricsRequested()
 
     implicitWidth: 360
 
@@ -76,6 +78,25 @@ Item {
 
                         TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.tab = tabItem.modelData.t } }
                     }
+                }
+
+                // Letra a pantalla completa (modo cine): sólo en la pestaña
+                // LETRA. Píldora circular igual que el botón de cerrar.
+                Rectangle {
+                    Layout.preferredWidth: Theme.pillH
+                    Layout.preferredHeight: Theme.pillH
+                    radius: Theme.rPill
+                    visible: panel.tab === 1
+                    color: fsHover.hovered ? Theme.hover(Sys.surface) : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    HoverHandler { id: fsHover; cursorShape: Qt.PointingHandCursor }
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 14; height: 14
+                        kind: "expand"
+                        color: fsHover.hovered ? Sys.accent : Sys.textDim
+                    }
+                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.fullscreenLyricsRequested() } }
                 }
 
                 // Cerrar: píldora circular, del mismo alto que las pestañas.

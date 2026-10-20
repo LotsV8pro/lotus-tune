@@ -179,6 +179,30 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit artistTopTrackResolved(arg, m_topTrack);
             });
 
+    // Vídeo alternativo (m_altProc): el JSON que devuelve ytm_api.py ya es una
+    // pista completa; se normaliza igual que una pista de búsqueda, pero con la
+    // fuente fijada a YouTube Music (es lo que siempre es un candidato de YTM).
+    m_altProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_altProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QByteArray out = m_altProc.readAllStandardOutput();
+                const QString key = m_altKey;
+                m_altKey.clear();
+                QVariantMap track;
+                if (code == 0) {
+                    const QJsonDocument doc = QJsonDocument::fromJson(out);
+                    if (doc.isObject()) {
+                        // normalize() etiqueta con m_currentSource; lo que se
+                        // reproduce es la pista de YTM, así que el origen es ytm.
+                        track = normalize(doc.object().toVariantMap());
+                        if (!track.isEmpty())
+                            track.insert(QStringLiteral("source"),
+                                         QStringLiteral("ytm"));
+                    }
+                }
+                emit alternateResolved(key, track);
+            });
+
     // Acciones puntuales sobre YT Music (votar, añadir/quitar de lista). Van en
     // su propio QProcess para no bloquear búsquedas ni "mis listas".
     m_ytmProc.setProcessChannelMode(QProcess::SeparateChannels);
@@ -827,6 +851,35 @@ void Catalog::resolveArtistRadio(const QString &artistName)
     m_topTrack = {};
     runArtist({ytmApiPath(), QStringLiteral("toptrack"), name},
               QStringLiteral("toptrack"), name);
+}
+
+// Vídeo alternativo para una pista cuyo vídeo original murió. Se busca en YT
+// Music descartando el id fallido; la búsqueda de YTM sólo devuelve vídeos
+// reproducibles, así que el mejor candidato sirve para sustituirlo. El
+// argumento va con campos separados por TAB (título con espacios incluido).
+void Catalog::resolveAlternate(const QString &artist, const QString &title,
+                               const QString &failedVideoId, double duration)
+{
+    const QString a = artist.trimmed();
+    const QString t = title.trimmed();
+    if (t.isEmpty()) {
+        emit alternateResolved(failedVideoId, {});
+        return;
+    }
+    // Un recambio a medias: se ignora (la pista fallida se salta igual).
+    if (m_altProc.state() != QProcess::NotRunning)
+        return;
+    m_altKey = failedVideoId;
+    QString spec = a + QLatin1Char('\t') + t;
+    if (!failedVideoId.isEmpty())
+        spec += QLatin1Char('\t') + failedVideoId;
+    QStringList args;
+    args << ytmApiPath() << QStringLiteral("alternate") << spec;
+    if (duration > 0.0)
+        args << QString::number(duration);
+    m_altProc.setProgram(QStringLiteral("python3"));
+    m_altProc.setArguments(args);
+    m_altProc.start();
 }
 
 void Catalog::syncLiked()
