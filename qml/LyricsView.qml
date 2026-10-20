@@ -465,6 +465,18 @@ Item {
                     readonly property var _w: modelData.words ? modelData.words : []
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
+                    // Desvanecido de borde (como en el repo de referencia): la
+                    // línea se atenúa a sí misma al acercarse al techo o al
+                    // suelo de la vista. Nada de bandas negras por encima:
+                    // sobre el lavado de la portada quedaban horrorosas.
+                    readonly property real vfade: {
+                        var zone = Math.max(28, lv.height * 0.14)
+                        var top = y - syncedFlick.contentY
+                        var a = Theme.clamp(top / zone, 0, 1)
+                        var b = Theme.clamp((lv.height - top - height) / zone, 0, 1)
+                        return Math.min(a, b)
+                    }
+
                     width: lv.colW
                     text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: lv.karaoke ? Text.RichText : Text.PlainText
@@ -479,8 +491,9 @@ Item {
                     font.weight: active ? Font.DemiBold : Font.Normal
                     // La opacidad sube al pasar el ratón: la línea bajo el
                     // cursor se marca como «clicable» (salta a ese momento).
-                    opacity: Math.min(1, lv.lineOpacity(index)
-                                         + (lineMa.containsMouse ? 0.22 : 0))
+                    // Todo ello, multiplicado por el desvanecido de borde.
+                    opacity: Math.min(vfade, lv.lineOpacity(index)
+                                      + (lineMa.containsMouse ? 0.22 : 0))
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
                     lineHeight: 1.32
@@ -508,30 +521,9 @@ Item {
         }
     }
 
-    // Difuminado superior/inferior. Van fuera del Flickable para que no se
-    // desplacen con el texto. Una sola «lavada» sutil, sin brillos.
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        height: Math.min(56, Math.max(24, lv.edgePad * 0.5))
-        visible: !lv.loading && lv.showSynced
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: lv.edgeColor }
-            GradientStop { position: 1.0; color: "transparent" }
-        }
-    }
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: Math.min(56, Math.max(24, lv.edgePad * 0.5))
-        visible: !lv.loading && lv.showSynced
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: lv.edgeColor }
-        }
-    }
+    // Los bordes ya no se tapizan con bandas de color: cada línea desvanece
+    // sola (ver `vfade` en el delegate). Las bandas cortaban el degradado y
+    // sobre el lavado de la portada quedaban fatal.
 
     // Botón «Seguir la canción»: aparece cuando el usuario se desplaza y deja
     // de seguir automáticamente la línea activa (como Sonora).

@@ -118,7 +118,14 @@ Rectangle {
 
         // Portada grande con el «me gusta» incrustado en la esquina inferior
         // izquierda (el puesto del «+» del repo de referencia).
+        // Cascada de resolución: la portada del reproductor suele ser una
+        // miniatura mediana y aquí se muestra MUY grande (en pantallas de
+        // alta densidad, más de 1000 px reales), así que se piden variantes
+        // cada vez mayores de la misma imagen de YouTube —maxres, luego hq—
+        // hasta dar con la más nítida; si ninguna existe, la base. Así se ve
+        // clara, sin pixelar, en cada cover.
         Rectangle {
+            id: coverBox
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: leftCol.width
             Layout.preferredHeight: leftCol.width
@@ -126,12 +133,50 @@ Rectangle {
             color: Sys.surfaceAlt
             clip: true
 
+            readonly property int px: Math.round(width * Screen.devicePixelRatio)
+            // El ID de YouTube puede venir como «watch?v=ID» (URLs de pista)
+            // o como «/vi_webp/ID/...» (miniaturas de la API). Se prueban
+            // ambas; sin ID no hay cascada y se usa la miniatura tal cual.
+            readonly property string vi: {
+                var m = /v=([\w-]{11})/.exec(fl.thumb)
+                if (!m)
+                    m = /\/vi(?:_webp)?\/([\w-]{11})\//.exec(fl.thumb)
+                return m ? m[1] : ""
+            }
+            readonly property string maxSrc: vi
+                ? "https://i.ytimg.com/vi/" + vi + "/maxresdefault.jpg" : ""
+            readonly property string hqSrc: vi
+                ? "https://i.ytimg.com/vi/" + vi + "/hqdefault.jpg" : ""
+
             Image {
+                id: coverBase
                 anchors.fill: parent
                 source: fl.thumb
                 visible: status === Image.Ready
-                sourceSize.width: Math.round(leftCol.width * 2)
-                sourceSize.height: Math.round(leftCol.width * 2)
+                sourceSize.width: coverBox.px
+                sourceSize.height: coverBox.px
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+            }
+            Image {
+                id: coverHq
+                anchors.fill: parent
+                source: coverBox.hqSrc
+                visible: status === Image.Ready && coverHi.status !== Image.Ready
+                sourceSize.width: coverBox.px
+                sourceSize.height: coverBox.px
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                cache: true
+            }
+            Image {
+                id: coverHi
+                anchors.fill: parent
+                source: coverBox.maxSrc
+                visible: status === Image.Ready
+                sourceSize.width: coverBox.px
+                sourceSize.height: coverBox.px
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 cache: true
