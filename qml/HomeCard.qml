@@ -20,6 +20,11 @@ Item {
     property string badge: ""
     property string thumb: ""
     property bool round: false
+    // Color del icono de respaldo: se resuelve por cuenta propia para no
+    // depender del objeto del tema en el instante exacto del repintado (un
+    // TypeError intermitente leía Sys.text cuando Sys aún no estaba listo).
+    property color iconColor: (typeof Sys === "object")
+        ? Theme.alpha(Sys.text, 0.55) : "#8a8a8a"
 
     signal clicked()
     signal playClicked()
@@ -37,6 +42,17 @@ Item {
     height: implicitHeight
 
     HoverHandler { id: hoverHandler }
+
+    // Fondo clicable (abre la lista). Va el PRIMERO, por debajo del contenido:
+    // así el botón de play flotante (que vive dentro de `inner`) recibe sus
+    // clics y el resto de la tarjeta los de este área. Al revés, esta capa
+    // tapaba al botón y el play de las tarjetas no hacía nunca nada.
+    MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
+    }
 
     // El contenido se eleva 2 px al pasar el ratón. La tarjeta no cambia de
     // tamaño: sólo se mueve, así el carril no salta.
@@ -80,7 +96,7 @@ Item {
                 width: 40
                 height: 40
                 kind: card.icon
-                color: Theme.alpha(Sys.text, 0.55)
+                color: card.iconColor
                 visible: card.thumb.length === 0
             }
 

@@ -1352,6 +1352,23 @@ void Lyrics::publishRuntime()
 
 void Lyrics::removePublished()
 {
-    QFile::remove(stateDir() + QStringLiteral("/lyrics.json"));
-    QFile::remove(stateDir() + QStringLiteral("/lyrics-runtime.json"));
+    // En vez de borrar los ficheros publicados, se sobrescriben vacíos. Un
+    // FileView del shell no siempre percibe el `remove` y el widget se quedaba
+    // pintando la letra de la pista anterior — el «Creep» eterno del widget—.
+    QJsonObject obj;
+    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("app"), QStringLiteral("lotus-tune"));
+    obj.insert(QStringLiteral("trackKey"), QString());
+    obj.insert(QStringLiteral("status"), QStringLiteral("none"));
+    obj.insert(QStringLiteral("lines"), QJsonArray());
+    obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
+    writeJsonFile(stateDir() + QStringLiteral("/lyrics.json"), obj);
+
+    QJsonObject rt;
+    rt.insert(QStringLiteral("v"), 1);
+    rt.insert(QStringLiteral("trackKey"), QString());
+    rt.insert(QStringLiteral("pos"), 0.0);
+    rt.insert(QStringLiteral("playing"), false);
+    rt.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
+    writeJsonFile(stateDir() + QStringLiteral("/lyrics-runtime.json"), rt);
 }

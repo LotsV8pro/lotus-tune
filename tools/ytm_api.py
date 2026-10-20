@@ -1072,9 +1072,35 @@ def cmd_playlist(list_id):
 
 def cmd_search(query):
     tracks = search(query)
+    # La API cruda mezcla versiones, podcasts y vídeos raros en un orden
+    # arbitrario. Reordenamos: canción por delante de vídeo y de cualquier
+    # otro tipo, y dentro de cada tipo gana quien tenga el título más pegado
+    # a la consulta — así «creep» devuelve primero la de Radiohead y no la
+    # cover del primo que subió un directo. Empates: el orden de la API.
+    tracks.sort(key=lambda e: _search_rank(e, query))
     json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
+
+
+def _search_rank(e, query):
+    ch = str(e.get("channel") or "")
+    title = str(e.get("title") or "")
+    parts = [p.strip().lower() for p in ch.split("•")]
+    kind = parts[0] if parts and parts[0] else ""
+    typ = 0 if kind in ("canción", "cancion", "song") else \
+        1 if kind in ("vídeo", "video") else 2
+    nq = _norm(query)
+    nt = _norm(title)
+    nt_clean = _norm(_strip_parens(title))
+    # Escalaños: 0 título idéntico tal cual; 1 el mismo título tras quitarle
+    # los adornos (el paréntesis del «(Acoustic)» de la cover); 2 lo contiene;
+    # 3 lo demás. Así una portada limpia de la consulta va por delante de
+    # cualquier versión con sufijo, y todas por delante de vídeos y podcasts.
+    exact = 0 if nt == nq else 1 if nt_clean == nq else \
+        2 if nq and nq in nt else 3
+    in_ch = 0 if nq and nq in _norm(ch) else 1
+    return (typ, exact, in_ch)
 
 
 def cmd_artists(query):

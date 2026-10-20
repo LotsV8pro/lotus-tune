@@ -400,6 +400,20 @@ Item {
     onHeightChanged: Qt.callLater(function () { lv.scrollToActive(true) })
     onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
 
+    // Al volverse visible (abrir el cine o el panel de cola): el scroll se
+    // había omitido mientras estaba oculto (`scrollToActive` sale si el Flick
+    // no es visible), así que al abrir reenclavamos la posición y saltamos SIN
+    // animación a la línea que suena. Sin esto, el cine abría con la letra
+    // donde la dejó la última vez y no se colocaba hasta pasar la línea.
+    onVisibleChanged: {
+        if (!lv.visible || !lv.showSynced)
+            return
+        syncKaraokePos()
+        computeActive()
+        following = true
+        Qt.callLater(function () { scrollToActive(true) })
+    }
+
     // ---- loading ------------------------------------------------------
     ColumnLayout {
         anchors.centerIn: parent

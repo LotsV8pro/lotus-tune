@@ -14,11 +14,13 @@ var fastMs = 120
 var medMs = 180
 var slowMs = 280
 
-// Corner radii (px). Flat, minimal: nothing is a pill unless it is a slot.
-var rSm = 6
-var rMd = 10
-var rLg = 14
-var rXl = 18
+// Corner radii (px). Todo redondeado, sin esquinas vivas: la escala entera
+// subió un peldaño para que portadas, filas, paneles e islas compartan la
+// misma sensación blanda (antes cada cual usaba su radio y se veía suelto).
+var rSm = 8
+var rMd = 14
+var rLg = 18
+var rXl = 22
 
 // Pills: control cápsula (radio = alto/2). Chips, toggles, pestañas y
 // botones de acción/navegación. Úsese siempre con un `height` fijo.

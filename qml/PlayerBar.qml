@@ -45,6 +45,10 @@ Rectangle {
     signal volumeWanted(int value)
     signal likeRequested()
     signal addToPlaylistRequested()
+    // Menú contextual de la pista (clic derecho sobre la ficha de la izquierda)
+    // e ir al artista (clic sobre su nombre).
+    signal trackMenuRequested(real x, real y)
+    signal artistRequested(string name)
 
     property bool scrubbing: false
     property real scrubPos: 0
@@ -155,13 +159,24 @@ Rectangle {
                         maximumLineCount: 1
                     }
                     Text {
+                        id: barArtist
                         Layout.fillWidth: true
                         visible: !bar.loading
                         text: bar.artist.length ? bar.artist : "—"
                         color: Sys.textDim
                         font.pixelSize: Theme.tMd
+                        font.underline: barArtistHover.hovered
                         elide: Text.ElideRight
                         maximumLineCount: 1
+                        HoverHandler { id: barArtistHover; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            onTapped: {
+                                if (typeof sfx !== "undefined")
+                                    sfx.play("tap")
+                                if (bar.artist.length)
+                                    bar.artistRequested(bar.artist)
+                            }
+                        }
                     }
                     // Estado de espera: punto que late + texto, con la misma
                     // altura que la línea de artista para no mover el layout.
@@ -187,6 +202,21 @@ Rectangle {
                             font.pixelSize: Theme.tMd
                         }
                     }
+                }
+            }
+
+            // Clic derecho sobre la ficha de la pista (portada, título o
+            // artista): abre el mismo menú que en las listas —reproducir,
+            // radio, añadir a la cola, biblioteca…—.
+            MouseArea {
+                anchors.left: leftSide.left
+                anchors.right: leftSide.right
+                anchors.top: leftSide.top
+                anchors.bottom: leftSide.bottom
+                acceptedButtons: Qt.RightButton
+                onClicked: {
+                    const p = mapToItem(null, mouse.x, mouse.y)
+                    bar.trackMenuRequested(p.x, p.y)
                 }
             }
 
@@ -269,7 +299,7 @@ Rectangle {
                     Rectangle {
                         id: scrubTrack
                         Layout.fillWidth: true
-                        height: 10
+                        height: 16
                         color: "transparent"
 
                         readonly property real ratio: bar.duration > 0

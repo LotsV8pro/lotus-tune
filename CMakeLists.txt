@@ -54,6 +54,7 @@ qt_add_qml_module(lotus-tune
         qml/LockedPanel.qml
         qml/theme.js
         qml/HomePage.qml
+        qml/ArtImage.qml
         qml/HomeCard.qml
         qml/SearchPage.qml
         qml/ArtistPage.qml
