@@ -50,10 +50,11 @@ Item {
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
 
     // Karaoke: con tiempos POR PALABRA (Sonora/Apple Music) la línea activa se
-    // rellena palabra a palabra. Si sólo hay tiempos por línea (YTM/LRCLIB/
-    // NetEase) se barre la frase entera entre su inicio y el de la siguiente
-    // (estilo Liner): el frente avanza aunque la fuente no dé detalles por
-    // letra.
+    // rellena palabra a palabra. Cuando la fuente sólo da tiempos por línea
+    // (YTM/LRCLIB/NetEase) NO se barre la frase a medias: la línea entera se
+    // ilumina al cantarla (menos confuso, y coincide con el widget del
+    // escritorio). El conmutador `karaoke` apaga el relleno por palabra y deja
+    // siempre la línea entera.
     readonly property bool hasWordSync: {
         for (var i = 0; i < lines.length; i++) {
             var w = lines[i].words
@@ -62,6 +63,9 @@ Item {
         }
         return false
     }
+    // ¿Karaoke por palabra activo? Se apaga desde Ajustes (o por el backend).
+    // Lo mantiene `rebuild()` (el binding sobre la `var lyr` no rastrea cambios).
+    property bool karaokeOn: true
 
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
@@ -97,6 +101,10 @@ Item {
             appcfg.set("lyricsOffset", offset.toFixed(2))
             appcfg.save()
         }
+        // El backend publica este mismo ajuste en el estado de letras para que
+        // los widgets del escritorio cuadren con el audio igual que la app.
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
     }
 
     // ---- active line ---------------------------------------------------
@@ -136,6 +144,8 @@ Item {
     function rebuild() {
         var src = (lyr && lyr.lines) ? lyr.lines : []
         lines = (src && src.length) ? src : []
+        if (lyr)
+            karaokeOn = lyr.karaoke !== false
         // Pista nueva: volvemos a seguir el canto desde el principio.
         following = true
         computeActive()
@@ -296,21 +306,6 @@ Item {
         return out
     }
 
-    // Barrido de una línea SIN tiempos por palabra: avanza de 0 a 1 entre el
-    // inicio de la frase (i) y el de la siguiente, con tope —si el hueco es
-    // enorme (instrumental largo), la frase se completa y espera, en vez de
-    // ir llenándose los veinte segundos del solo.
-    function lineFill(i) {
-        if (i < 0 || i >= lines.length)
-            return 1
-        var t0 = Number(lines[i].time || 0)
-        var t1 = (i + 1 < lines.length) ? Number(lines[i + 1].time || 0) : t0 + 6
-        if (!(t1 > t0))
-            t1 = t0 + 6
-        var span = Math.min(t1 - t0, 12)
-        return Theme.clamp((karaokePos - t0) / span, 0, 1)
-    }
-
     // Reancla la posición interpolada al último valor que dio el motor.
     function syncKaraokePos() {
         if (!ply)
@@ -322,7 +317,17 @@ Item {
 
     Connections {
         target: lv.lyr
-        function onChanged() { lv.rebuild() }
+        function onChanged() {
+            // Ajustes (u otra vista en pantalla) pueden haber movido la
+            // compensación o el karaoke: el backend es el común, se trae el
+            // desfase y se recalcula todo.
+            if (lv.lyr) {
+                var o = Number(lv.lyr.offset)
+                if (!isNaN(o) && Math.abs(o - lv.offset) > 0.001)
+                    lv.offset = o
+            }
+            lv.rebuild()
+        }
     }
     // El motor emite positionChanged como mucho cada 240 ms: ese aviso reancla
     // la posición interpolada y recalcula la línea activa. `stateChanged`
@@ -363,6 +368,8 @@ Item {
             if (!isNaN(v))
                 offset = v
         }
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
         rebuild()
     }
     onLinesChanged: computeActive()
@@ -443,23 +450,19 @@ Item {
                     required property int index
                     readonly property bool active: index === lv.activeIndex
 
-                    // Con tiempos por palabra: el frente va palabra a palabra.
-                    // Sin ellos: barrido suave de la frase entre su instante y
-                    // el de la siguiente (la línea se va llenando al ritmo).
+                    // Con tiempos por palabra (y karaoke activado): el frente
+                    // va palabra a palabra. Sin ellos: la línea entera se
+                    // ilumina al ser la activa (sin barrido a medias).
                     readonly property var _w: modelData.words ? modelData.words : []
-                    readonly property bool karaoke: active && _w.length > 1
-                    readonly property bool sweep: active && !karaoke
+                    readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
                     width: lv.colW
-                    text: karaoke ? lv._wordHtml(_w)
-                                  : (sweep
-                                     ? lv._fillHtml(modelData.text, lv.lineFill(index))
-                                     : modelData.text)
-                    textFormat: karaoke || sweep ? Text.RichText : Text.PlainText
+                    text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
+                    textFormat: lv.karaoke ? Text.RichText : Text.PlainText
                     // Solo la activa canta: texto a pleno y con más peso; el
                     // resto se apaga en `Sys.textDim` según la distancia. La
-                    // frase activa lleva un matiz lavanda para subrayar que es
-                    // la que suena (cuando no hay karaoke palabra a palabra).
+                    // frase activa lleva un leve matiz de acento para subrayar
+                    // que es la que suena.
                     color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
                                   : Sys.textDim
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost

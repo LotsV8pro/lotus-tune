@@ -95,6 +95,38 @@ Canvas {
             ctx.lineTo(X(7), Y(13.8))
             ctx.stroke()
             break
+        case "repeat-one":
+            // Las mismas dos flechas del «repeat» con un «1» en medio: es el
+            // modo «repetir sólo esta canción» del botón de repetición.
+            ctx.beginPath()
+            ctx.moveTo(X(3), Y(6.5))
+            ctx.lineTo(X(13.2), Y(6.5))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(11), Y(4.2))
+            ctx.lineTo(X(13.4), Y(6.5))
+            ctx.lineTo(X(11), Y(8.8))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(15), Y(11.5))
+            ctx.lineTo(X(5), Y(11.5))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(7), Y(9.2))
+            ctx.lineTo(X(4.8), Y(11.5))
+            ctx.lineTo(X(7), Y(13.8))
+            ctx.stroke()
+            // el «1»: asta con flamín y base
+            ctx.beginPath()
+            ctx.moveTo(X(8), Y(8.8))
+            ctx.lineTo(X(9.6), Y(7.6))
+            ctx.lineTo(X(9.6), Y(11.6))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(7.9), Y(11.6))
+            ctx.lineTo(X(11.3), Y(11.6))
+            ctx.stroke()
+            break
         case "lyrics":
             // musical note: head + stem + flag
             ctx.beginPath()

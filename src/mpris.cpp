@@ -193,6 +193,17 @@ void Mpris::setShuffle(bool shuffle)
                           {{QStringLiteral("Shuffle"), m_shuffle}});
 }
 
+void Mpris::setLoopStatus(const QString &status)
+{
+    if (m_loopStatus == status)
+        return;
+    m_loopStatus = status;
+    if (m_playerAdaptor)
+        emit m_playerAdaptor->loopStatusChanged();
+    emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
+                          {{QStringLiteral("LoopStatus"), m_loopStatus}});
+}
+
 // Refleja en el bus el volumen que fija la propia app (p. ej. al subir/bajar
 // con las flechas o silenciar con M), para que el widget del sistema no se
 // quede con un valor obsoleto.

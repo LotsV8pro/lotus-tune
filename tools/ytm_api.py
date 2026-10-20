@@ -11,6 +11,12 @@ Netscape) y consulta la API interna de YouTube Music (InnerTube) para:
                                 de discos de otros artistas de la misma página)
   album <browseId>              pistas de un álbum o sencillo
   toptrack <artista>            pista principal del artista (semilla de radio)
+  alternate <artista\ttítulo\texcluirId> [dur]
+                              vídeo alternativo para una pista cuyo vídeo original
+                              ya no está disponible (búsqueda YTM; los resultados
+                              de búsqueda SIEMPRE son vídeos reproducibles). El
+                              argumento se pasa con campos separados por TAB para
+                              no perder el separador en títulos con espacios.
   playlist <listId>           tracks de una playlist (rápido, sin yt-dlp)
   playlistinfo <listId>       título/descripción/privacidad/propiedad de una lista
   rate  <videoId> <rating>    vota LIKE | DISLIKE | INDIFFERENT
@@ -1103,6 +1109,74 @@ def cmd_toptrack(query):
     return 0
 
 
+def _strip_parens(t):
+    """Quita paréntesis/corchetes y sufijos del tipo '(Official Video)',
+    '(Lyrics)', '[HD]' para comparar el título 'de verdad'."""
+    t = re.sub(r"[\(\[].*?[\)\]]", " ", str(t or ""))
+    t = re.sub(r"\b(official|lyrics?|lyric|video|audio|hd|hq|remaster(ed)?|"
+               r"4k|1080p|720p)\b", " ", t.lower())
+    return re.sub(r"\s+", " ", t).strip(" -–—:.")
+
+
+def alternate_track(artist, title, exclude_id="", duration=0.0):
+    """Busca en YT Music la MISMA canción y devuelve el primer vídeo que la
+    representa, descartando el id estropeado. Los resultados de búsqueda de YT
+    Music son siempre vídeos reproducibles, así que un candidato que pasa el
+    filtro de título/artista sirve para sustituir el original muerto."""
+    q = ("%s %s" % (artist or "", title or "")).strip()
+    if not q:
+        return None
+    want_t = _norm(_strip_parens(title))
+    want_a = _norm(artist)
+    cands = search(q, limit=15)
+    best, best_score = None, -1e9
+    for idx, c in enumerate(cands):
+        if exclude_id and c.get("id") == exclude_id:
+            continue
+        ct = _norm(_strip_parens(c.get("title", "")))
+        ca = _norm(c.get("channel", ""))
+        if not ct or not want_t:
+            continue
+        # El título es lo que más pesa; si no comparte ni prefijo, se descarta.
+        if not (ct == want_t or ct.startswith(want_t) or want_t.startswith(ct)):
+            # Oportunidad para que un título muy largo coincida por palabras.
+            wt, wc = set(want_t.split()), set(ct.split())
+            inter = len(wt & wc)
+            if not inter or inter / max(1, len(wt)) < 0.6:
+                continue
+        score = 40
+        if ct == want_t:
+            score += 40
+        # Artista coincidente (uno contiene al otro, en cualquier orden).
+        if want_a and ca and (want_a in ca or ca in want_a):
+            score += 30
+        dur = float(c.get("duration") or 0)
+        if duration and dur:
+            d = abs(dur - float(duration))
+            score += 20 if d <= 5 else (10 if d <= 20 else 0 if d <= 45 else -10)
+        score -= idx   # desempata por relevancia del buscador
+        if score > best_score:
+            best, best_score = c, score
+    return best
+
+
+def cmd_alternate(spec, duration=0.0):
+    # spec llega como "artista\ttítulo\tid-a-excluir" (el id va aparte del
+    # título para no perder el separador en nombres con espacios).
+    parts = spec.split("\t")
+    artist = parts[0] if parts else ""
+    title = parts[1] if len(parts) > 1 else ""
+    exclude = parts[2] if len(parts) > 2 else ""
+    t = alternate_track(artist, title, exclude, duration)
+    if not t:
+        raise YtmError("no hay vídeo alternativo para %r" % spec)
+    out = dict(t)
+    out["videoId"] = t["id"]
+    json.dump(out, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_rate(video_id, rating):
     resp = rate(video_id, rating)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -1203,6 +1277,11 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta el browseId del álbum")
             return cmd_album(args[1])
+        if cmd == "alternate":
+            if len(args) < 2:
+                raise YtmError("falta la pista (artista\\ttítulo\\texcluir)")
+            dur = float(args[2]) if len(args) > 2 else 0.0
+            return cmd_alternate(args[1], dur)
         if cmd == "toptrack":
             if len(args) < 2:
                 raise YtmError("falta el nombre del artista")

@@ -61,6 +61,7 @@ qt_add_qml_module(lotus-tune
         qml/PlaylistEditor.qml
         qml/NowPlaying.qml
         qml/LyricsView.qml
+        qml/FullscreenLyrics.qml
 )
 
 qt_add_resources(lotus-tune "ui_sounds"

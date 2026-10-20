@@ -1,14 +1,19 @@
 #include "lyrics.h"
 
+#include "player.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDateTime>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QHash>
 #include <QSqlDatabase>
 #include <QSqlQuery>
@@ -100,6 +105,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_ytmIds.clear();
     m_ytmIdx = 0;
     m_ytmBrowseId.clear();
+    publishTrack();   // el widget del shell se entera antes de que llegue nada
     emit changed();
 
     if (t.isEmpty()) {
@@ -1024,6 +1030,7 @@ void Lyrics::finish()
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
+    publishLines();   // vuelco completo al estado publicado (líneas o descarte)
     emit changed();
 }
 
@@ -1162,5 +1169,189 @@ void Lyrics::clear()
     m_syncSource.clear();
     m_plainSource.clear();
     m_lines.clear();
+    removePublished();
     emit changed();
+}
+
+// ---- estado publicado para el escritorio (widgets inir) ---------------------
+// Ver la nota en lyrics.h. Los ficheros viven en ~/.local/state/lotus-tune/ y
+// el shell (LyricsService de inir) los lee con FileView: por eso el formato de
+// `lines` es EL MISMO que produce lyrics.py ({t,e,text,w,instrumental}), para
+// que el widget no distinga entre letra propia y letra heredada de la app.
+
+namespace {
+
+QString stateDir()
+{
+    return QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
+}
+
+bool writeJsonFile(const QString &path, const QJsonObject &obj)
+{
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    // Escritura ATOMICA (temporal + rename): los widgets del escritorio leen
+    // estos ficheros en cuanto cambian y nunca deben ver JSON a medias.
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly))
+        return false;
+    f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+    return f.commit();
+}
+
+} // namespace
+
+void Lyrics::setEngine(Player *player)
+{
+    m_engine = player;
+    if (!player)
+        return;
+    if (!m_runtimeBeat) {
+        m_runtimeBeat = new QTimer(this);
+        m_runtimeBeat->setInterval(1000);
+        m_runtimeBeat->setTimerType(Qt::CoarseTimer);
+        connect(m_runtimeBeat, &QTimer::timeout, this, [this]() {
+            publishRuntime();
+            if (m_engine && m_engine->playing())
+                m_runtimeBeat->start();   // latido sólo mientras suena
+        });
+    }
+    // Play/pausa/cambio de estado: se escribe al momento (al pausar no hay
+    // latido, y el widget debe saber que el reloj queda congelado aquí).
+    connect(player, &Player::stateChanged, this, [this]() {
+        if (m_engine && m_engine->playing()) {
+            if (m_runtimeBeat && !m_runtimeBeat->isActive())
+                m_runtimeBeat->start();
+        } else if (m_runtimeBeat) {
+            m_runtimeBeat->stop();
+        }
+        publishRuntime();
+    });
+    // Búsqueda con la pausa puesta: positionChanged no vuelve a sonar hasta
+    // reanudar, así que el seek se publica a parte.
+    connect(player, &Player::seeked, this, [this]() { publishRuntime(); });
+}
+
+void Lyrics::setOffset(double v)
+{
+    const double x = qBound(-10.0, v, 10.0);
+    if (qAbs(x - m_offset) < 1e-9)
+        return;
+    m_offset = x;
+    publishRuntime();
+    emit changed();
+}
+
+void Lyrics::setKaraoke(bool on)
+{
+    if (m_karaoke == on)
+        return;
+    m_karaoke = on;
+    publishLines();
+    emit changed();
+}
+
+// Pista nueva (o reintento de fetch): el widget se entera al instante de qué
+// suena y de que la letra está en camino, para no pedir dos veces la misma.
+void Lyrics::publishTrack()
+{
+    if (m_trackKey.isEmpty()) {
+        removePublished();
+        return;
+    }
+    QJsonObject obj;
+    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("app"), QStringLiteral("lotus-tune"));
+    obj.insert(QStringLiteral("trackKey"), m_trackKey);
+    obj.insert(QStringLiteral("title"), m_title);
+    obj.insert(QStringLiteral("artist"), m_artist);
+    obj.insert(QStringLiteral("videoId"), m_videoId);
+    obj.insert(QStringLiteral("duration"), m_duration);
+    obj.insert(QStringLiteral("karaoke"), m_karaoke);
+    obj.insert(QStringLiteral("offset"), m_offset);
+    obj.insert(QStringLiteral("status"), QStringLiteral("loading"));
+    obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
+    writeJsonFile(stateDir() + QStringLiteral("/lyrics.json"), obj);
+    publishRuntime();
+}
+
+// Letra resuelta (o descartada): se vuelcan las líneas completas con sus
+// palabras. `e` de cada línea es el inicio de la siguiente (el contrato de
+// lyrics.py), con un techo razonable para no anunciar duraciones enormes.
+void Lyrics::publishLines()
+{
+    if (m_trackKey.isEmpty())
+        return;
+    // El widget espera la letra por pista terminada; si la búsqueda aún sigue
+    // (hubo publishTrack después), no soltamos líneas viejas en un fichero
+    // que ya describe otra pista.
+    QJsonArray lines;
+    if (m_hasSynced) {
+        for (int i = 0; i < m_lines.size(); ++i) {
+            const LrcLine &l = m_lines.at(i);
+            QJsonObject lo;
+            lo.insert(QStringLiteral("t"), l.time);
+            double e = (i + 1 < m_lines.size()) ? m_lines.at(i + 1).time
+                                                : l.time + 12.0;
+            e = qMin(e, l.time + 45.0);
+            lo.insert(QStringLiteral("e"), e);
+            lo.insert(QStringLiteral("text"), l.text);
+            if (!l.words.isEmpty()) {
+                // LrcLine::words son QVariantMap {t,e,text}: pasan tal cual al
+                // contrato del widget, pero en formato JSON de verdad.
+                QJsonArray ws;
+                for (const QVariant &wv : l.words)
+                    ws.append(QJsonValue::fromVariant(wv));
+                lo.insert(QStringLiteral("w"), ws);
+            }
+            if (l.instrumental)
+                lo.insert(QStringLiteral("instrumental"), true);
+            lines.append(lo);
+        }
+    }
+    QJsonObject obj;
+    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("app"), QStringLiteral("lotus-tune"));
+    obj.insert(QStringLiteral("trackKey"), m_trackKey);
+    obj.insert(QStringLiteral("title"), m_title);
+    obj.insert(QStringLiteral("artist"), m_artist);
+    obj.insert(QStringLiteral("videoId"), m_videoId);
+    obj.insert(QStringLiteral("duration"), m_duration);
+    obj.insert(QStringLiteral("karaoke"), m_karaoke);
+    obj.insert(QStringLiteral("offset"), m_offset);
+    obj.insert(QStringLiteral("status"),
+               m_hasSynced ? QStringLiteral("ok") : QStringLiteral("none"));
+    obj.insert(QStringLiteral("lines"), lines);
+    obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
+    writeJsonFile(stateDir() + QStringLiteral("/lyrics.json"), obj);
+    publishRuntime();
+}
+
+// Posición/estado del motor: fichero pequeño para que el widget lo relea sin
+// coste. La posición es la cruda del motor; el ajuste (`offset`) viaja aparte
+// y lo suma el widget, igual que la app.
+void Lyrics::publishRuntime()
+{
+    if (m_trackKey.isEmpty())
+        return;
+    double pos = 0.0;
+    bool playing = false;
+    if (m_engine) {
+        pos = m_engine->position();
+        playing = m_engine->playing();
+    }
+    QJsonObject obj;
+    obj.insert(QStringLiteral("v"), 1);
+    obj.insert(QStringLiteral("trackKey"), m_trackKey);
+    obj.insert(QStringLiteral("pos"), pos);
+    obj.insert(QStringLiteral("playing"), playing);
+    obj.insert(QStringLiteral("offset"), m_offset);
+    obj.insert(QStringLiteral("karaoke"), m_karaoke);
+    obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
+    writeJsonFile(stateDir() + QStringLiteral("/lyrics-runtime.json"), obj);
+}
+
+void Lyrics::removePublished()
+{
+    QFile::remove(stateDir() + QStringLiteral("/lyrics.json"));
+    QFile::remove(stateDir() + QStringLiteral("/lyrics-runtime.json"));
 }

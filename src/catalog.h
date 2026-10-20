@@ -92,6 +92,12 @@ public:
     // Resuelve la pista principal de un artista para sembrar su radio
     // ("Radio del artista" del menú contextual): emite artistTopTrackResolved.
     Q_INVOKABLE void resolveArtistRadio(const QString &artistName);
+    // Vídeo alternativo para una pista cuyo vídeo original ya no está (ver
+    // alternateResolved()). Se busca en YT Music descartando el id fallido.
+    // `duration` (segundos, 0 si se desconoce) ayuda a afinar la coincidencia.
+    Q_INVOKABLE void resolveAlternate(const QString &artist, const QString &title,
+                                      const QString &failedVideoId,
+                                      double duration);
     Q_INVOKABLE void syncLiked();
     // Vacía la caché en memoria de listas ya cargadas: la próxima apertura de
     // cada una consulta de nuevo la red (útil para "refrescar").
@@ -155,6 +161,9 @@ signals:
     // Resuelta la pista principal de un artista (ver resolveArtistRadio());
     // `track` vacío si no se pudo resolver (la UI cae a la radio de la pista).
     void artistTopTrackResolved(const QString &artistName, const QVariantMap &track);
+    // Resuelto el vídeo alternativo para la pista fallida `key` (ver
+    // resolveAlternate()); `track` vacío si no lo hubo.
+    void alternateResolved(const QString &key, const QVariantMap &track);
     // loginState / loginError / loginUrl changed.
     void loginChanged();
     // Resultado de una interacción YT (votar / añadir / quitar de lista).
@@ -294,6 +303,10 @@ private:
     QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (vacío: anulada)
     QString m_artistArg;       // dato que se devuelve en la señal
     QVariantMap m_topTrack;    // pista principal resuelta (radio del artista)
+    // Vídeo alternativo para una pista cuyo vídeo murió: proceso propio para no
+    // pisar la navegación de artistas que esté en vuelo.
+    QProcess m_altProc;
+    QString m_altKey;          // videoId fallido que se está reintentando
     QProcess m_ytmProc;        // one-shot acciones (rate/addpl/rmpl)
     QString m_ytmOkMessage;    // mensaje de éxito asociado a la acción en curso
     QProcess m_plProc;         // one-shot gestión de listas (create/rename/delete/info)
