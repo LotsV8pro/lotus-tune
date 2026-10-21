@@ -83,6 +83,12 @@ QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
             if (!it->started && !it->done) {
                 it->started = true;
                 needStart = true;
+            } else if (it->failed && !it->done && it->attempts < 3) {
+                // Every candidate failed last time: try again.
+                it->failed = false;
+                it->started = true;
+                it->attempts++;
+                needStart = true;
             }
         }
     }
@@ -142,6 +148,7 @@ void RoundedArt::start(const QString &key)
         }
     }
     if (done)
+    if (done)
         emit ready(key);
     tryNext(key, 0);
 }
@@ -151,6 +158,7 @@ void RoundedArt::tryNext(const QString &key, int index)
     QStringList candidates;
     int boxW = 0, boxH = 0, radius = 0;
     qreal scale = 1.0;
+    QImage fallback;
     {
         QMutexLocker lock(&m_mutex);
         auto it = m_jobs.find(key);
@@ -163,22 +171,48 @@ void RoundedArt::tryNext(const QString &key, int index)
         boxH = it->boxH;
         radius = it->radius;
         scale = it->scale;
+        fallback = it->fallback;
     }
-    if (index >= candidates.size())
-        return;      // ninguna sirve: la tarjeta se queda con su degradado.
+    if (index >= candidates.size()) {
+        // Every candidate failed. If a small picture was downloaded it is
+        // used now; otherwise the slot keeps its gradient and the job is
+        // marked as failed so the next request tries it again.
+        if (fallback.isNull()) {
+            {
+                QMutexLocker lock(&m_mutex);
+                auto it = m_jobs.find(key);
+                if (it != m_jobs.end())
+                    it->failed = true;
+            }
+            // The QML asks for the url again: the job starts over.
+            emit ready(key);
+            return;
+        }
+        const QImage img = process(fallback, boxW, boxH, radius, scale);
+        {
+            QMutexLocker lock(&m_mutex);
+            auto it = m_jobs.find(key);
+            if (it == m_jobs.end())
+                return;
+            it->image = img;
+            it->done = true;
+            it->version++;
+        }
+        emit ready(key);
+        return;
+    }
 
     const QString url = candidates.at(index);
     QNetworkRequest req{QUrl(url)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
-    // Red de seguridad: si esta candidata no contesta en 6 s (una URL que
+    // Red de seguridad: si esta candidata no contesta en 4 s (una URL que
     // se queda colgada, un CDN que no responde) se aborta y se prueba la
     // siguiente. Sin esto la portada se queda vacía para siempre.
-    QTimer::singleShot(6000, reply, [this, reply, key, index]() {
+    QTimer::singleShot(4000, reply, [this, reply, key, index]() {
         if (reply->isRunning()) {
             reply->abort();
-            tryNext(key, index + 1);
         }
     });
     QObject::connect(reply, &QNetworkReply::finished, this,
@@ -193,9 +227,17 @@ void RoundedArt::tryNext(const QString &key, int index)
             tryNext(key, index + 1);
             return;
         }
-        // La cascada de YouTube devuelve a veces un marco gris de 120×90
-        // en vez de la portada real: se descarta y se prueba la siguiente.
+        // The YouTube cascade sometimes answers with a 120x90 grey frame
+        // instead of the real cover: it is kept as a fallback (better than
+        // an empty slot) and the next candidate is tried first.
         if (src.width() < 100 || src.height() < 100) {
+            {
+                QMutexLocker lock(&m_mutex);
+                auto it = m_jobs.find(key);
+                if (it == m_jobs.end())
+                    return;
+                it->fallback = src;
+            }
             tryNext(key, index + 1);
             return;
         }
@@ -207,7 +249,7 @@ void RoundedArt::tryNext(const QString &key, int index)
             m_originals.insert(url, src);
             m_originalOrder.removeAll(url);
             m_originalOrder << url;
-            while (m_originalOrder.size() > 6) {
+            while (m_originalOrder.size() > 24) {
                 m_originals.remove(m_originalOrder.takeFirst());
             }
         }

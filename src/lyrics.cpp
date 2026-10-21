@@ -157,6 +157,8 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_hasSynced = false;
     m_plain.clear();
     m_synced.clear();
+    m_sonoraLines.clear();
+    m_sonoraSource.clear();
     m_error.clear();
     m_syncSource.clear();
     m_plainSource.clear();
@@ -1110,10 +1112,20 @@ bool Lyrics::trySonoraCache()
     if (best.size() < 2)
         return false;
 
-    return adoptWorded(std::move(best),
-                       QStringLiteral("sonora · %1").arg(
-                           bestSource.isEmpty() ? QStringLiteral("cache")
-                                                : bestSource));
+    const QString source = QStringLiteral("sonora · %1").arg(
+        bestSource.isEmpty() ? QStringLiteral("cache") : bestSource);
+    if (bestWorded <= 0) {
+        // Without word level timings this is not karaoke: it is kept aside
+        // and the network is asked first (YouTube Music may bring the real
+        // word timings).
+        m_sonoraLines = best;
+        m_sonoraSource = source;
+        qInfo().noquote()
+            << QString("[lyrics] sonora (cache) sin letra a letra: se sigue con la red");
+        return false;
+    }
+
+    return adoptWorded(std::move(best), source);
 }
 
 // Fallback of the Sonora cache: look it up by TITLE and ARTIST, not only
@@ -1285,21 +1297,43 @@ bool Lyrics::trySonoraByTitle()
         }
     }
 
-    if (best.size() < 2 || bestWorded <= 0)
+    if (best.size() < 2)
         return false;
 
-    return adoptWorded(std::move(best),
-                       QStringLiteral("sonora · %1").arg(
-                           bestSource.isEmpty() ? QStringLiteral("cache")
-                                                : bestSource));
+    const QString source = QStringLiteral("sonora · %1").arg(
+        bestSource.isEmpty() ? QStringLiteral("cache") : bestSource);
+    if (bestWorded <= 0) {
+        // Same as the cache by id: without word timings it is only the last
+        // resort.
+        m_sonoraLines = best;
+        m_sonoraSource = source;
+        qInfo().noquote()
+            << QString("[lyrics] sonora (por titulo) sin letra a letra: se sigue con la red");
+        return false;
+    }
+
+    return adoptWorded(std::move(best), source);
 }
 
 void Lyrics::settleOrFail()
 {
-    if (m_hasLyrics || !m_plain.trimmed().isEmpty())
+    if (m_hasLyrics || !m_plain.trimmed().isEmpty()) {
         finish();
-    else
-        fail(QStringLiteral("Sin letra disponible"));
+        return;
+    }
+    // Last resort: the Sonora lyrics without word level timings (the
+    // network had nothing better for this track).
+    if (m_sonoraLines.size() >= 2) {
+        m_lines = m_sonoraLines;
+        m_hasSynced = true;
+        m_syncSource = m_sonoraSource;
+        qInfo().noquote()
+            << QString("[lyrics] sonora por lineas (ultimo recurso): %1")
+                   .arg(m_sonoraSource);
+        finish();
+        return;
+    }
+    fail(QStringLiteral("Sin letra disponible"));
 }
 
 void Lyrics::finish()
@@ -1553,6 +1587,8 @@ void Lyrics::clear()
     m_hasSynced = false;
     m_plain.clear();
     m_synced.clear();
+    m_sonoraLines.clear();
+    m_sonoraSource.clear();
     m_error.clear();
     m_syncSource.clear();
     m_plainSource.clear();

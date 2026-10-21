@@ -64,6 +64,14 @@ private:
         int version = 0;
         bool started = false;
         bool done = false;
+        // Set when every candidate failed: the next request starts it again.
+        bool failed = false;
+        // How many times the job has been launched (it gives up after a
+        // few tries so a dead network does not loop forever).
+        int attempts = 0;
+        // A too small picture (YouTube's grey placeholder) is kept here and
+        // used only if no bigger candidate answers.
+        QImage fallback;
         QImage image;
     };
 

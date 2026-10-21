@@ -57,6 +57,13 @@ Rectangle {
     readonly property var ply: (typeof player !== "undefined") ? player : null
 
     // ---- artwork wash -----------------------------------------------------
+    // The cinema mode is an overlay on top of the app: it needs its own
+    // opaque background, otherwise the page behind shows through while
+    // the wash is being recomputed (when the track changes).
+    Rectangle {
+        anchors.fill: parent
+        color: Sys.bg
+    }
     // REAL blur done in the backend (CPU): a soft veil that, stretched over
     // the whole screen, comes out without blocks but still lets you
     // recognise the artwork.
