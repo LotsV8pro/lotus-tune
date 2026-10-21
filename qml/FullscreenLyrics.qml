@@ -165,6 +165,7 @@ Rectangle {
                 anchors.fill: parent
                 src: fl.thumb
                 videoId: fl.videoId
+                radiusSpec: Theme.rMd
                 showIconWhenEmpty: false
             }
             Rectangle {

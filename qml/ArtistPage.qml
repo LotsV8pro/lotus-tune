@@ -87,22 +87,18 @@ Item {
                 radius: Theme.rLg
                 clip: true
                 color: Sys.surface
-                Image {
+                RoundedArt {
                     id: artImg
                     anchors.fill: parent
                     source: page.artist ? String(page.artist.thumb || "") : ""
-                    visible: status === Image.Ready
-                    sourceSize.width: 264
-                    sourceSize.height: 264
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
+                    radiusSpec: Theme.rLg
+                    decodeWidth: 264
                 }
                 Glyph {
                     anchors.centerIn: parent
                     width: 46
                     height: 46
-                    visible: artImg.status !== Image.Ready
+                    visible: !artImg.ready
                     kind: "music"
                     color: Sys.textDim
                 }
@@ -269,22 +265,18 @@ Item {
                             radius: Theme.rSm
                             clip: true
                             color: Sys.surface
-                            Image {
+                            RoundedArt {
                                 id: covImg
                                 anchors.fill: parent
                                 source: String(arow.modelData.thumb || "")
-                                visible: status === Image.Ready
-                                sourceSize.width: 92
-                                sourceSize.height: 92
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
+                                radiusSpec: Theme.rSm
+                                decodeWidth: 92
                             }
                             Glyph {
                                 anchors.centerIn: parent
                                 width: 20
                                 height: 20
-                                visible: covImg.status !== Image.Ready
+                                visible: !covImg.ready
                                 kind: "disc"
                                 color: Sys.textDim
                             }

@@ -69,9 +69,9 @@ Item {
             id: cover
             width: card.coverSize
             height: card.coverSize
-            // Radio ajustado (10 px), el del repo de referencia: portada
-            // limpia, sin filo — el hover (levantar 2 px) es lo que avisa.
-            radius: card.round ? width / 2 : Theme.rMd
+            // Lo único que se retocó de la tarjeta: el redondeo de la
+            // portada sube de rMd a rXl (22 px). Nada más.
+            radius: card.round ? width / 2 : Theme.rXl
             clip: true
 
             gradient: Gradient {
@@ -79,15 +79,12 @@ Item {
                 GradientStop { position: 1.0; color: card.coverB }
             }
 
-            Image {
+            RoundedArt {
+                id: coverArt
                 anchors.fill: parent
                 source: card.thumb
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                cache: true
-                visible: status === Image.Ready
-                sourceSize.width: 320
-                sourceSize.height: 320
+                radiusSpec: card.round ? "circle" : Theme.rXl
+                decodeWidth: 320
             }
 
             // Icono de respaldo cuando no hay portada.
@@ -189,13 +186,5 @@ Item {
                 onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); card.playClicked() }
             }
         }
-    }
-
-    // Fondo clicable (abre la lista). Va por debajo del botón de play.
-    MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
-        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
     }
 }

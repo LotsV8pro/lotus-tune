@@ -247,6 +247,11 @@ Item {
                     font.pixelSize: Theme.tBase
                     clip: true
                     selectByMouse: true
+                    // Los Item ocultos conservan el foco en QML: al cambiar de
+                    // pestaña la caja seguía viva y le llegaba el teclado
+                    // («se escribía solo desde otras páginas»). Se suelta el
+                    // foco en cuanto la caja deja de verse.
+                    onVisibleChanged: if (!visible) focus = false
                     Keys.onReturnPressed: { event.accepted = true; page.runSearch() }
                     Keys.onEnterPressed: { event.accepted = true; page.runSearch() }
                     // Búsqueda predictiva: cada cambio reinicia la pausa; si aún
@@ -486,15 +491,12 @@ Item {
                             clip: true
                             color: Sys.surface
 
-                            Image {
+                            RoundedArt {
                                 anchors.fill: parent
                                 source: rrow.modelData.thumb || ""
-                                visible: source != ""
-                                sourceSize.width: 34
-                                sourceSize.height: 34
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
+                                visible: String(rrow.modelData.thumb || "") !== ""
+                                radiusSpec: Theme.rMd
+                                decodeWidth: 68
                             }
                             Glyph {
                                 anchors.centerIn: parent
@@ -604,15 +606,12 @@ Item {
                                 radius: 22
                                 clip: true
                                 color: Sys.surface
-                                Image {
+                                RoundedArt {
                                     anchors.fill: parent
                                     source: arow.modelData.thumb || ""
-                                    visible: source != ""
-                                    sourceSize.width: 44
-                                    sourceSize.height: 44
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    cache: true
+                                    visible: String(arow.modelData.thumb || "") !== ""
+                                    radiusSpec: 22
+                                    decodeWidth: 88
                                 }
                                 Glyph {
                                     anchors.centerIn: parent

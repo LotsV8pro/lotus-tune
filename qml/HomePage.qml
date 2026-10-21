@@ -96,10 +96,20 @@ Item {
         return out
     }
 
-    readonly property int picksTotal: page.quickPicks().length
+    // Mismo truco que con las recomendadas: el modelo de los accesos
+    // directos se cachea y sólo cambia si cambia el contenido, para no
+    // reiniciar las miniaturas en carga en cada señal de la biblioteca.
+    property var picksCache: []
+    function refreshPicks() {
+        const cur = page.quickPicks()
+        if (JSON.stringify(cur) !== JSON.stringify(page.picksCache))
+            page.picksCache = cur
+    }
+
+    readonly property int picksTotal: page.picksCache.length
     readonly property int picksPages: Math.max(1, Math.ceil(page.picksTotal / page.picksPerPage))
     function picksPageItems() {
-        const all = page.quickPicks()
+        const all = page.picksCache
         return all.slice(page.picksPage * page.picksPerPage,
                          page.picksPage * page.picksPerPage + page.picksPerPage)
     }
@@ -166,8 +176,19 @@ Item {
         var hue = (200 + ((h >> 3) % 46)) / 360
         return Qt.hsla(hue, 0.45, 0.12, 1)
     }
+    // Radios de ánimo sin portada alguna: cada rótulo recibe su PROPIO
+    // matiz (especto completo en vez del azul único) para que el carril no
+    // sea un clon repetido. La pareja de tonos sale de la misma semilla.
+    function moodA(seed) {
+        var h = page._hash(seed)
+        return Qt.hsla(((h >> 5) % 360) / 360, 0.50, 0.34, 1)
+    }
+    function moodB(seed) {
+        var h = page._hash(seed)
+        return Qt.hsla((((h >> 5) + 28) % 360) / 360, 0.55, 0.13, 1)
+    }
 
-    // ---- saludo fechado --------------------------------------------------
+    // ---- saludo fechado ---------------------------------------------------
     readonly property string today: {
         const d = new Date()
         const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
@@ -227,8 +248,11 @@ Item {
 
     Component.onCompleted: {
         refreshSearchHistory()
-        if (visible)
+        refreshPicks()
+        refreshRecCards()
+        if (visible) {
             startRecPrefetch()
+        }
     }
 
     // ---- recomendaciones: radios a partir del historial ------------------
@@ -248,7 +272,7 @@ Item {
             seen[artist] = true
             out.push({ kind: "radio", title: "Radio de " + artist,
                        sub: t.title || "Mix de YouTube", icon: "radio",
-                       trackId: page.videoId(t.url) })
+                       trackId: page.videoId(t.url), thumb: t.thumb || "" })
         }
         return out
     }
@@ -295,10 +319,23 @@ Item {
     property var recPrefetchQueue: []
     property var recPrefetched: ({})
 
+    // El modelo se recompone en cada señal `libraryChanged`, y como los
+    // prefetch de radios emiten esa señal en cascada, un modelo nuevo por
+    // evaluación reiniciaba las portadas en carga (nunca acababan de
+    // bajar). Se cachea el resultado y sólo se reemplaza si el CONTENIDO
+    // cambia de verdad: mismo contenido => mismo objeto modelo => las
+    // tarjetas no se reciclan gratis.
+    property var recCardsCache: []
+    function refreshRecCards() {
+        const cur = page.recCards()
+        if (JSON.stringify(cur) !== JSON.stringify(page.recCardsCache))
+            page.recCardsCache = cur
+    }
+
     function startRecPrefetch() {
         if (typeof catalog === "undefined" || !page.ytmOk)
             return
-        const cards = page.recCards()
+        const cards = page.recCardsCache
         for (var i = 0; i < cards.length; i++) {
             const d = cards[i]
             if (d.kind === "radio" && d.trackId && !page.recPrefetched[d.trackId])
@@ -330,11 +367,11 @@ Item {
 
     // Al mostrarse Inicio (y cuando cambia el historial, que rehace las
     // tarjetas) se pone en marcha la ronda de precarga.
-    onVisibleChanged: if (visible) page.startRecPrefetch()
+    onVisibleChanged: if (visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() }
 
     Connections {
         target: catalog
-        function onLibraryChanged() { if (page.visible) page.startRecPrefetch() }
+        function onLibraryChanged() { if (page.visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() } }
     }
 
     // ---- radios de YouTube (estado de animo / genero) --------------------
@@ -630,18 +667,14 @@ Item {
                                 Rectangle {
                                     Layout.preferredWidth: 42
                                     Layout.preferredHeight: 42
-                                    radius: Theme.rSm
+                                    radius: Theme.rMd
                                     color: Sys.surfaceAlt
                                     clip: true
-                                    Image {
+                                    RoundedArt {
                                         anchors.fill: parent
                                         source: pickRow.modelData.thumb || ""
-                                        visible: source != ""
-                                        sourceSize.width: 42
-                                        sourceSize.height: 42
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
+                                        radiusSpec: Theme.rMd
+                                        decodeWidth: 84
                                     }
                                     Glyph {
                                         anchors.centerIn: parent
@@ -704,7 +737,7 @@ Item {
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
-                visible: page.recCards().length > 0
+                visible: page.recCardsCache.length > 0
 
                 SectionTitle {
                     Layout.fillWidth: true
@@ -714,13 +747,13 @@ Item {
 
                 ListView {
                     id: recView
-                    visible: page.recCards().length > 0
+                    visible: page.recCardsCache.length > 0
                     Layout.fillWidth: true
                     Layout.preferredHeight: page.rowHeight
                     orientation: ListView.Horizontal
                     clip: true
                     spacing: page.cardSpacing
-                    model: page.recCards()
+                    model: page.recCardsCache
                     reuseItems: true
                     cacheBuffer: 600
                     boundsBehavior: Flickable.StopAtBounds
@@ -731,6 +764,12 @@ Item {
                         subtitle: modelData.sub
                         icon: modelData.icon
                         badge: modelData.kind === "liked" ? "YT" : "RADIO"
+                        // La radio suena sobre una pista semilla: su portada
+                        // (en miniatura grande) es la que preside la tarjeta.
+                        thumb: modelData.thumb
+                               || (modelData.trackId
+                                   ? "https://i.ytimg.com/vi/" + modelData.trackId
+                                     + "/hq2.jpg" : "")
                         coverA: modelData.kind === "liked"
                                 ? Sys.accentDim : page.coverA(modelData.title)
                         coverB: page.coverB(modelData.title)
@@ -836,8 +875,9 @@ Item {
                         subtitle: modelData.s
                         icon: modelData.icon
                         badge: "YT"
-                        coverA: page.coverA(modelData.t)
-                        coverB: page.coverB(modelData.t)
+                        // Cada radio de ánimo, un matiz propio (ver moodA/moodB).
+                        coverA: page.moodA(modelData.t)
+                        coverB: page.moodB(modelData.t)
                         onClicked: {
                             page.openListRequested(false)
                             catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)

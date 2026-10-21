@@ -337,23 +337,19 @@ Item {
                         radius: Theme.rSm
                         color: Sys.surfaceAlt
                         clip: true
-                        Image {
+                        RoundedArt {
                             id: miniCover
                             anchors.fill: parent
                             source: side.trackThumb
-                            sourceSize.width: 64
-                            sourceSize.height: 64
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: true
-                            visible: status === Image.Ready
+                            radiusSpec: Theme.rSm
+                            decodeWidth: 64
                         }
                         LotusMark {
                             anchors.centerIn: parent
                             width: 16
                             height: 15
                             petalColor: Sys.accent
-                            visible: miniCover.status !== Image.Ready
+                            visible: !miniCover.ready
                         }
                     }
 

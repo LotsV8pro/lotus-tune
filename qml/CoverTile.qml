@@ -53,15 +53,12 @@ Rectangle {
                 clip: true
                 color: Sys.surfaceAlt
 
-                Image {
+                RoundedArt {
                     anchors.fill: parent
                     source: tile.thumb
-                    visible: source != ""
-                    sourceSize.width: 240
-                    sourceSize.height: 240
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: true
-                    cache: true
+                    visible: tile.thumb !== ""
+                    radiusSpec: Theme.rMd
+                    decodeWidth: 240
                 }
                 Glyph {
                     anchors.centerIn: parent
