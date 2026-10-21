@@ -34,34 +34,17 @@ Item {
     signal playlistContextRequested(var item, real x, real y)
 
     // ---- geometría del rail -------------------------------------------
-    readonly property int collapsedW: 68
+    readonly property int collapsedW: 76
     readonly property int expandedW: 236
+    // El rail NO se despliega al pasar el ratón: se queda siempre en la
+    // columna estrecha de iconos, sin que el contenido de la página baile
+    // de ancho al mover el ratón por encima. Las listas viven en
+    // Biblioteca.
     property bool expanded: false
     // La altura de esta propiedad la lee Main.qml para reservar el ancho.
     property real railWidth: expanded ? expandedW : collapsedW
     Behavior on railWidth {
         NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
-    }
-
-    HoverHandler {
-        id: railHover
-        onHoveredChanged: {
-            if (railHover.hovered) {
-                side.expanded = true
-                collapseTimer.stop()
-            } else {
-                // Margen de gracia: al salir el ratón el rail no se pliega
-                // de golpe, así las listas (y «sonando ahora») siguen a mano
-                // un momento y no hay que volver a apuntar el ratón.
-                collapseTimer.restart()
-            }
-        }
-    }
-
-    Timer {
-        id: collapseTimer
-        interval: 2600
-        onTriggered: side.expanded = false
     }
 
     function activate(id) {
@@ -114,10 +97,10 @@ Item {
                     readonly property bool on: side.page === modelData.id
                     readonly property bool primary: index < 3
 
-                    // La entrada activa se marca con una PÍLDORA (cápsula) y se
-                    // mantiene visible aunque el rail esté plegado: así "Descargas"
-                    // o "Me gusta" siguen iluminadas sin tener que desplegar.
-                    visible: side.expanded || navRow.primary || navRow.on
+                    // Todas las entradas caben en la columna estrecha (icono
+                    // con su etiqueta debajo), así no hay nada escondido:
+                    // con el rail fijo no hay «desplegar» donde buscar.
+                    visible: true
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.rowCompact
                     Layout.topMargin: !side.expanded ? Theme.s1
@@ -174,7 +157,7 @@ Item {
 
             // ---- sonando ahora (sólo expandido) ---------------------------
             Rectangle {
-                visible: side.expanded
+                visible: true
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.s2
                 Layout.bottomMargin: Theme.s1
@@ -195,6 +178,9 @@ Item {
                         Layout.preferredWidth: 32
                         Layout.preferredHeight: 32
                         Layout.alignment: Qt.AlignVCenter
+                        // Plegado: la portada se centra en la columna.
+                        Layout.leftMargin: side.expanded ? 0
+                                        : Math.max(0, (parent.width - 32) / 2)
                         radius: Theme.rSm
                         color: Sys.surfaceAlt
                         clip: true
@@ -214,6 +200,8 @@ Item {
                     }
 
                     ColumnLayout {
+                        // Plegado: sólo la portada (el texto no cabe).
+                        visible: side.expanded
                         Layout.fillWidth: true
                         spacing: 0
                         Text {
@@ -239,9 +227,9 @@ Item {
                 TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); side.nowPlayingRequested() } }
             }
 
-            // ---- ajustes (sólo expandido) ---------------------------------
+            // ---- ajustes -----------------------------------------------
             Item {
-                visible: side.expanded
+                visible: true
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 Layout.bottomMargin: Theme.s2
@@ -258,7 +246,8 @@ Item {
                     width: 18
                     height: 18
                     anchors.verticalCenter: parent.verticalCenter
-                    x: 10
+                    // Plegado: el engranaje se centra en la columna.
+                    x: side.expanded ? 10 : (parent.width - width) / 2
                     kind: "gear"
                     color: setHover.hovered ? Sys.text : Sys.textDim
                 }
@@ -266,6 +255,7 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 36
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: side.expanded
                     text: "Ajustes"
                     color: setHover.hovered ? Sys.text : Sys.textDim
                     font.pixelSize: Theme.tBase
