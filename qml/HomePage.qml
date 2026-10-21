@@ -2,18 +2,21 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Inicio: saludo en una línea, atajo discreto a Descargas y carriles
-// horizontales de tarjetas de tamaño fijo. Cada carril es un ListView con
-// reuseItems: recicla delegados y la retícula nunca salta al pasar el ratón.
+// Home: a one line greeting, a discreet shortcut to Downloads and
+// horizontal rails of fixed size cards. Each rail is a ListView with
+// reuseItems: it recycles delegates and the grid never jumps on hover.
 //
-// Composición visual (1.0): cada bloque vive en una ISLA FLOTANTE (superficie
-// redondeada con filo muy tenue) y los controles sueltos son PÍLDORAS. La
-// jerarquía la da el aire, no las líneas. Sin sombras ni shaders.
+// Visual composition (1.0): every block lives in a FLOATING ISLAND (a
+// rounded surface with a very faint edge) and the loose controls are
+// PILLS. The hierarchy comes from the air, not from lines. No shadows and
+// no shaders.
 //
 // Comportamiento de clic en las tarjetas:
 //   · clic en la PORTADA -> ABRE la lista (vista de pistas), sin reproducir.
-//   · botón de play      -> carga la lista y la REPRODUCE (sin salir de Inicio).
-//   · fila de «Reciente» -> un clic ya suena (no tiene botón aparte).
+//   . play button        -> loads the list and PLAYS it (without leaving
+//                           Home).
+//   . "Recent" row       -> a click already plays (it has no button of its
+//                           own).
 Item {
     id: page
 
@@ -21,10 +24,12 @@ Item {
     signal navigateRequested(string page)
     signal openSettingsRequested()
     signal openLauncherRequested()
-    // Pide abrir una lista del catálogo. `play` = reproducirla en cuanto
-    // llegue; sin reproducir, Main sólo la muestra (nunca auto-reproduce).
+    // Asks to open a list from the catalogue. `play` = play it as soon as
+    // it arrives; without playing, Main only shows it (it never
+    // auto-plays).
     signal openListRequested(bool play)
-    // Re-ejecuta una búsqueda del historial: Main abre Buscar y lanza la query.
+    // Re-runs a search from the history: Main opens Search and runs the
+    // query.
     signal searchRequested(string query)
 
     // Altura fija de cada carril de tarjetas (portada 172 + texto 54).
@@ -34,16 +39,16 @@ Item {
     // ---- Reciente (deck estilo Sonora) ----------------------------------
     // Rejilla paginada de filas compactas. Es un «RECIENTE» combinado de TODAS
     // las fuentes: las canciones SUELTAS escuchadas (se excluyen las que
-    // sonaron dentro de una playlist) y las 5 listas más recientes.
+    // played inside a playlist) and the 5 most recent lists.
     property int picksPage: 0
     // Rejilla de accesos directos: 3 columnas × 2 filas, como en el repo de
-    // referencia (pantalla completa sin paginación larga; las flechas sólo
-    // aparecen si hay más de una página).
+    // reference (full screen without long pagination; the arrows only
+    // show if there is more than one page).
     readonly property int picksPerPage: 6
     readonly property int picksCols: 3
     readonly property int picksRows: 2
 
-    // Canciones sueltas recientes (catalog.recent, más nueva primero). Se
+    // Recent loose songs (catalog.recent, newest first). They
     // excluyen las que sonaron dentro de una playlist (`setId`) y las antiguas
     // sin clasificar (`legacy`).
     function recentTracks() {
@@ -60,7 +65,7 @@ Item {
         return out
     }
 
-    // Hasta `limit` listas, más recientes primero. Se combinan TODAS las
+    // Up to `limit` lists, most recent first. ALL of them are combined
     // fuentes: las listas guardadas por el usuario y las de YouTube Music.
     function recentLists(limit) {
         const out = []
@@ -97,8 +102,8 @@ Item {
     }
 
     // Mismo truco que con las recomendadas: el modelo de los accesos
-    // directos se cachea y sólo cambia si cambia el contenido, para no
-    // reiniciar las miniaturas en carga en cada señal de la biblioteca.
+    // shortcuts are cached and only change if the content changes, so the
+    // loading thumbnails are not restarted on every library signal.
     property var picksCache: []
     function refreshPicks() {
         const cur = page.quickPicks()
@@ -127,7 +132,8 @@ Item {
                             "Música que me gusta")
             return
         }
-        // Canción suelta: un solo clic ya suena (no abre vista de lista ni
+        // Loose song: a single click already plays (it opens neither a list
+        // view nor
         // pasa por yt-dlp: se entrega la pista tal cual al reproductor).
         if (item.kind === "track") {
             page.playRequested([{
@@ -163,9 +169,9 @@ Item {
             h = (h * 31 + s.charCodeAt(i)) >>> 0
         return h
     }
-    // El hueco sin imagen se pinta de AZUL profundo con una variación sutil
-    // por semilla (200°–246°, azul → azul-violeta): Inicio gana color y
-    // pierde negro, en la línea del modo cine.
+    // The gap without an image is painted DEEP BLUE with a subtle
+    // variation per title, so the set is not a flat block: black loses
+    // black, in the spirit of the cinema mode.
     function coverA(seed) {
         var h = page._hash(seed)
         var hue = (200 + (h % 46)) / 360
@@ -176,8 +182,8 @@ Item {
         var hue = (200 + ((h >> 3) % 46)) / 360
         return Qt.hsla(hue, 0.45, 0.12, 1)
     }
-    // Radios de ánimo sin portada alguna: cada rótulo recibe su PROPIO
-    // matiz (especto completo en vez del azul único) para que el carril no
+    // Mood radios without any artwork: every label gets its OWN hue (the
+    // whole spectrum instead of a single blue) so the rail does not
     // sea un clon repetido. La pareja de tonos sale de la misma semilla.
     function moodA(seed) {
         var h = page._hash(seed)
@@ -215,9 +221,10 @@ Item {
         return e ? e.name : String(id || "")
     }
 
-    // ---- historial de búsquedas (persistido en appcfg) -------------------
-    // Clave "searchHistory": JSON [{ q, t }…], máx. 20 entradas. Se escribe
-    // desde SearchPage.runSearch() y aquí sólo se lee/muestra/borra.
+    // ---- search history (persisted in appcfg) ---------------------------
+    // "searchHistory" key: JSON [{ q, t }...], up to 20 entries. It is
+    // written by SearchPage.runSearch() and here it is only read, shown
+    // and cleared.
     property var searchHistory: []
 
     function refreshSearchHistory() {
@@ -277,8 +284,9 @@ Item {
         return out
     }
 
-    // Abre una recomendación. Devuelve true si lanzó la apertura (para que el
-    // llamante pida reproducirla o sólo abrirla); false si sólo abrió Ajustes.
+    // Opens a recommendation. It returns true if it started the opening
+    // (so the caller can ask to play it or just open it); false if it only
+    // opened Settings.
     function openRec(d, play) {
         if (d.kind === "liked") {
             if (!page.ytmOk) {
@@ -292,7 +300,8 @@ Item {
         if (d.trackId) {
             // La primera pista de la radio es la propia semilla: se resuelve
             // YA (con prioridad) mientras yt-dlp trae el resto de la lista, de
-            // modo que al llegar no se espere otra vez a la resolución y suene
+            // mode so that on arrival it does not wait for the resolution
+            // again and plays
             // de inmediato.
             if (typeof player !== "undefined")
                 player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
@@ -309,20 +318,20 @@ Item {
     // ---- precarga en segundo plano de las radios de «Para ti» ------------
     // Traer la lista de una radio cuesta ~1,4 s FIJOS de red (dos idas y
     // vueltas a YouTube Music; da igual pedir 8 que 25 pistas). Para que el
-    // clic sea instantáneo, las radios de «Recomendado para ti» se van
-    // trayendo solas, de una en una, mientras Inicio está a la vista: cuando
-    // el usuario pulsa, ya están en la caché en memoria de listas.
+    // click is instant, the radios of "Recommended for you" are fetched on
+    // their own, one at a time, while Home is visible: by the time the
+    // user presses, they are already in the in-memory list cache.
     //
-    // Es best-effort: la precarga es preemptible, así que cualquier acción
-    // explícita del usuario la pisa sin más. Cada semilla se precarga una
-    // sola vez por sesión.
+    // It is best-effort: the prefetch is preemptible, so any explicit user
+    // action overrides it without more. Each seed is prefetched once per
+    // session.
     property var recPrefetchQueue: []
     property var recPrefetched: ({})
 
-    // El modelo se recompone en cada señal `libraryChanged`, y como los
-    // prefetch de radios emiten esa señal en cascada, un modelo nuevo por
-    // evaluación reiniciaba las portadas en carga (nunca acababan de
-    // bajar). Se cachea el resultado y sólo se reemplaza si el CONTENIDO
+    // The model is rebuilt on every `libraryChanged` signal, and since the
+    // radio prefetches emit that signal in a cascade, a new model per
+    // evaluation restarted the loading artworks (they never finished
+    // downloading). The result is cached and only replaced if the CONTENT
     // cambia de verdad: mismo contenido => mismo objeto modelo => las
     // tarjetas no se reciclan gratis.
     property var recCardsCache: []
@@ -388,7 +397,7 @@ Item {
         { q: "clásica para estudiar", t: "Clásica", s: "Enfoque", icon: "radio" }
     ]
 
-    // Título de sección: icono al color de acento + rotulo en negrita y
+    // Section title: icon in the accent colour + label in bold and
     // mayusculas normalizadas (el estilo del repo de referencia: el icono
     // presenta la seccion, el tamano la jerarquiza).
     component SectionTitle: RowLayout {
@@ -415,10 +424,10 @@ Item {
         }
     }
 
-    // Sección de Inicio: PLANA, sin caja ni filo — el contenido va directo
-    // sobre el fondo lavado, como en el repo de referencia. El aire (pad) y el
-    // hueco (spacing) marcan la jerarquía; el alto lo fija el contenido.
-    component Island: Rectangle {
+    // Home section: FLAT, no box and no edge - the content sits straight
+    // on the background, like the rest of the app. The blocks are
+    // separated by the gap (spacing) that marks the hierarchy; the height
+    // is set by the content.
         id: island
 
         property real pad: Theme.s2
@@ -479,7 +488,7 @@ Item {
                         elide: Text.ElideRight
                     }
 
-                    // Atajo a Descargas: píldora de acción.
+                    // Shortcut to Downloads: an action pill.
                     Rectangle {
                         Layout.preferredHeight: Theme.pillH
                         implicitWidth: dlRow.implicitWidth + Theme.pillHPad * 2
@@ -515,10 +524,10 @@ Item {
                     }
                 }
 
-                // ---- buscador (abre el lanzador) — línea fina ----------
-                // Minimalista: sin recuadro gris, sólo una línea debajo que
-                // se enciende al pasar el ratón. El botón de «Descargas»
-                // de al lado sí lleva fondo (es un botón).
+                // ---- search (opens the launcher) - thin line ------------
+                // Minimal: no grey box, just a line below that lights up on
+                // hover. The "Downloads" button next to it does have a
+                // background (it is a button).
                 Rectangle {
                     id: searchSpot
                     Layout.fillWidth: true
@@ -552,7 +561,7 @@ Item {
                         }
                     }
 
-                    // La línea: se ilumina al pasar el ratón.
+                    // The line: it lights up on hover.
                     Rectangle {
                         anchors.left: parent.left
                         anchors.right: parent.right
@@ -574,7 +583,7 @@ Item {
             }
 
             // ---- RECIENTE (isla con rejilla paginada) ------------------
-            // Máx. 5 canciones sueltas + 5 listas recientes (quickPicks),
+            // Max 5 loose songs + 5 recent lists (quickPicks),
             // repartidas en 3 columnas × 5 filas.
             Island {
                 Layout.fillWidth: true
@@ -582,7 +591,7 @@ Item {
                 visible: page.picksTotal > 0
 
                 // Sin rotulo: el saludo ya preside la pagina (como en el repo
-                // de referencia). Las flechas de paginas son discretas y sólo
+                // reference). The page arrows are discreet and only
                 // existen si hay mas de una pagina de accesos.
                 RowLayout {
                     Layout.fillWidth: true
@@ -640,7 +649,7 @@ Item {
                 }
 
                 // Rejilla: 3 columnas × 2 filas (llenado por columnas: con
-                // flow vertical el GridLayout agrupa por FILAS, así que el
+                // vertical flow the GridLayout groups by ROWS, so the
                 // punto de envoltura es rows=2).
                 GridLayout {
                     Layout.fillWidth: true
@@ -725,7 +734,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                // Canciones sueltas: al pasar el ratón ya se
+                                // Loose songs: on hover they are already
                                 // pre-resuelve el stream (un clic = suena ya).
                                 onContainsMouseChanged: if (containsMouse
                                         && pickRow.modelData
@@ -740,7 +749,7 @@ Item {
             }
 
             // ---- recomendaciones (radios del historial) — isla ---------
-            // Justo después de RECIENTE: es lo que más a mano está (al estilo
+            // Right after RECENT: it is the closest at hand (in the style
             // de los «Made for you» de Spotify).
             Island {
                 Layout.fillWidth: true
@@ -783,9 +792,9 @@ Item {
                         coverB: page.coverB(modelData.title)
                         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openRec(modelData, false) }
                         onPlayClicked: page.openRec(modelData, true)
-                        // Al pasar el ratón sobre una radio ya se descarga su lista
-                        // (en segundo plano, sin bloquear nada) si aún no lo había
-                        // hecho la ronda de precarga de la página.
+                        // On hover over a radio its list is downloaded (in
+                        // the background, blocking nothing) if the page's
+                        // prefetch round has not done it yet.
                         onHoveredChanged: if (hovered && modelData
                                               && modelData.kind === "radio"
                                               && modelData.trackId
@@ -826,7 +835,8 @@ Item {
                         subtitle: modelData.s
                         icon: modelData.icon
                         badge: "YT"
-                        // Cada radio de ánimo, un matiz propio (ver moodA/moodB).
+                        // Every mood radio gets its own hue (see
+                        // moodA/moodB).
                         coverA: page.moodA(modelData.t)
                         coverB: page.moodB(modelData.t)
                         onClicked: {
@@ -841,9 +851,9 @@ Item {
                 }
             }
 
-            // ---- historial de búsquedas — isla -------------------------
-            // Píldoras con las últimas consultas (appcfg "searchHistory").
-            // El clic re-ejecuta la búsqueda: Main abre Buscar y lanza la
+            // ---- search history - island -------------------------------
+            // Pills with the latest queries (appcfg "searchHistory").
+            // Clicking re-runs the search: Main opens Search and runs the
             // query. «Borrar» limpia el historial persistido.
             Island {
                 Layout.fillWidth: true
@@ -946,7 +956,8 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            // Re-ejecuta la búsqueda: Main abre Buscar y lanza la query.
+                            // Re-runs the search: Main opens Search and runs
+                            // the query.
                             onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.searchRequested(histChip.modelData.q) }
                         }
                     }

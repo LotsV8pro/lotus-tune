@@ -2,18 +2,18 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Barra de reproducción: una isla flotante (Panel) baja y minimalista.
+// Playback bar: a low, minimal floating island (Panel).
 //
-// El progreso va ARRIBA, a todo el ancho, en una línea fina: así debajo
-// queda una sola fila de contenido (ficha a la izquierda, transporte en el
-// centro, accesos a la derecha) y la barra puede ser baja sin que el
-// transport se quede sin sitio. Nada de capas ni efectos extra.
+// The progress bar goes ON TOP, full width, as a thin line: that leaves a
+// single row of content below (track info on the left, transport in the
+// middle, actions on the right) and the bar can stay low without the
+// transport running out of room. No extra layers or effects.
 Rectangle {
     id: bar
 
     property bool playing: false
-    // Pista pedida pero aún sin sonar (resolviendo el stream): muestra un
-    // estado de espera en la barra para que el arranque no parezca colgado.
+    // Track requested but not playing yet (resolving the stream): the bar
+    // shows a waiting state so the start does not look stuck.
     property bool loading: false
     property real position: 0
     property real duration: 0
@@ -22,12 +22,12 @@ Rectangle {
     property string currentThumb: ""
     property int volume: 70
     property bool shuffle: false
-    // 0 = sin repetición, 1 = repetir lista, 2 = repetir canción.
+    // 0 = no repeat, 1 = repeat the list, 2 = repeat the track.
     property int repeatMode: 0
-    // videoId de la pista actual + estado de "me gusta" (YouTube Music).
+    // videoId of the current track + its "liked" state (YouTube Music).
     property string videoId: ""
     property bool liked: false
-    // ¿Hay sesión de YT Music? (habilita like / añadir a lista)
+    // Is there a YouTube Music session? (enables like / add to list)
     property bool canInteract: false
 
     signal toggle()
@@ -42,21 +42,21 @@ Rectangle {
     signal volumeWanted(int value)
     signal likeRequested()
     signal addToPlaylistRequested()
-    // Menú contextual de la pista (clic derecho sobre la ficha de la izquierda)
-    // e ir al artista (clic sobre su nombre).
+    // Context menu of the track (right click on the left hand info) and
+    // go to the artist (click on their name).
     signal trackMenuRequested(real x, real y)
     signal artistRequested(string name)
 
     property bool scrubbing: false
     property real scrubPos: 0
 
-    // Altura de la isla: la barra mide exactamente lo que su superficie.
+    // Island height: the bar measures exactly what its surface does.
     implicitHeight: Theme.playerBarH
     color: "transparent"
 
     readonly property color _ui: Theme.hover(Sys.surface)
 
-    // ---- botón de icono reutilizable ---------------------------------
+    // ---- reusable icon button ---------------------------------------
     component BarButton: Rectangle {
         id: bb
         property string kind: "play"
@@ -83,26 +83,26 @@ Rectangle {
         TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
     }
 
-    // ---- isla flotante -----------------------------------------------
+    // ---- floating island ---------------------------------------------
     Panel {
         id: island
         anchors.fill: parent
-        // El contenido se recorta a las esquinas de la isla: la línea de
-        // progreso de arriba acompaña el redondeo en vez de salirse.
+        // The content is clipped to the island's corners: the progress
+        // line on top follows the rounding instead of sticking out.
         clipContent: true
 
         ColumnLayout {
             anchors.fill: parent
-            // Aire generoso a los lados: la barra respira y nada (botones,
-            // portada, volumen) queda pegado al filo de la isla.
+            // Generous side margins: the bar breathes and nothing
+            // (buttons, artwork, volume) is glued to the island's edge.
             anchors.leftMargin: Theme.s5
             anchors.rightMargin: Theme.s5
             anchors.bottomMargin: Theme.s1
             spacing: 0
 
-            // ---- progreso (línea fina, a todo el ancho) ---------------
-            // La fila lleva altura de sobra: los tiempos no quedan pegados
-            // al borde superior de la isla, sino con aire por encima.
+            // ---- progress (thin line, full width) ---------------------
+            // The row has extra height so the times are not glued to the
+            // top edge of the island: there is air above them.
             RowLayout {
                 id: progressRow
                 Layout.fillWidth: true
@@ -126,20 +126,20 @@ Rectangle {
                     readonly property real ratio: bar.duration > 0
                         ? Math.min(1, (bar.scrubbing ? bar.scrubPos : bar.position) / bar.duration) : 0
 
-                    // Carril.
+                    // Track.
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width; height: 2; radius: 1
                         color: Theme.mix(Sys.surface, Sys.text, 0.18)
                     }
-                    // Relleno.
+                    // Fill.
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width * scrubTrack.ratio
                         height: 2; radius: 1
                         color: Sys.accent
                     }
-                    // Pomo: sólo aparece al pasar el ratón o al arrastrar.
+                    // Knob: only shows on hover or while dragging.
                     Rectangle {
                         x: parent.width * scrubTrack.ratio - width / 2
                         anchors.verticalCenter: parent.verticalCenter
@@ -174,22 +174,22 @@ Rectangle {
                 }
             }
 
-            // ---- contenido (una sola fila) ---------------------------
+            // ---- content (a single row) -----------------------------
             Item {
                 id: barRow
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 property int gap: Theme.s3
 
-                // ---- ahora suena (izquierda) ------------------------
+                // ---- now playing (left) ------------------------------
                 RowLayout {
                     id: leftSide
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     spacing: Theme.s2
-                    // Anchura hasta el centro (deja el hueco del gap); igual que la
-                    // derecha => el transporte queda siempre centrado, sin moverse
-                    // con el ancho del título.
+                    // Width up to the centre (leaving the gap); the right
+                    // side is the same, so the transport always stays
+                    // centred no matter how long the title is.
                     width: Math.max(0, (parent.width - centerCol.width) / 2 - Theme.s3)
 
                     Item {
@@ -200,9 +200,9 @@ Rectangle {
                             anchors.fill: parent
                             radius: Theme.rSm
                             color: Sys.surfaceAlt
-                            // La portada se redondea por recorte en CPU
-                            // (RoundedArt): el `clip` del Rectangle ignoraba el
-                            // radio y la imagen salía cuadrada.
+                            // The artwork is rounded by a CPU crop
+                            // (RoundedArt): the Rectangle's `clip` ignored
+                            // the radius and the image came out square.
                             RoundedArt {
                                 id: coverArt
                                 anchors.fill: parent
@@ -254,8 +254,9 @@ Rectangle {
                                 }
                             }
                         }
-                        // Estado de espera: punto que late + texto, con la misma
-                        // altura que la línea de artista para no mover el layout.
+                        // Waiting state: a pulsing dot + text, with the
+                        // same height as the artist line so the layout does
+                        // not move.
                         Row {
                             Layout.fillWidth: true
                             visible: bar.loading
@@ -281,9 +282,9 @@ Rectangle {
                     }
                 }
 
-                // Clic derecho sobre la ficha de la pista (portada, título o
-                // artista): abre el mismo menú que en las listas —reproducir,
-                // radio, añadir a la cola, biblioteca…—.
+                // Right click on the track info (artwork, title or
+                // artist): opens the same menu as in the lists - play,
+                // radio, add to queue, library...
                 MouseArea {
                     anchors.left: leftSide.left
                     anchors.right: leftSide.right
@@ -296,7 +297,7 @@ Rectangle {
                     }
                 }
 
-                // ---- transporte (centro) ------------------------------
+                // ---- transport (centre) -------------------------------
                 RowLayout {
                     id: centerCol
                     anchors.horizontalCenter: parent.horizontalCenter
@@ -350,7 +351,7 @@ Rectangle {
                     }
                 }
 
-                // ---- derecha: accesos y volumen -----------------------
+                // ---- right: actions and volume ------------------------
                 RowLayout {
                     id: rightSide
                     anchors.right: parent.right
@@ -375,7 +376,7 @@ Rectangle {
                         onTapped: bar.lyricsRequested()
                     }
 
-                    // ---- volumen: glifo + línea fina --------------------
+                    // ---- volume: glyph + thin line ----------------------
                     RowLayout {
                         Layout.alignment: Qt.AlignVCenter
                         spacing: Theme.s1

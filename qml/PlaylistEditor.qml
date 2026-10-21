@@ -3,7 +3,8 @@ import QtQuick.Layouts
 import "theme.js" as Theme
 
 // Editor de listas: crear o editar (nombre + privacidad), al estilo de Sonora.
-// Es autónomo: recibe el estado por propiedades y emite `submitted` / 
+// It is self contained: it receives the state through properties and emits
+// `submitted` / 
 // `deleteRequested`; Main habla con `catalog`.
 Item {
     id: pel
@@ -28,7 +29,8 @@ Item {
         privToggle.priv = pel.initialPrivate
         nameField.forceActiveFocus()
     })
-    // La info real de la lista (fetchPlaylistInfo) puede llegar DESPUÉS de abrir;
+    // The real info of the list (fetchPlaylistInfo) can arrive AFTER
+    // opening;
     // al llegar, refresca el nombre y la privacidad.
     onInitialTitleChanged: if (open && !pel.createMode) nameField.text = String(pel.initialTitle || "")
     onInitialPrivateChanged: if (open && !pel.createMode) privToggle.priv = pel.initialPrivate

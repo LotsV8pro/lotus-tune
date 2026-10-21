@@ -2,14 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Menú contextual reutilizable (clic derecho), al estilo de Sonora: lista de
-// entradas con icono, marca de verificación opcional, separadores y entradas
-// atenuadas/deshabilitadas. Se abre en el punto pedido (`at`, en coordenadas de
-// ventana) y se recorta a los márgenes. Cada entrada lleva su `action()` (una
-// función JS); al pulsarla se cierra el menú y se ejecuta.
+// Reusable context menu (right click), in Sonora's style: a list of entries
+// with an icon, an optional check mark, separators and dimmed/disabled
+// entries. It opens at the requested point (`at`, in window coordinates) and
+// is clipped to the margins. Every entry carries its own `action()` (a JS
+// function); pressing it closes the menu and runs it.
 //
-// Es "tonto": no conoce la app. Main le pasa `items` ya construidos y escucha
-// `closed`.
+// It is "dumb": it knows nothing about the app. Main hands it the built
+// `items` and listens to `closed`.
 Item {
     id: menu
 
@@ -27,16 +27,17 @@ Item {
     visible: open
     z: 96
 
-    // Cierra el menú avisando al dueño (Main), que es quien manda sobre
-    // `open` mediante su binding. OJO: no asignar `open = false` aquí, porque
-    // rompería ese binding y el menú sólo podría abrirse UNA vez.
+    // Closes the menu by telling the owner (Main), which is the one in
+    // charge of `open` through its binding. NOTE: do not assign
+    // `open = false` here, that would break the binding and the menu could
+    // only be opened ONCE.
     function dismiss() {
         if (!open)
             return
         closed()
     }
 
-    // Capa que captura cualquier clic/fueda fuera del panel para cerrarlo.
+    // Layer that catches any click outside the panel to close it.
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
@@ -44,8 +45,9 @@ Item {
         onWheel: (w) => { w.accepted = true }
     }
 
-    // Isla flotante: `Panel` pone las esquinas redondeadas, el borde sutil y
-    // la sombra suave; dentro va la lista, que hace scroll si no cabe.
+    // Floating island: `Panel` provides the rounded corners, the subtle
+    // border and the soft shadow; inside goes the list, which scrolls if it
+    // does not fit.
     Panel {
         id: island
         width: menu.menuW
@@ -81,8 +83,8 @@ Item {
                         Layout.fillWidth: true
                         Layout.preferredHeight: modelData.separator === true ? Theme.s3 : Theme.rowThin
 
-                        // Separador blando: en vez de una línea dura, una
-                        // franja casi imperceptible que sólo da aire.
+                        // Soft separator: instead of a hard line, a barely
+                        // perceptible band that only gives air.
                         Rectangle {
                             visible: modelData.separator === true
                             anchors.verticalCenter: parent.verticalCenter
@@ -98,8 +100,8 @@ Item {
                             id: row
                             visible: modelData.separator !== true
                             anchors.fill: parent
-                            // Cada entrada es una píldora: cápsula con acento
-                            // suave al pasar el ratón.
+                            // Every entry is a pill: a capsule with a soft
+                            // accent on hover.
                             radius: Theme.rPill
                             readonly property bool can: modelData.enabled !== false
                             readonly property bool on: hov.hovered && row.can

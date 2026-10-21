@@ -4,31 +4,32 @@ import "theme.js" as Theme
 
 // Biblioteca: muestra TODO lo guardado junto (la biblioteca de YouTube Music +
 // todas las playlists guardadas, sin filtrar por fuente) en una rejilla de
-// covers; las descargas locales viven aparte, en la pestaña «Descargadas».
+// covers; the local downloads live apart, in the "Downloaded" tab.
 // Al pulsar una cover se ABRE su lista (openListRequested +
-// catalog.openPlaylist/openUrl) y sólo el botón de play flotante que aparece al
-// pasar el ratón la REPRODUCE. Al pulsar una LISTA DESCARGADA se abre como una
+// catalog.openPlaylist/openUrl) and only the floating play button that
+// appears on hover PLAYS it. Clicking a DOWNLOADED list opens it as a
 // playlist de verdad (su propia vista de pistas), sin filtrar la lista plana.
 Item {
     id: page
 
     signal playRequested(var list, int index)
     // Pide abrir la lista de una cover: `play` = reproducirla en cuanto
-    // lleguen las pistas; sin reproducir, Main sólo la muestra.
+    // the tracks arrive; without playing, Main only shows it.
     signal openListRequested(bool play)
-    // Clic derecho sobre una pista: menú contextual (x/y en ventana).
+    // Right click on a track: context menu (x/y in window coordinates).
     signal trackContextRequested(var track, real x, real y)
-    // Deslizar una fila a la izquierda: añadir la pista a la cola.
+    // Swipe a row to the left: add the track to the queue.
     signal enqueueRequested(var track)
-    // Clic derecho sobre una lista (cover): menú contextual de la lista.
+    // Right click on a list (cover): context menu of the list.
     signal coverContextRequested(var cover, real x, real y)
     // Pide reproducir la lista abierta en orden aleatorio.
     signal shuffleListRequested()
     // Pide desinstalar una lista descargada (borra su carpeta).
     signal uninstallListRequested(string folder, string name)
-    // Menú (⋮) de una lista DESCARGADA abierta como playlist.
+    // Menu (...) of a DOWNLOADED list opened as a playlist.
     signal downloadMenuRequested(string folder, string name, real x, real y)
-    // Pide abrir una lista DESCARGADA como playlist (registra el paso atrás).
+    // Asks to open a DOWNLOADED list as a playlist (records the back
+    // step).
     signal downloadOpenRequested(string folder)
 
     property bool showingTracks: false
@@ -36,12 +37,12 @@ Item {
     function openTracks() { showingTracks = true; openDownloadFolder = "" }
     function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
 
-    // Pestaña activa de la biblioteca (0 Canciones · 1 Artistas · 2 Álbumes ·
-    // 3 Playlists · 4 Descargadas). Estado puramente visual de la página.
+    // Active tab of the library (0 Songs . 1 Artists . 2 Albums .
+    // 3 Playlists . 4 Downloaded). Purely visual state of the page.
     property int libraryTab: 0
     // La Biblioteca ya no filtra por fuente: muestra TODO junto (la biblioteca
     // de YouTube Music + todas las playlists guardadas). Las descargas locales
-    // van aparte, en la pestaña "Descargadas".
+    // go apart, in the "Downloaded" tab.
     readonly property bool localSelected: libraryTab === 4
 
     // Covers (listas) de la biblioteca: TODO junto, sin filtrar por fuente.
@@ -79,7 +80,7 @@ Item {
             catalog.openUrl(c.url || "", c.name || "")
     }
 
-    // Abre (o reproduce) la lista de una cover desde el menú contextual.
+    // Opens (or plays) the list of a cover from the context menu.
     function activateCover(c, play) {
         if (!c) return
         page.openListRequested(!!play)
@@ -129,14 +130,16 @@ Item {
         return false
     }
 
-    // ¿Se puede descargar la lista abierta? (URL http real; incluye listas que
+    // Can the open list be downloaded? (real http URL; it includes lists
+    // that
     // no son del usuario.)
     function canDownloadTracks() {
         return String(catalog.openListUrl || "").indexOf("http") === 0
     }
 
-    // URL de la lista abierta, sirva del catálogo o de una lista ya descargada
-    // (en ese caso la guardada en sus metadatos). Vacía si no se puede bajar.
+    // URL of the open list, whether it comes from the catalogue or from an
+    // already downloaded list (in that case the one stored in its
+    // metadata). Empty if it cannot be downloaded.
     function viewListUrl() {
         if (page.localPlaylistOpen)
             return page.openDownloadInfo
@@ -144,11 +147,12 @@ Item {
         return String(catalog.openListUrl || "")
     }
 
-    // ¿La lista abierta se puede (re)descargar? (tiene URL http real)
+    // Can the open list be (re)downloaded? (it has a real http URL)
     readonly property bool viewDownloadable: page.viewListUrl().indexOf("http") === 0
 
-    // Job de descarga de la lista abierta (el más reciente con su misma URL),
-    // sirva del catálogo o de una lista descargada. Null si no hay ninguno.
+    // Download job of the open list (the most recent one with the same
+    // URL), whether it comes from the catalogue or from a downloaded
+    // list. Null if there is none.
     readonly property var viewDlJob: {
         if (typeof downloads === "undefined")
             return null
@@ -163,7 +167,8 @@ Item {
         return found
     }
 
-    // Job de descarga de la lista abierta (el más reciente con su misma URL),
+    // Download job of the open list (the most recent one with the same
+    // URL),
     // para dar feedback de progreso DENTRO de la propia vista de la lista.
     readonly property var dlTracksJob: {
         if (typeof downloads === "undefined")
@@ -182,7 +187,7 @@ Item {
 
     // Carpeta de descarga instalada que corresponde a la lista abierta
     // (por URL de los metadatos o, de respaldo, por nombre sanitizado).
-    // Vacía si la lista no está descargada.
+    // Empty if the list is not downloaded.
     readonly property string dlOpenFolder: {
         if (typeof downloads === "undefined")
             return ""
@@ -202,10 +207,10 @@ Item {
         }
         return ""
     }
-    // Menú (⋮) de la lista abierta: reutiliza el menú de covers con los datos
+    // Menu (...) of the open list: it reuses the cover menu with the data
     // de la lista en curso.
     function openHeaderMenu(x, y) {
-        // Lista descargada abierta: menú propio (reproducir / desinstalar).
+        // Downloaded list open: its own menu (play / uninstall).
         if (page.localPlaylistOpen) {
             page.downloadMenuRequested(page.openDownloadFolder, page.viewTitle(), x, y)
             return
@@ -231,7 +236,7 @@ Item {
         return Math.min(220, Math.max(1, Math.floor((w - coverGap * (c - 1)) / c)))
     }
 
-    // ---- descargas (backend `downloads`; puede no existir todavía) --------
+    // ---- downloads (the `downloads` backend; it may not exist yet) -------
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
     // Listas descargadas (una carpeta = una lista) y pistas sueltas.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
@@ -239,8 +244,8 @@ Item {
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
 
     // ---- feedback de errores de descarga --------------------------------
-    // Último motivo de fallo publicado por el backend (`downloadError`), con el
-    // nombre de la lista, para mostrarlo como aviso legible dentro de la página.
+    // Last failure reason published by the backend (`downloadError`), with
+    // the list name, to show it as a readable notice inside the page.
     property string lastDownloadError: ""
     property string lastErrorName: ""
 
@@ -281,7 +286,7 @@ Item {
                 out.push(all[i])
         return out
     }
-    // ¿La vista de pistas muestra una lista descargada (y no el catálogo)?
+    // Does the tracks view show a downloaded list (and not the catalogue)?
     readonly property bool localPlaylistOpen: page.showingTracks
                                               && page.openDownloadFolder !== ""
 
@@ -294,7 +299,7 @@ Item {
         page.showingTracks = true
     }
 
-    // ---- fuente de la vista de pistas (catálogo o lista descargada) ------
+    // ---- source of the tracks view (catalogue or downloaded list) --------
     function viewTracks() {
         return page.localPlaylistOpen ? page.openDownloadTracks : catalog.tracks
     }
@@ -319,7 +324,7 @@ Item {
                                       : String(page.dlOpenFolder || "")
     }
 
-    // ---- icono de acción (Glyph no incluye descarga/carpeta/refrescar) ----
+    // ---- action icon (Glyph has no download/folder/refresh) --------------
     component ActionIcon: Canvas {
         id: ico
         property string kind: "download"
@@ -410,7 +415,7 @@ Item {
         }
     }
 
-    // ---- cabecera de sección ---------------------------------------------
+    // ---- section header --------------------------------------------------
     component SectionHeader: RowLayout {
         id: header
         property string title: ""
@@ -449,7 +454,7 @@ Item {
         Item { Layout.fillWidth: true }
     }
 
-    // ---- botón de icono ---------------------------------------------------
+    // ---- icon button ------------------------------------------------------
     component IconButton: Rectangle {
         id: ibtn
         property string kind: "refresh"
@@ -601,7 +606,7 @@ Item {
                     }
                 }
 
-                // ---- título + metadatos + acciones -----------------------
+                // ---- title + metadata + actions ------------------------
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignBottom
@@ -667,7 +672,8 @@ Item {
                             }
                         }
 
-                        // Descargar la lista (funciona también con listas que no
+                        // Download the list (it also works with lists that
+                        // do not
                         // son del usuario: usa la URL real de la lista abierta).
                         // Muestra el progreso 0-100 % de TODA la lista mientras
                         // descarga, y un check al terminar.
@@ -708,7 +714,7 @@ Item {
                                 font.pixelSize: Theme.tXs
                                 font.weight: Font.DemiBold
                             }
-                            // Barra de progreso fina bajo el botón.
+                            // Thin progress bar under the button.
                             Rectangle {
                                 visible: dlBtn.downloading || dlBtn.installed || dlBtn.failed
                                 x: 5
@@ -732,7 +738,8 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
-                                    // Si ya está instalada, el botón desinstala;
+                                    // If it is already installed, the button
+                                    // uninstalls it;
                                     // si no, descarga toda la lista.
                                     if (dlBtn.installed)
                                         page.uninstallListRequested(dlBtn.installed ? page.dlOpenFolder : "",
@@ -745,10 +752,12 @@ Item {
                             }
                         }
 
-                        // Botón de desinstalar (sólo cuando la lista está ya
-                        // instalada; el tick va en el propio botón de descarga).
+                        // Uninstall button (only when the list is already
+                        // installed; the tick sits in the download button
+                        // itself).
                         // En una lista DESCARGADA abierta como playlist, el
-                        // botón de descarga no aplica: se muestra la papelera.
+                        // download button does not apply: the bin is
+                        // shown.
                         RowLayout {
                             spacing: Theme.s1
                             visible: page.localPlaylistOpen
@@ -803,7 +812,7 @@ Item {
                             }
                         }
 
-                        // Desbordamiento (⋮) -> menú de la lista
+                        // Overflow (...) -> list menu
                         Rectangle {
                             Layout.preferredWidth: 38
                             Layout.preferredHeight: 38
@@ -891,7 +900,7 @@ Item {
                     readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
                     readonly property bool willEnqueue: dx <= -80
 
-                    // Indicación discreta al deslizar: "Encolar".
+                    // Discreet hint while swiping: "Enqueue".
                     Row {
                         anchors.right: parent.right
                         anchors.rightMargin: Theme.s4
@@ -926,7 +935,8 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        // Hover: pre-resuelve con prioridad la pista señalada.
+                        // Hover: pre-resolve with priority the pointed
+                        // track.
                         onContainsMouseChanged: if (containsMouse && modelData
                                                      && modelData.url)
                                                     player.prefetchFront(modelData.url)
@@ -941,7 +951,7 @@ Item {
                         }
                     }
 
-                    // Deslizar a la izquierda para añadir a la cola.
+                    // Swipe to the left to add to the queue.
                     DragHandler {
                         id: swipe
                         xAxis.enabled: true
@@ -997,7 +1007,7 @@ Item {
                             }
                         }
 
-                        // Corazón: "me gusta" desde la propia biblioteca y desde
+                        // Heart: "liked" from the library itself and from
                         // "Local / Descargas" (las pistas locales resuelven su
                         // videoId por el .info.json y sincronizan con YT Music).
                         LikeButton {
@@ -1033,7 +1043,7 @@ Item {
             visible: !page.showingTracks
             spacing: Theme.s3
 
-            // 0) pestañas de sección: DOS píldoras (Biblioteca / Descargadas).
+            // 0) section tabs: TWO pills (Library / Downloaded).
             //    La activa se rellena con un tinte de acento y un filo claro.
             RowLayout {
                 id: libTabs
@@ -1096,7 +1106,8 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            // Aviso legible del último fallo de descarga (señal downloadError).
+            // Readable notice of the last download failure (downloadError
+            // signal).
             Island {
                 Layout.fillWidth: true
                 pad: Theme.s3
@@ -1148,7 +1159,7 @@ Item {
                 }
             }
 
-            // 2) añadir playlist por URL (isla flotante con píldoras)
+            // 2) add a playlist by URL (floating island with pills)
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s2
@@ -1447,7 +1458,7 @@ Item {
                                 }
                             }
                             // Desinstalar esta lista (borra sus archivos). Se
-                            // muestra al pasar el ratón por encima de la tarjeta.
+                            // shows on mouse over the card.
                             Rectangle {
                                 width: 26
                                 height: 26
@@ -1582,7 +1593,8 @@ Item {
                                     }
                                 }
                                 // "Me gusta" en las descargas: el videoId sale del
-                                // .info.json, así se marca y sincroniza con YT Music.
+                                // .info.json, so it is marked and synced with
+                                // YouTube Music.
                                 LikeButton {
                                     id: dlRowLike
                                     Layout.alignment: Qt.AlignVCenter
@@ -1661,7 +1673,7 @@ Item {
                             page.openListRequested(false)
                             page.openCover(modelData)
                         }
-                        // Clic en el botón de play flotante -> REPRODUCIR.
+                        // Click on the floating play button -> PLAY.
                         onPlayClicked: {
                             page.openListRequested(true)
                             page.openCover(modelData)
@@ -1679,7 +1691,7 @@ Item {
                     }
                 }
 
-                // ---- estados vacíos ---------------------------------------
+                // ---- empty states -----------------------------------------
                 Text {
                     Layout.fillWidth: true
                     visible: !page.localSelected && page.covers.length === 0

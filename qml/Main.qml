@@ -2346,7 +2346,7 @@ Window {
             // El desenfoque lo hace el backend en la CPU («wash»): una vela
             // de 480 px tan suave que estirarla a pantalla completa no muestra
             // ni un bloque. El serial rompe la caché al cambiar de pista.
-            source: Sys.dynamicBg && root.currentThumb
+            source: Sys.dynamicBg && root.currentThumb && wash.valid
                     ? "image://wash/" + wash.serial : ""
             // ESTIRADA, no recortada: la vela se adapta a la ventana y se ve
             // la portada entera. Recortada (PreserveAspectCrop) en una

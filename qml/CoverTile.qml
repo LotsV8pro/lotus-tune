@@ -3,9 +3,9 @@ import QtQuick.Layouts
 import "theme.js" as Theme
 
 // Tile de portada de la rejilla de Biblioteca: tarjeta con portada cuadrada,
-// título con elide (nunca desborda) y subtítulo de una línea. La raíz es
-// transparente y la tarjeta deja canalón a la derecha/abajo para que el
-// fondo de la página separé las columnas de la rejilla. Al pasar el ratón
+// title with elide (it never overflows) and a one line subtitle. The root is
+// transparent and the card leaves a gutter on the right/bottom so the page
+// background separates the grid columns. On mouse hover
 // la tarjeta se aclara y aparecen las acciones (descargar / quitar).
 Rectangle {
     id: tile
@@ -20,10 +20,11 @@ Rectangle {
     signal playClicked()      // clic en el botón de play flotante -> REPRODUCIR
     signal downloadRequested()
     signal removeRequested()
-    // Clic derecho sobre la tarjeta: menú contextual (x/y en ventana).
+    // Right click on the card: context menu (x/y in window coordinates).
     signal contextRequested(real x, real y)
 
-    // Ratón sobre el botón de play flotante (feedback visual del botón).
+    // Mouse over the floating play button (visual feedback for the
+    // button).
     property bool overPlay: false
 
     color: "transparent"
@@ -121,8 +122,8 @@ Rectangle {
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton | Qt.RightButton
 
-        // ¿El ratón cae dentro del botón de play flotante? (está debajo de
-        // este MouseArea, así que se comprueba a mano en vez de con un
+        // Does the mouse fall inside the floating play button? (it is below
+        // this MouseArea, so it is checked by hand instead of with a
         // MouseArea propio: evita robarle el hover a la tarjeta).
         function overPlayBtn(x, y) {
             const p = playBadge.mapToItem(tileMa, 0, 0)
@@ -133,8 +134,8 @@ Rectangle {
         onMouseYChanged: tile.overPlay = overPlayBtn(mouseX, mouseY)
         onExited: tile.overPlay = false
 
-        // Clic en el botón de play -> REPRODUCIR; el resto -> ABRIR.
-        // Clic derecho -> menú contextual de la lista.
+        // Click on the play button -> PLAY; the rest -> OPEN.
+        // Right click -> context menu of the list.
         onClicked: (mouse) => {
             if (mouse.button === Qt.RightButton) {
                 const p = mapToItem(null, mouse.x, mouse.y)

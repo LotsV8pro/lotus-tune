@@ -2,17 +2,17 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Letra a pantalla completa (modo cine). El reparto es el del reproductor de
-// referencia: columna izquierda con la portada, el título y la artista, el
-// progreso, el transporte y el volumen; a la derecha, la letra leída grande y
-// alineada por la izquierda. Arriba a la izquierda el botón de recogida
-// (flecha abajo) y arriba al centro la pastilla de compensación de tiempo.
-// La columna izquierda es fija: no se esconde nunca (como en el repo base).
+// Fullscreen lyrics (cinema mode). The layout is the one of the reference
+// player: a left column with the artwork, the title and the artist, the
+// progress, the transport and the volume; on the right, the lyrics read
+// large and left aligned. Top left is the collapse button (down arrow) and
+// top centre the time compensation pill. The left column is fixed: it never
+// hides (like in the base repo).
 //
-// La letra es `LyricsView` —el mismo motor que el panel y Now Playing— para
-// que lo que ve el usuario aquí, en el panel y en los widgets del escritorio
-// (que leen el estado que publica la app) sea literalmente la misma
-// representación.
+// The lyrics are `LyricsView` - the same engine as the panel and Now
+// Playing - so what the user sees here, in the panel and in the desktop
+// widgets (which read the state the app publishes) is literally the same
+// representation.
 Rectangle {
     id: fl
     anchors.fill: parent
@@ -25,14 +25,14 @@ Rectangle {
     property string title: ""
     property string artist: ""
     property string thumb: ""
-    // ID de YouTube de la pista actual: la portada grande del cine lo necesita
-    // para pedir las variantes nítitas del arte (las miniaturas de la API van
-    // a 120 px).
+    // YouTube ID of the current track: the big cinema artwork needs it to
+    // ask for the sharp variants of the art (the API thumbnails come at
+    // 120 px).
     property string videoId: ""
     property bool playing: false
     property real position: 0
     property real duration: 0
-    // Estado real del reproductor para los conmutadores del transporte.
+    // Real player state for the transport toggles.
     property bool shuffleOn: false
     property int repeatVal: 0
     property bool liked: false
@@ -45,8 +45,8 @@ Rectangle {
     signal shuffleRequested()
     signal repeatRequested()
     signal likeRequested()
-    // Clic derecho sobre la columna de la pista: mismo menú de canción que en
-    // las listas (radio, cola, biblioteca…). Clic en el artista: ir a su página.
+    // Right click on the track column: the same track menu as in the lists
+    // (radio, queue, library...). Click on the artist: open their page.
     signal trackMenuRequested(real x, real y)
     signal artistRequested(string name)
 
@@ -56,9 +56,10 @@ Rectangle {
 
     readonly property var ply: (typeof player !== "undefined") ? player : null
 
-    // ---- lavado de portada ------------------------------------------------
-    // Desenfoque REAL hecho en el backend (CPU): vela suave que, estirada a
-    // toda la pantalla, sale sin bloques pero dejando reconocer la portada.
+    // ---- artwork wash -----------------------------------------------------
+    // REAL blur done in the backend (CPU): a soft veil that, stretched over
+    // the whole screen, comes out without blocks but still lets you
+    // recognise the artwork.
     Image {
         id: washImg
         anchors.fill: parent
@@ -70,23 +71,24 @@ Rectangle {
         opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
     }
-    // Velo: fondo de la app mezclado con un azul profundo para que el modo
-    // cine sea más frío y nítido que el resto de ventanas. Bajo la letra, el
-    // velo que exige el contraste; sobre la columna, la portada manda.
+    // Veil: the app background mixed with a deep blue so the cinema mode is
+    // colder and crisper than the other windows. Under the lyrics, the veil
+    // that contrast demands; over the column, the artwork rules.
     Rectangle {
         anchors.fill: parent
         color: Theme.mix(Sys.bg, "#1b2a44", 0.28)
         opacity: 0.66
     }
-    // Tocho anti-pasada: el cine no tiene color propio, así que los clics en
-    // cualquier hueco sin mando ni letra atravesaban la ventana y acababan en
-    // la playlist de detrás. Éste se queda los que nadie más quiera.
+    // Click eater: the cinema mode has no colour of its own, so clicks on
+    // any gap without a control or lyrics went through the window and
+    // landed on the playlist behind. This one keeps whatever nobody else
+    // wants.
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         z: -1
     }
-    // Aura de acento en la parte baja, muy tenue.
+    // Accent aura at the bottom, very faint.
     Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
@@ -98,9 +100,9 @@ Rectangle {
         }
     }
 
-    // Zona de clic derecho sobre la columna izquierda entera (portada, título
-    // y artista): abre el menú de la pista. Sólo acepta el derecho, así que
-    // no interfiere con botones ni con el arrastre de la letra.
+    // Right click area over the whole left column (artwork, title and
+    // artist): opens the track menu. It only accepts the right button, so
+    // it does not interfere with buttons or with dragging the lyrics.
     MouseArea {
         anchors.left: leftCol.left
         anchors.right: leftCol.right
@@ -113,14 +115,13 @@ Rectangle {
         }
     }
 
-    // ---- letra ------------------------------------------------------------
-    // Columna derecha, lectura por la izquierda y mucho más grande que en el
-    // panel; la pastilla de sincronía sube al centro del encabezado y acompaña
-    // siempre a la ventana (los mandos NO se esconden: como en el repo de
-    // referencia, la columna izquierda es permanente).
+    // ---- lyrics -----------------------------------------------------------
+    // Right column, read from the left and much bigger than in the panel;
+    // the sync pill moves to the centre of the header and always follows
+    // the window (the controls do NOT hide: like in the reference repo, the
+    // left column is permanent).
     LyricsView {
         id: lyric
-        objectName: "cine"
         anchors.left: leftCol.right
         anchors.right: parent.right
         anchors.top: parent.top
@@ -136,10 +137,11 @@ Rectangle {
         pillShown: fl.open
     }
 
-    // ---- columna izquierda: portada, datos y mandos ------------------------
-    // Centrada en el borde izquierdo, con el ancho de la portada como regla.
-    // Es PERMANENTE (como en el repo de referencia): no se esconde al mover el
-    // ratón; la letra grande ya ocupa su propia columna a la derecha.
+    // ---- left column: artwork, details and controls ------------------------
+    // Centred on the left edge, with the artwork width as the rule. It is
+    // PERMANENT (like in the reference repo): it does not hide when the
+    // mouse moves; the big lyrics already have their own column on the
+    // right.
     ColumnLayout {
         id: leftCol
         anchors.left: parent.left
@@ -148,11 +150,11 @@ Rectangle {
         width: Math.round(Math.max(210, Math.min(fl.height * 0.40, fl.width * 0.30)))
         spacing: Theme.s4
 
-        // Portada grande con el «me gusta» incrustado en la esquina inferior
-        // izquierda (el puesto del «+» del repo de referencia). `ArtImage` se
-        // encarga de la cascada de resolución (maxres → hq → miniatura) con el
-        // ID REAL de la pista: las miniaturas de la API vienen a 120 px y aquí
-        // la portada es enorme — sin cascada se pixelaba.
+        // Big artwork with the "like" embedded in the bottom left corner
+        // (the spot of the "+" in the reference repo). `ArtImage` takes care
+        // of the resolution cascade (maxres -> hq -> thumbnail) using the
+        // track's REAL ID: the API thumbnails come at 120 px and here the
+        // artwork is huge - without the cascade it looked pixelated.
         Rectangle {
             id: coverBox
             Layout.alignment: Qt.AlignHCenter
@@ -166,8 +168,8 @@ Rectangle {
                 anchors.fill: parent
                 src: fl.thumb
                 videoId: fl.videoId
-                // La portada del cine va con las esquinas redondeadas como
-                // las tarjetas de Inicio.
+                // The cinema artwork has rounded corners like the home
+                // cards.
                 radiusSpec: Theme.rXl
                 showIconWhenEmpty: false
             }
@@ -196,7 +198,7 @@ Rectangle {
             }
         }
 
-        // Pista y artista, centrados bajo la portada.
+        // Track and artist, centred under the artwork.
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
@@ -240,7 +242,7 @@ Rectangle {
             }
         }
 
-        // Progreso: tiempo · barra clicable · tiempo.
+        // Progress: time . clickable bar . time.
         Item {
             Layout.fillWidth: true
             Layout.topMargin: Theme.s2
@@ -272,10 +274,10 @@ Rectangle {
                 anchors.rightMargin: Theme.s2
                 anchors.verticalCenter: parent.verticalCenter
                 height: 14
-                // Arrastre con el botón pulsado: la barra, la bola y el reloj
-                // siguen al cursor en vivo y el seek de verdad se pide al
-                // soltar. Antes sólo había clic suelto y el «mantener y
-                // deslizar» no hacía nada.
+                // Drag with the button held: the bar, the knob and the
+                // clock follow the cursor live and the real seek is asked
+                // on release. Before there was only a click and "hold and
+                // drag" did nothing.
                 property bool scrubbing: false
                 property real scrubSec: 0
                 readonly property real shown: scrubbing ? scrubSec : fl.position
@@ -336,7 +338,7 @@ Rectangle {
             }
         }
 
-        // Transporte: aleatorio · anterior · reproducir · siguiente · repetir.
+        // Transport: shuffle . previous . play . next . repeat.
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: Theme.s3
@@ -453,7 +455,7 @@ Rectangle {
             }
         }
 
-        // Volumen: altavoz y barra corta, centrados.
+        // Volume: speaker and a short bar, centred.
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Theme.s1
@@ -515,9 +517,9 @@ Rectangle {
         }
     }
 
-    // ---- recogida (arriba a la izquierda, square suave) ---------------------
-    // Flecha abajo en un cuadrado redondeado: deja el modo cine, en el mismo
-    // puesto que en el repo de referencia.
+    // ---- collapse (top left, soft square) ----------------------------------
+    // Down arrow in a rounded square: leaves the cinema mode, in the same
+    // spot as in the reference repo.
     Rectangle {
         anchors.left: parent.left
         anchors.top: parent.top
@@ -545,6 +547,7 @@ Rectangle {
         }
     }
 
-    // El modo cine ya no esconde los mandos: la columna izquierda es fija, la
-    // letra y la portada conviven siempre (reparto del repo de referencia).
+    // The cinema mode no longer hides the controls: the left column is
+    // fixed, the lyrics and the artwork always live together (layout of
+    // the reference repo).
 }

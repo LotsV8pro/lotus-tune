@@ -2,12 +2,12 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Panel derecho conmutable: COLA y LETRAS. Se muestra/oculta desde Main y
-// se alimenta de datos por propiedades (la cola) o de los context properties
-// (la letra la lee LyricsView directamente).
+// Switchable right panel: QUEUE and LYRICS. It is shown/hidden from Main
+// and fed with data through properties (the queue) or through the context
+// properties (LyricsView reads the lyrics directly).
 //
-// Es una única "isla flotante": la raíz es transparente y toda la superficie
-// redondeada (con su borde sutil y su sombra) la aporta `Panel`.
+// It is a single "floating island": the root is transparent and the whole
+// rounded surface (with its subtle border and shadow) comes from `Panel`.
 Item {
     id: panel
 
@@ -18,7 +18,7 @@ Item {
     signal closeRequested()
     signal trackActivated(int index)
     signal trackContextRequested(var track, real x, real y)
-    // Pedir la letra a pantalla completa (modo cine) desde la pestaña LETRA.
+    // Ask for the fullscreen lyrics (cinema mode) from the LYRICS tab.
     signal fullscreenLyricsRequested()
 
     implicitWidth: 360
@@ -33,13 +33,13 @@ Item {
             anchors.margins: Theme.s3
             spacing: Theme.s2
 
-            // ---- cabecera ---------------------------------------------
+            // ---- header ------------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
 
-                // Pestañas-píldora: cápsulas con acento suave en la activa,
-                // sin subrayados ni líneas duras.
+                // Pill tabs: capsules with a soft accent on the active
+                // one, no underlines or hard lines.
                 Repeater {
                     model: [ { t: 0, name: "Cola", icon: "queue" },
                              { t: 1, name: "Letra", icon: "lyrics" } ]
@@ -80,8 +80,8 @@ Item {
                     }
                 }
 
-                // Letra a pantalla completa (modo cine): sólo en la pestaña
-                // LETRA. Píldora circular igual que el botón de cerrar.
+                // Fullscreen lyrics (cinema mode): only in the LYRICS tab.
+                // Round pill, like the close button.
                 Rectangle {
                     Layout.preferredWidth: Theme.pillH
                     Layout.preferredHeight: Theme.pillH
@@ -99,7 +99,7 @@ Item {
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.fullscreenLyricsRequested() } }
                 }
 
-                // Cerrar: píldora circular, del mismo alto que las pestañas.
+                // Close: round pill, as tall as the tabs.
                 Rectangle {
                     Layout.preferredWidth: Theme.pillH
                     Layout.preferredHeight: Theme.pillH
@@ -117,7 +117,7 @@ Item {
                 }
             }
 
-            // ---- contenido --------------------------------------------
+            // ---- content -----------------------------------------------
             StackLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -133,11 +133,10 @@ Item {
                 }
 
                 LyricsView {
-                    objectName: "panel"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    // El difuminado de bordes debe fundirse con el fondo real
-                    // de la isla, que ya es la superficie del `Panel`.
+                    // The edge fade has to blend with the island's real
+                    // background, which is the `Panel` surface.
                     edgeColor: island.color
                 }
             }

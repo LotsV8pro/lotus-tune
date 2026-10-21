@@ -96,8 +96,9 @@ Canvas {
             ctx.stroke()
             break
         case "repeat-one":
-            // Las mismas dos flechas del «repeat» con un «1» en medio: es el
-            // modo «repetir sólo esta canción» del botón de repetición.
+            // The same two arrows as "repeat" with a "1" in the middle:
+            // it is the "repeat this track only" mode of the repeat
+            // button.
             ctx.beginPath()
             ctx.moveTo(X(3), Y(6.5))
             ctx.lineTo(X(13.2), Y(6.5))
@@ -116,7 +117,7 @@ Canvas {
             ctx.lineTo(X(4.8), Y(11.5))
             ctx.lineTo(X(7), Y(13.8))
             ctx.stroke()
-            // el «1»: asta con flamín y base
+            // the "1": stem with a little flag and a base
             ctx.beginPath()
             ctx.moveTo(X(8), Y(8.8))
             ctx.lineTo(X(9.6), Y(7.6))

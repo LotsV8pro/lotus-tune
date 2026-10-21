@@ -1,26 +1,28 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Isla flotante: superficie redondeada SIN filo (el borde claro se quitó: en
-// el lenguaje visual actual la separación la da el aire y el relleno, no la
-// línea). Es el ladrillo de la interfaz — el rail, la barra de título, la
-// barra de reproducción, el panel lateral y el contenido son todos `Panel`.
+// Floating island: rounded surface WITHOUT an edge (the light border was
+// removed: in the current visual language the separation comes from the
+// air and the fill, not from a line). It is the brick of the interface -
+// the rail, the title bar, the playback bar, the side panel and the
+// content are all `Panel`.
 //
-// Nota sobre la sombra: en un fondo tan oscuro (#151115) una sombra negra no
-// aporta contraste, así que la sensación de "flotar" la da el aire de
-// `panelMargin`/`panelGap`. Nada de efectos ni texturas: cero coste de render.
+// Note about the shadow: on a background that dark (#151115) a black
+// shadow adds no contrast, so the feeling of "floating" comes from the air
+// of `panelMargin`/`panelGap`. No effects or textures: zero render cost.
 //
-// Los hijos declarados dentro se colocan EN la superficie, de modo que
-// `clipContent` recorta el contenido a las esquinas de la isla (útil para
-// listas que hacen scroll). El relleno interior lo pone cada componente.
+// The children declared inside are placed ON the surface, so `clipContent`
+// clips the content to the island's corners (useful for lists that
+// scroll). The inner padding is up to each component.
 Item {
     id: panel
 
     property real radius: Theme.rPanel
-    // Con el "fondo dinámico" activado la isla se vuelve vidrio esmerilado:
-    // deja pasar un poco el wash de la portada (que ya viene "desenfocado" al
-    // ser una imagen diminuta ampliada), así que el tinte es suave y el texto
-    // mantiene el contraste. Sin fondo dinámico, superficie opaca de siempre.
+    // With the "dynamic background" on, the island becomes frosted glass:
+    // it lets a bit of the artwork wash through (which already comes
+    // "blurred" as a tiny image stretched), so the tint is soft and the
+    // text keeps its contrast. Without the dynamic background, the
+    // surface stays opaque as always.
     property color color: Sys.dynamicBg
                           ? Theme.alpha(Sys.surface, 0.84)
                           : Sys.surface

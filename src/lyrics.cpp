@@ -995,25 +995,29 @@ bool Lyrics::trySonoraCache()
     if (!QFile::exists(path))
         return false;
 
-    // Conexión propia y efímera, en solo lectura.
+    // Conexión propia y efímera, en solo lectura. El handle se destruye
+    // ANTES de removeDatabase(): si sigue vivo, Qt avisa de que la
+    // conexión está en uso.
     QByteArray raw;
     const QString conn = QStringLiteral("sonora_lyrics");
     {
-        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
-        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-        db.setDatabaseName(path);
-        if (db.open()) {
-            QSqlQuery q(db);
-            q.prepare(QStringLiteral("SELECT value FROM lyrics WHERE key LIKE :k "
-                                     "ORDER BY stored DESC LIMIT 1"));
-            q.bindValue(QStringLiteral(":k"),
-                        QStringLiteral("youtube:%1:lyrics:%").arg(m_videoId));
-            if (q.exec() && q.next())
-                raw = q.value(0).toString().toUtf8();
-            db.close();
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
+            db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+            db.setDatabaseName(path);
+            if (db.open()) {
+                QSqlQuery q(db);
+                q.prepare(QStringLiteral("SELECT value FROM lyrics WHERE key LIKE :k "
+                                         "ORDER BY stored DESC LIMIT 1"));
+                q.bindValue(QStringLiteral(":k"),
+                            QStringLiteral("youtube:%1:lyrics:%").arg(m_videoId));
+                if (q.exec() && q.next())
+                    raw = q.value(0).toString().toUtf8();
+                db.close();
+            }
         }
+        QSqlDatabase::removeDatabase(conn);
     }
-    QSqlDatabase::removeDatabase(conn);
 
     if (raw.isEmpty())
         return false;
@@ -1110,49 +1114,53 @@ bool Lyrics::trySonoraByTitle()
     QByteArray conn;
     QVector<QByteArray> payloads;
     {
-        // Conexión propia y efímera, en solo lectura.
+        // Conexión propia y efímera, en solo lectura. El handle se
+        // destruye ANTES de removeDatabase(): si sigue vivo, Qt avisa de
+        // que la conexión está en uso.
         const QString cname = QStringLiteral("sonora_lyrics_title");
-        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), cname);
-        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-        db.setDatabaseName(path);
-        if (db.open()) {
-            QSqlQuery q(db);
-            // Prefiltro barato: sólo las filas cuyo texto menciona la
-            // pista. La comparación buena va después, con el JSON ya
-            // parseado. Se prueban varias agujas porque el título de la
-            // app suele traer coletillas ("Not Ready to Die (From "Call
-            // of the Dead")") que en la caché están peladas.
-            QStringList needles;
-            const QString bare = stripParenthetical(m_title);
-            if (!bare.isEmpty() && bare != m_title)
-                needles << bare;
-            needles << m_title;
-            // Las primeras palabras del título: un prefijo corto que
-            // aparece dentro del valor de la fila.
-            const QStringList words = m_title.split(QLatin1Char(' '),
-                                                    Qt::SkipEmptyParts);
-            if (words.size() >= 3) {
-                QString head = words.mid(0, 3).join(QLatin1Char(' '));
-                if (head.size() >= 6 && !needles.contains(head))
-                    needles << head;
-            }
-            if (!m_artist.isEmpty())
-                needles << m_artist;
-            for (const QString &needle : needles) {
-                if (needle.isEmpty())
-                    continue;
-                q.prepare(QStringLiteral("SELECT value FROM lyrics "
-                                         "WHERE instr(lower(value), lower(?)) > 0 "
-                                         "LIMIT 60"));
-                q.bindValue(0, needle);
-                if (q.exec()) {
-                    while (q.next())
-                        payloads.append(q.value(0).toString().toUtf8());
+        {
+            QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), cname);
+            db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+            db.setDatabaseName(path);
+            if (db.open()) {
+                QSqlQuery q(db);
+                // Prefiltro barato: sólo las filas cuyo texto menciona la
+                // pista. La comparación buena va después, con el JSON ya
+                // parseado. Se prueban varias agujas porque el título de la
+                // app suele traer coletillas ("Not Ready to Die (From "Call
+                // of the Dead")") que en la caché están peladas.
+                QStringList needles;
+                const QString bare = stripParenthetical(m_title);
+                if (!bare.isEmpty() && bare != m_title)
+                    needles << bare;
+                needles << m_title;
+                // Las primeras palabras del título: un prefijo corto que
+                // aparece dentro del valor de la fila.
+                const QStringList words = m_title.split(QLatin1Char(' '),
+                                                        Qt::SkipEmptyParts);
+                if (words.size() >= 3) {
+                    QString head = words.mid(0, 3).join(QLatin1Char(' '));
+                    if (head.size() >= 6 && !needles.contains(head))
+                        needles << head;
                 }
-                if (!payloads.isEmpty())
-                    break;
+                if (!m_artist.isEmpty())
+                    needles << m_artist;
+                for (const QString &needle : needles) {
+                    if (needle.isEmpty())
+                        continue;
+                    q.prepare(QStringLiteral("SELECT value FROM lyrics "
+                                             "WHERE instr(lower(value), lower(?)) > 0 "
+                                             "LIMIT 60"));
+                    q.bindValue(0, needle);
+                    if (q.exec()) {
+                        while (q.next())
+                            payloads.append(q.value(0).toString().toUtf8());
+                    }
+                    if (!payloads.isEmpty())
+                        break;
+                }
+                db.close();
             }
-            db.close();
         }
         QSqlDatabase::removeDatabase(cname);
     }

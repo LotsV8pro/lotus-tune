@@ -1,14 +1,14 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Tarjeta mínima de los carriles de Inicio.
+// Minimal card for the home rails.
 //
-// Tamaño FIJO (cardWidth/coverSize/textHeight) para que la retícula nunca se
-// mueva al pasar el ratón: la elevación del hover es sólo un desplazamiento de
-// 2 px del contenido, sin sombras ni capas extra.
+// FIXED size (cardWidth/coverSize/textHeight) so the grid never shifts on
+// hover: the hover feedback is a soft zoom on the artwork, no shadows and
+// no extra layers.
 //
-// Clic en la PORTADA -> abre la lista/playlist.
-// Clic en el BOTÓN      -> reproduce.
+// Click on the ARTWORK  -> opens the list/playlist.
+// Click on the BUTTON  -> plays it.
 Item {
     id: card
 
@@ -20,23 +20,23 @@ Item {
     property string badge: ""
     property string thumb: ""
     property bool round: false
-    // Color dominante de la propia portada: el degradado de respaldo del
-    // cuadro lo toma, así la tarjeta tiene el color de su arte mientras
-    // carga y, si la imagen no llega, se queda con él en vez de con un
-    // azul genérico. Transparente = todavía sin saber el color.
+    // Dominant colour of the artwork: the placeholder gradient takes it, so
+    // the card carries the colour of its art while it loads and, if the
+    // image never arrives, it keeps that colour instead of a generic blue.
+    // Transparent = colour not known yet.
     property color artColor: "transparent"
     readonly property bool hasArtColor: artColor.a > 0
-    // Color del icono de respaldo: se resuelve por cuenta propia para no
-    // depender del objeto del tema en el instante exacto del repintado (un
-    // TypeError intermitente leía Sys.text cuando Sys aún no estaba listo).
+    // Fallback icon colour: resolved on its own so it never depends on the
+    // theme object at the exact repaint moment (an intermittent TypeError
+    // read Sys.text before Sys was ready).
     property color iconColor: (typeof Sys === "object")
         ? Theme.alpha(Sys.text, 0.55) : "#8a8a8a"
 
     signal clicked()
     signal playClicked()
 
-    // Al cambiar la portada se pide su color dominante (el C++ lo saca de
-    // la imagen y lo devuelve por la señal «found»).
+    // When the artwork changes, ask for its dominant colour (the C++ side
+    // extracts it from the image and reports it through the "found" signal).
     onThumbChanged: {
         artColor = "transparent"
         if (thumb && thumb.length > 0 && typeof colorpick !== "undefined")
@@ -53,12 +53,12 @@ Item {
 
     readonly property bool hovered: hoverHandler.hovered
 
-    // Color con el que se tiñe el fondo de la tarjeta: el dominante de la
-    // portada cuando ya se sabe; si la tarjeta no tiene foto (Me gusta,
-    // los accesos directos), el color base de su cuadro.
+    // Colour that tints the card background: the artwork's dominant colour
+    // once known; for cards without artwork (Liked, the shortcuts) the
+    // base colour of its cover.
     readonly property color tintColor: hasArtColor ? artColor : coverA
 
-    // ---- medidas fijas (no cambian con el hover) ----------------------
+    // ---- fixed measurements (they never change on hover) ------------
     readonly property int cardWidth: 172
     readonly property int coverSize: cardWidth
     readonly property int textHeight: 54
@@ -70,10 +70,11 @@ Item {
 
     HoverHandler { id: hoverHandler }
 
-    // Fondo clicable (abre la lista). Va el PRIMERO, por debajo del contenido:
-    // así el botón de play flotante (que vive dentro de `inner`) recibe sus
-    // clics y el resto de la tarjeta los de este área. Al revés, esta capa
-    // tapaba al botón y el play de las tarjetas no hacía nunca nada.
+    // Clickable background (opens the list). It comes FIRST, under the
+    // content: that way the play button (which lives inside `inner`) keeps
+    // its clicks and the rest of the card gets the ones of this area. The
+    // other way round this layer covered the button and the card's play
+    // never did anything.
     MouseArea {
         anchors.fill: parent
         hoverEnabled: true
@@ -81,17 +82,17 @@ Item {
         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
     }
 
-    // Fondo de la tarjeta teñido con el color de su portada: degradado
-    // desde el color fuerte arriba (donde está la foto) hacia
-    // transparente abajo, para que el texto siga leyéndose.
+    // Card background tinted with the colour of its artwork: a gradient
+    // from the strong colour at the top (where the picture is) to
+    // transparent at the bottom, so the text stays readable.
     Rectangle {
         anchors.fill: parent
         radius: Theme.rXl
         visible: card.tintColor.a > 0
         gradient: Gradient {
-            // Con color de portada el tinte se nota más; con el color
-            // base (tarjetas sin foto) va más suave, que si no el carril
-            // parece un psicodélico.
+            // With an artwork colour the tint reads stronger; with the
+            // base colour (cards without artwork) it stays subtle,
+            // otherwise the rail looks like a rave.
             GradientStop { position: 0.0
                           color: Theme.alpha(card.tintColor,
                                              card.hasArtColor ? 0.40 : 0.26) }
@@ -103,9 +104,9 @@ Item {
         }
     }
 
-    // El contenido no se mueve al pasar el ratón (antes subía 2 px, que
-    // bailaba con el carril): lo que reacciona es la FOTO, con un zoom
-    // suave, y el botón de play aparece en el centro.
+    // The content does not move on hover (it used to rise 2 px, which
+    // made the rail wobble): what reacts is the PICTURE, with a soft
+    // zoom, and the play button appears in the corner.
     Item {
         id: inner
         width: card.width
@@ -115,14 +116,14 @@ Item {
             id: cover
             width: card.coverSize
             height: card.coverSize
-            // La foto se agranda un poco al pasar el ratón (el resto de la
-            // tarjeta quieta). El escalado va con su propio radio.
+            // The picture grows a little on hover (the rest of the card
+            // stays put). The scaling carries its own corner radius.
             scale: card.hovered ? 1.045 : 1
             Behavior on scale {
                 NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
             }
-            // Lo único que se retocó de la tarjeta: el redondeo de la
-            // portada sube de rMd a rXl (22 px). Nada más.
+            // The only thing reworked on the card: the artwork corner
+            // radius goes from rMd to rXl (22 px). Nothing else.
             radius: card.round ? width / 2 : Theme.rXl
             clip: true
 
@@ -142,7 +143,7 @@ Item {
                 radiusSpec: card.round ? "circle" : Theme.rXl
             }
 
-            // Icono de respaldo cuando no hay portada.
+            // Fallback icon when there is no artwork.
             Glyph {
                 anchors.centerIn: parent
                 width: 40
@@ -152,7 +153,7 @@ Item {
                 visible: card.thumb.length === 0
             }
 
-            // Etiqueta (YT / RADIO / …) en píldora.
+            // Tag (YT / RADIO / …) as a pill.
             Rectangle {
                 visible: card.badge.length > 0
                 anchors.left: parent.left
@@ -173,18 +174,18 @@ Item {
                 }
             }
 
-            // Botón de play en la ESQUINA de la portada (abajo a la
-            // derecha): aparece al pasar el ratón, sobre la foto que hace
-            // zoom. Va DENTRO de la portada para que siga en su esquina
-            // cuando la portada crece.
+            // Play button in the CORNER of the artwork (bottom right): it
+            // shows on hover, over the picture that zooms. It lives INSIDE
+            // the artwork so it stays in its corner when the artwork
+            // grows.
             Rectangle {
                 id: playBtn
                 width: 38
                 height: 38
                 radius: Theme.rPill
                 color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                // Fino borde oscuro: se lee sobre cualquier portada, clara
-                // u oscura.
+                // Thin dark border: readable over any artwork, light or
+                // dark.
                 border.width: 1
                 border.color: Theme.alpha(Sys.bg, 0.28)
                 anchors.right: parent.right
@@ -217,8 +218,8 @@ Item {
             }
         }
 
-        // Texto: título a 2 líneas como máximo + subtítulo de una línea.
-        // La altura está reservada (textHeight) para que el carril no salte.
+        // Text: title on at most 2 lines + a one line subtitle. The height
+        // is reserved (textHeight) so the rail never jumps.
         Column {
             anchors.top: cover.bottom
             anchors.left: parent.left

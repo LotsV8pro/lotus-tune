@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Cola de reproducción. El modelo es el ListModel `queue` de Main; se pasa
+// Playback queue. The model is Main's `queue` ListModel; it is passed
 // como dato (no se referencia `root`) para poder vivir en su propio archivo.
 Item {
     id: qv
@@ -11,7 +11,8 @@ Item {
     property int currentIndex: -1
 
     signal trackActivated(int index)
-    // Clic derecho: pide el menú contextual para esa pista (x/y en ventana).
+    // Right click: asks for the context menu of that track (x/y in window
+    // coordinates).
     signal trackContextRequested(var track, real x, real y)
 
     readonly property int count: qv.tracks ? qv.tracks.count : 0
@@ -28,7 +29,7 @@ Item {
         anchors.fill: parent
         clip: true
         model: qv.tracks
-        // Píldoras separadas por aire: una fila = una cápsula.
+        // Pills separated by air: one row = one capsule.
         spacing: Theme.s2
         boundsBehavior: Flickable.StopAtBounds
         cacheBuffer: 400
@@ -45,10 +46,10 @@ Item {
 
             width: ListView.view.width
             height: Theme.rowCompact
-            // Cada fila es una píldora: cápsula que flota sobre el panel.
+            // Every row is a pill: a capsule floating over the panel.
             radius: Theme.rPill
-            // Fila en curso: la píldora se enciende con un velo de acento y un
-            // aro muy tenue. El resto, sólo una superficie al pasar el ratón.
+            // Current row: the pill lights up with an accent veil and a very
+            // faint ring. The rest only get a surface on hover.
             color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.14)
                    : (rowHover.hovered ? Theme.hover(Sys.surface) : "transparent")
             border.width: index === qv.currentIndex ? 1 : 0
@@ -58,12 +59,12 @@ Item {
             HoverHandler {
                 id: rowHover
                 cursorShape: Qt.PointingHandCursor
-                // Al señalar una fila de la cola, pre-resuelve su stream.
+                // When pointing at a queue row, its stream is pre-resolved.
                 onHoveredChanged: if (hovered && row.url)
                                       player.prefetchFront(row.url)
             }
 
-            // Detrás de la fila: el corazón va encima y recibe su propio clic.
+            // Over the row: the heart sits on top and takes its own click.
             MouseArea {
                 id: rowMouse
                 anchors.fill: parent
@@ -93,7 +94,7 @@ Item {
                 anchors.rightMargin: Theme.s3
                 spacing: Theme.s2
 
-                // índice / ecualizador
+                // index / equalizer
                 Item {
                     Layout.preferredWidth: 18
                     Layout.preferredHeight: 18
@@ -174,8 +175,9 @@ Item {
                             revealed: rowHover.hovered
                             liked: {
                                 // Sin depender de likedReady: isLiked ya es
-                                // autoritativo y toggleLiked sube la revisión,
-                                // así el corazón se marca al instante (también
+                                // authoritative and toggleLiked bumps the
+                                // revision, so the heart is marked at once
+                                // (also
                                 // en pistas locales, resueltas por su .info.json).
                                 const rev = catalog.likedRevision
                                 return catalog.isLiked(row.url)
@@ -193,7 +195,8 @@ Item {
                     }
                 }
 
-                // Duración como píldora tenue: agrupa el metadato a la derecha
+                // Duration as a faint pill: it groups the metadata on the
+                // right
                 // y ordena la lectura de la fila.
                 Rectangle {
                     Layout.alignment: Qt.AlignVCenter

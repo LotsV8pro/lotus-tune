@@ -9,25 +9,27 @@ Item {
     id: page
 
     signal playRequested(var list, int index)
-    // Clic derecho: pide el menú contextual para esa pista (x/y en ventana).
+    // Right click: asks for the context menu of that track (x/y in window
+    // coordinates).
     signal trackContextRequested(var track, real x, real y)
-    // Deslizar una fila a la izquierda: añadir la pista a la cola.
+    // Swipe a row to the left: add the track to the queue.
     signal enqueueRequested(var track)
-    // Modo artistas: el campo busca artistas (y se abre su discografía al clic).
+    // Artists mode: the field looks for artists (and opens their discography
+    // on click).
     // El modo elegido se recuerda entre sesiones.
     signal artistRequested(var artist)
     property bool artistMode: false
-    // Resultados de la última búsqueda de artistas ({ name, browseId, thumb,
-    // subtitle }); sólo importa en modo artistas.
+    // Results of the last artist search ({ name, browseId, thumb, subtitle });
+    // only relevant in artists mode.
     property var artistResults: []
-    // ¿Búsqueda de artistas en vuelo? (su proceso no usa catalog.busy).
+    // Is an artist search running? (its process does not use catalog.busy).
     property bool artistBusy: false
 
     // ---- resultados por fuente -------------------------------------------
-    // La búsqueda consulta TODAS las fuentes a la vez. Aquí se aplanan los
-    // grupos en una sola lista: primero los de YouTube Music, luego los de
-    // SoundCloud, y detrás las fuentes que aún están bloqueadas (se ven
-    // con su nombre y la nota, para saber qué falta).
+    // The search queries ALL the sources at once. Here the groups are
+    // flattened into a single list: first YouTube Music, then SoundCloud,
+    // and behind them the sources that are still locked (they show their
+    // name and the note, so it is clear what is missing).
     readonly property var flatResults: {
         const out = []
         let ti = 0
@@ -79,7 +81,7 @@ Item {
     }
 
     // La rueda que sobra (lista al borde o puntero sobre el campo) se queda en
-    // la página: nunca arrastra a un contenedor padre.
+    // the page: it never drags into a parent container.
     WheelHandler { onWheel: (event) => { event.accepted = true } }
 
     function sourceEntry(id) {
@@ -94,11 +96,12 @@ Item {
 
     readonly property int rowHeight: Theme.rowH
 
-    // ---- búsqueda predictiva (search-as-you-type) -------------------------
+    // ---- predictive search (search-as-you-type) -------------------------
     // Al teclear, tras una pausa breve se busca sola (sin pulsar Enter). El
-    // motor (Catalog) es un QProcess único: si ya hay una operación en curso
-    // una nueva búsqueda FALLA con «Espera a que termine la operación actual».
-    // Por eso, antes de buscar se comprueba catalog.busy y, si lo está, se
+    // engine (Catalog) is a single QProcess: if an operation is already
+    // running a new search FAILS with "Wait for the current operation to
+    // finish". That is why, before searching, catalog.busy is checked and,
+    // if it is busy,
     // programa un reintento corto en vez de llamar directamente.
     property int debounceMs: 300        // pausa de tecleo antes de buscar
     property int minQuery: 2            // longitud mínima para buscar solo
@@ -108,9 +111,10 @@ Item {
     property string lastQuery: ""       // última búsqueda enviada (evita repetirla)
     property string pendingQuery: ""    // búsqueda en espera de que el backend libre
 
-    // Único punto que llama a catalog.search()/searchArtists(): centralizar
-    // aquí el control de busy evita el error de «operación en curso». Si el
-    // backend está ocupado guarda la consulta y reintenta en breve (con tope
+    // Only place that calls catalog.search()/searchArtists(): centralising
+    // the busy check here avoids the "operation in progress" error. If the
+    // backend is busy it stores the query and retries shortly (with a
+    // cap
     // de reintentos).
     function dispatchSearch(q) {
         q = String(q || "").trim()
@@ -143,8 +147,8 @@ Item {
         catalog.searchAll(q)
     }
 
-    // Búsqueda explícita: Enter, chip del Historial o «Buscar el artista».
-    // Sí pasa por el historial de búsquedas recientes (como hasta ahora).
+    // Explicit search: Enter, a History chip or "Search the artist". It
+    // does go through the recent searches history (as before).
     function runSearch() {
         const q = String(input.text || "").trim()
         if (q.length === 0)
@@ -154,9 +158,10 @@ Item {
         dispatchSearch(q)
     }
 
-    // Búsqueda predictiva (la dispara el debounce). NO toca el historial: se
-    // guardaría cada prefijo que se teclea. El historial sigue reservado a las
-    // búsquedas explícitas (Enter / chips) y no relanza la MISMA consulta.
+    // Predictive search (fired by the debounce). It does NOT touch the
+    // history: every prefix typed would be stored. The history stays for
+    // explicit searches (Enter / chips) and does not re-run the SAME
+    // query.
     function autoSearch() {
         const q = String(input.text || "").trim()
         if (q.length < minQuery || q === lastQuery)
@@ -164,8 +169,8 @@ Item {
         dispatchSearch(q)
     }
 
-    // Pausa de tecleo: cada pulsación la reinicia, así sólo se busca cuando el
-    // usuario para (una búsqueda por pausa, no por carácter).
+    // Typing pause: every keystroke restarts it, so the search only runs
+    // when the user stops (one search per pause, not per character).
     Timer {
         id: debounceTimer
         interval: page.debounceMs
@@ -173,8 +178,8 @@ Item {
         onTriggered: page.autoSearch()
     }
 
-    // Reintento mientras el backend está ocupado: una sola vez por disparo y se
-    // reprograma sólo si sigue ocupado, con tope en retryMax (nada de bucles).
+    // Retry while the backend is busy: once per trigger and it only
+    // reschedules if it is still busy, capped at retryMax (no loops).
     Timer {
         id: retryTimer
         interval: page.retryMs
@@ -183,7 +188,8 @@ Item {
     }
 
     // Llegan los artistas: se pinta la lista (el proceso emite aunque la
-    // página no esté visible: se ignora si ya no estamos en modo artistas).
+    // page is not visible: it is ignored if we are no longer in artists
+    // mode).
     Connections {
         target: catalog
         function onArtistsReady(artists) {
@@ -203,8 +209,8 @@ Item {
         input.selectAll()
     }
 
-    // ---- historial de búsquedas (appcfg, clave "searchHistory") -----------
-    // JSON: [{ "q": texto, "t": timestamp }…], máx. 20, sin duplicados.
+    // ---- search history (appcfg, "searchHistory" key) -------------------
+    // JSON: [{ "q": text, "t": timestamp }...], max 20, no duplicates.
     function pushHistory(q) {
         if (typeof appcfg === "undefined")
             return
@@ -227,7 +233,7 @@ Item {
             appcfg.set("searchHistory", JSON.stringify(out))
             appcfg.save()
         } catch (e2) {
-            // sin historial persistente: la búsqueda sigue funcionando
+            // without persistent history: the search keeps working
         }
     }
 
@@ -249,10 +255,10 @@ Item {
             visible: !page.locked
             spacing: Theme.s3
 
-            // ---- campo de búsqueda (línea fina) -------------------------
-            // Minimalista: sin cápsula gris ni borde cerrado, sólo una línea
+            // ---- search field (thin line) -----------------------------
+            // Minimal: no grey capsule and no closed border, just a line
             // debajo que se enciende con el foco. El resto de la vista
-            // manda: aquí lo que importa es la lista.
+            // rules: here what matters is the list.
             Panel {
                 id: field
                 Layout.fillWidth: true
@@ -261,7 +267,7 @@ Item {
                 color: "transparent"
                 borderWidth: 0
 
-                // La línea del campo.
+                // The field's line.
                 Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -296,13 +302,15 @@ Item {
                     clip: true
                     selectByMouse: true
                     // Los Item ocultos conservan el foco en QML: al cambiar de
-                    // pestaña la caja seguía viva y le llegaba el teclado
-                    // («se escribía solo desde otras páginas»). Se suelta el
+                    // tab the box stayed alive and the keyboard reached it
+                    // ("it typed on its own from other pages"). The focus
+                    // is released
                     // foco en cuanto la caja deja de verse.
                     onVisibleChanged: if (!visible) focus = false
                     Keys.onReturnPressed: { event.accepted = true; page.runSearch() }
                     Keys.onEnterPressed: { event.accepted = true; page.runSearch() }
-                    // Búsqueda predictiva: cada cambio reinicia la pausa; si aún
+                    // Predictive search: every change restarts the pause; if
+                    // there are still
                     // no hay letras suficientes no se busca (se cancela la espera).
                     onTextChanged: {
                         if (input.text.trim().length < page.minQuery) {
@@ -353,7 +361,8 @@ Item {
             }
 
             // ---- modo: Canciones / Artistas ----------------------------------
-            // La misma voz del campo, dos objetivos. Se recuerda cuál se eligió.
+            // The same voice as the field, two targets. The chosen one is
+            // remembered.
             RowLayout {
                 Layout.leftMargin: Theme.s2
                 spacing: Theme.s2
@@ -449,9 +458,9 @@ Item {
                     cacheBuffer: 600
                 // Al llegar resultados nuevos, cuece las primeras pistas: un
                 // clic en la cabecera de la lista suena al instante. Se cuecen
-                // unas cuantas (no sólo la primera) porque, al no descartar ya
-                // el hover la precarga en vuelo, terminan todas y la lista
-                // entera responde rápido.
+                // a few of them (not only the first) because, without
+                // discarding the hover prefetch already in flight, they all
+                // finish and the whole list answers fast.
                 onCountChanged: {
                     const arr = page.flatTracks
                     const n = Math.min(8, arr ? arr.length : 0)
@@ -506,7 +515,7 @@ Item {
                     readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
                     readonly property bool willEnqueue: dx <= -80
 
-                    // Indicación discreta al deslizar: "Encolar".
+                    // Discreet hint while swiping: "Enqueue".
                     Row {
                         visible: !rrow.modelData.secHead
                         anchors.right: parent.right
@@ -536,7 +545,7 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        // Al pasar el ratón, pre-resuelve esa pista con
+                        // On hover, pre-resolve that track with
                         // prioridad: si el clic cae enseguida, ya suena.
                         onContainsMouseChanged: if (containsMouse && rrow.modelData
                                                      && rrow.modelData.url)
@@ -551,7 +560,7 @@ Item {
                         }
                     }
 
-                    // Deslizar a la izquierda para añadir a la cola.
+                    // Swipe to the left to add to the queue.
                     DragHandler {
                         id: swipe
                         enabled: !rrow.modelData.secHead
@@ -734,9 +743,9 @@ Item {
                 }
             }
 
-            // ---- vacío / ayuda --------------------------------------------
-            // Estado vacío: un texto centrado y con aire, sin caja. Es la misma
-            // voz silenciosa que el estado "bloqueado": la jerarquía es el aire.
+            // ---- empty / help ---------------------------------------------
+            // Empty state: centred text with air, no box. It is the same
+            // quiet voice as the "locked" state: the hierarchy is the air.
             Text {
                 Layout.fillWidth: true
                 Layout.maximumWidth: 520

@@ -4,8 +4,8 @@ import "theme.js" as Theme
 
 // Shown by every page while the active source cannot stream yet: explains
 // exactly what is needed to activate it.
-// Minimalismo: un icono quieto, un titular, una línea de apoyo y un único
-// botón de texto en acento. Sin cajas, sin adornos.
+// Minimalism: a still icon, a headline, a support line and a single text
+// button in the accent colour. No boxes, no ornaments.
 ColumnLayout {
     id: panel
 
@@ -45,7 +45,7 @@ ColumnLayout {
         lineHeight: 1.25
     }
 
-    // Indicación de acción como píldora tenue: se enciende con el ratón.
+    // Action hint as a faint pill: it lights up on hover.
     Rectangle {
         Layout.alignment: Qt.AlignHCenter
         Layout.topMargin: Theme.s1

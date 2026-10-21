@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Ficha de artista (capa a pantalla completa): su discografía, del disco más
-// nuevo al más antiguo. «Reproducir todo» arranca con el más nuevo e irán
-// entrando los demás de uno en uno; «Aleatorio» añade todos los temas y
-// baraja la cola entera. Pulsar una fila reproduce sólo ese disco.
+// Artist page (full screen layer): their discography, from the newest
+// album to the oldest. "Play all" starts with the newest and the rest
+// come in one by one; "Shuffle" adds every track and shuffles the whole
+// queue. Clicking a row plays only that album.
 Item {
     id: page
 
@@ -19,7 +19,7 @@ Item {
     signal playAllRequested(bool random)
     signal albumPlayRequested(var album)
 
-    // Traga los clics: nada de lo de atrás (contenido, barra) debe responder.
+    // Swallows the clicks: nothing behind (content, bar) should react.
     MouseArea {
         anchors.fill: parent
     }
@@ -110,7 +110,8 @@ Item {
                 RowLayout {
                     spacing: Theme.s3
 
-                    // Acción primaria: todo el artista, del más nuevo al viejo.
+                    // Primary action: the whole artist, newest to
+                    // oldest.
                     Rectangle {
                         width: playAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: 40
@@ -148,7 +149,8 @@ Item {
                         }
                     }
 
-                    // Secundaria: idéntico pero con la cola entera barajada.
+                    // Secondary: the same but with the whole queue
+                    // shuffled.
                     Rectangle {
                         width: shuffleAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: 40
@@ -199,7 +201,7 @@ Item {
             }
         }
 
-        // ---- discografía -----------------------------------------------------
+        // ---- discography ----------------------------------------------------
         Text {
             visible: !page.busy && page.albums.length > 0
             text: "Discografía"
