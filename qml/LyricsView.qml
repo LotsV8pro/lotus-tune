@@ -515,6 +515,7 @@ Item {
                     readonly property var _w: modelData.words ? modelData.words : []
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
+
                     // Desvanecido de borde (como en el repo de referencia): la
                     // line fades itself out when it gets near the top or
                     // suelo de la vista. Nada de bandas negras por encima:
