@@ -309,6 +309,11 @@ Item {
     function _wordHtml(words) {
         if (!words || words.length === 0)
             return ""
+        // Tramos encadenados, EXACTAMENTE como los calcula el widget del
+        // escritorio: la palabra N empieza donde acaba la N-1 y ocupa su
+        // tramo real (sin mínimos que retrasen el frente). La primera
+        // palabra entra 100 ms después de la línea y con un relleno
+        // mínimo, para que no se encienda de golpe al empezar.
         var tramos = []
         var prevFin = -1
         for (var i = 0; i < words.length; i++) {
@@ -316,10 +321,11 @@ Item {
             var t0 = Number(w.t || 0)
             var e = Number(w.e || 0)
             var propio = (e > t0) ? (e - t0) : 0.3
-            var ini = t0
+            var ini = (i === 0) ? t0 + 0.10 : t0
+            var dur = Math.max(propio, (i === 0) ? 0.34 : 0)
             if (prevFin > ini)
                 ini = prevFin
-            var fin = ini + Math.max(propio, 0.3)
+            var fin = ini + dur
             tramos.push({ ini: ini, fin: fin })
             prevFin = fin
         }
@@ -392,7 +398,18 @@ Item {
         onTriggered: {
             if (!lv.ply)
                 return
-            var est = lv._posAnchor + (Date.now() - lv._posStamp) / 1000
+            // The position is re-anchored to the engine on EVERY tick (and
+            // not only when it reports): if the engine's reports are late
+            // (a busy track, a slow source) the interpolated front used to
+            // run ahead of the voice by seconds, and the line looked fully
+            // lit instead of being sung word by word.
+            var now = Date.now()
+            var engine = Number(lv.ply.position || 0)
+            if (engine !== lv._posAnchor) {
+                lv._posAnchor = engine
+                lv._posStamp = now
+            }
+            var est = lv._posAnchor + (now - lv._posStamp) / 1000
             var dur = Number(lv.ply.duration || 0)
             if (dur > 0)
                 est = Math.min(est, dur)
