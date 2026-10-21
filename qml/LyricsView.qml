@@ -592,9 +592,14 @@ Item {
                         const start = Number(modelData.time || 0)
                         if (lv.karaokePos <= start)
                             return 0
-                        const next = lv.lines[index + 1]
-                        const end = (next && Number(next.time || 0) > start)
-                                   ? Number(next.time) : start + 4
+                        // The end of the line is the moment the next one
+                        // starts (the backend publishes it): with it the
+                        // phrase is not sung past its own length, and an
+                        // instrumental stretch in the middle does not make
+                        // the previous phrase longer.
+                        let end = Number(modelData.end || 0)
+                        if (!(end > start))
+                            end = start + 4
                         return Math.max(0, Math.min(1, (lv.karaokePos - start) / (end - start)))
                     }
 

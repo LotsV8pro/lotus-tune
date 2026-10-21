@@ -1046,6 +1046,25 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
     }
     std::sort(lines.begin(), lines.end(),
               [](const LrcLine &x, const LrcLine &y) { return x.time < y.time; });
+    // The instrumental stretches in the middle of the song are not always
+    // marked by the sources: without a line for them the previous phrase
+    // would be sung until the next one (it looked too long).
+    {
+        QVector<LrcLine> withGaps;
+        for (int i = 0; i < lines.size(); ++i) {
+            withGaps.append(lines.at(i));
+            if (i + 1 >= lines.size())
+                break;
+            if (lines.at(i + 1).time - lines.at(i).time >= 6.0) {
+                LrcLine m;
+                m.time = lines.at(i).time + 0.5;
+                m.text = QStringLiteral("♪");
+                m.instrumental = true;
+                withGaps.append(m);
+            }
+        }
+        lines = withGaps;
+    }
     expandInstrumentals(lines);
     m_lines = std::move(lines);
     m_hasSynced = true;
@@ -1467,9 +1486,31 @@ QVariantList Lyrics::lines() const
 {
     QVariantList out;
     out.reserve(m_lines.size());
-    for (const LrcLine &l : m_lines) {
+    for (int i = 0; i < m_lines.size(); ++i) {
+        const LrcLine &l = m_lines.at(i);
         QVariantMap m;
         m.insert(QStringLiteral("time"), l.time);
+        // The end of the line: the phrase is not sung past its own
+        // length. With word timings it is the end of the last word, so
+        // an instrumental stretch in the middle does not make the
+        // previous phrase longer.
+        {
+            double end = 0.0;
+            if (!l.words.isEmpty()) {
+                const QVariantMap last = l.words.last().toMap();
+                end = last.value(QStringLiteral("e")).toDouble();
+            }
+            if (!(end > l.time)) {
+                end = l.time + 4.0;
+                for (int j = i + 1; j < m_lines.size(); ++j) {
+                    if (m_lines.at(j).time > l.time) {
+                        end = m_lines.at(j).time;
+                        break;
+                    }
+                }
+            }
+            m.insert(QStringLiteral("end"), end);
+        }
         m.insert(QStringLiteral("text"), l.text);
         if (!l.words.isEmpty())
             m.insert(QStringLiteral("words"), l.words);
@@ -2300,8 +2341,8 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
     }
     if (out.size() < 2)
         return false;
-    qInfo() << "[lyrics] alineacion: " << matched << "lineas de "
-            << lines.size() << "emparejadas con " << reference.size();
+    qInfo() << "[lyrics] alineacion: " << matched << " de " << lines.size()
+            << " lineas emparejadas con el video";
     if (matched * 10 < lines.size() * 3)
         return false;  // it is another version of the song
 
