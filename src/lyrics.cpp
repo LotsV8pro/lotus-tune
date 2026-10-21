@@ -2288,11 +2288,10 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
         LrcLine aligned = lines.at(i);
         const int j = pairOf.at(i);
         if (j >= 0) {
-            // The line is in the video: the text of the video is the one
-            // that is being sung and the difference of times is a sample
-            // for the offset.
+            // The line is in the video: the difference of times is a
+            // sample for the offset. The text is NOT changed: the words
+            // that are filled in the karaoke belong to this very text.
             deltas.append(reference.at(j).time - aligned.time);
-            aligned.text = reference.at(j).text;
             ++matched;
         }
         // The instrumental lines (and the ones the video does not have) are
