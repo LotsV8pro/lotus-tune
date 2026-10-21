@@ -32,13 +32,24 @@ Item {
 
     readonly property bool ready: img.status === Image.Ready
 
+    // The id of the artwork itself wins over the explicit one: when the
+    // track changes, the thumbnail and the id arrive in different ticks,
+    // so the explicit id would still be the previous track's and the
+    // artwork would stay frozen on the song before.
     readonly property string vid: {
+        var m = /\/vi(?:_webp)?\/([\w-]{11,13})/.exec(art.src)
+        if (m)
+            return m[1]
+        m = /[?&]v=([\w-]{11,13})/.exec(art.src)
+        if (m)
+            return m[1]
         var v = String(art.videoId || "")
         if (v.length >= 11 && v.length <= 13)
             return v
-        var m = /v=([\w-]{11,13})/.exec(art.src)
-        if (!m)
-            m = /\/vi(?:_webp)?\/([\w-]{11,13})\//.exec(art.src)
+        m = /\/embed\/([\w-]{11,13})/.exec(art.src)
+        if (m)
+            return m[1]
+        m = /\/shorts\/([\w-]{11,13})/.exec(art.src)
         return m ? m[1] : ""
     }
 
@@ -49,8 +60,14 @@ Item {
     // looks broken). The base thumbnail is the fallback.
     readonly property var candidates: {
         var list = []
-        if (art.vid)
+        if (art.vid) {
+            // "hqdefault" is the canonical one (480x360): "hq2" only exists
+            // for recent videos and answers 404 on the older ones.
+            list.push("https://i.ytimg.com/vi/" + art.vid + "/hqdefault.jpg")
             list.push("https://i.ytimg.com/vi/" + art.vid + "/hq2.jpg")
+            list.push("https://i.ytimg.com/vi/" + art.vid + "/mqdefault.jpg")
+            list.push("https://i.ytimg.com/vi/" + art.vid + "/default.jpg")
+        }
         if (art.src)
             list.push(art.src)
         return list
@@ -60,6 +77,10 @@ Item {
     readonly property int radius: radiusSpec === "circle" ? 10000 : radiusSpec
 
     property string artUrl: ""
+
+
+
+
 
     function refresh() {
         const w = Math.round(art.width)
@@ -83,9 +104,10 @@ Item {
     Connections {
         target: rart
         function onReady(key) {
-            if (key === rart.key(art.candidates, Math.round(art.width),
-                                 Math.round(art.height), art.radius,
-                                 Screen.devicePixelRatio))
+            const mine = rart.key(art.candidates, Math.round(art.width),
+                                  Math.round(art.height), art.radius,
+                                  Screen.devicePixelRatio)
+            if (key === mine)
                 art.refresh()
         }
     }

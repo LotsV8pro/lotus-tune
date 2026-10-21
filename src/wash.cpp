@@ -113,13 +113,13 @@ void Wash::setSource(const QUrl &url)
                      [this, reply, url]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
-            qInfo().noquote() << "[wash] miniatura no descargable:" << url.toString();
             return;
         }
         const QByteArray body = reply->readAll();
         const QImage src = QImage::fromData(body);
-        if (src.isNull())
+        if (src.isNull()) {
             return;
+        }
         const QImage blurred = blurPipeline(src);
         if (blurred.isNull())
             return;
@@ -145,6 +145,16 @@ QImage WashProvider::requestImage(const QString &id, QSize *size,
     Q_UNUSED(id);
     Q_UNUSED(requestedSize);
     const QImage img = m_wash->blurred();
+    if (img.isNull()) {
+        // Nothing computed yet: a solid colour is returned so the QML Image
+        // does not fail (an empty image leaves it in error and the veil
+        // never appears).
+        if (size)
+            *size = QSize(64, 64);
+        QImage solid(64, 64, QImage::Format_ARGB32_Premultiplied);
+        solid.fill(QColor(0x12, 0x15, 0x1a));
+        return solid;
+    }
     if (size)
         *size = img.size();
     return img;

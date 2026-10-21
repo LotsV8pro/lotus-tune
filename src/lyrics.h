@@ -255,6 +255,11 @@ private:
     QString m_syncSource;       // "ytmusic" | "lrclib" | "netease"
     QString m_plainSource;      // "ytmusic" | "lrclib"
     QVector<LrcLine> m_lines;   // LRC cacheado y ordenado
+    // Sonora lyrics without word level timings: they are only used when
+    // the network has nothing better (the network may bring the real
+    // karaoke, the local cache usually does not).
+    QVector<LrcLine> m_sonoraLines;
+    QString m_sonoraSource;
     // Exact video being played (if the track came from YouTube): it is
     // tried first, before searching again by title.
     QString m_videoId;
