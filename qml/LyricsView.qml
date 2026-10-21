@@ -104,17 +104,58 @@ Item {
 
     // Fine sync adjustment (Sonora's `positionTrim` equivalent): seconds
     // added to the engine position when the lyrics are matched. Positive
-    // = la letra va adelantada y se retrasa para cuadrar con el audio. Se
-    // persiste en la config de la app para que sobreviva al reinicio.
+    // = the lyrics run ahead and they are delayed to match the audio. It is
+    // stored in the app's config so it survives a restart.
+    //
+    // It is also stored PER TRACK (artist - title): the offset depends on
+    // the recording (the lyrics come from the album while the video may have
+    // a longer intro), so a global offset does not work. What you set here
+    // sticks to that song, and the desktop widget inherits it (the backend
+    // publishes the applied offset).
     property real offset: 0
     function setOffset(v) {
         offset = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // pasos de 50 ms
         if (typeof appcfg !== "undefined") {
             appcfg.set("lyricsOffset", offset.toFixed(2))
+            // Offset por pista: "artist - title" -> segundos.
+            const key = String(lv.lyr && lv.lyr.trackKey ? lv.lyr.trackKey : "")
+            if (key.length > 0) {
+                let map = {}
+                try {
+                    map = JSON.parse(appcfg.get("lyricsOffsetByTrack") || "{}")
+                } catch (e) {
+                    map = {}
+                }
+                map[key] = offset
+                appcfg.set("lyricsOffsetByTrack", JSON.stringify(map))
+            }
             appcfg.save()
         }
         // El backend publica este mismo ajuste en el estado de letras para que
         // los widgets del escritorio cuadren con el audio igual que la app.
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
+    }
+
+    // Aplica el offset guardado para esta pista (si lo hay) al cargar la letra.
+    function applyStoredOffset() {
+        if (typeof appcfg === "undefined")
+            return
+        const key = String(lv.lyr && lv.lyr.trackKey ? lv.lyr.trackKey : "")
+        if (key.length === 0)
+            return
+        let map = {}
+        try {
+            map = JSON.parse(appcfg.get("lyricsOffsetByTrack") || "{}")
+        } catch (e) {
+            return
+        }
+        if (map[key] === undefined)
+            return
+        const v = Number(map[key])
+        if (isNaN(v))
+            return
+        offset = v
         if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
             lv.lyr.setPublishedOffset(offset)
     }
@@ -158,6 +199,9 @@ Item {
         lines = (src && src.length) ? src : []
         if (lyr)
             karaokeOn = lyr.karaoke !== false
+        // Every track has its own offset (the video may have a longer intro
+        // than the album): the one saved for it is applied here.
+        applyStoredOffset()
         // Pista nueva: volvemos a seguir el canto desde el principio.
         following = true
         computeActive()
