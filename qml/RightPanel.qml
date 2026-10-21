@@ -133,6 +133,7 @@ Item {
                 }
 
                 LyricsView {
+                    objectName: "panel"
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     // El difuminado de bordes debe fundirse con el fondo real

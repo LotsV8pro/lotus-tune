@@ -88,6 +88,50 @@ static QString stripParenthetical(const QString &s)
     return out.trimmed();
 }
 
+// Kugou y algunas letras de Apple Music enmascaran la palabra que no se
+// puede decir con asteriscos ("your **** nightmare"). El widget del shell
+// las quita; la app las pintaba literales y, además, su tramo de tiempo
+// rompía el barrido palabra a palabra. El asterisco va DENTRO del token
+// ("your **** "), así que hay que limpiarlo, no descartar el token entero.
+// OJO: el espacio final de la palabra se conserva ("your "), si no las
+// palabras salen pegadas al pintarlas.
+static QString stripMask(const QString &s)
+{
+    static const QRegularExpression re(QStringLiteral("\\s*\\*+"));
+    QString out = s;
+    out.remove(re);
+    return out;
+}
+
+// ¿El token es sólo una máscara? (entonces se descarta entero)
+static bool isMaskedToken(const QString &s)
+{
+    const QString t = s.trimmed();
+    if (t.isEmpty())
+        return true;
+    for (const QChar &c : t) {
+        if (c != QLatin1Char('*'))
+            return false;
+    }
+    return true;
+}
+
+// Quita las máscaras de una línea de letra.
+static QString stripMaskedTokens(const QString &text)
+{
+    QString out;
+    const QStringList parts = text.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+    for (const QString &p : parts) {
+        const QString clean = stripMask(p);
+        if (clean.isEmpty())
+            continue;
+        if (!out.isEmpty())
+            out += QLatin1Char(' ');
+        out += clean;
+    }
+    return out;
+}
+
 void Lyrics::fetch(const QString &artist, const QString &title,
                    double durationSeconds, const QString &videoId)
 {
@@ -1003,15 +1047,17 @@ bool Lyrics::trySonoraCache()
                 continue;
             LrcLine line;
             line.time = secsOf(lo.value(QStringLiteral("start")));
-            line.text = text;
+            line.text = stripMaskedTokens(text);
             const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
             if (ws.size() > 1) {
                 ++worded;
                 for (const QJsonValue &wv : ws) {
                     const QJsonObject wo = wv.toObject();
-                    const QString wt = wo.value(QStringLiteral("text")).toString();
-                    if (wt.isEmpty())
+                    const QString rawWord =
+                        wo.value(QStringLiteral("text")).toString();
+                    if (isMaskedToken(rawWord))
                         continue;
+                    const QString wt = stripMask(rawWord);
                     QVariantMap wm;
                     wm.insert(QStringLiteral("t"),
                               secsOf(wo.value(QStringLiteral("start"))));
@@ -1159,15 +1205,17 @@ bool Lyrics::trySonoraByTitle()
                     continue;
                 LrcLine line;
                 line.time = secsOf(lo.value(QStringLiteral("start")));
-                line.text = text;
+                line.text = stripMaskedTokens(text);
                 const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
                 if (ws.size() > 1) {
                     ++worded;
                     for (const QJsonValue &wv : ws) {
                         const QJsonObject wo = wv.toObject();
-                        const QString wt = wo.value(QStringLiteral("text")).toString();
-                        if (wt.isEmpty())
+                        const QString rawWord =
+                            wo.value(QStringLiteral("text")).toString();
+                        if (isMaskedToken(rawWord))
                             continue;
+                        const QString wt = stripMask(rawWord);
                         QVariantMap wm;
                         wm.insert(QStringLiteral("t"),
                                   secsOf(wo.value(QStringLiteral("start"))));
@@ -1377,7 +1425,10 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
             const QRegularExpressionMatch nx = wordRe.match(body, start);
             if (nx.hasMatch())
                 end = nx.capturedStart(0);
-            const QString w = body.mid(start, end - start).trimmed();
+            const QString rawWord = body.mid(start, end - start);
+            if (isMaskedToken(rawWord))
+                continue;
+            const QString w = stripMask(rawWord);
             if (!w.isEmpty()) {
                 QVariantMap wm;
                 wm.insert(QStringLiteral("t"), t);
@@ -1391,7 +1442,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
         // El texto de la línea: todo sin las marcas.
         QString plain = body;
         plain.remove(wordRe);
-        plain = plain.simplified();
+        plain = stripMaskedTokens(plain.simplified());
         if (plain.isEmpty() && !line.words.isEmpty()) {
             QStringList parts;
             for (const QVariant &wv : line.words)
