@@ -93,6 +93,11 @@ Rectangle {
 
         ColumnLayout {
             anchors.fill: parent
+            // Aire generoso a los lados: la barra respira y nada (botones,
+            // portada, volumen) queda pegado al filo de la isla.
+            anchors.leftMargin: Theme.s5
+            anchors.rightMargin: Theme.s5
+            anchors.bottomMargin: Theme.s1
             spacing: 0
 
             // ---- progreso (línea fina, a todo el ancho) ---------------
@@ -172,10 +177,6 @@ Rectangle {
                 id: barRow
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                // Aire a los lados: ni la ficha ni los controles tocan el
-                // filo de la isla.
-                anchors.leftMargin: Theme.s3
-                anchors.rightMargin: Theme.s3
                 property int gap: Theme.s3
 
                 // ---- ahora suena (izquierda) ------------------------
@@ -298,7 +299,7 @@ Rectangle {
                     id: centerCol
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.s1 + 2
+                    spacing: Theme.s2
 
                     BarButton {
                         kind: "shuffle"
@@ -352,7 +353,7 @@ Rectangle {
                     id: rightSide
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.s1
+                    spacing: Theme.s2
                     width: Math.max(0, (parent.width - centerCol.width) / 2 - Theme.s3)
 
                     Item { Layout.fillWidth: true }
