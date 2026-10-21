@@ -120,6 +120,7 @@ Rectangle {
     // referencia, la columna izquierda es permanente).
     LyricsView {
         id: lyric
+        objectName: "cine"
         anchors.left: leftCol.right
         anchors.right: parent.right
         anchors.top: parent.top

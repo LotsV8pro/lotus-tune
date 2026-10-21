@@ -299,18 +299,51 @@ Item {
     // sobre su propio tramo, así el frente sigue la voz en lugar de repartirse
     // uniformemente por toda la frase (que es lo que hace el widget de
     // escritorio). Reutiliza `_fillHtml` palabra a palabra.
+    //
+    // OJO con los tramos: Apple Music redondea los tiempos al segundo, así
+    // que varias palabras de la misma línea comparten EL MISMO instante (y
+    // su "fin" también). Si se usara el tiempo de cada palabra tal cual,
+    // todas se encenderían a la vez y la línea aparecería completa de
+    // golpe. Por eso los tramos se ENCADENAN: la palabra N empieza donde
+    // acaba la N-1, y así el frente avanza palabra a palabra (es lo que
+    // hace el widget del shell).
     function _wordHtml(words) {
         if (!words || words.length === 0)
             return ""
-        var out = ""
+        var tramos = []
+        var prevFin = -1
         for (var i = 0; i < words.length; i++) {
             var w = words[i]
-            var t = Number(w.t || 0)
+            var t0 = Number(w.t || 0)
             var e = Number(w.e || 0)
-            if (!(e > t))
-                e = t + 0.3
-            var f = Math.max(0, Math.min(1, (karaokePos - t) / (e - t)))
-            out += _fillHtml(String(w.text || ""), f)
+            var propio = (e > t0) ? (e - t0) : 0.3
+            var ini = t0
+            if (prevFin > ini)
+                ini = prevFin
+            var fin = ini + Math.max(propio, 0.3)
+            tramos.push({ ini: ini, fin: fin })
+            prevFin = fin
+        }
+        // La palabra que se está comiendo el frente ahora mismo.
+        var actual = -1
+        for (var j = 0; j < tramos.length; j++) {
+            if (karaokePos >= tramos[j].ini)
+                actual = j
+            else
+                break
+        }
+        var out = ""
+        for (var k = 0; k < words.length; k++) {
+            var f = 0
+            if (k < actual) {
+                f = 1
+            } else if (k === actual) {
+                var tr = tramos[k]
+                f = (tr.fin > tr.ini)
+                    ? Math.max(0, Math.min(1, (karaokePos - tr.ini) / (tr.fin - tr.ini)))
+                    : 0
+            }
+            out += _fillHtml(String(words[k].text || ""), f)
         }
         return out
     }
@@ -469,6 +502,7 @@ Item {
                 id: lyricRepeater
                 model: lv.lines
                 delegate: Text {
+                    id: rrow
                     required property var modelData
                     required property int index
                     readonly property bool active: index === lv.activeIndex
@@ -494,33 +528,6 @@ Item {
                     width: lv.colW
                     text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: lv.karaoke ? Text.RichText : Text.PlainText
-                    // Solo la activa canta: texto a pleno y con más peso; el
-                    // resto se apaga en `Sys.textDim` según la distancia. La
-                    // frase activa lleva un leve matiz de acento para subrayar
-                    // que es la que suena.
-                    color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
-                                  : Sys.textDim
-                    font.pixelSize: active ? lv.lineSize + lv.activeBoost
-                                            : lv.lineSize
-                    font.weight: active ? Font.DemiBold : Font.Normal
-                    // La opacidad sube al pasar el ratón: la línea bajo el
-                    // cursor se marca como «clicable» (salta a ese momento).
-                    // Todo ello, multiplicado por el desvanecido de borde.
-                    opacity: Math.min(vfade, lv.lineOpacity(index)
-                                      + (lineMa.containsMouse ? 0.22 : 0))
-                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                    horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
-                    lineHeight: 1.32
-                    Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
-                    Behavior on color { ColorAnimation { duration: Theme.medMs } }
-
-                    MouseArea {
-                        id: lineMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: lv.seekTo(modelData.time)
-                    }
                 }
             }
         }
