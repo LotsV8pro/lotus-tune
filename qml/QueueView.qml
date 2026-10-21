@@ -141,7 +141,6 @@ Item {
                         source: row.thumb || ""
                         visible: row.thumb !== ""
                         radiusSpec: Theme.rMd
-                        decodeWidth: 68
                     }
                     Glyph {
                         anchors.centerIn: parent

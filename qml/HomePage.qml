@@ -674,7 +674,6 @@ Item {
                                         anchors.fill: parent
                                         source: pickRow.modelData.thumb || ""
                                         radiusSpec: Theme.rMd
-                                        decodeWidth: 84
                                     }
                                     Glyph {
                                         anchors.centerIn: parent

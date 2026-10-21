@@ -58,7 +58,6 @@ Rectangle {
                     source: tile.thumb
                     visible: tile.thumb !== ""
                     radiusSpec: Theme.rMd
-                    decodeWidth: 240
                 }
                 Glyph {
                     anchors.centerIn: parent

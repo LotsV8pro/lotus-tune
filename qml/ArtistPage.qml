@@ -92,7 +92,6 @@ Item {
                     anchors.fill: parent
                     source: page.artist ? String(page.artist.thumb || "") : ""
                     radiusSpec: Theme.rLg
-                    decodeWidth: 264
                 }
                 Glyph {
                     anchors.centerIn: parent
@@ -270,7 +269,6 @@ Item {
                                 anchors.fill: parent
                                 source: String(arow.modelData.thumb || "")
                                 radiusSpec: Theme.rSm
-                                decodeWidth: 92
                             }
                             Glyph {
                                 anchors.centerIn: parent

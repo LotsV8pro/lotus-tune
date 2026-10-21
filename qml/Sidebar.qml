@@ -342,7 +342,6 @@ Item {
                             anchors.fill: parent
                             source: side.trackThumb
                             radiusSpec: Theme.rSm
-                            decodeWidth: 64
                         }
                         LotusMark {
                             anchors.centerIn: parent

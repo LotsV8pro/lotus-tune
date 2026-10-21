@@ -83,6 +83,8 @@ signals:
 
 private:
     static QColor dominant(const QImage &img);
+    // Descarga (en la variante pequeña si existe) y saca el color.
+    void fetch(const QUrl &orig, const QUrl &download, const QString &key);
 
     QNetworkAccessManager *m_net;
     QHash<QString, QColor> m_cache;

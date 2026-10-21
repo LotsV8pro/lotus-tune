@@ -7,6 +7,7 @@
 #include "mpris.h"
 #include "perf.h"
 #include "player.h"
+#include "roundedart.h"
 #include "sources.h"
 #include "theme.h"
 #include "wash.h"
@@ -413,6 +414,14 @@ int main(int argc, char *argv[])
     // Sacacolors de portadas para las tarjetas (color dominante → cara).
     ColorPick colorpick(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("colorpick"), &colorpick);
+
+    // Portadas redondeadas: el recorte central y las esquinas se hacen en
+    // la CPU y se sirven por proveedor de imágenes («image://rart/<clave>»).
+    // Así las esquinas quedan redondeadas de verdad (el `clip` de un
+    // Rectangle ignora el radio) y el recorte nunca sale descentrado.
+    RoundedArt roundedart(&engine);
+    engine.addImageProvider(QStringLiteral("rart"), new RoundedArtProvider(&roundedart));
+    engine.rootContext()->setContextProperty(QStringLiteral("rart"), &roundedart);
 
     QQmlComponent component(&engine);
     component.loadFromModule("LotusTune", "Main");
