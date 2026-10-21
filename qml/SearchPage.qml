@@ -23,6 +23,44 @@ Item {
     // ¿Búsqueda de artistas en vuelo? (su proceso no usa catalog.busy).
     property bool artistBusy: false
 
+    // ---- resultados por fuente -------------------------------------------
+    // La búsqueda consulta TODAS las fuentes a la vez. Aquí se aplanan los
+    // grupos en una sola lista: primero los de YouTube Music, luego los de
+    // SoundCloud, y detrás las fuentes que aún están bloqueadas (se ven
+    // con su nombre y la nota, para saber qué falta).
+    readonly property var flatResults: {
+        const out = []
+        let ti = 0
+        const groups = catalog.resultsBySource
+        for (let i = 0; i < groups.length; i++) {
+            const g = groups[i]
+            const name = String(g.name || "")
+            const items = g.items || []
+            if (items.length === 0) {
+                if (g.locked === true)
+                    out.push({ secHead: true, sec: name, note: "bloqueada" })
+                continue
+            }
+            out.push({ secHead: true, sec: name, note: "" })
+            for (let j = 0; j < items.length; j++) {
+                const t = items[j]
+                out.push({ secHead: false, track: t, ti: ti++,
+                           title: t.title || "", artist: t.artist || "",
+                           thumb: t.thumb || "", url: t.url || "",
+                           duration: t.duration, liked: t.liked })
+            }
+        }
+        return out
+    }
+    // Las pistas en orden plano: es la lista que se reproduce al pulsar.
+    readonly property var flatTracks: {
+        const out = []
+        for (let i = 0; i < page.flatResults.length; i++)
+            if (!page.flatResults[i].secHead)
+                out.push(page.flatResults[i].track)
+        return out
+    }
+
     Component.onCompleted:
         page.artistMode = (typeof appcfg !== "undefined")
                           && appcfg.get("searchArtistMode") === "true"
@@ -101,7 +139,8 @@ Item {
         pendingQuery = ""
         page.lastQuery = q
         results.positionViewAtBeginning()   // toda búsqueda nueva empieza arriba
-        catalog.search(q)
+        // Todas las fuentes a la vez: no hay que elegir una antes de buscar.
+        catalog.searchAll(q)
     }
 
     // Búsqueda explícita: Enter, chip del Historial o «Buscar el artista».
@@ -358,15 +397,18 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
                 visible: catalog.busy || page.artistBusy
-                text: page.artistMode ? "Buscando artistas…" : "Buscando…"
+                text: page.artistMode ? "Buscando artistas…"
+                      : (catalog.multiSearching ? "Buscando en todas las fuentes…"
+                                                : "Buscando…")
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
             }
             Text {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
-                visible: !catalog.busy && !page.artistMode && catalog.results.length > 0
-                text: catalog.results.length + " resultados para «"
+                visible: !catalog.busy && !page.artistMode
+                         && page.flatTracks.length > 0
+                text: page.flatTracks.length + " resultados para «"
                       + catalog.resultsQuery + "»"
                 color: Sys.textDim
                 font.pixelSize: Theme.tSm
@@ -383,13 +425,15 @@ Item {
                 elide: Text.ElideRight
             }
 
-            // ---- resultados (lista virtualizada) — isla flotante --------
+            // ---- resultados (lista virtualizada) — sin caja ------------
+            // Como el resto de la app, el contenido va plano sobre el
+            // fondo: la lista no vive dentro de un recuadro gris.
             Panel {
                 id: resultsIsland
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Theme.rPanel
-                color: Sys.surfaceAlt
+                color: "transparent"
                 clipContent: true
 
                 ListView {
@@ -398,7 +442,7 @@ Item {
                     anchors.margins: Theme.s2
                     visible: !page.artistMode
                     clip: true
-                    model: catalog.results
+                    model: page.flatResults
                     spacing: Theme.s1
                     boundsBehavior: Flickable.StopAtBounds
                     reuseItems: true
@@ -409,7 +453,7 @@ Item {
                 // el hover la precarga en vuelo, terminan todas y la lista
                 // entera responde rápido.
                 onCountChanged: {
-                    const arr = catalog.results
+                    const arr = page.flatTracks
                     const n = Math.min(8, arr ? arr.length : 0)
                     for (let i = 0; i < n; i++) {
                         const t = arr[i]
@@ -424,16 +468,47 @@ Item {
                     required property var modelData
 
                     width: ListView.view.width
-                    height: Theme.rowH
+                    // Las cabeceras de fuente son una fila baja; las pistas,
+                    // una fila normal.
+                    height: rrow.modelData.secHead ? 30 : Theme.rowH
                     radius: Theme.rLg
-                    color: rrowMouse.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                    color: !rrow.modelData.secHead && rrowMouse.containsMouse
+                           ? Theme.hover(Sys.surfaceAlt) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    // ---- cabecera de fuente (YT, SoundCloud, …) ----------
+                    Text {
+                        visible: rrow.modelData.secHead === true
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.s3
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: Theme.s3
+                        text: String(rrow.modelData.sec || "").toUpperCase()
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 1.4
+                        opacity: 0.85
+                    }
+                    Text {
+                        visible: rrow.modelData.secHead === true
+                                  && rrow.modelData.note === "bloqueada"
+                        anchors.left: parent.left
+                        anchors.leftMargin: Theme.s3
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: Theme.s3
+                        text: "— bloqueada, necesita credenciales"
+                        color: Sys.textDim
+                        font.pixelSize: Theme.tXs
+                        opacity: 0.6
+                    }
 
                     readonly property real dx: swipe.active ? swipe.activeTranslation.x : 0
                     readonly property bool willEnqueue: dx <= -80
 
                     // Indicación discreta al deslizar: "Encolar".
                     Row {
+                        visible: !rrow.modelData.secHead
                         anchors.right: parent.right
                         anchors.rightMargin: Theme.s4
                         anchors.verticalCenter: parent.verticalCenter
@@ -457,6 +532,7 @@ Item {
                     MouseArea {
                         id: rrowMouse
                         anchors.fill: parent
+                        enabled: !rrow.modelData.secHead
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -470,7 +546,7 @@ Item {
                                 const p = mapToItem(null, mouse.x, mouse.y)
                                 page.trackContextRequested(rrow.modelData, p.x, p.y)
                             } else {
-                                page.playRequested(catalog.results, rrow.index)
+                                page.playRequested(page.flatTracks, rrow.modelData.ti)
                             }
                         }
                     }
@@ -478,6 +554,7 @@ Item {
                     // Deslizar a la izquierda para añadir a la cola.
                     DragHandler {
                         id: swipe
+                        enabled: !rrow.modelData.secHead
                         xAxis.enabled: true
                         yAxis.enabled: false
                         target: null
@@ -486,6 +563,7 @@ Item {
                     }
 
                     RowLayout {
+                        visible: !rrow.modelData.secHead
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3

@@ -101,10 +101,12 @@ Rectangle {
             spacing: 0
 
             // ---- progreso (línea fina, a todo el ancho) ---------------
+            // La fila lleva altura de sobra: los tiempos no quedan pegados
+            // al borde superior de la isla, sino con aire por encima.
             RowLayout {
                 id: progressRow
                 Layout.fillWidth: true
-                Layout.preferredHeight: 18
+                Layout.preferredHeight: 24
                 spacing: Theme.s2
 
                 Text {
@@ -118,7 +120,7 @@ Rectangle {
                 Rectangle {
                     id: scrubTrack
                     Layout.fillWidth: true
-                    height: 18
+                    height: 24
                     color: "transparent"
 
                     readonly property real ratio: bar.duration > 0

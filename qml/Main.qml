@@ -829,9 +829,10 @@ Window {
                 closeLauncher()
                 settingsOpen = true
             } else {
+                // La búsqueda ya va a todas las fuentes: aquí sólo se cambia
+                // la fuente por defecto. NO se redirige a Buscar.
                 sources.select(row.id)
                 closeLauncher()
-                page = "search"
             }
         } else if (row.kind === "playlist") {
             root.beginOpenList(false)
@@ -842,8 +843,30 @@ Window {
             closeLauncher()
         } else if (row.kind === "music") {
             // Pone en cola el resultado pulsado y los que quedaron detrás de
-            // él en la búsqueda, como una lista normal.
-            root.playTracks(launcherMusic, row.i)
+            // él en la MISMA fuente, como una lista normal (las cabeceras
+            // de grupo no son pistas).
+            const list = []
+            for (let i = 0; i < launcherMusic.length; i++) {
+                const e = launcherMusic[i]
+                if (e.h)
+                    continue
+                if (e.src && row.src && e.src !== row.src)
+                    continue
+                list.push(e)
+            }
+            let idx = 0
+            for (let i = 0; i < launcherMusic.length; i++) {
+                const e = launcherMusic[i]
+                if (e.h)
+                    continue
+                if (e.src && row.src && e.src !== row.src)
+                    continue
+                if (e.i === row.i) {
+                    idx = list.length
+                    break
+                }
+            }
+            root.playTracks(list, idx)
             closeLauncher()
         }
     }
@@ -857,7 +880,7 @@ Window {
             if (q && s.name.toLowerCase().indexOf(q) < 0)
                 continue
             out.push({ h: false, kind: "source", id: s.id, t: s.name,
-                       s: s.status === "ready" ? "Buscar música" : "Bloqueada · abre Ajustes",
+                       s: s.status === "ready" ? "Fuente por defecto" : "Bloqueada · abre Ajustes",
                        locked: s.status !== "ready" })
         }
         if (out.length && out[0].kind === "source")
@@ -885,12 +908,17 @@ Window {
             out.push({ h: false, kind: "recent", i: i, t: r.title || "", s: r.artist || "" })
         }
         if (q) {
+            // MÚSICA: los resultados de la búsqueda por TODAS las fuentes,
+            // agrupados por fuente (YouTube Music primero). Cada grupo
+            // lleva su cabecera.
             for (let i = 0; i < launcherMusic.length; i++) {
-                const e = launcherMusic[i]
-                if (!i)
-                    out.push({ h: true, t: "MÚSICA" })
-                out.push({ h: false, kind: "music", i: i,
-                           t: e.title || "", s: e.artist || "" })
+                const g = launcherMusic[i]
+                if (g.h) {
+                    out.push({ h: true, t: String(g.t || "").toUpperCase() })
+                    continue
+                }
+                out.push({ h: false, kind: "music", i: g.i,
+                           t: g.title || "", s: g.artist || "" })
             }
         }
         launcherRows = out
@@ -910,34 +938,52 @@ Window {
                 return
             }
             root.launcherQ = q
-            catalog.search(q)
+            // Todas las fuentes a la vez: no hay que elegir una antes de
+            // buscar (ni el lanzador redirige a Buscar: busca aquí mismo).
+            catalog.searchAll(q)
         }
     }
 
     // Llegan los resultados de esa búsqueda: nos quedamos con las primeras
-    // canciones (descartamos podcasts y listas) y las convertimos al formato
-    // que consume `playTracks`.
+    // canciones de cada fuente (descartamos podcasts y listas) y los
+    // agrupamos por fuente, con su cabecera.
     Connections {
         target: catalog
         function onChanged() {
             if (!root.launcherOpen || root.launcherQ.length < 3)
                 return
-            if (catalog.busy || String(catalog.resultsQuery) !== root.launcherQ)
+            if (String(catalog.resultsQuery) !== root.launcherQ)
                 return
-            const rs = catalog.results
-            const m = []
-            for (let i = 0; i < rs.length && m.length < 7; i++) {
-                const e = rs[i]
-                const parts = String(e.channel || "").split(" • ")
-                const kind = (parts[0] || "").toLowerCase()
-                if (kind !== "canción" && kind !== "cancion"
-                    && kind !== "song" && kind !== "vídeo" && kind !== "video")
+            if (catalog.busy)
+                return
+            const groups = catalog.resultsBySource
+            const out = []
+            for (let gi = 0; gi < groups.length; gi++) {
+                const g = groups[gi]
+                const items = g.items || []
+                if (items.length === 0)
                     continue
-                m.push({ title: e.title || "", artist: parts[1] || "",
-                         thumb: e.thumbnail || e.thumb || "",
-                         url: e.url || "" })
+                const songs = []
+                for (let i = 0; i < items.length && songs.length < 5; i++) {
+                    const e = items[i]
+                    const parts = String(e.channel || "").split(" • ")
+                    const kind = (parts[0] || "").toLowerCase()
+                    if (kind !== "canción" && kind !== "cancion"
+                        && kind !== "song" && kind !== "vídeo" && kind !== "video")
+                        continue
+                    songs.push({ title: e.title || "", artist: parts[1] || "",
+                                 thumb: e.thumbnail || e.thumb || "",
+                                 url: e.url || "" })
+                }
+                if (!songs.length)
+                    continue
+                out.push({ h: true, t: String(g.name || "") })
+                for (let i = 0; i < songs.length; i++)
+                    out.push({ h: false, i: i, title: songs[i].title,
+                               artist: songs[i].artist, thumb: songs[i].thumb,
+                               url: songs[i].url, src: String(g.id || "") })
             }
-            root.launcherMusic = m
+            root.launcherMusic = out
             if (launchInput)
                 root.buildLauncher(launchInput.text)
         }
@@ -945,6 +991,8 @@ Window {
 
     // ---- navigation ------------------------------------------------------
     property string page: "home"
+    // Consulta de QA (--search=): se lanza al arrancar.
+    property string cliSearch: ""
 
     function pageIndex(p) {
         return p === "search" ? 1 : (p === "library" ? 2 : 0)
@@ -970,6 +1018,11 @@ Window {
                 settingsOpen = true
             } else if (a === "--launcher") {
                 root.toggleLauncher()
+            } else if (a.startsWith("--search=")) {
+                // QA: abre Buscar y lanza la consulta (multi-fuente).
+                const q = a.substring(9)
+                page = "search"
+                cliSearch = q
             } else if (a.startsWith("--panel=")) {
                 const t = a.substring(8)
                 root.openPanel(t === "letras" || t === "lyrics" ? 1 : 0)
@@ -991,6 +1044,9 @@ Window {
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
+        // La consulta de QA se lanza cuando la página ya está montada.
+        if (cliSearch.length > 0)
+            Qt.callLater(function() { catalog.searchAll(cliSearch) })
         followSys = cfgGet("followSystem") !== "false"
 
         // Preferencias del reproductor, letras, Discord y descargas.

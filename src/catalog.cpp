@@ -385,6 +385,13 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 const QByteArray out = m_proc.readAllStandardOutput();
                 if (code == 0 && handleOutput(out)) {
                     m_busy = false;
+                    // Búsqueda por todas las fuentes: lo que acaba de llegar
+                    // es de una fuente; se guarda en su grupo y se sigue con
+                    // la siguiente.
+                    if (m_multiActive && m_purpose == QLatin1String("search")) {
+                        absorbMultiResults();
+                        return;
+                    }
                     emit changed();
                     return;   // éxito
                 }
@@ -400,6 +407,15 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     m_busy = false;
                     m_error.clear();
                     runYtdlp(target, m_purpose, title);
+                    return;
+                }
+
+                // Una fuente que falla no puede hundir la búsqueda completa:
+                // se pasa a la siguiente.
+                if (m_multiActive && m_purpose == QLatin1String("search")) {
+                    m_busy = false;
+                    m_error.clear();
+                    nextMultiSource();
                     return;
                 }
 
@@ -703,20 +719,106 @@ void Catalog::search(const QString &query)
         return;
     }
     m_resultsQuery = q;
+    searchInSource(source, q);
+}
 
+// Búsqueda en una fuente concreta. La vía rápida (API interna de YT Music)
+// sólo aplica a YouTube Music con sesión iniciada; el resto va por yt-dlp
+// con el prefijo de la fuente (ytsearch15:, scsearch15:…).
+void Catalog::searchInSource(const QString &source, const QString &query)
+{
     // Vía rápida: la API interna de YT Music busca en ~0.6 s lo que yt-dlp
     // tarda ~2.4 s (arranca la extracción completa en cada búsqueda). Sólo con
     // sesión iniciada y en YouTube Music; si la API falla o no devuelve nada,
     // el respaldo (m_fastFallback) reintenta con yt-dlp automáticamente.
     if (source == QLatin1String("ytm") && ytmLoggedIn()) {
-        m_fastFallback = m_sources->searchPrefix(source) + q;
-        m_fastFallbackTitle = q;
+        m_fastFallback = m_sources->searchPrefix(source) + query;
+        m_fastFallbackTitle = query;
         startFetch(QStringLiteral("python3"),
-                   {ytmApiPath(), QStringLiteral("search"), q},
-                   QStringLiteral("search"), q);
+                   {ytmApiPath(), QStringLiteral("search"), query},
+                   QStringLiteral("search"), query);
         return;
     }
-    run(m_sources->searchPrefix(source) + q, QStringLiteral("search"), q);
+    run(m_sources->searchPrefix(source) + query, QStringLiteral("search"), query);
+}
+
+// ---- búsqueda por todas las fuentes ---------------------------------------
+// Se consulta una fuente tras otra (cada búsqueda es un proceso) y los
+// grupos se van rellenando: la interfaz ve los resultados de cada fuente
+// según llegan, sin esperar a la última.
+void Catalog::searchAll(const QString &query)
+{
+    const QString q = query.trimmed();
+    if (q.isEmpty())
+        return;
+
+    m_multiQuery = q;
+    m_multiActive = true;
+    m_multiCurrent.clear();
+    m_multiQueue.clear();
+    m_resultsBySource.clear();
+    m_resultsQuery = q;
+
+    // Todas las fuentes del registro, en su orden (YouTube Music primero).
+    const QVariantList all = m_sources->list();
+    for (const QVariant &v : all) {
+        const QString id = v.toMap().value(QStringLiteral("id")).toString();
+        if (!id.isEmpty())
+            m_multiQueue << id;
+    }
+    emit changed();
+    nextMultiSource();
+}
+
+void Catalog::nextMultiSource()
+{
+    if (!m_multiActive)
+        return;
+    if (m_multiQueue.isEmpty()) {
+        m_multiActive = false;
+        m_multiCurrent.clear();
+        emit changed();
+        return;
+    }
+
+    const QString id = m_multiQueue.takeFirst();
+    m_multiCurrent = id;
+    const QVariantMap src = m_sources->entry(id);
+    const bool ready = m_sources->isReady(id);
+
+    // El grupo se crea ya (vacío) para que la interfaz pueda mostrar la
+    // sección de la fuente aunque no devuelva nada.
+    QVariantMap group;
+    group.insert(QStringLiteral("id"), id);
+    group.insert(QStringLiteral("name"), src.value(QStringLiteral("name")).toString());
+    group.insert(QStringLiteral("items"), QVariantList{});
+    group.insert(QStringLiteral("locked"), !ready);
+    m_resultsBySource.append(group);
+
+    if (!ready) {
+        // Bloqueada (le faltan credenciales): no hay nada que consultar.
+        nextMultiSource();
+        return;
+    }
+    searchInSource(id, m_multiQuery);
+}
+
+// Los resultados de la fuente que acaba de terminar se guardan en su grupo
+// y se pasa a la siguiente.
+void Catalog::absorbMultiResults()
+{
+    if (m_multiCurrent.isEmpty())
+        return;
+    const QVariantList items = m_results;
+    for (int i = 0; i < m_resultsBySource.size(); ++i) {
+        QVariantMap g = m_resultsBySource.at(i).toMap();
+        if (g.value(QStringLiteral("id")).toString() != m_multiCurrent)
+            continue;
+        g.insert(QStringLiteral("items"), items);
+        m_resultsBySource[i] = g;
+        break;
+    }
+    nextMultiSource();
 }
 
 void Catalog::openPlaylist(int savedIndex)
