@@ -103,21 +103,24 @@ Item {
         }
     }
 
-    // El contenido se eleva 2 px al pasar el ratón. La tarjeta no cambia de
-    // tamaño: sólo se mueve, así el carril no salta.
+    // El contenido no se mueve al pasar el ratón (antes subía 2 px, que
+    // bailaba con el carril): lo que reacciona es la FOTO, con un zoom
+    // suave, y el botón de play aparece en el centro.
     Item {
         id: inner
         width: card.width
         height: card.height
-        y: card.hovered ? -2 : 0
-        Behavior on y {
-            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
-        }
 
         Rectangle {
             id: cover
             width: card.coverSize
             height: card.coverSize
+            // La foto se agranda un poco al pasar el ratón (el resto de la
+            // tarjeta quieta). El escalado va con su propio radio.
+            scale: card.hovered ? 1.045 : 1
+            Behavior on scale {
+                NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+            }
             // Lo único que se retocó de la tarjeta: el redondeo de la
             // portada sube de rMd a rXl (22 px). Nada más.
             radius: card.round ? width / 2 : Theme.rXl
@@ -204,19 +207,22 @@ Item {
             }
         }
 
-        // Botón circular de play, flotando sobre la portada (sólo al pasar).
+        // Botón de play, en el CENTRO de la portada (estilo Apple Music):
+        // aparece al pasar el ratón, encima de la foto que hace zoom.
         Rectangle {
             id: playBtn
-            width: 36
-            height: 36
+            width: 42
+            height: 42
             radius: Theme.rPill
             color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-            anchors.right: cover.right
-            anchors.rightMargin: Theme.s2
-            anchors.bottom: cover.bottom
-            anchors.bottomMargin: Theme.s2
+            // Fino borde oscuro: se lee sobre cualquier portada, clara u
+            // oscura.
+            border.width: 1
+            border.color: Theme.alpha(Sys.bg, 0.28)
+            anchors.centerIn: cover
             opacity: card.hovered ? 1 : 0
-            scale: card.hovered ? (playHit.pressed ? 0.94 : (playHit.containsMouse ? 1.06 : 1)) : 0.9
+            scale: card.hovered ? (playHit.pressed ? 0.92
+                                    : (playHit.containsMouse ? 1.06 : 1)) : 0.8
             Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
             Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -224,8 +230,8 @@ Item {
             Glyph {
                 anchors.centerIn: parent
                 anchors.horizontalCenterOffset: 1
-                width: 15
-                height: 15
+                width: 17
+                height: 17
                 kind: "play"
                 color: Sys.onAccent
             }
