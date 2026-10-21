@@ -79,12 +79,16 @@ QImage Wash::blurPipeline(const QImage &src0)
     //    in the halving comes back without bringing the blocks back.
     img = img.scaled(480, 480, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-    // 3) Separable box over the big canvas: two passes of medium radius.
-    //    Short enough for the artwork to be RECOGNISED, just enough to
-    //    also blend the hard edges of the art itself (collages, corners)
-    //    that with smaller radii showed up as rectangular seams.
-    img = boxBlur(img, 5);
-    img = boxBlur(img, 5);
+    // 3) Separable box over the big canvas: three passes of medium radius.
+    //    The radius is deliberately WIDE: the veil is stretched over the
+    //    whole window, and with a short blur the dark edges of the artwork
+    //    itself showed up as a hard rectangle in the middle of the
+    //    background (it read as "the background does not reach 100 %"). With
+    //    the wide radius those edges melt and the background becomes a
+    //    continuous gradient.
+    img = boxBlur(img, 10);
+    img = boxBlur(img, 10);
+    img = boxBlur(img, 6);
     return img;
 }
 

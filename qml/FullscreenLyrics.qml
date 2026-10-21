@@ -64,7 +64,10 @@ Rectangle {
         id: washImg
         anchors.fill: parent
         source: fl.open && fl.thumb ? "image://wash/" + wash.serial : ""
-        fillMode: Image.PreserveAspectCrop
+        // STRETCHED, not cropped: the veil adapts to the window so the
+        // artwork covers the 100 % of it (cropped, a tall window only showed
+        // the middle of the art with dark edges on the sides).
+        fillMode: Image.Stretch
         smooth: true
         asynchronous: true
         cache: false
