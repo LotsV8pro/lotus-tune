@@ -97,10 +97,12 @@ Rectangle {
         Item {
             id: barRow
             anchors.fill: parent
-            anchors.leftMargin: Theme.s3
-            anchors.rightMargin: Theme.s3
-            anchors.topMargin: Theme.s1
-            anchors.bottomMargin: Theme.s1
+            // Aire generoso: ni la ficha izquierda ni los controles tocan el
+            // filo de la isla.
+            anchors.leftMargin: Theme.s4
+            anchors.rightMargin: Theme.s4
+            anchors.topMargin: Theme.s2
+            anchors.bottomMargin: Theme.s2
             property int gap: Theme.s3
 
             // ---- ahora suena (izquierda) ----------------------------
@@ -122,16 +124,15 @@ Rectangle {
                         anchors.fill: parent
                         radius: Theme.rMd
                         color: Sys.surfaceAlt
-                        clip: true
-                        Image {
-                            id: coverImg
+                        // La portada se redondea por recorte en CPU
+                        // (RoundedArt): el `clip` del Rectangle ignoraba el
+                        // radio y la imagen salía cuadrada.
+                        RoundedArt {
+                            id: coverArt
                             anchors.fill: parent
                             source: bar.currentThumb
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            visible: status === Image.Ready
-                            sourceSize.width: 120
-                            sourceSize.height: 120
+                            radiusSpec: Theme.rMd
+                            decodeWidth: 120
                         }
                         LotusMark {
                             anchors.centerIn: parent
@@ -139,7 +140,7 @@ Rectangle {
                             height: 19
                             petalColor: Sys.accent
                             active: bar.playing
-                            visible: coverImg.status !== Image.Ready
+                            visible: !coverArt.ready
                         }
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -225,7 +226,7 @@ Rectangle {
                 id: centerCol
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 2
+                spacing: Theme.s1
                 width: Math.min(320, parent.width - Theme.s3 * 2)
 
                 RowLayout {

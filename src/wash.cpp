@@ -143,3 +143,106 @@ QImage WashProvider::requestImage(const QString &id, QSize *size,
         *size = img.size();
     return img;
 }
+
+// ---------------------------------------------------------------------------
+// Sacacolors
+// ---------------------------------------------------------------------------
+ColorPick::ColorPick(QObject *parent)
+    : QObject(parent), m_net(new QNetworkAccessManager(this))
+{
+}
+
+QColor ColorPick::dominant(const QImage &src0)
+{
+    QImage img = src0.convertToFormat(QImage::Format_ARGB32);
+    if (img.isNull())
+        return {};
+    img = img.scaled(48, 48, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+
+    // Histograma 5×5×5 con la media de cada cubo. El peso de cada píxel es
+    // su saturación: un arte lleno de negros y humos grises no debe salir
+    // «gris apagado», sino su color verdadero.
+    double cnt[5][5][5] = {};
+    double sr[5][5][5] = {}, sg[5][5][5] = {}, sb[5][5][5] = {};
+    double totW = 0.0, totR = 0.0, totG = 0.0, totB = 0.0;
+
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+        for (int x = 0; x < img.width(); ++x) {
+            const QRgb p = row[x];
+            if (qAlpha(p) < 128)
+                continue;
+            const int r = qRed(p), g = qGreen(p), b = qBlue(p);
+            const int mx = qMax(r, qMax(g, b)), mn = qMin(r, qMin(g, b));
+            const int sat = mx - mn;                    // 0..255
+            // Los negros no puntúan ni para el promedio global.
+            if (mx < 24)
+                continue;
+            const double w = 0.10 + sat / 255.0;
+            const int ri = r / 51, gi = g / 51, bi = b / 51;   // 0..4 (255/51=5)
+            const int ci = qMin(ri, 4), cj = qMin(gi, 4), ck = qMin(bi, 4);
+            cnt[ci][cj][ck] += w;
+            sr[ci][cj][ck] += r * w;
+            sg[ci][cj][ck] += g * w;
+            sb[ci][cj][ck] += b * w;
+            totW += w; totR += r * w; totG += g * w; totB += b * w;
+        }
+    }
+
+    double best = 0.0;
+    int bx = -1, by = -1, bz = -1;
+    for (int i = 0; i < 5; ++i)
+        for (int j = 0; j < 5; ++j)
+            for (int k = 0; k < 5; ++k) {
+                // Se pondera el cubo también por su tamaño relativo respecto
+                // a la media de los vecinos: evita empates a 1 px de ruido.
+                if (cnt[i][j][k] > best) {
+                    best = cnt[i][j][k];
+                    bx = i; by = j; bz = k;
+                }
+            }
+
+    if (bx < 0 || totW <= 0.0)
+        return {};
+    if (best <= 0.0)
+        return QColor::fromRgb(int(totR / totW), int(totG / totW), int(totB / totW));
+    return QColor::fromRgb(qBound(0, int(sr[bx][by][bz] / best), 255),
+                           qBound(0, int(sg[bx][by][bz] / best), 255),
+                           qBound(0, int(sb[bx][by][bz] / best), 255));
+}
+
+void ColorPick::pick(const QUrl &url)
+{
+    const QString scheme = url.scheme();
+    if (url.isEmpty() || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")))
+        return;
+    const QString key = url.toString();
+    auto it = m_cache.constFind(key);
+    if (it != m_cache.constEnd()) {
+        emit found(url, it.value());
+        return;
+    }
+    if (m_pending.contains(key))
+        return;
+    m_pending.insert(key);
+
+    QNetworkRequest req(url);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply *reply = m_net->get(req);
+    QObject::connect(reply, &QNetworkReply::finished, this,
+                     [this, reply, url, key]() {
+        reply->deleteLater();
+        m_pending.remove(key);
+        if (reply->error() != QNetworkReply::NoError)
+            return;
+        const QImage src = QImage::fromData(reply->readAll());
+        if (src.isNull())
+            return;
+        const QColor c = dominant(src);
+        if (!c.isValid())
+            return;
+        m_cache.insert(key, c);
+        emit found(url, c);
+    });
+}

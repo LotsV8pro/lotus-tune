@@ -56,6 +56,7 @@ qt_add_qml_module(lotus-tune
         qml/HomePage.qml
         qml/ArtImage.qml
         qml/HomeCard.qml
+        qml/RoundedArt.qml
         qml/SearchPage.qml
         qml/ArtistPage.qml
         qml/LibraryPage.qml

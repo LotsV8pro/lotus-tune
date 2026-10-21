@@ -75,7 +75,7 @@ protected:
                 const QPointF o = focus->mapToScene(QPointF(0, 0));
                 const QRectF r(o, QSizeF(focus->width(), focus->height()));
                 if (!r.contains(p))
-                    QMetaObject::invokeMethod(focus, "clearFocus");
+                    focus->setFocus(false);
             }
             const char *fn = nullptr;
             if (me->button() == Qt::BackButton)
@@ -409,6 +409,10 @@ int main(int argc, char *argv[])
     Wash wash(&engine);
     engine.addImageProvider(QStringLiteral("wash"), new WashProvider(&wash));
     engine.rootContext()->setContextProperty(QStringLiteral("wash"), &wash);
+
+    // Sacacolors de portadas para las tarjetas (color dominante → cara).
+    ColorPick colorpick(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("colorpick"), &colorpick);
 
     QQmlComponent component(&engine);
     component.loadFromModule("LotusTune", "Main");

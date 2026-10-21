@@ -1,8 +1,11 @@
 #pragma once
 
+#include <QColor>
+#include <QHash>
 #include <QImage>
 #include <QObject>
 #include <QQuickImageProvider>
+#include <QSet>
 #include <QUrl>
 
 class QNetworkAccessManager;
@@ -57,4 +60,31 @@ public:
 
 private:
     Wash *m_wash;
+};
+
+// Sacacolors («colorpick»): descarga una miniatura y saca su color
+// DOMINANTE a lo barato — la imagen se baja a 48 px y se cuenta en un
+// histograma RGB de 5×5×5 cubos, ponderando cada píxel por su saturación
+// (los colores vivos mandan; los grises y negritos casi no puntúan). El cubo
+// más poblado da el color de la tarjeta. Caché por URL: cada arte se
+// descarga una sola vez aunque las tarjetas se reciclen al hacer scroll.
+class ColorPick : public QObject
+{
+    Q_OBJECT
+public:
+    explicit ColorPick(QObject *parent = nullptr);
+
+    // Lanza la extracción; al terminar emite found(url, color). Si ya está
+    // en caché, el emit es inmediato (mismo bucle, sin red).
+    Q_INVOKABLE void pick(const QUrl &url);
+
+signals:
+    void found(const QUrl &url, const QColor &color);
+
+private:
+    static QColor dominant(const QImage &img);
+
+    QNetworkAccessManager *m_net;
+    QHash<QString, QColor> m_cache;
+    QSet<QString> m_pending;
 };

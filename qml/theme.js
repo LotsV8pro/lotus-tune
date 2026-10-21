@@ -61,7 +61,10 @@ var rowH = 52
 var rowCompact = 46
 var rowThin = 32
 var topBarH = 52
-var playerBarH = 56
+// La isla de la barra: el transporte (botones 32) + el progreso fino con su
+// aire ya no cabían en 56 px y los botones quedaban pegados al borde. Subida
+// a 68 para que respiren por arriba y por abajo.
+var playerBarH = 68
 var sidePanelMin = 300
 
 function clamp(v, lo, hi) {

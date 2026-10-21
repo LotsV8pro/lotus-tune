@@ -136,15 +136,12 @@ Item {
                     radius: Theme.rMd
                     clip: true
                     color: Sys.surfaceAlt
-                    Image {
+                    RoundedArt {
                         anchors.fill: parent
                         source: row.thumb || ""
-                        visible: source !== ""
-                        sourceSize.width: 34
-                        sourceSize.height: 34
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
+                        visible: row.thumb !== ""
+                        radiusSpec: Theme.rMd
+                        decodeWidth: 68
                     }
                     Glyph {
                         anchors.centerIn: parent

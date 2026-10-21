@@ -585,22 +585,18 @@ Item {
                     border.width: 0
                     clip: true
 
-                    Image {
+                    RoundedArt {
                         id: heroCover
                         anchors.fill: parent
                         source: page.viewCover()
-                        visible: status === Image.Ready
-                        sourceSize.width: 336
-                        sourceSize.height: 336
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
+                        radiusSpec: Theme.rLg
+                        decodeWidth: 336
                     }
                     Glyph {
                         anchors.centerIn: parent
                         width: 40
                         height: 40
-                        visible: !heroCover.visible
+                        visible: !heroCover.ready
                         kind: "music"
                         color: Sys.textDim
                     }
@@ -1403,15 +1399,12 @@ Item {
                                 radius: Theme.rMd
                                 color: Sys.surfaceAlt
                                 clip: true
-                                Image {
+                                RoundedArt {
                                     anchors.fill: parent
                                     source: fcell.modelData.thumb || ""
-                                    visible: source !== ""
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    cache: true
-                                    sourceSize.width: 256
-                                    sourceSize.height: 168
+                                    visible: String(fcell.modelData.thumb || "") !== ""
+                                    radiusSpec: Theme.rMd
+                                    decodeWidth: 256
                                 }
                                 Glyph {
                                     anchors.centerIn: parent
@@ -1555,15 +1548,12 @@ Item {
                                     radius: Theme.rSm
                                     clip: true
                                     color: Sys.surfaceAlt
-                                    Image {
+                                    RoundedArt {
                                         anchors.fill: parent
                                         source: modelData.thumb || ""
-                                        visible: source != ""
-                                        sourceSize.width: 32
-                                        sourceSize.height: 32
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
+                                        visible: String(modelData.thumb || "") !== ""
+                                        radiusSpec: Theme.rSm
+                                        decodeWidth: 64
                                     }
                                     ActionIcon {
                                         anchors.centerIn: parent
