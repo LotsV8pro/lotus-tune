@@ -987,8 +987,16 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
     m_lines = std::move(lines);
     m_hasSynced = true;
     m_syncSource = source;
+    m_worded = true;
     return true;
 }
+
+// Aligns the word timings with a reference timeline (the timed lyrics of the
+// very video being played). The word level timings come from the ALBUM and
+// the video may cut the intro (or the outro): without this correction the
+// karaoke front runs seconds ahead of the voice and the lines look already
+// sung. The offset is the median of the difference between the lines that
+// match by text.
 
 // Converts {"secs":N,"nanos":M} to seconds.
 static double secsOf(const QJsonValue &v)
