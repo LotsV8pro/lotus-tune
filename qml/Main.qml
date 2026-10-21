@@ -74,9 +74,9 @@ Window {
     // ---- overlays ------------------------------------------------------
     property bool settingsOpen: false
     property bool launcherOpen: false
-    // Resultados remotos del launcher: al escribir 3+ caracteres se lanza una
-    // búsqueda real en la fuente activa y las mejores canciones aparecen en su
-    // propio bloque, bajo «MÚSICA». `launcherQ` es la consulta en vuelo.
+    // Remote results of the launcher: typing 3+ characters starts a real
+    // search in the active source and the best songs show up in their
+    // own block, under "MUSIC". `launcherQ` is the query in flight.
     property var launcherMusic: []
     property string launcherQ: ""
     property bool followSys: true
@@ -85,9 +85,9 @@ Window {
     // ---- preferencias nuevas (calidad, letras, Discord, descargas) --------
     property bool lyricsEnabled: true
     property bool discordEnabled: false
-    // Autoplay: al agotarse la cola se pide a YouTube Music la continuación
-    // (radio sembrada en la última pista) y la música no se corta. Activado
-    // por defecto; se recuerda entre sesiones.
+    // Autoplay: when the queue runs out, YouTube Music is asked for the
+    // continuation (a radio seeded with the last track) so the music does
+    // not stop. On by default; remembered between sessions.
     property bool autoplayEnabled: true
 
     // ---- panel derecho (cola / letra) ------------------------------------
@@ -105,16 +105,17 @@ Window {
             openPanel(tab)
     }
 
-    // ---- menú contextual (clic derecho) ----------------------------------
+    // ---- context menu (right click) ----------------------------------
     property bool ctxOpen: false
     property var ctxItems: []
     property real ctxX: 0
     property real ctxY: 0
 
-    // El foco de los campos de texto se quita solo al pulsar fuera, como en la
-    // web: lo hace MouseNavFilter en C++ (la señal containsMousePressed de
-    // Item no existe en Qt 6.12). Así los atajos (F, L, M, Space…) no mueren
-    // por quedarse «escribiendo» en una caja de búsqueda ya olvidada.
+    // The focus of the text fields is dropped by itself on an outside
+    // click, like on the web: MouseNavFilter does it in C++ (Item's
+    // containsMousePressed signal does not exist in Qt 6.12). That way the
+    // shortcuts (F, L, M, Space...) do not die by staying "typing" in a
+    // search box that was already forgotten.
 
     function showContextMenu(items, x, y) {
         const out = []
@@ -135,7 +136,7 @@ Window {
         root.showContextMenu(root.playlistMenuItems(c), x, y)
     }
 
-    // Menú (⋮) de una lista descargada abierta como playlist.
+    // Menu (...) of a downloaded list opened as a playlist.
     function showDownloadMenu(folder, name, x, y) {
         const f = String(folder || "")
         const n = String(name || f)
@@ -196,7 +197,7 @@ Window {
             catalog.updatePlaylist(data.id, data.title, data.isPrivate)
     }
 
-    // ---- confirmación (eliminar lista, etc.) -----------------------------
+    // ---- confirmation (delete list, etc.) -----------------------------
     property bool confirmOpen: false
     property string confirmText: ""
     property string confirmLabel: "Eliminar"
@@ -238,7 +239,7 @@ Window {
         root.toast("Enlace copiado")
     }
 
-    // ---- cola: reproducir a continuación / añadir a la cola --------------
+    // ---- queue: play next / add to the queue --------------
     function queueRow(t) {
         t = trackObj(t)
         return { title: t.title, artist: t.artist, url: t.url,
@@ -271,7 +272,7 @@ Window {
         root.saveSession()
     }
 
-    // Reproduce una lista en orden aleatorio (botón «aleatorio» del hero).
+    // Plays a list in random order (the "shuffle" button of the hero).
     function shuffleTracks(list) {
         const arr = []
         if (list)
@@ -287,9 +288,9 @@ Window {
             root.playTracks(arr, 0)
     }
 
-    // ---- menús: qué entradas tiene cada tipo de elemento -----------------
-    // Pista (resultados, listas, cola, descargas). Las acciones de YouTube van
-    // sólo si hay sesión y la pista tiene videoId.
+    // ---- menus: which entries each kind of item has -------------------
+    // Track (results, lists, queue, downloads). The YouTube actions only
+    // show if there is a session and the track has a videoId.
     function trackMenuItems(t) {
         t = t || {}
         const url = String(t.url || "")
@@ -300,8 +301,9 @@ Window {
         const out = []
         out.push({ label: "Reproducir", icon: "play",
                    action: function() { root.playTracks([t], 0) } })
-        // Radio al estilo de YouTube Music (sólo pistas de YouTube): la de la
-        // propia canción y la del artista, cada una sembrada en su tema top.
+        // Radio in YouTube Music's style (YouTube tracks only): the one of
+        // the song itself and the one of the artist, each seeded with its
+        // top track.
         if (vid !== "") {
             out.push({ label: "Escuchar radio de esta canción", icon: "radio",
                        action: function() { root.startSongRadio(t) } })
@@ -325,9 +327,10 @@ Window {
                    action: function() { root.playNextTrack(t) } })
         out.push({ label: "Añadir a la cola", icon: "queue",
                    action: function() { root.enqueueTrack(t) } })
-        // Lista propia abierta: quitar la pista y reordenarla. Se sube a
-        // YouTube Music. Requiere que la lista sea del usuario y que la pista
-        // traiga su setVideoId (vino de la lista por la vía rápida).
+        // Own list open: remove the track and reorder it. It is pushed to
+        // YouTube Music. It needs the list to belong to the user and the
+        // track to carry its setVideoId (it came from the list through the
+        // fast path).
         const plId = String(catalog.openPlaylistId || "")
         const plSet = String(t.setId || "")
         const plOwned = (typeof libPage !== "undefined") ? libPage.currentOwned() : false
@@ -354,8 +357,8 @@ Window {
             out.push({ label: "Copiar enlace", icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         }
-        // Pista descargada dentro de una lista: permite desinstalar la lista
-        // entera (borra la carpeta de descarga).
+        // Downloaded track inside a list: allows uninstalling the whole
+        // list (it deletes the download folder).
         if (String(t.source || "") === "local" && String(t.folder || "")) {
             out.push({ separator: true })
             out.push({ label: "Desinstalar descarga", icon: "trash", danger: true,
@@ -367,7 +370,7 @@ Window {
         return out
     }
 
-    // Lista (cover de la biblioteca).
+    // List (library cover).
     function playlistMenuItems(c) {
         c = c || {}
         const url = String(c.url || "")
@@ -389,7 +392,8 @@ Window {
         if (url)
             out.push({ label: "Copiar enlace", icon: "link",
                        action: function() { root.copyToClipboard(url) } })
-        // Si la lista está descargada, se puede desinstalar (borra los archivos).
+        // If the list is downloaded it can be uninstalled (it deletes the
+        // files).
         const dlFolder = root.downloadedFolderFor(url, c.name)
         if (dlFolder) {
             out.push({ separator: true })
@@ -399,8 +403,8 @@ Window {
         return out
     }
 
-    // Carpeta de descarga (primer nivel) que corresponde a una lista, por su
-    // URL (metadatos) o, como respaldo, por su nombre sanitizado.
+    // Download folder (first level) that belongs to a list, matched by its
+    // URL (metadata) or, as a fallback, by its sanitised name.
     function downloadedFolderFor(url, name) {
         if (typeof downloads === "undefined")
             return ""
@@ -437,8 +441,8 @@ Window {
                         })
     }
 
-    // Lista guardada en la biblioteca local (Barra lateral): reproducir, abrir,
-    // copiar enlace y quitarla de la biblioteca.
+    // List saved in the local library (side rail): play, open, copy link
+    // and remove it from the library.
     function savedPlaylistMenuItems(item, index) {
         item = item || {}
         const out = [
@@ -470,16 +474,17 @@ Window {
                 return sources.list[i].name
         return ""
     }
-    // Destino activo del rail lateral. La página "library" cubre dos entradas:
-    // "Biblioteca" (listas/colección) y "Descargas" (fuente local o la pestaña
-    // Descargadas). Sin esto, al pulsar "Descargas" se iluminaba "Biblioteca"
-    // y la entrada del rail parecía no hacer nada.
+    // Active destination of the side rail. The "library" page covers two
+    // entries: "Library" (lists/collection) and "Downloads" (local
+    // source or the Downloaded tab). Without this, pressing "Downloads"
+    // lit up "Library" and the rail entry looked like it did nothing.
     function activeNavId() {
         if (page !== "library")
             return page
         if (libPage.showingTracks)
-            // Lista descargada abierta como playlist: resalta "Descargas". La
-            // lista "Me gusta" (LM) abierta resalta su entrada del rail.
+            // Downloaded list opened as a playlist: highlights
+            // "Downloads". The "Liked" list (LM) open highlights its
+            // own rail entry.
             return libPage.localPlaylistOpen ? "downloads"
                  : (catalog.openPlaylistId === "LM" ? "liked" : "library")
         if (libPage.libraryTab === 4)
@@ -491,8 +496,9 @@ Window {
         if (page === "search")
             return "Buscar"
         if (page === "library")
-            // Dentro de una lista/álbum el título es el de la lista: el click
-            // lleva directo al contenido, sin pasar por la portada de Biblioteca.
+            // Inside a list/album the title is the list's: the click goes
+            // straight to the content, without passing through the Library
+            // cover.
             return (libPage.showingTracks && libPage.viewTitle())
                    ? libPage.viewTitle() : "Biblioteca"
         return "Inicio"
@@ -508,11 +514,11 @@ Window {
     }
 
     function toggleSettings() { closeLauncher(); settingsOpen = !settingsOpen }
-    // Cerrar el launcher de verdad: el foco tiene que salir del campo SIEMPRE.
-    // Si se queda puesto, `typing()` sigue devolviendo true y los atajos de la
-    // ventana (F, L, Space, M, flechas…) quedan muertos hasta que el launcher
-    // se vuelva a abrir y cerrar por su ramal bueno. Por eso TODAS las salidas
-    // del launcher pasan por aquí.
+    // Closes the launcher for real: the focus must leave the field ALWAYS.
+    // If it stays, `typing()` keeps returning true and the window
+    // shortcuts (F, L, Space, M, arrows...) stay dead until the launcher
+    // is opened and closed again the right way. That is why EVERY exit of
+    // the launcher goes through here.
     function closeLauncher() {
         launcherOpen = false
         launcherMusic = []
@@ -526,8 +532,9 @@ Window {
         if (!launcherOpen) {
             root.buildLauncher(launchInput && launchInput.text)
             launcherOpen = true
-            // El foco debe ir al campo: así typing() es true y los atajos
-            // (F, Space, flechas…) no se disparan mientras se escribe.
+            // The focus must go to the field: that way typing() is true
+            // and the shortcuts (F, Space, arrows...) do not fire while
+            // typing.
             if (launchInput)
                 launchInput.forceActiveFocus()
             if (launchInput.text.trim().length >= 3)
@@ -537,9 +544,9 @@ Window {
         }
     }
 
-    // ---- teclado -------------------------------------------------------
-    // true mientras el foco está en un campo de texto (para no robar Space,
-    // flechas, etc. mientras se escribe).
+    // ---- keyboard -------------------------------------------------------
+    // true while the focus is in a text field (so Space, arrows, etc. are
+    // not stolen while typing).
     function typing() {
         var f = root.activeFocusItem
         if (!f)
@@ -555,20 +562,20 @@ Window {
         root.visibility = fullscreen ? Window.FullScreen : Window.Windowed
     }
 
-    // Abre la letra a pantalla completa (modo cine). Si la ventana no estaba
-    // ya en pantalla completa del compositor, ésta sólo ocupa la ventana de la
-    // app: en niri el "fullscreen" real lo manda el compositor, y el overlay
-    // ya cubre toda la ventana.
+    // Opens the lyrics fullscreen (cinema mode). If the window was not
+    // already fullscreen in the compositor, this one only covers the app
+    // window: in niri the real "fullscreen" is the compositor's, and the
+    // overlay already covers the whole window.
     function openFullscreenLyrics() {
         if (!root.currentTitle) {
             root.toast("No hay ninguna canción sonando")
             return
         }
-        // El modo cine ocupa la ventana entera; sólo hay una vista letra a
-        // pantalla completa: la de dos columnas.
+        // The cinema mode takes the whole window; there is only one
+        // fullscreen lyrics view: the two column one.
         root.fsLyricsOpen = true
     }
-    // Alterna el modo cine (misma lógica para L, F y Ctrl+L).
+    // Toggles the cinema mode (same logic for L, F and Ctrl+L).
     function toggleFullscreenLyrics() {
         if (root.fsLyricsOpen)
             root.fsLyricsOpen = false
@@ -579,16 +586,17 @@ Window {
         root.fsLyricsOpen = false
     }
 
-    // ---- navegación con pila («atrás») ------------------------------------
-    // Pila simple de páginas: al abrir una lista/álbum se guarda la página de
-    // la que venías (normalmente Inicio), así Esc o el botón «atrás» de la
-    // barra superior vuelven ahí y no a la portada de Biblioteca.
+    // ---- navigation with a stack ("back") --------------------------------
+    // Simple page stack: opening a list/album stores the page you came
+    // from (usually Home), so Esc or the top bar's "back" button go
+    // there and not to the Library cover.
     property var navStack: []
-    // Pila «adelante» (botón lateral del ratón): se rellena al ir atrás y se
-    // vacía en cuanto se navega a otro sitio.
+    // "Forward" stack (the mouse side button): it fills when going back
+    // and empties as soon as you navigate somewhere else.
     property var forwardStack: []
 
-    // Estado navegable actual (página + si es la vista de pistas de biblioteca).
+    // Current navigable state (page + whether it is the library tracks
+    // view).
     function curState() {
         return { p: page,
                  t: (page === "library" ? libPage.showingTracks : false),
@@ -603,8 +611,8 @@ Window {
         }
     }
 
-    // Navega a `p` guardando la página actual en la pila (force: guarda
-    // aunque sea la misma página, p.ej. Biblioteca → vista de pistas).
+    // Navigates to `p` storing the current page in the stack (force: store
+    // even if it is the same page, e.g. Library -> tracks view).
     function pushPage(p, force) {
         if (p !== page || force) {
             let s = navStack.concat([curState()])
@@ -616,7 +624,8 @@ Window {
         page = p
     }
 
-    // Vuelve a la página anterior. Devuelve false si no hay nada detrás.
+    // Goes back to the previous page. Returns false if there is nothing
+    // behind.
     function navBack() {
         if (navStack.length === 0)
             return false
@@ -627,7 +636,7 @@ Window {
         return true
     }
 
-    // Va a la página siguiente (botón lateral «adelante» del ratón).
+    // Goes to the next page (the mouse "forward" side button).
     function navForward() {
         if (forwardStack.length === 0)
             return false
@@ -638,8 +647,8 @@ Window {
         return true
     }
 
-    // Botones laterales del ratón (4 = atrás, 5 = adelante): los invoca el
-    // filtro de eventos de la ventana (MouseNavFilter en main.cpp).
+    // Mouse side buttons (4 = back, 5 = forward): the window's event
+    // filter calls them (MouseNavFilter in main.cpp).
     function mouseNavBack() {
         if (typeof sfx !== "undefined") sfx.play("tap")
         goBack()
@@ -649,15 +658,16 @@ Window {
         navForward()
     }
 
-    // Navegación raíz (barra lateral / Inicio): guardamos de dónde venimos.
+    // Root navigation (side rail / Home): we store where we came from.
     function navTo(p) {
         if (p === "library")
             libPage.showPlaylists()
         pushPage(p)
     }
 
-    // Esc "atrás": cierra overlays, el panel lateral, sale de pantalla completa
-    // o —al final— vuelve a la página anterior (una lista/álbum → Inicio).
+    // Esc "back": closes overlays, the side panel, leaves fullscreen or
+    // - at the end - goes back to the previous page (a list/album ->
+    // Home).
     function goBack() {
         if (root.ctxOpen) { root.ctxOpen = false; return }
         if (root.fsLyricsOpen) { root.fsLyricsOpen = false; return }
@@ -671,25 +681,26 @@ Window {
         if (root.fullscreen) { root.toggleFullscreen(); return }
         if (navBack())
             return
-        // Reserva: una lista/álbum sin pila atrás va a Inicio.
+        // Fallback: a list/album with no back stack goes to Home.
         if (page === "library" && libPage.showingTracks) {
             libPage.showPlaylists()
             page = "home"
         }
     }
 
-    // Al pedir una lista: marca la carga en curso y decide si, al llegar las
-    // pistas, hay que reproducirlas (botón de play) o sólo abrirlas (clic en
-    // la portada / la lista). Abrir NO reproduce.
+    // When asking for a list: it marks the load as running and decides
+    // whether, once the tracks arrive, they have to be played (play
+    // button) or only opened (click on the cover / the list). Opening does
+    // NOT play.
     function beginOpenList(play) {
         pendingPlay = !!play
         listLoading = true
         toast(play ? "Cargando la lista para reproducir…" : "Cargando la lista…")
     }
 
-    // Muestra la vista de pistas de la lista abierta. Se llama cuando las
-    // pistas YA están cargadas: un solo salto directo al álbum, sin pasar por
-    // la portada de Biblioteca.
+    // Shows the tracks view of the open list. It is called when the
+    // tracks are ALREADY loaded: a single jump to the album, without
+    // going through the Library cover.
     function openTracksView() {
         const from = page
         if (!(page === "library" && libPage.showingTracks))
@@ -731,13 +742,13 @@ Window {
         sequence: "Ctrl+Space"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleLauncher() }
     }
-    // Espacio: reproducir / pausar (salvo escribiendo en un campo).
+    // Space: play / pause (unless typing in a field).
     Shortcut {
         sequence: "Space"
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("play"); if (root.currentTitle) root.togglePlay() }
     }
-    // Flechas: ±5 s de búsqueda; Ctrl+flechas o Media: pista anterior/siguiente.
+    // Arrows: ±5 s of seeking; Ctrl+arrows or Media: previous/next track.
     Shortcut {
         sequence: "Right"
         enabled: !root.typing() && root.currentTitle !== ""
@@ -758,7 +769,7 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.prev() }
     }
-    // Volumen con arriba/abajo; M silencia.
+    // Volume with up/down; M mutes.
     Shortcut {
         sequence: "Up"
         enabled: !root.typing()
@@ -784,9 +795,10 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("toggle"); root.toggleRepeat() }
     }
-    // L, F y Ctrl+L: letra a pantalla completa, el modo cine de dos columnas.
-    // Q: cola; F11: pantalla completa. (El antiguo «En reproducción» con la
-    // portada arriba y la letra abajo ya no existe: el cine lo sustituye.)
+    // L, F and Ctrl+L: fullscreen lyrics, the two column cinema mode.
+    // Q: queue; F11: fullscreen. (The old "Now playing" with the cover
+    // on top and the lyrics below is gone: the cinema mode replaces
+    // it.)
     Shortcut {
         sequence: "L"
         enabled: !root.typing()
@@ -801,16 +813,16 @@ Window {
         sequence: "F11"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreen() }
     }
-    // F: modo cine de dos columnas, mientras no se escriba en un campo de
-    // texto (búsquedas, URLs, etc.). Fullscreen queda en F11 (y Mod+Shift+F
-    // a nivel del compositor).
+    // F: two column cinema mode, as long as it is not being typed in a
+    // text field (searches, URLs...). Fullscreen stays on F11 (and
+    // Mod+Shift+F at the compositor level).
     Shortcut {
         sequence: "F"
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreenLyrics() }
     }
-    // Ctrl+L: igual que L y F. Éste sí se permite con la caja de búsqueda
-    // enfocada: Ctrl+L no escribe nada, así que no interfiere.
+    // Ctrl+L: same as L and F. This one IS allowed with the search box
+    // focused: Ctrl+L writes nothing, so it does not interfere.
     Shortcut {
         sequence: "Ctrl+L"
         enabled: true
@@ -829,8 +841,8 @@ Window {
                 closeLauncher()
                 settingsOpen = true
             } else {
-                // La búsqueda ya va a todas las fuentes: aquí sólo se cambia
-                // la fuente por defecto. NO se redirige a Buscar.
+                // The search already goes to every source: here only the
+                // default source is changed. It does NOT redirect to Search.
                 sources.select(row.id)
                 closeLauncher()
             }
@@ -842,9 +854,9 @@ Window {
             root.playTracks(catalog.recent, row.i)
             closeLauncher()
         } else if (row.kind === "music") {
-            // Pone en cola el resultado pulsado y los que quedaron detrás de
-            // él en la MISMA fuente, como una lista normal (las cabeceras
-            // de grupo no son pistas).
+            // Queues the pressed result and the ones after it in the SAME
+            // source, like a normal list (the group headers are not
+            // tracks).
             const list = []
             for (let i = 0; i < launcherMusic.length; i++) {
                 const e = launcherMusic[i]
@@ -908,9 +920,9 @@ Window {
             out.push({ h: false, kind: "recent", i: i, t: r.title || "", s: r.artist || "" })
         }
         if (q) {
-            // MÚSICA: los resultados de la búsqueda por TODAS las fuentes,
-            // agrupados por fuente (YouTube Music primero). Cada grupo
-            // lleva su cabecera.
+            // MUSIC: the results of the search across ALL the sources,
+            // grouped by source (YouTube Music first). Every group has
+            // its own header.
             for (let i = 0; i < launcherMusic.length; i++) {
                 const g = launcherMusic[i]
                 if (g.h) {
@@ -924,8 +936,8 @@ Window {
         launcherRows = out
     }
 
-    // Anti-rebote del launcher: 450 ms después de la última tecla se lanza la
-    // búsqueda remota (evita una llamada a la API por cada letra).
+    // Launcher debounce: 450 ms after the last keystroke the remote
+    // search is fired (it avoids one API call per letter).
     Timer {
         id: launcherSearch
         interval: 450
@@ -938,15 +950,16 @@ Window {
                 return
             }
             root.launcherQ = q
-            // Todas las fuentes a la vez: no hay que elegir una antes de
-            // buscar (ni el lanzador redirige a Buscar: busca aquí mismo).
+            // All the sources at once: there is no need to pick one
+            // before searching (and the launcher does not redirect to
+            // Search: it searches right here).
             catalog.searchAll(q)
         }
     }
 
-    // Llegan los resultados de esa búsqueda: nos quedamos con las primeras
-    // canciones de cada fuente (descartamos podcasts y listas) y los
-    // agrupamos por fuente, con su cabecera.
+    // The results of that search arrive: we keep the first songs of each
+    // source (podcasts and lists are dropped) and group them by source,
+    // with a header for each.
     Connections {
         target: catalog
         function onChanged() {
@@ -991,7 +1004,7 @@ Window {
 
     // ---- navigation ------------------------------------------------------
     property string page: "home"
-    // Consulta de QA (--search=): se lanza al arrancar.
+    // QA query (--search=): it is fired on startup.
     property string cliSearch: ""
 
     function pageIndex(p) {
@@ -1019,7 +1032,7 @@ Window {
             } else if (a === "--launcher") {
                 root.toggleLauncher()
             } else if (a.startsWith("--search=")) {
-                // QA: abre Buscar y lanza la consulta (multi-fuente).
+                // QA: opens Search and runs the query (multi source).
                 const q = a.substring(9)
                 page = "search"
                 cliSearch = q
@@ -1027,15 +1040,15 @@ Window {
                 const t = a.substring(8)
                 root.openPanel(t === "letras" || t === "lyrics" ? 1 : 0)
             } else if (a === "--fslyrics" || a === "--nowplaying") {
-                // QA: abre directamente la letra a pantalla completa.
-                // (--nowplaying es el nombre antiguo del mismo modo.)
+                // QA: opens the fullscreen lyrics directly.
+                // (--nowplaying is the old name of the same mode.)
                 Qt.callLater(root.openFullscreenLyrics)
             } else if (a === "--shuffle") {
-                // QA: activa el aleatorio antes de cargar nada.
+                // QA: turns the shuffle on before loading anything.
                 shuffle = true
                 mpris.setShuffle(true)
             } else if (a === "--autoplay") {
-                // QA: al cargar la lista, reproducirla (botón de play).
+                // QA: plays the list once it is loaded (play button).
                 pendingPlay = true
             } else if (a.startsWith("--accent=")) {
                 cfgSet("accent", a.substring(9))
@@ -1044,22 +1057,23 @@ Window {
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
-        // La consulta de QA se lanza cuando la página ya está montada.
+        // The QA query is fired once the page is already mounted.
         if (cliSearch.length > 0)
             Qt.callLater(function() { catalog.searchAll(cliSearch) })
         followSys = cfgGet("followSystem") !== "false"
 
-        // Preferencias del reproductor, letras, Discord y descargas.
+        // Player, lyrics, Discord and download preferences.
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
         Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
-        // Primer cálculo del lavado: si la sesión restaurada ya trae pista,
-        // su miniatura se desenfoca ahora (si no, lo hará el cambio de pista).
+        // First wash computation: if the restored session already brings a
+        // track, its thumbnail is blurred now (if not, the track change will
+        // do it).
         if (Sys.dynamicBg && root.currentThumb)
             wash.setSource(root.currentThumb)
-        // Modo de repetición (0/1/2) y karaoke por palabra. Se aplican al
-        // backend para que el estado publicado nazca ya con el buen valor.
+        // Repeat mode (0/1/2) and word level karaoke. They are pushed to
+        // the backend so the published state starts with the right value.
         {
             const rm = parseInt(cfgGet("repeatMode"))
             root.repeatMode = (rm >= 1 && rm <= 2) ? rm : 0
@@ -1069,8 +1083,8 @@ Window {
         root.karaokeWords = cfgGet("karaokeWords") !== "false"
         if (typeof lyrics !== "undefined")
             lyrics.karaoke = root.karaokeWords
-        // Compensación guardada: el backend la publica tal cual para que los
-        // widgets del escritorio cuadren con el audio desde el primer segundo.
+        // Saved compensation: the backend publishes it as is so the
+        // desktop widgets match the audio from the first second.
         {
             const lo = parseFloat(cfgGet("lyricsOffset"))
             if (!isNaN(lo)) {
@@ -1080,25 +1094,26 @@ Window {
             }
         }
         player.setQuality(cfgGet("audioQuality") || "max")
-        // El Client ID de la app ya va embebido en el backend; al usuario solo
-        // le importa el interruptor de encendido/apagado.
+        // The app's Client ID is already embedded in the backend; the user
+        // only cares about the on/off switch.
         discord.configure(discordEnabled, "")
         if (cfgGet("downloadFolder"))
             downloads.setFolder(cfgGet("downloadFolder"))
 
-        // Restaura la última sesión (cola + pista EN PAUSA + volumen + repetición).
+        // Restores the last session (queue + track PAUSED + volume + repeat).
         root.restoreSession(cliOpen)
     }
 
-    // Esc "atrás": cierra overlays/panel o sale de pantalla completa.
+    // Esc "back": closes overlays/panel or leaves fullscreen.
     Shortcut {
         sequence: "Escape"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.goBack() }
     }
 
-    // ---- botones laterales del ratón (4 = atrás, 5 = adelante) ------------
-    // Va al fondo (z:-1) y sólo acepta esos dos botones, así no estorba al
-    // resto de la interfaz: los clics normales llegan a los items de encima.
+    // ---- mouse side buttons (4 = back, 5 = forward) --------------------
+    // It goes to the back (z:-1) and only accepts those two buttons, so
+    // it does not bother the rest of the interface: normal clicks reach
+    // the items on top.
     MouseArea {
         anchors.fill: parent
         z: -1
@@ -1112,86 +1127,95 @@ Window {
     }
 
     // ---- queue -----------------------------------------------------------
-    // El modelo `queue` es SIEMPRE el orden real de reproducción. Con el
-    // aleatorio activo se baraja al cargar la lista y `next()`/`prev()` sólo
-    // recorren el modelo de arriba abajo, de modo que la cola del panel derecho
-    // muestra exactamente «cómo avanzará» la reproducción.
+    // The `queue` model is ALWAYS the real playback order. With the
+    // shuffle on it is shuffled when the list is loaded and
+    // `next()`/`prev()` just walk the model up and down, so the queue in
+    // the side panel shows exactly "how the playback will go".
     ListModel { id: queue }
     property int queueIndex: -1
     property string currentTitle: ""
     property string currentArtist: ""
     property string currentThumb: ""
-    // El lavado de fondo se recalcula con la miniatura de la pista actual:
-    // el backend la descarga, la desenfoca en la CPU y la publica por su
-    // proveedor («image://wash»). Sin fondo dinámico no se gasta red.
+    // The background wash is recomputed with the current track's
+    // thumbnail: the backend downloads it, blurs it in the CPU and
+    // publishes it through its provider ("image://wash"). Without the
+    // dynamic background no network is used.
     onCurrentThumbChanged: if (Sys.dynamicBg) wash.setSource(root.currentThumb)
-    // videoId de YouTube de la pista en reproducción ("" si no aplica).
+    // YouTube videoId of the playing track ("" if it does not apply).
     property string currentVideoId: ""
-    // Estado local de "me gusta" de la pista actual (se refresca al cambiarla).
+    // Local "liked" state of the current track (refreshed on change).
     property bool currentLiked: false
-    // setVideoId (fila en su playlist) si la pista se abrió desde una lista YTM.
+    // setVideoId (row in its playlist) if the track was opened from a YTM list.
     property string currentSetId: ""
-    // Selector de lista para "añadir a lista".
+    // List picker for "add to list".
     property bool playlistPickerOpen: false
-    // Pista objetivo del selector (botón + de una fila o de la barra inferior).
+    // Target track of the picker (+ button of a row or of the bottom bar).
     property string pickerVideoId: ""
     property bool shuffle: false
-    // Repetición en tres estados (ciclo del botón): 0 = apagada, 1 = repetir
-    // la LISTA (al agotarse vuelve a la primera pista), 2 = repetir la CANCIÓN
-    // actual. Antes era un booleano que sólo significaba «repetir la canción».
+    // Repeat in three states (button cycle): 0 = off, 1 = repeat the LIST
+    // (when it runs out it goes back to the first track), 2 = repeat the
+    // current TRACK. It used to be a boolean that only meant "repeat the
+    // track".
     property int repeatMode: 0
-    // Letra a pantalla completa (modo cine, estilo Liner): overlay sobre todo.
+    // Fullscreen lyrics (cinema mode, Liner style): an overlay on top of
+    // everything.
     property bool fsLyricsOpen: false
-    // Karaoke palabra a palabra con las vistas que traigan tiempos por palabra;
-    // si se apaga (o no hay tiempos), la línea entera se ilumina al cantarla.
+    // Word level karaoke for the views that bring word level timings; if
+    // it is off (or there are no timings) the whole line lights up when
+    // it is sung.
     property bool karaokeWords: true
-    // Compensación de la letra en segundos (+ adelanta, − retrasa). El backend
-    // la publica para los widgets; las vistas la comparten por ahí mismo.
+    // Lyrics compensation in seconds (+ advances, - delays). The backend
+    // publishes it for the widgets; the views share it that way.
     property real lyricsOffset: 0
-    // Orden original de la lista cargada (para restaurar al apagar el aleatorio).
+    // Original order of the loaded list (to restore it when the shuffle is
+    // turned off).
     property var originalOrder: []
-    // ¿Refleja ya la cola el orden aleatorio?
+    // Does the queue already reflect the shuffled order?
     property bool queueShuffled: false
-    // Una lista se está cargando / hay que reproducirla en cuanto llegue.
+    // A list is loading / it has to be played as soon as it arrives.
     property bool listLoading: false
     property bool pendingPlay: false
-    // Evita repetir la petición de letra de la misma pista+duración.
+    // Avoids repeating the lyrics request for the same track+duration.
     property string lyricsKey: ""
-    // Evita reenviar metadatos MPRIS/Discord en cada tick de posición.
+    // Avoids resending the MPRIS/Discord metadata on every position
+    // tick.
     property string metaKey: ""
-    // ---- sesión persistente (se restaura EN PAUSA al arrancar) -----------
-    // sessionLoaded evita guardar antes de haber restaurado la sesión.
+    // ---- persistent session (restored PAUSED on startup) ---------------
+    // sessionLoaded avoids saving before the session has been restored.
     property bool sessionLoaded: false
-    // Volumen guardado pendiente de aplicar cuando mpv esté listo (-1 = nada).
+    // Saved volume waiting to be applied when mpv is ready (-1 = none).
     property int pendingVolume: -1
-    // ¿Hay una radio/autoplay de YT Music en camino para la pista actual?
+    // Is a YouTube Music radio/autoplay on the way for the current track?
     property bool autoplayRadioPending: false
     property string autoplayRadioSeed: ""
-    // La cola se agotó esperando esa radio: cuando llegue hay que arrancar
-    // con la primera pista nueva (no sólo añadirla a la cola).
+    // The queue ran out while waiting for that radio: when it arrives the
+    // playback has to start with the first new track (not just add it to
+    // the queue).
     property bool radioResumePending: false
-    // Radio pedida a mano desde el menú de la pista (no por autoplay): la
-    // cola se amplía igual, pero sin reanudar nada al terminar la semilla.
-    // El reintento está en manualRadioTimer: fetchRadio es best-effort y se
-    // ignora si el catálogo aún está ocupado con la petición anterior.
+    // Radio asked by hand from the track menu (not by autoplay): the
+    // queue grows the same way, but nothing is resumed when the seed
+    // ends. The retry lives in manualRadioTimer: fetchRadio is
+    // best-effort and it is ignored while the catalogue is still busy
+    // with the previous request.
     property bool manualRadioPending: false
     property string manualRadioSeed: ""
-    // Nombre del artista cuya radio se está montando (menú «Radio de X»);
-    // vacío cuando no hay ninguna petición en curso.
+    // Name of the artist whose radio is being built ("Radio of X" menu);
+    // empty when no request is running.
     property string artistRadioPending: ""
-    // Intentos hechos de la petición de radio manual (vea tryManualRadio).
+    // Attempts made for the manual radio request (see tryManualRadio).
     property int manualRadioTries: 0
-    // ---- recambio de pista fallida ----------------------------------------
-    // Una pista de YouTube puede venir de una lista cuyo vídeo ya no existe
-    // (borrado, bloqueado): tras los reintentos del motor se busca en YouTube
-    // Music otra versión de la MISMA canción y se sustituye en la fila. Si no
-    // la hay, se avanza con un aviso. Sólo se intenta una vez por pista.
+    // ---- replacing a failed track ----------------------------------------
+    // A YouTube track may come from a list whose video no longer exists
+    // (deleted, blocked): after the engine's retries another version of
+    // the SAME song is looked up in YouTube Music and it replaces the
+    // row. If there is none, it moves on with a notice. It is only tried
+    // once per track.
     property string swapVideoId: ""
 
-    // «Escuchar radio de esta canción»: suena la pista al instante y la
-    // radio llega como colas «a continuación». Si el autoplay está activado,
-    // playTracks ya pide la radio con esa misma semilla; si no, la pedimos
-    // explícita y la reintentamos mientras el catálogo esté ocupado.
+    // "Play radio of this song": the track plays right away and the radio
+    // arrives as "up next" entries. If the autoplay is on, playTracks
+    // already asks for the radio with that same seed; if not, we ask for
+    // it explicitly and retry it while the catalogue is busy.
     function startSongRadio(t) {
         const vid = root.videoIdOf(String((t || {}).url || ""))
         if (!vid)
@@ -1201,8 +1225,9 @@ Window {
             root.requestManualRadio(vid)
     }
 
-    // «Radio del artista»: primero hay que resolver su pista principal (la
-    // más escuchada), que suena como semilla, y luego llega su radio.
+    // "Radio of the artist": first their main track has to be resolved
+    // (the most played one), which sounds as the seed, and then their
+    // radio arrives.
     function startArtistRadio(t) {
         const name = String((t || {}).artist || "")
         if (!name)
@@ -1212,7 +1237,7 @@ Window {
         catalog.resolveArtistRadio(name)
     }
 
-    // Petición (con reintento) de la radio de una semilla ya en la cola.
+    // Request (with retry) of the radio of a seed already in the queue.
     function requestManualRadio(vid) {
         root.manualRadioPending = true
         root.manualRadioSeed = vid
@@ -1225,8 +1250,8 @@ Window {
         if (!root.manualRadioPending)
             return
         root.manualRadioTries++
-        // fetchRadio no hace nada si el catálogo está ocupado; el timer
-        // reintenta cada segundo hasta 12 intentos y entonces desiste.
+        // fetchRadio does nothing while the catalogue is busy; the timer
+        // retries every second up to 12 attempts and then gives up.
         catalog.fetchRadio(root.manualRadioSeed)
         if (root.manualRadioTries >= 12) {
             root.manualRadioPending = false
@@ -1235,8 +1260,8 @@ Window {
         }
     }
 
-    // Copia normalizada de una pista: conserva title/artist/url/duration/
-    // source/cover y, cuando la fuente los trae, album e index.
+    // Normalised copy of a track: it keeps title/artist/url/duration/
+    // source/cover and, when the source provides them, album and index.
     function trackObj(t) {
         t = t || {}
         const thumb = String(t.thumb || "")
@@ -1256,9 +1281,9 @@ Window {
         }
     }
 
-    // Array JS o ListModel (incluida la cola actual) -> lista de copias.
-    // Se copia ANTES de vaciar la cola: si la lista «ya viene de la cola»
-    // así no se duplica ni se pierde nada.
+    // JS array or ListModel (including the current queue) -> list of copies.
+    // It is copied BEFORE emptying the queue: if the list "already comes
+    // from the queue" nothing is duplicated or lost that way.
     function toTrackList(list) {
         const out = []
         if (!list)
@@ -1274,7 +1299,7 @@ Window {
         return out
     }
 
-    // (Re)llena el modelo con la lista dada, en ese exacto orden.
+    // (Re)fills the model with the given list, in that exact order.
     function fillQueue(arr) {
         queue.clear()
         for (let i = 0; i < arr.length; i++) {
@@ -1286,7 +1311,7 @@ Window {
         }
     }
 
-    // Fisher–Yates in-place.
+    // Fisher-Yates, in place.
     function fisherYates(a) {
         for (let i = a.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1))
@@ -1297,8 +1322,8 @@ Window {
         return a
     }
 
-    // Baraja la cola EN EL SITIO: la pista actual queda donde estaba (no se
-    // corta la reproducción) y el resto se reordena alrededor.
+    // Shuffles the queue IN PLACE: the current track stays where it was
+    // (the playback is not cut) and the rest is reordered around it.
     function reshuffleQueue() {
         const arr = toTrackList(queue)
         if (arr.length < 2) {
@@ -1318,12 +1343,13 @@ Window {
         fillQueue(out)
         queueIndex = cur
         queueShuffled = true
-        // El orden de reproducción ha cambiado: lo pre-cargado ya no sirve.
+        // The playback order changed: what was pre-fetched is useless now.
         player.clearPrefetch()
     }
 
-    // Vuelve al orden original de la lista. La pista que suena sigue sonando
-    // (no se recarga) y sólo se reordena el modelo a su alrededor.
+    // Goes back to the original order of the list. The playing track keeps
+    // playing (it is not reloaded) and only the model around it is
+    // reordered.
     function restoreOriginalOrder() {
         const cur = toTrackList(queue)
         const playing = (queueIndex >= 0 && queueIndex < cur.length)
@@ -1338,7 +1364,8 @@ Window {
                     idx = i
                     break
                 }
-            // Residual (p. ej. la cola venía de otra fuente): no se pierde.
+            // Leftover (e.g. the queue came from another source): it is not
+            // lost.
             if (idx < 0) {
                 order.unshift(playing)
                 idx = 0
@@ -1350,27 +1377,28 @@ Window {
         else if (queueIndex >= order.length)
             queueIndex = order.length - 1
         queueShuffled = false
-        // El orden de reproducción ha cambiado: lo pre-cargado ya no sirve.
+        // The playback order changed: what was pre-fetched is useless now.
         player.clearPrefetch()
     }
 
-    // ---- Artista (búsqueda, discografía y «reproducir todo») --------------
-    // Ficha completa del artista: su discografía llega del más nuevo al más
-    // antiguo. «Reproducir todo» arranca con el primer disco y pide los
-    // demás de uno en uno, añadiendo sus pistas a la cola al vuelo; el
-    // aleatorio baraja la cola entera cuando está completa.
+    // ---- Artist (search, discography and "play all") ---------------------
+    // Full artist page: their discography arrives from the newest to the
+    // oldest. "Play all" starts with the first album and asks for the
+    // others one by one, adding their tracks to the queue on the fly; the
+    // shuffle shuffles the whole queue once it is complete.
     property bool artistOpen: false
     property var artistCur: null           // { name, browseId, thumb }
     property var artistAlbums: []
     property bool artistBusy: false
-    // Qué espera la app de los álbumes: "" nada, "todo", "aleatorio", "album".
+    // What the app expects from the albums: "" none, "all", "shuffle",
+    // "album".
     property string artistWant: ""
     property string artistWantBrowse: ""   // browseId pedido en vuelo
     property var artistFetchQueue: []      // browseIds que aún faltan
     property bool artistStarted: false     // ya sonó la primera pista
     property int artistAdded: 0            // pistas añadidas de la tanda
 
-    // Abre la ficha de un artista y pide su discografía.
+    // Opens an artist's page and asks for their discography.
     function openArtist(a) {
         if (!a || !a.browseId)
             return
@@ -1381,8 +1409,9 @@ Window {
         catalog.fetchArtist(a.browseId)
     }
 
-    // Ficha de la pista en curso para los menús contextuales de la barra y del
-    // cine: se monta con lo que publican el reproductor y la app.
+    // Info of the playing track for the context menus of the bar and of
+    // the cinema mode: it is built with what the player and the app
+    // publish.
     function nowPlayingTrack() {
         const vid = String(root.currentVideoId || "")
         return {
@@ -1398,9 +1427,9 @@ Window {
         }
     }
 
-    // Los nombres sueltos de artista (barra, cine) no traen browseId: se busca
-    // y se abre el que más se parezca —los primeros resultados de la búsqueda—,
-    // con preferencia por el que se llame exactamente igual.
+    // The loose artist names (bar, cinema) have no browseId: the artist is
+    // looked up and the closest one is opened - the first results of the
+    // search - preferring the one with exactly the same name.
     property string artistNavPending: ""
     function openArtistByName(name) {
         const n = String(name || "").trim()
@@ -1410,7 +1439,8 @@ Window {
         catalog.searchArtists(n)
     }
 
-    // Llegan los artistas buscados: abrir el elegido y olvidarse de la espera.
+    // The searched artists arrive: open the chosen one and forget the
+    // wait.
     Connections {
         target: catalog
         function onArtistsReady(artists) {
@@ -1441,7 +1471,7 @@ Window {
         root.artistOpen = false
     }
 
-    // «Reproducir todo» / «Aleatorio» sobre la discografía cargada.
+    // "Play all" / "Shuffle" over the loaded discography.
     function artistPlayAll(albums, random) {
         const list = albums || []
         if (list.length === 0) {
@@ -1458,7 +1488,7 @@ Window {
         catalog.fetchAlbumTracks(root.artistWantBrowse)
     }
 
-    // Reproducir sólo un disco: la cola pasa a ser ese álbum.
+    // Play only one album: the queue becomes that album.
     function artistPlayAlbum(album) {
         if (!album || !album.browseId)
             return
@@ -1469,8 +1499,9 @@ Window {
         catalog.fetchAlbumTracks(root.artistWantBrowse)
     }
 
-    // Sigue la tanda de álbumes: pide el siguiente pendiente o cierra la
-    // operación (barajando la cola entera si era el aleatorio).
+    // Goes on with the album batch: asks for the next pending one or
+    // closes the operation (shuffling the whole queue if it was the
+    // shuffle).
     function artistAdvance() {
         const nextBid = root.artistFetchQueue.length > 0
                         ? root.artistFetchQueue.shift() : ""
@@ -1491,8 +1522,8 @@ Window {
             root.toast(added + " temas de " + who + " en la cola")
     }
 
-    // Añade pistas al final de la cola sin repetir ninguna ya presente (por
-    // url). Devuelve cuántas entraron de verdad.
+    // Appends tracks to the end of the queue without repeating any that is
+    // already there (by url). Returns how many really went in.
     function appendTracksUnique(tracks) {
         const have = {}
         for (let i = 0; i < queue.count; i++) {
@@ -1512,10 +1543,10 @@ Window {
         return added
     }
 
-    // ---- sesión persistente ---------------------------------------------
-    // Guarda cola + pista en curso + aleatorio/repetir + volumen. Lo llaman
-    // los cambios significativos; el volumen, al cambiar, se guarda con
-    // rebote para no escribir en disco en cada tick del deslizador.
+    // ---- persistent session ---------------------------------------------
+    // Stores queue + playing track + shuffle/repeat + volume. The
+    // significant changes call it; the volume, when it changes, is saved
+    // with a debounce so it does not write to disk on every slider tick.
     function saveSession() {
         if (typeof appcfg === "undefined" || !root.sessionLoaded)
             return
@@ -1528,10 +1559,10 @@ Window {
         appcfg.save()
     }
 
-    // Restaura la última sesión: cola + pista en curso + volumen + aleatorio/
-    // repetir. La pista NO se carga en mpv (queda lista pero EN PAUSA): el
-    // primer play la arranca. `skipQueue` (QA con --openurl) deja la cola vacía
-    // pero sí recupera el volumen.
+    // Restores the last session: queue + playing track + volume +
+    // shuffle/repeat. The track is NOT loaded in mpv (it is ready but
+    // PAUSED): the first play starts it. `skipQueue` (QA with --openurl)
+    // leaves the queue empty but still recovers the volume.
     function restoreSession(skipQueue) {
         root.sessionLoaded = true
         if (!skipQueue) {
@@ -1564,8 +1595,9 @@ Window {
                         : (t.liked === true)
                 }
                 shuffle = st.shuffle === true
-                // repeatMode (número) o la antigua booleana `repeat`: ambas
-                // se aceptan. Sin nada repetible en la cola, apaga.
+                // repeatMode (number) or the old boolean `repeat`: both
+                // are accepted. With nothing repeatable in the queue it
+                // turns off.
                 if (typeof st.repeatMode === "number")
                     root.repeatMode = Math.max(0, Math.min(2, st.repeatMode))
                 else if (st.repeat === true)
@@ -1574,17 +1606,19 @@ Window {
                     root.repeatMode = 0
                 mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
                                       : root.repeatMode === 2 ? "Track" : "None")
-                // La cola guardada YA está en el orden de reproducción (si el
-                // aleatorio estaba activo, ya viene barajada): marcarla como tal
-                // evita que el primer next() la vuelva a barajar y cambie el
-                // orden (lo que invalidaba las pistas pre-cargadas).
+                // The stored queue is ALREADY in playback order (if the
+                // shuffle was on it comes shuffled): marking it as such
+                // stops the first next() from shuffling it again and
+                // changing the order (which invalidated the pre-fetched
+                // tracks).
                 queueShuffled = shuffle && arr.length > 1
                 mpris.setShuffle(shuffle)
                 root.updateNowPlaying()
             }
         }
-        // Sin valor guardado no se toca el volumen (mpv arranca con el suyo);
-        // "" -> -1 evita caer en 0 y silenciar la app en el primer arranque.
+        // Without a stored value the volume is not touched (mpv starts
+        // with its own); "" -> -1 avoids falling to 0 and muting the
+        // app on the first startup.
         const pv = cfgGet("playerVolume")
         root.pendingVolume = pv === "" ? -1 : Number(pv)
         if (player.ready)
@@ -1600,8 +1634,9 @@ Window {
             player.setVolume(v)
     }
 
-    // Primer play tras restaurar la sesión: si no hay nada cargado en mpv,
-    // arranca la pista actual; si ya hay algo, solo alterna la pausa.
+    // First play after restoring the session: if mpv has nothing loaded
+    // it starts the current track; if there is something, it only
+    // toggles the pause.
     function togglePlay() {
         if (!player.hasFile && root.currentTitle.length > 0
                 && root.queueIndex >= 0 && root.queueIndex < queue.count) {
@@ -1633,8 +1668,9 @@ Window {
         root.saveSession()
     }
 
-    // Extrae el videoId (youtube.com/watch?v= / youtu.be/ / music.youtube.com)
-    // de la URL de una pista. Vacío si la pista no es de YouTube.
+    // Extracts the videoId (youtube.com/watch?v= / youtu.be/ /
+    // music.youtube.com) from a track's URL. Empty if the track is not
+    // from YouTube.
     function videoIdOf(url) {
         const u = String(url || "")
         var m = /[?&]v=([A-Za-z0-9_-]{6,})/.exec(u)
@@ -1644,14 +1680,14 @@ Window {
         return m2 ? m2[1] : ""
     }
 
-    // Extrae el id de una URL de playlist de YouTube Music (?list=XXXX).
+    // Extracts the id from a YouTube Music playlist URL (?list=XXXX).
     function listIdOf(url) {
         const m = /[?&]list=([A-Za-z0-9_-]+)/.exec(String(url || ""))
         return m ? m[1] : ""
     }
 
     function toggleRepeat() {
-        // Ciclo del botón de repetición: apagada → lista → canción → apagada.
+        // Repeat button cycle: off -> list -> track -> off.
         root.repeatMode = (root.repeatMode + 1) % 3
         cfgSet("repeatMode", root.repeatMode)
         mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
@@ -1661,9 +1697,9 @@ Window {
         root.saveSession()
     }
 
-    // Compensación de la letra (segundos). Se guarda en la configuración, se
-    // manda al backend —que la publica para los widgets del escritorio— y las
-    // vistas en pantalla la recogen solas al llegar el aviso.
+    // Lyrics compensation (seconds). It is saved in the config, sent to
+    // the backend - which publishes it for the desktop widgets - and the
+    // on screen views pick it up when the notice arrives.
     function setLyricsOffset(v) {
         const x = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // pasos de 50 ms
         root.lyricsOffset = x
@@ -1672,11 +1708,12 @@ Window {
             lyrics.setPublishedOffset(x)
     }
 
-    // ---- integraciones (letras / Discord / MPRIS) ------------------------
-    // Pide la letra solo cuando ya conocemos la duración real de la pista.
-    // Sirve además de reintento: si el intento inmediato (sin duración) no
-    // encontró letra, aquí se vuelve a pedir con la duración real en cuanto mpv
-    // la reporta. Así no hace falta pausar/reanudar para que «detecte».
+    // ---- integrations (lyrics / Discord / MPRIS) ------------------------
+    // Asks for the lyrics only once the real duration of the track is
+    // known. It also serves as a retry: if the immediate attempt
+    // (without duration) found no lyrics, here it is asked again with
+    // the real duration as soon as mpv reports it. That way there is no
+    // need to pause/resume for it to "detect".
     function fetchLyrics() {
         if (!root.lyricsEnabled || !root.currentTitle)
             return
@@ -1686,13 +1723,14 @@ Window {
         const key = root.currentArtist + "|" + root.currentTitle
         if (root.lyricsKey === key)
             return
-        // A qué pista pertenecen las letras que hay en memoria. Si no son
-        // de ESTA, la letra en pantalla (y la que lee el widget del
-        // escritorio) es de la canción ANTERIOR: hay que pedir la nueva.
+        // Which track the lyrics in memory belong to. If they are not
+        // from THIS one, the lyrics on screen (and the ones the desktop
+        // widget reads) are from the PREVIOUS song: the new ones have to be
+        // asked for.
         const want = root.currentArtist + " - " + root.currentTitle
         const sameTrack = String(lyrics.trackKey || "") === want
-        // Una petición en vuelo de ESTA pista se deja terminar; si es de
-        // otra, se cancela: gana la pista nueva.
+        // A request in flight for THIS track is left to finish; if it is
+        // for another one, it is cancelled: the new track wins.
         if (sameTrack && lyrics.loading)
             return
         root.lyricsKey = key
@@ -1703,8 +1741,9 @@ Window {
                      root.currentVideoId)
     }
 
-    // Refresca Discord + MPRIS con la posición/estado actuales. Los metadatos
-    // (título/artista/portada/duración) sólo se reenvían cuando cambian.
+    // Refreshes Discord + MPRIS with the current position/state. The
+    // metadata (title/artist/cover/duration) is only resent when it
+    // changes.
     function updateNowPlaying() {
         const dur = player.duration
         const key = root.currentTitle + "|" + root.currentArtist + "|"
@@ -1720,9 +1759,10 @@ Window {
         root.fetchLyrics()
     }
 
-    // Carga una lista en la cola. Si el aleatorio está activo, la canción que
-    // pulsaste suena PRIMERO y el resto de la cola va barajado (Fisher–Yates);
-    // a partir de ahí `next()` avanza linealmente por la cola (sin saltos).
+    // Loads a list into the queue. If the shuffle is on, the song that
+    // was pressed plays FIRST and the rest of the queue is shuffled
+    // (Fisher-Yates); from then on `next()` walks the queue linearly (no
+    // jumps).
     function playTracks(list, idx) {
         const arr = toTrackList(list)
         if (arr.length === 0 || idx < 0 || idx >= arr.length)
@@ -1730,7 +1770,7 @@ Window {
         originalOrder = arr            // orden original (copia sin barajar)
         let order = arr
         if (shuffle && arr.length > 1) {
-            // La pista pulsada va la primera; el resto, en aleatorio.
+            // The pressed track goes first; the rest, shuffled.
             const first = arr[idx]
             const rest = arr.slice()
             rest.splice(idx, 1)
@@ -1742,13 +1782,14 @@ Window {
         queueShuffled = shuffle && arr.length > 1
         queueIndex = idx
         startCurrent()
-        // Una sola canción: que continúe sola con la radio/autoplay de YouTube
-        // Music (las «siguientes» que usaría YouTube Music sin añadirlas a mano).
+        // A single song: it goes on alone with YouTube Music's
+        // radio/autoplay (the "next" songs YouTube Music would use
+        // without adding them by hand).
         root.autoplayRadioPending = false
         root.autoplayRadioSeed = ""
         root.radioResumePending = false
-        // Cualquier radio pedida a mano para la cola anterior ya no tiene
-        // sentido: se descarta su petición y su reintento.
+        // Any radio asked by hand for the previous queue no longer
+        // makes sense: its request and its retry are dropped.
         root.manualRadioPending = false
         root.manualRadioSeed = ""
         root.artistRadioPending = ""
@@ -1759,9 +1800,9 @@ Window {
             if (vid && typeof catalog.fetchRadio === "function") {
                 root.autoplayRadioPending = true
                 root.autoplayRadioSeed = vid
-                // Diferido: si venimos de tracksReady el backend aún tiene su
-                // operación en curso en este mismo tick; el callLater deja que
-                // termine antes de pedir la radio.
+                // Deferred: if we come from tracksReady the backend still
+                // has its operation running in this same tick; the
+                // callLater lets it finish before asking for the radio.
                 Qt.callLater(function() {
                     if (root.autoplayRadioPending
                             && root.autoplayRadioSeed === vid)
@@ -1787,18 +1828,20 @@ Window {
                             : t.liked === true
         root.lyricsKey = ""
         if (root.lyricsEnabled && root.currentTitle) {
-            // Primer intento inmediato. Para pistas de YouTube se usa el vídeo
-            // exacto (la letra no depende de la duración). Si este intento no
-            // encuentra letra, fetchLyrics() reintentará con la duración real
-            // en cuanto mpv la reporte (sin tener que pausar y reanudar).
+            // First immediate attempt. For YouTube tracks the exact
+            // video is used (the lyrics do not depend on the duration).
+            // If this attempt finds no lyrics, fetchLyrics() retries with
+            // the real duration as soon as mpv reports it (without
+            // having to pause and resume).
             lyrics.fetch(root.currentArtist, root.currentTitle, 0,
                          root.currentVideoId)
         }
         player.load(t.url)
-        // Pre-resuelve el stream de las siguientes pistas en background para
-        // que el cambio de canción sea instantáneo (estilo Sonora). Se descarta
-        // antes lo que quedara pendiente de un contexto anterior (otra lista u
-        // otra posición) para que no bloquee estas, que son las que van a sonar.
+        // Pre-resolves the stream of the next tracks in the background so
+        // the song change is instant (Sonora style). Whatever was left
+        // pending from a previous context (another list or another
+        // position) is dropped first, so it does not block the ones that
+        // are going to play.
         player.clearPrefetch()
         prefetchAhead(queueIndex, 6)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
@@ -1808,9 +1851,10 @@ Window {
         root.saveSession()
     }
 
-    // Pre-resuelve hasta `n` pistas a partir de `from` de la cola (en serie,
-    // el Player encola; aquí sólo se cuecen las URLs válidas). Se lanza al
-    // arrancar cada pista para tener el stream ya resuelto al avanzar.
+    // Pre-resolves up to `n` tracks from `from` in the queue (in series,
+    // the Player enqueues them; here only the valid URLs are pre-resolved).
+    // It is fired when each track starts, to have the stream already
+    // resolved when moving on.
     function prefetchAhead(from, n) {
         if (!n || from < 0 || from >= queue.count)
             return
@@ -1821,9 +1865,9 @@ Window {
         }
     }
 
-    // Pre-resuelve las primeras `n` pistas de una lista recién mostrada (lista
-    // abierta o resultados de búsqueda). Así un clic en cualquiera de las
-    // primeras filas ya encuentra el stream resuelto y suena al instante.
+    // Pre-resolves the first `n` tracks of a freshly shown list (open
+    // list or search results). That way a click on any of the first rows
+    // already finds the stream resolved and sounds instantly.
     function prefetchHead(list, n) {
         if (!list || !list.length)
             return
@@ -1837,9 +1881,9 @@ Window {
     }
 
     function next() {
-        // Caso residual: aleatorio activo pero la cola todavía no barajada.
-        // En condiciones normales la cola YA es el orden aleatorio y sólo se
-        // avanza linealmente (eso es lo que muestra la vista de cola).
+        // Leftover case: the shuffle is on but the queue is not shuffled
+        // yet. In normal conditions the queue IS the shuffled order and
+        // it just walks linearly (that is what the queue view shows).
         if (shuffle && !queueShuffled && queue.count > 1) {
             reshuffleQueue()
         }
@@ -1848,17 +1892,19 @@ Window {
             startCurrent()
             return
         }
-        // Fin de la cola con la LISTA en repetición: se vuelve a la primera
-        // pista sin pedir autoplay (la música ya vuelve sola).
+        // End of the queue with the LIST on repeat: it goes back to the
+        // first track without asking for autoplay (the music returns on
+        // its own).
         if (root.repeatMode === 1 && queue.count > 0) {
             queueIndex = 0
             startCurrent()
             return
         }
-        // Fin de la cola. Con el autoplay puesto no se corta: se pide a
-        // YouTube Music que continúe desde la última pista (llegará a ~1,4 s
-        // con prefetchRadio). Mientras llega, la última canción se queda en
-        // pantalla; el radioWaitTimer pone el silencio si la red no responde.
+        // End of the queue. With the autoplay on it does not stop: YouTube
+        // Music is asked to continue from the last track (it arrives in
+        // ~1.4 s with prefetchRadio). While it arrives, the last song
+        // stays on screen; the radioWaitTimer silences it if the network
+        // does not answer.
         const vid = root.autoplayEnabled && queue.count > 0
                     ? videoIdOf(queue.get(queueIndex).url) : ""
         if (vid && typeof catalog.prefetchRadio === "function") {
@@ -1872,16 +1918,18 @@ Window {
         root.stopAndClear()
     }
 
-    // Silencio y limpieza al agotarse la cola sin autoplay: apaga el motor,
-    // el rótulo, la letra y los enrutadores externos. La cola se conserva
-    // (volver atrás con «prev» sigue teniendo por dónde).
+    // Silence and clean up when the queue runs out without autoplay: it
+    // stops the engine, the caption, the lyrics and the external
+    // routers. The queue is kept (going back with "prev" still has a
+    // way in).
     function stopAndClear() {
         player.stopPlayback()
         currentTitle = ""
         currentArtist = ""
         currentThumb = ""
-        // También el videoId: si no, el cine seguiría pidiendo las
-        // portadas nitidas del vídeo anterior y enseñaría otra portada.
+        // The videoId too: otherwise the cinema mode would keep asking
+        // for the sharp artwork of the previous video and show the wrong
+        // cover.
         root.currentVideoId = ""
         root.lyricsKey = ""
         root.metaKey = ""
@@ -1903,12 +1951,13 @@ Window {
         }
     }
 
-    // Recambio de vídeo muerto: lanza la búsqueda de otra versión de la MISMA
-    // canción (el vídeo original está borrado o bloqueado). Devuelve true si
-    // hay que esperar al recambio; el resultado atiende la fila en
-    // onAlternateResolved. La marca `swapTriedKey` es el «artista|título», así
-    // que una misma canción sólo intenta el recambio una vez: si el vídeo de
-    // recambio también falla, pasa a la siguiente (no buclea).
+    // Dead video replacement: it starts the search for another version
+    // of the SAME song (the original video is deleted or blocked). It
+    // returns true if the replacement has to be waited for; the result
+    // takes care of the row in onAlternateResolved. The `swapTriedKey`
+    // mark is the "artist|title", so the same song only tries the
+    // replacement once: if the replacement video fails too, it moves on
+    // (it does not loop).
     property string swapTriedKey: ""
     function trySwap() {
         if (!root.currentTitle)
@@ -1930,15 +1979,16 @@ Window {
         return true
     }
 
-    // Válvula del recambio: si la búsqueda no contesta en 12 s (sin sesión
-    // YTM, red cortada…), se avanza a la siguiente pista.
+    // Replacement valve: if the search does not answer in 12 s (no YTM
+    // session, cut network...), it moves on to the next track.
     Timer {
         id: swapWaitTimer
         interval: 12000
         onTriggered: root.swapGiveUp()
     }
 
-    // El recambio no llegó (o no lo hubo): aviso y siguiente pista.
+    // The replacement did not arrive (or there was none): notice and next
+    // track.
     function swapGiveUp() {
         if (root.swapVideoId.length === 0)
             return
@@ -1952,9 +2002,9 @@ Window {
         target: player
         function onEndOfFile(ok) {
             if (!ok) {
-                // Pista fallida (tras los dos reintentos del motor): antes de
-                // avanzar se busca otra versión de la misma canción, si es que
-                // el vídeo original ya no existe.
+                // Failed track (after the engine's two retries): before
+                // moving on, another version of the same song is looked
+                // up, in case the original video no longer exists.
                 if (root.trySwap())
                     return
                 console.warn("[queue] pista fallida, avanzando")
@@ -1963,7 +2013,7 @@ Window {
                 root.next()
                 return
             }
-            // Repetir SÓLO la canción: se vuelve a arrancar la misma pista.
+            // Repeat ONLY the song: the same track starts again.
             if (root.repeatMode === 2 && root.currentTitle.length > 0) {
                 root.startCurrent()
                 return
@@ -1976,25 +2026,27 @@ Window {
                 root.toast("Motor de audio: " + player.engineStatus)
             }
         }
-        // Mantiene al día Discord/MPRIS y afina las letras cuando llega la
-        // duración real o cambia el estado de reproducción.
+        // Keeps Discord/MPRIS up to date and fine tunes the lyrics when
+        // the real duration arrives or the playback state changes.
         function onStateChanged() { root.updateNowPlaying() }
-        // El volumen cambia a menudo (deslizador/teclas): se guarda con rebote.
+        // The volume changes often (slider/keys): it is saved with a
+        // debounce.
         function onVolumeChanged() { sessionSaveTimer.restart() }
-        // mpv listo: aplica el volumen recuperado de la última sesión.
+        // mpv ready: applies the volume recovered from the last session.
         function onReadyChanged() { if (player.ready) root.applyPendingVolume() }
     }
 
-    // Escritura de la sesión con rebote (para el volumen continuo).
+    // Session write with debounce (for the continuous volume).
     Timer {
         id: sessionSaveTimer
         interval: 700
         onTriggered: root.saveSession()
     }
 
-    // Valvula del autoplay: si al agotarse la cola la continuacion de
-    // YouTube Music no llega en 12 s (red cortada, extractor bloqueado), se
-    // pone el silencio en lugar de dejar la interfaz esperando a nada.
+    // Autoplay valve: if, when the queue runs out, the YouTube Music
+    // continuation does not arrive in 12 s (cut network, blocked
+    // extractor), it silences instead of leaving the interface waiting
+    // for nothing.
     Timer {
         id: radioWaitTimer
         interval: 12000
@@ -2009,9 +2061,9 @@ Window {
         }
     }
 
-    // Reintento de la radio pedida a mano (menú de la pista): cada segundo se
-    // vuelve a lanzar hasta que el catálogo quede libre o se agoten los
-    // intentos (vea tryManualRadio).
+    // Retry of the radio asked by hand (track menu): every second it is
+    // fired again until the catalogue is free or the attempts run out
+    // (see tryManualRadio).
     Timer {
         id: manualRadioTimer
         interval: 1000
@@ -2020,7 +2072,7 @@ Window {
         onTriggered: root.tryManualRadio()
     }
 
-    // Latido periódico para el progreso en Discord/MPRIS.
+    // Periodic beat for the progress in Discord/MPRIS.
     Timer {
         interval: 1000
         repeat: true
@@ -2028,7 +2080,7 @@ Window {
         onTriggered: root.updateNowPlaying()
     }
 
-    // Órdenes que llegan del centro multimedia del sistema (MPRIS2).
+    // Commands coming from the system media centre (MPRIS2).
     Connections {
         target: mpris
         function onPlayRequested() { root.requestPlay() }
@@ -2062,19 +2114,20 @@ Window {
         onTriggered: root.toastText = ""
     }
 
-    // ---- interacción con YouTube Music (me gusta / listas) ---------------
+    // ---- YouTube Music interaction (like / lists) -------------------
     function toggleLike() {
         if (!root.currentVideoId) {
             root.toast("La pista actual no es de YouTube")
             return
         }
-        // catalog.toggleLiked vota y actualiza el conjunto; el corazón (aquí y
-        // en las filas) se repinta al subir likedRevision/onLikedChanged.
+        // catalog.toggleLiked votes and updates the set; the heart (here
+        // and in the rows) repaints when likedRevision/onLikedChanged
+        // goes up.
         catalog.toggleLiked(root.currentVideoId, root.currentLiked)
     }
 
-    // Abre el selector de listas para una pista concreta (botón + de una fila
-    // o de la barra inferior). Sin argumento usa la pista actual.
+    // Opens the list picker for a specific track (+ button of a row or
+    // of the bottom bar). Without an argument it uses the current track.
     function openPlaylistPicker(videoId) {
         root.pickerVideoId = videoId || root.currentVideoId
         root.playlistPickerOpen = true
@@ -2090,7 +2143,7 @@ Window {
         catalog.addToPlaylist(playlistId, vid)
     }
 
-    // Quita una pista concreta (clic derecho en una fila) de la lista abierta.
+    // Removes a specific track (right click on a row) from the open list.
     function removeTrackFromOpenPlaylist(t) {
         t = t || {}
         const vid = root.videoIdOf(String(t.url || ""))
@@ -2102,8 +2155,8 @@ Window {
         catalog.removeOpenPlaylistTrack(vid, sid)
     }
 
-    // Quita la pista actual de la lista con la que se abrió (requiere el
-    // setVideoId que trae la entrada de la playlist).
+    // Removes the current track from the list it was opened with (it
+    // needs the setVideoId the playlist entry carries).
     function removeCurrentFromPlaylist(playlistId) {
         root.playlistPickerOpen = false
         if (!root.currentVideoId || !root.currentSetId) {
@@ -2114,20 +2167,20 @@ Window {
                                    root.currentSetId)
     }
 
-    // Conexión para el resultado de votar/añadir/quitar de lista.
+    // Connection for the result of voting/adding/removing from a list.
     Connections {
         target: catalog
         function onInteractionDone(ok, message) {
             root.toast(message)
         }
-        // El conjunto de "me gusta" cambió (cargado o tras un voto): refresca
-        // el corazón de la pista en reproducción.
+        // The "liked" set changed (loaded or after a vote): refreshes the
+        // heart of the playing track.
         function onLikedChanged() {
             if (root.currentVideoId)
                 root.currentLiked = catalog.isLiked(root.currentVideoId)
         }
-        // Metadatos de una lista (respuesta a fetchPlaylistInfo): completa el
-        // editor con el título y la privacidad reales.
+        // Metadata of a list (answer to fetchPlaylistInfo): it completes
+        // the editor with the real title and privacy.
         function onPlaylistInfoReady(info) {
             if (!root.editorOpen || root.editorCreate)
                 return
@@ -2138,10 +2191,10 @@ Window {
             if (info.privacy)
                 root.editorPrivate = (String(info.privacy).toUpperCase() === "PRIVATE")
         }
-        // Respuesta a la búsqueda de recambio de una pista cuyo vídeo murió:
-        // se sustituye la fila de la cola con el vídeo nuevo y se arranca esa
-        // misma fila. La cola del usuario queda arreglada en el sitio (su
-        // playlist local ya no vuelve a fallar en esa canción).
+        // Answer to the replacement search of a track whose video died:
+        // the queue row is replaced with the new video and that same row
+        // is played. The user's queue is fixed in place (their local
+        // playlist stops failing on that song).
         function onAlternateResolved(key, track) {
             if (!root.swapVideoId || String(key) !== root.swapVideoId)
                 return
@@ -2149,8 +2202,9 @@ Window {
             const idx = root.queueIndex
             let row = idx >= 0 && idx < queue.count ? queue.get(idx) : null
             const t = track || {}
-            // La cola cambió mientras se buscaba (el usuario avanzó): se
-            // descarta el recambio, ya no pinta nada sustituir esa fila.
+            // The queue changed while searching (the user moved on): the
+            // replacement is dropped, replacing that row is pointless
+            // now.
             if (row && root.videoIdOf(String(row.url || "")) !== root.swapVideoId)
                 row = null
             if (!row || !t.url) {
@@ -2162,8 +2216,8 @@ Window {
             }
             const newVid = root.videoIdOf(String(t.url))
             if (newVid === root.swapVideoId) {
-                // La búsqueda devolvió el mismo vídeo roto: ya no hay más que
-                // intentar; pasa a la siguiente.
+                // The search returned the same broken video: there is
+                // nothing left to try; it moves to the next.
                 root.swapVideoId = ""
                 root.toast("«" + row.title + "» no está disponible")
                 root.next()
@@ -2187,11 +2241,12 @@ Window {
         target: catalog
         function onChanged() {
             if (catalog.error) {
-                // Una apertura fallida: nada que abrir ni reproducir después.
+                // A failed opening: nothing to open or play afterwards.
                 root.listLoading = false
                 root.pendingPlay = false
-                // Un fallo del backend deja sin efecto la radio/autoplay que
-                // estuviera en camino: no hay que esperarla más.
+                // A backend failure leaves without effect the
+                // radio/autoplay that was on its way: there is no need
+                // to wait for it any more.
                 if (root.autoplayRadioPending) {
                     root.autoplayRadioPending = false
                     root.autoplayRadioSeed = ""
@@ -2209,32 +2264,34 @@ Window {
             root.pendingPlay = false
             root.listLoading = false
             if (play) {
-                // Botón de play: reproduce sin salir de la página actual.
+                // Play button: it plays without leaving the current page.
                 root.playTracks(tracks, 0)
                 return
             }
-            // Una lista de una sola pista es, en la práctica, una canción
-            // suelta: reprodúcela ya en lugar de abrir una vista de lista.
+            // A list of a single track is, in practice, a loose song:
+            // play it now instead of opening a list view.
             if (tracks && tracks.length === 1) {
                 root.playTracks(tracks, 0)
                 return
             }
-            // Sólo abrir: un salto directo a la lista/álbum (sin reproducir).
+            // Only open: a direct jump to the list/album (without playing).
             root.openTracksView()
-            // Cuece ya las primeras pistas: cuando el usuario pulse una de
-            // ellas, el stream estará resuelto y sonará al instante.
+            // It pre-resolves the first tracks right away: when the user
+            // presses one of them, the stream is already resolved and it
+            // sounds instantly.
             root.prefetchHead(tracks, 4)
         }
         function onLibraryChanged() {
             if (root.launcherOpen)
                 root.buildLauncher(launchInput.text)
         }
-        // Radio/autoplay de YouTube Music: si venía de una sola canción,
-        // añade las «siguientes» a la cola (sin duplicar la que ya suena).
-        // Si además la cola se había agotado (autoplay al final), arranca con
-        // la primera de las nuevas en cuanto llegan. Las radios pedidas a mano
-        // desde el menú de la pista llegan por la misma señal y se amplían
-        // igual, pero sin reanudar nada.
+        // YouTube Music radio/autoplay: if it came from a single song, it
+        // adds the "next" songs to the queue (without duplicating the
+        // one already playing). If the queue had also run out (autoplay at
+        // the end), it starts with the first of the new ones as soon as
+        // they arrive. The radios asked by hand from the track menu arrive
+        // through the same signal and grow the same way, but without
+        // resuming anything.
         function onRadioReady(seed, tracks) {
             const isAuto = root.autoplayRadioPending
                            && seed === root.autoplayRadioSeed
@@ -2280,16 +2337,16 @@ Window {
                 startCurrent()
             }
         }
-        // Discografía recibida: sólo vale la del artista abierto.
+        // Discography received: only the one of the open artist counts.
         function onArtistReady(browseId, albums) {
             if (!root.artistCur || browseId !== String(root.artistCur.browseId))
                 return
             root.artistBusy = false
             root.artistAlbums = albums || []
         }
-        // Resuelta la pista principal de un artista (menú «Radio de X»): la
-        // ponemos como semilla y su radio llega a continuación por la misma
-        // vía que la radio de canción.
+        // An artist's main track resolved ("Radio of X" menu): it is
+        // used as the seed and its radio arrives as "up next" through
+        // the same path as the song radio.
         function onArtistTopTrackResolved(name, track) {
             if (name !== root.artistRadioPending)
                 return
@@ -2302,8 +2359,8 @@ Window {
             if (!root.autoplayEnabled)
                 root.requestManualRadio(root.videoIdOf(String(track.url)))
         }
-        // Pistas de un álbum: arrancan la reproducción con el primer lote y
-        // los siguientes se añaden sin cortar lo que suena (ver artistAdvance).
+        // Album tracks: the playback starts with the first batch and the
+        // rest are added without cutting what sounds (see artistAdvance).
         function onAlbumTracksReady(browseId, tracks) {
             if (root.artistWant === "" || browseId !== root.artistWantBrowse)
                 return   // respuesta de una petición ya anulada
@@ -2318,7 +2375,8 @@ Window {
                 return
             }
             if (!root.artistStarted) {
-                // Primer lote: la música empieza ya, sin esperar al resto.
+                // First batch: the music starts right away, without
+                // waiting for the rest.
                 root.playTracks(tracks, 0)
                 root.artistStarted = true
                 root.artistAdded += tracks.length
@@ -2334,13 +2392,13 @@ Window {
         }
     }
 
-    // ---- fondo dinámico (wash estilo Liner) -------------------------------
-    // La portada de la pista actual teñida de fondo: se carga en un tamaño
-    // ínfimo (56 px) y se amplía a suavemente a toda la ventana, que es un
-    // desenfoque barato y sin GPU (el backend es de software y niri no tiene
-    // desenfoque de compositor). Las islas Panel van encima: opacas sin
-    // fondo dinámico, esmeriladas con él (vea Panel.qml). Se atenúa para no
-    // comer contraste al texto.
+    // ---- dynamic background (Liner style wash) ---------------------------
+    // The current track's artwork tinted as the background: it is loaded
+    // at a tiny size (56 px) and softly stretched over the whole window,
+    // which is a cheap blur with no GPU (the backend is software and niri
+    // has no compositor blur). The Panel islands go on top: opaque
+    // without the dynamic background, frosted with it (see Panel.qml). It
+    // is dimmed so it does not eat the text's contrast.
     Item {
         id: bgWash
         anchors.fill: parent
@@ -2351,24 +2409,26 @@ Window {
         Image {
             id: washImg
             anchors.fill: parent
-            // El desenfoque lo hace el backend en la CPU («wash»): una vela
-            // de 480 px tan suave que estirarla a pantalla completa no muestra
-            // ni un bloque. El serial rompe la caché al cambiar de pista.
+            // The blur is done by the backend in the CPU ("wash"): a
+            // 480 px veil so soft that stretching it over the whole screen
+            // shows no block at all. The serial breaks the cache when the
+            // track changes.
             source: Sys.dynamicBg && root.currentThumb && wash.valid
                     ? "image://wash/" + wash.serial : ""
-            // ESTIRADA, no recortada: la vela se adapta a la ventana y se ve
-            // la portada entera. Recortada (PreserveAspectCrop) en una
-            // ventana alta se ampliaba x5 y sólo se veía el trozo central
-            // del arte, con los bordes oscuros a los lados.
+            // STRETCHED, not cropped: the veil adapts to the window and the
+            // whole artwork is seen. Cropped (PreserveAspectCrop) in a
+            // tall window it was blown up x5 and only the middle of the
+            // art was visible, with dark edges on the sides.
             fillMode: Image.Stretch
             smooth: true
             asynchronous: true
             cache: false
         }
 
-        // El wash debe dejar RECONOCER la portada (no ser una mancha): el
-        // velo baja la luz arriba, donde van saludo y títulos, y deja pasar
-        // bastante color abajo.
+        // The wash has to let you RECOGNISE the artwork (not be a blob):
+        // the veil lowers the light at the top, where the greeting and
+        // the titles go, and lets a lot of colour through at the
+        // bottom.
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
@@ -2379,9 +2439,9 @@ Window {
     }
 
     // ---- layout ----------------------------------------------------------
-    // Interfaz de "islas flotantes": el fondo de la ventana (Sys.bg) hace de
-    // escritorio y cada zona —rail, cabecera, contenido, panel y barra de
-    // reproducción— es una superficie redondeada separada por `panelGap`.
+    // "Floating islands" interface: the window background (Sys.bg) is
+    // the desktop and every zone - rail, header, content, panel and
+    // playback bar - is a rounded surface separated by `panelGap`.
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.panelMargin
@@ -2407,9 +2467,9 @@ Window {
                     playing: player.playing
                     engineStatus: player.engineStatus
                     onNavigate: (p) => {
-                        // "Biblioteca" deja atrás "Descargas": vuelve a la
-                        // pestaña "Canciones" para que el clic lleve de verdad
-                        // a la Biblioteca.
+                        // "Library" leaves "Downloads" behind: it goes
+                        // back to the "Songs" tab so the click really
+                        // takes you to the Library.
                         if (p === "library") {
                             if (libPage.libraryTab === 4)
                                 libPage.libraryTab = 0
@@ -2418,20 +2478,22 @@ Window {
                     }
                     onSettingsRequested: root.toggleSettings()
                     onNowPlayingRequested: root.openFullscreenLyrics()
-                    // "Me gusta": abre la lista LM de YouTube Music sin reproducir.
+                    // "Liked": opens YouTube Music's LM list without
+                    // playing it.
                     onLikedRequested: {
                         root.beginOpenList(false)
                         catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                                         "Me gusta")
                     }
-                    // "Descargas": Biblioteca con la pestaña "Descargadas"
-                    // activa (deja claro que estás en Descargas).
+                    // "Downloads": the Library with the "Downloaded" tab
+                    // active (it is clear you are in Downloads).
                     onDownloadsRequested: {
                         libPage.libraryTab = 4
                         root.navTo("library")
                     }
-                    // Clic en una lista: se abre y, cuando llegue, se muestra
-                    // directamente (sin saltar a Biblioteca ni reproducir).
+                    // Click on a list: it opens and, when it arrives, it
+                    // is shown directly (without jumping to the Library
+                    // nor playing it).
                     onPlaylistRequested: (i) => {
                         root.beginOpenList(false)
                         catalog.openPlaylist(i)
@@ -2470,10 +2532,10 @@ Window {
                     onSettingsRequested: root.toggleSettings()
                 }
 
-                // Contenido PLANO al estilo del repo de referencia: sin caja
-                // propia — las páginas van directas sobre el fondo lavado y
-                // sólo los diálogos (ajustes, panel lateral) mantienen
-                // superficie.
+                // FLAT content like the reference repo: no box of its
+                // own - the pages go straight on the washed background
+                // and only the dialogs (settings, side panel) keep a
+                // surface.
                 Panel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -2485,10 +2547,10 @@ Window {
                         anchors.fill: parent
                         currentIndex: root.pageIndex(root.page)
 
-                        // Cambio de página inmediato: sin fundido ni transición.
+                        // Immediate page change: no fade nor transition.
                         onCurrentIndexChanged: {
-                            // Recarga el historial de búsquedas de Inicio (se
-                            // escribe desde Buscar mientras no está visible).
+                            // Reloads the home search history (it is
+                            // written from Search while it is not visible).
                             homePage.refreshSearchHistory()
                         }
 
@@ -2505,7 +2567,8 @@ Window {
                                 root.settingsOpen = true
                             }
                             onOpenLauncherRequested: root.toggleLauncher()
-                            // Chip del historial: abre Buscar y re-ejecuta la query.
+                            // History chip: opens Search and re-runs the
+                            // query.
                             onSearchRequested: (q) => {
                             root.navTo("search")
                             searchPage.startSearch(q)
@@ -2518,7 +2581,7 @@ Window {
                             onPlayRequested: (list, idx) => root.playTracks(list, idx)
                             onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
-                            // Modo artistas: la ficha se abre a pantalla completa.
+                            // Artists mode: the page opens fullscreen.
                             onArtistRequested: (a) => root.openArtist(a)
                         }
                         LibraryPage {
@@ -2527,7 +2590,7 @@ Window {
                             Layout.fillHeight: true
                             onPlayRequested: (list, idx) => root.playTracks(list, idx)
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
-                            // Cover: abrir (false) o abrir y reproducir (true).
+                            // Cover: open (false) or open and play (true).
                             onOpenListRequested: (play) => root.beginOpenList(play)
                             onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                             onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
@@ -2535,8 +2598,9 @@ Window {
                             onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
                             onDownloadMenuRequested: (folder, name, x, y) => root.showDownloadMenu(folder, name, x, y)
                             onDownloadOpenRequested: (folder) => {
-                                // Abre la lista descargada como playlist guardando
-                                // el paso atrás (la vista de lista de Descargas).
+                                // Opens the downloaded list as a playlist
+                                // keeping the back step (the Downloads list
+                                // view).
                                 root.pushPage("library", true)
                                 libPage.openDownloadPlaylist(folder)
                             }
@@ -2595,7 +2659,7 @@ Window {
         }
     }
 
-    // ---- letra a pantalla completa (modo cine) ----------------------------
+    // ---- fullscreen lyrics (cinema mode) ----------------------------
     FullscreenLyrics {
         id: fsLyrics
         open: root.fsLyricsOpen
@@ -2624,7 +2688,7 @@ Window {
         }
     }
 
-    // ---- selector de lista (añadir a playlist) ---------------------------
+    // ---- list picker (add to playlist) ---------------------------
     Item {
         id: playlistPicker
         anchors.fill: parent
@@ -2663,7 +2727,7 @@ Window {
                     font.bold: true
                 }
 
-                // Crear una lista nueva y añadir ahí la pista objetivo.
+                // Creates a new list and adds the target track there.
                 Rectangle {
                     Layout.fillWidth: true
                     height: Theme.rowThin
@@ -2744,9 +2808,10 @@ Window {
                     }
                 }
 
-                // Quitar la pista actual de la lista con la que se abrió.
-                // Solo aplica si la pista vino de una playlist de YouTube Music
-                // por la vía rápida (lleva su setVideoId consigo).
+                // Removes the current track from the list it was opened
+                // with. It only applies if the track came from a YouTube
+                // Music playlist through the fast path (it carries its
+                // setVideoId).
                 Rectangle {
                     visible: catalog.openPlaylistId.length > 0
                              && root.currentSetId.length > 0
@@ -2795,7 +2860,7 @@ Window {
         }
     }
 
-    // ---- menú contextual (clic derecho) ----------------------------------
+    // ---- context menu (right click) ----------------------------------
     ContextMenu {
         id: ctxMenu
         anchors.fill: parent
@@ -2805,7 +2870,7 @@ Window {
         onClosed: root.ctxOpen = false
     }
 
-    // ---- editor de listas (crear / editar) -------------------------------
+    // ---- list editor (create / edit) -------------------------------
     PlaylistEditor {
         id: playlistEditor
         anchors.fill: parent
@@ -2821,7 +2886,7 @@ Window {
         onCanceled: root.editorOpen = false
     }
 
-    // ---- confirmación ----------------------------------------------------
+    // ---- confirmation ----------------------------------------------------
     Rectangle {
         id: confirmOverlay
         anchors.fill: parent
@@ -2933,25 +2998,26 @@ Window {
         }
     }
 
-    // ---- settings panel (full-window modal) ------------------------------
-    // Panel de Ajustes: secciones en tarjetas planas, una sola forma de hacer
-    // cada cosa. Todo se apoya en los tokens de `Theme` y la paleta de `Sys`.
+    // ---- settings panel (full window modal) ------------------------------
+    // Settings panel: sections in flat cards, one way of doing each
+    // thing. Everything leans on the `Theme` tokens and the `Sys`
+    // palette.
     Rectangle {
         id: settingsOverlay
         anchors.fill: parent
         z: 60
         visible: root.settingsOpen
-        // Fondo atenuado (como el resto de modales): Ajustes es, además, UNA
-        // isla flotante más sobre el shell.
+        // Dimmed background (like the rest of the modals): Settings is
+        // also ONE more floating island over the shell.
         color: Qt.rgba(0, 0, 0, 0.5)
         opacity: root.settingsOpen ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
 
-        // Bloquea el clic hacia el shell mientras Ajustes está abierto.
+        // Blocks the click towards the shell while Settings is open.
         MouseArea { anchors.fill: parent }
 
-        // ---- componentes reutilizables del panel -------------------------
-        // Tarjeta de sección: título discreto + superficie con 1 borde.
+        // ---- reusable panel components -------------------------
+        // Section card: discreet title + surface with a 1 px border.
         component SettingSection: ColumnLayout {
             id: sec
             property string title: ""
@@ -2972,8 +3038,8 @@ Window {
                 implicitHeight: body.implicitHeight + Theme.s4 * 2
                 radius: Theme.rLg
                 color: Sys.surface
-                // Mismo filo tenue que las islas: la jerarquía la marca el aire,
-                // no una línea dura.
+                // The same faint edge as the islands: the hierarchy is
+                // marked by the air, not by a hard line.
                 border.width: 1
                 border.color: Theme.alpha(Sys.text, Theme.panelBorderAlpha)
 
@@ -2986,7 +3052,7 @@ Window {
             }
         }
 
-        // Fila: etiqueta + descripción a la izquierda, control a la derecha.
+        // Row: label + description on the left, control on the right.
         component SettingRow: RowLayout {
             id: row
             property string label: ""
@@ -3025,7 +3091,8 @@ Window {
             }
         }
 
-        // Bloque: etiqueta + descripción arriba y control a lo ancho debajo.
+        // Block: label + description on top and the control full width
+        // below.
         component SettingBlock: ColumnLayout {
             id: blk
             property string label: ""
@@ -3062,7 +3129,7 @@ Window {
             }
         }
 
-        // Interruptor tipo switch: pista + mando, acento cuando está activo.
+        // Switch style: track + knob, accent when it is on.
         component Toggle: Rectangle {
             id: tg
             property bool checked: false
@@ -3093,7 +3160,7 @@ Window {
             }
         }
 
-        // Chip de selección única.
+        // Single choice chip.
         component Chip: Rectangle {
             id: ch
             property string text: ""
@@ -3128,7 +3195,7 @@ Window {
             }
         }
 
-        // Campo de texto con etiqueta y marcador de posición.
+        // Text field with label and placeholder.
         component Field: ColumnLayout {
             id: fld
             property string label: ""
@@ -3175,7 +3242,7 @@ Window {
             }
         }
 
-        // Botón principal (acento).
+        // Primary button (accent).
         component PrimaryButton: Rectangle {
             id: pb
             property string text: ""
@@ -3208,7 +3275,8 @@ Window {
             }
         }
 
-        // Botón secundario; `danger` lo tiñe en rojo para acciones destructivas.
+        // Secondary button; `danger` tints it red for destructive
+        // actions.
         component GhostButton: Rectangle {
             id: gb
             property string text: ""
@@ -3244,7 +3312,7 @@ Window {
             }
         }
 
-        // Insignia de estado (lista / pendiente, o sesión iniciada).
+        // Status badge (list / pending, or session signed in).
         component StatusBadge: Rectangle {
             id: sb
             property bool ok: false
@@ -3265,15 +3333,17 @@ Window {
             }
         }
 
-        // La isla de Ajustes: misma superficie redondeada y mismo filo tenue
-        // que el resto del shell. El contenido va encima con su propio relleno.
+        // The Settings island: same rounded surface and same faint edge
+        // as the rest of the shell. The content goes on top with its own
+        // padding.
         Panel {
             id: settingsIsland
             anchors.fill: parent
             anchors.margins: Theme.panelMargin
             radius: Theme.rPanel
-            // Fondo base (el mismo que la ventana): así las tarjetas de sección
-            // (`surface`) y los botones (`surfaceAlt`) conservan su contraste.
+            // Base background (the same as the window): that way the
+            // section cards (`surface`) and the buttons (`surfaceAlt`) keep
+            // their contrast.
             color: Sys.bg
             clipContent: true
         }
@@ -3287,7 +3357,7 @@ Window {
             anchors.bottomMargin: Theme.panelMargin + Theme.s3
             spacing: Theme.s3
 
-            // ---- cabecera -----------------------------------------------
+            // ---- header -----------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s3
@@ -3337,15 +3407,15 @@ Window {
 
                 ColumnLayout {
                     id: settingsCol
-                    // Columna centrada con ancho legible: no se estira de borde
-                    // a borde en pantallas anchas y nunca desborda en ventanas
-                    // pequeñas.
+                    // Centred column with a readable width: it does not
+                    // stretch edge to edge on wide screens and never
+                    // overflows on small windows.
                     width: Math.min(settingsScroll.width, 820)
                     x: Math.max(0, (settingsScroll.width - width) / 2)
                     spacing: Theme.s5
 
                     // ======================================================
-                    // APARIENCIA
+                    // APPEARANCE
                     // ======================================================
                     SettingSection {
                         title: "Apariencia"
@@ -3363,8 +3433,9 @@ Window {
                             }
                         }
 
-                        // Wash de la portada actual de fondo (estilo Liner):
-                        // pseudo-desenfoque sin GPU + islas esmeriladas.
+                        // Wash of the current artwork as background
+                        // (Liner style): pseudo blur with no GPU +
+                        // frosted islands.
                         SettingRow {
                             label: "Fondo dinámico"
                             desc: "La portada de la pista tiñe el fondo y esmerila los paneles"
@@ -3373,8 +3444,9 @@ Window {
                                 onToggled: {
                                     Sys.dynamicBg = !Sys.dynamicBg
                                     root.cfgSet("dynamicBg", Sys.dynamicBg)
-                                    // Al encenderlo a media sesión, el lavado
-                                    // se calcula ya con la pista actual.
+                                    // When it is switched on mid session,
+                                    // the wash is computed with the current
+                                    // track right away.
                                     if (Sys.dynamicBg && root.currentThumb)
                                         wash.setSource(root.currentThumb)
                                     root.toast("Guardado en la configuración")
@@ -3410,7 +3482,7 @@ Window {
                     }
 
                     // ======================================================
-                    // REPRODUCCIÓN
+                    // PLAYBACK
                     // ======================================================
                     SettingSection {
                         title: "Reproducción"
@@ -3458,8 +3530,9 @@ Window {
                             }
                         }
 
-                        // Al agotarse la cola, YouTube Music pone la
-                        // «siguiente canción» (radio sembrada en la última).
+                        // When the queue runs out, YouTube Music plays
+                        // the "next song" (a radio seeded with the last
+                        // one).
                         SettingRow {
                             label: "Reproducción automática"
                             desc: "Al terminar la cola, sigue con canciones parecidas"
@@ -3479,7 +3552,7 @@ Window {
                     }
 
                     // ======================================================
-                    // LETRAS
+                    // LYRICS
                     // ======================================================
                     SettingSection {
                         title: "Letras"
@@ -3577,7 +3650,7 @@ Window {
                     }
 
                     // ======================================================
-                    // DESCARGAS
+                    // DOWNLOADS
                     // ======================================================
                     SettingSection {
                         title: "Descargas"
@@ -3611,7 +3684,7 @@ Window {
                     }
 
                     // ======================================================
-                    // CUENTAS
+                    // ACCOUNTS
                     // ======================================================
                     SettingSection {
                         title: "Cuentas"
@@ -3622,7 +3695,8 @@ Window {
                                 required property var modelData
                                 required property int index
                                 Layout.fillWidth: true
-                                // Aire entre cuentas en vez de una línea divisoria.
+                                // Air between the accounts instead of a
+                                // dividing line.
                                 Layout.topMargin: index > 0 ? Theme.s5 : 0
                                 spacing: Theme.s3
 
@@ -3641,7 +3715,7 @@ Window {
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                // ---- YouTube Music (sesión de Google) ------
+                                // ---- YouTube Music (Google sign in) ------
                                 Text {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "ytm"
@@ -3737,7 +3811,7 @@ Window {
                                     }
                                 }
 
-                                // ---- SoundCloud (acceso público) -----------
+                                // ---- SoundCloud (public access) -----------
                                 Text {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "soundcloud"
@@ -3747,7 +3821,7 @@ Window {
                                     elide: Text.ElideRight
                                 }
 
-                                // ---- Spotify (credenciales) ----------------
+                                // ---- Spotify (credentials) ----------------
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "spotify"
@@ -3798,7 +3872,7 @@ Window {
                                     }
                                 }
 
-                                // ---- Tidal (credenciales) ------------------
+                                // ---- Tidal (credentials) ------------------
                                 ColumnLayout {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "tidal"
@@ -3849,7 +3923,7 @@ Window {
             }
         }
 
-        // ---- indicador de scroll propio -------------------------------
+        // ---- own scroll indicator -------------------------------
         Rectangle {
             id: settingsBar
             visible: settingsScroll.contentHeight > settingsScroll.height + 1
@@ -4046,10 +4120,10 @@ Window {
         }
     }
 
-    // ---- ficha de artista (capa a pantalla completa) ----------------------
-    // Discografía del artista abierto desde la búsqueda de artistas. Por
-    // debajo de las cartas emergentes y los toasts (z 97/98) para que el
-    // aviso de «N temas en la cola» se siga leyendo con la ficha abierta.
+    // ---- artist page (full screen layer) ----------------------
+    // Discography of the artist opened from the artist search. Below
+    // the popups and the toasts (z 97/98) so the "N tracks in the
+    // queue" notice stays readable with the page open.
     ArtistPage {
         id: artistOverlay
         anchors.fill: parent
@@ -4063,10 +4137,10 @@ Window {
         onAlbumPlayRequested: (album) => root.artistPlayAlbum(album)
     }
 
-    // ---- splash de arranque ------------------------------------------------
-    // El loto entra con un fundido y un leve crecimiento, aguanta, y se va
-    // desvaneciendo. Un Item dentro de la ventana (nada de segunda ventana:
-    // coste de RAM cero) que además traga los clics mientras dura (~1,3 s).
+    // ---- startup splash ------------------------------------------------
+    // The lotus fades in with a slight growth, holds, and fades out. An
+    // Item inside the window (no second window: zero RAM cost) that also
+    // swallows the clicks while it lasts (~1.3 s).
     Item {
         id: splashOverlay
         anchors.fill: parent
