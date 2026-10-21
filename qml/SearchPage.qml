@@ -33,6 +33,17 @@ Item {
     readonly property var flatResults: {
         const out = []
         let ti = 0
+        // Los artistas primero (sección "ARTISTAS"): son pocas y es lo que
+        // la gente busca al teclear un nombre de artista.
+        if (!page.artistMode && page.artistResults && page.artistResults.length > 0) {
+            out.push({ secHead: true, sec: "Artistas", note: "" })
+            for (let a = 0; a < page.artistResults.length && a < 3; a++) {
+                const ar = page.artistResults[a]
+                out.push({ secHead: false, kind: "artist", map: ar,
+                           title: ar.name || "", artist: ar.subtitle || "",
+                           thumb: ar.thumb || "", url: "" })
+            }
+        }
         const groups = catalog.resultsBySource
         for (let i = 0; i < groups.length; i++) {
             const g = groups[i]
@@ -57,9 +68,11 @@ Item {
     // Las pistas en orden plano: es la lista que se reproduce al pulsar.
     readonly property var flatTracks: {
         const out = []
-        for (let i = 0; i < page.flatResults.length; i++)
-            if (!page.flatResults[i].secHead)
-                out.push(page.flatResults[i].track)
+        for (let i = 0; i < page.flatResults.length; i++) {
+            const r = page.flatResults[i]
+            if (!r.secHead && r.track)
+                out.push(r.track)
+        }
         return out
     }
 
@@ -145,6 +158,11 @@ Item {
         results.positionViewAtBeginning()   // toda búsqueda nueva empieza arriba
         // Todas las fuentes a la vez: no hay que elegir una antes de buscar.
         catalog.searchAll(q)
+        // Y en paralelo los artistas (van en su propio proceso del backend):
+        // aparecen como una sección arriba de la lista, sin tener que
+        // cambiar de modo.
+        if (q.length >= 2)
+            catalog.searchArtists(q)
     }
 
     // Explicit search: Enter, a History chip or "Search the artist". It
@@ -193,11 +211,13 @@ Item {
     Connections {
         target: catalog
         function onArtistsReady(artists) {
-            if (!page.artistMode)
-                return
+            // The artists arrive in both modes: in the songs mode they are
+            // a section at the top of the list, in the artist mode they are
+            // the list itself.
             page.artistBusy = false
             page.artistResults = artists || []
-            artistList.positionViewAtBeginning()
+            if (page.artistMode)
+                artistList.positionViewAtBeginning()
         }
     }
 
@@ -554,6 +574,9 @@ Item {
                             if (mouse.button === Qt.RightButton) {
                                 const p = mapToItem(null, mouse.x, mouse.y)
                                 page.trackContextRequested(rrow.modelData, p.x, p.y)
+                            } else if (rrow.modelData.kind === "artist") {
+                                // Es un artista: se abre su ficha.
+                                page.artistRequested(rrow.modelData.map)
                             } else {
                                 page.playRequested(page.flatTracks, rrow.modelData.ti)
                             }
