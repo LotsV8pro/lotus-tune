@@ -205,11 +205,21 @@ QColor ColorPick::dominant(const QImage &src0)
 
     if (bx < 0 || totW <= 0.0)
         return {};
+    QColor c;
     if (best <= 0.0)
-        return QColor::fromRgb(int(totR / totW), int(totG / totW), int(totB / totW));
-    return QColor::fromRgb(qBound(0, int(sr[bx][by][bz] / best), 255),
-                           qBound(0, int(sg[bx][by][bz] / best), 255),
-                           qBound(0, int(sb[bx][by][bz] / best), 255));
+        c = QColor::fromRgb(int(totR / totW), int(totG / totW), int(totB / totW));
+    else
+        c = QColor::fromRgb(qBound(0, int(sr[bx][by][bz] / best), 255),
+                            qBound(0, int(sg[bx][by][bz] / best), 255),
+                            qBound(0, int(sb[bx][by][bz] / best), 255));
+    // Un poco de vida: el color tal cual sale casi siempre apagado (las
+    // portadas son fotos oscuras) y no se aprecia como «el color de la
+    // portada». Se sube la saturación y se levanta el brillo sin llegar a
+    // pasarlo de Saturado.
+    const QColor hsv = c.toHsv();
+    const int s = qMin(255, int(hsv.saturation() * 1.35) + 20);
+    const int v = qBound(60, hsv.value(), 235);
+    return QColor::fromHsv(hsv.hue(), s, v);
 }
 
 void ColorPick::pick(const QUrl &url)
