@@ -172,6 +172,49 @@ Item {
                     font.letterSpacing: 0.8
                 }
             }
+
+            // Botón de play en la ESQUINA de la portada (abajo a la
+            // derecha): aparece al pasar el ratón, sobre la foto que hace
+            // zoom. Va DENTRO de la portada para que siga en su esquina
+            // cuando la portada crece.
+            Rectangle {
+                id: playBtn
+                width: 38
+                height: 38
+                radius: Theme.rPill
+                color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
+                // Fino borde oscuro: se lee sobre cualquier portada, clara
+                // u oscura.
+                border.width: 1
+                border.color: Theme.alpha(Sys.bg, 0.28)
+                anchors.right: parent.right
+                anchors.rightMargin: Theme.s2
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Theme.s2
+                opacity: card.hovered ? 1 : 0
+                scale: card.hovered ? (playHit.pressed ? 0.92
+                                        : (playHit.containsMouse ? 1.06 : 1)) : 0.8
+                Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+                Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                Glyph {
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: 1
+                    width: 16
+                    height: 16
+                    kind: "play"
+                    color: Sys.onAccent
+                }
+
+                MouseArea {
+                    id: playHit
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); card.playClicked() }
+                }
+            }
         }
 
         // Texto: título a 2 líneas como máximo + subtítulo de una línea.
@@ -204,44 +247,6 @@ Item {
                 elide: Text.ElideRight
                 maximumLineCount: 1
                 verticalAlignment: Text.AlignTop
-            }
-        }
-
-        // Botón de play, en el CENTRO de la portada (estilo Apple Music):
-        // aparece al pasar el ratón, encima de la foto que hace zoom.
-        Rectangle {
-            id: playBtn
-            width: 42
-            height: 42
-            radius: Theme.rPill
-            color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-            // Fino borde oscuro: se lee sobre cualquier portada, clara u
-            // oscura.
-            border.width: 1
-            border.color: Theme.alpha(Sys.bg, 0.28)
-            anchors.centerIn: cover
-            opacity: card.hovered ? 1 : 0
-            scale: card.hovered ? (playHit.pressed ? 0.92
-                                    : (playHit.containsMouse ? 1.06 : 1)) : 0.8
-            Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
-            Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
-            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-            Glyph {
-                anchors.centerIn: parent
-                anchors.horizontalCenterOffset: 1
-                width: 17
-                height: 17
-                kind: "play"
-                color: Sys.onAccent
-            }
-
-            MouseArea {
-                id: playHit
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: { if (typeof sfx !== "undefined") sfx.play("play"); card.playClicked() }
             }
         }
     }
