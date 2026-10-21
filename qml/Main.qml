@@ -1686,13 +1686,18 @@ Window {
         const key = root.currentArtist + "|" + root.currentTitle
         if (root.lyricsKey === key)
             return
-        // Aún hay una petición en curso (el intento inmediato): la dejamos
-        // terminar; el siguiente latido (o cambio de estado) decide.
-        if (lyrics.loading)
+        // A qué pista pertenecen las letras que hay en memoria. Si no son
+        // de ESTA, la letra en pantalla (y la que lee el widget del
+        // escritorio) es de la canción ANTERIOR: hay que pedir la nueva.
+        const want = root.currentArtist + " - " + root.currentTitle
+        const sameTrack = String(lyrics.trackKey || "") === want
+        // Una petición en vuelo de ESTA pista se deja terminar; si es de
+        // otra, se cancela: gana la pista nueva.
+        if (sameTrack && lyrics.loading)
             return
         root.lyricsKey = key
-        // El intento inmediato ya trajo letra: no repetimos la petición.
-        if (lyrics.hasLyrics || lyrics.hasSynced)
+        // El intento inmediato ya trajo letra de ESTA pista: no repetimos.
+        if (sameTrack && (lyrics.hasLyrics || lyrics.hasSynced))
             return
         lyrics.fetch(root.currentArtist, root.currentTitle, dur,
                      root.currentVideoId)
@@ -1875,6 +1880,9 @@ Window {
         currentTitle = ""
         currentArtist = ""
         currentThumb = ""
+        // También el videoId: si no, el cine seguiría pidiendo las
+        // portadas nitidas del vídeo anterior y enseñaría otra portada.
+        root.currentVideoId = ""
         root.lyricsKey = ""
         root.metaKey = ""
         lyrics.clear()
