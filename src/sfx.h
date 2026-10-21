@@ -44,7 +44,7 @@ private:
     qreal m_volume;
     QMap<QString, QSoundEffect*> m_effects;
     QMap<QString, QString> m_soundMap;
-    // Efectos cuyo play() se pidió mientras seguían cargando.
+    // Effects whose play() was asked while they were still loading.
     QSet<QSoundEffect*> m_pending;
     QSoundEffect *m_keepAlive = nullptr;
 };

@@ -19,8 +19,8 @@
 #  include <sys/prctl.h>
 #endif
 
-// Máximo de resolutores yt-dlp simultáneos: la precarga de listas ("cocer"
-// streams por adelantado) avanza hasta 3x más rápida sin cambiar prioridades.
+// Maximum simultaneous yt-dlp resolvers: the list prefetch ("cooking"
+// streams ahead) advances up to 3x faster without changing priorities.
 namespace { constexpr int kMaxResolvers = 3; }
 
 Player::Player(QObject *parent)
@@ -33,25 +33,25 @@ Player::Player(QObject *parent)
     m_posFlush.setInterval(240);
     connect(&m_posFlush, &QTimer::timeout, this, [this] { emitPosition(true); });
 
-    // Caché en disco de streams resueltos: se vuelca en diferido para no
-    // escribir en cada resolución.
+    // On-disk cache of resolved streams: it is dumped in a deferred way so
+    // it does not write on every resolution.
     m_cacheSaveTimer.setSingleShot(true);
     m_cacheSaveTimer.setInterval(2500);
     connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Player::saveStreamCache);
     loadStreamCache();
 
-    // Pool de resolutores: hasta kMaxResolvers yt-dlp en paralelo. Cada slot
-    // lleva su propio proceso y temporizador; resolveQueue() sólo arranca los
-    // procesos que la cola necesite, así que 3 yt-dlp se ven únicamente cuando
-    // hay cola suficiente (nunca por tener el pool grande).
+    // Resolver pool: up to kMaxResolvers yt-dlp in parallel. Every slot
+    // carries its own process and timer; resolveQueue() only starts the
+    // processes the queue needs, so 3 yt-dlp are only seen when there is
+    // enough queue (never just because the pool is big).
     for (int i = 0; i < kMaxResolvers; ++i) {
         auto *job = new ResolveJob;
         m_jobs.append(job);
         job->proc.setProcessChannelMode(QProcess::SeparateChannels);
-        // Tope de tiempo por pre-resolución: red de seguridad ante un yt-dlp
-        // colgado (no ante una resolución normal, que tarda ~2.5 s). Si aún así
-        // un load() está esperando esta pista, no se abandona a mpv: se concede
-        // un único margen extra antes de matarla.
+        // Time cap per pre-resolution: a safety net against a hung yt-dlp
+         // (not against a normal resolution, which takes ~2.5 s). If a
+         // load() is still waiting for this track, it is not abandoned to
+         // mpv: a single extra margin is granted before killing it.
         job->timer.setSingleShot(true);
         job->timer.setInterval(12000);
         connect(&job->timer, &QTimer::timeout, this, [this, job] { onResolveTimeout(job); });
@@ -78,9 +78,10 @@ Player::~Player()
         if (m_proc.state() != QProcess::NotRunning)
             m_proc.kill();
     }
-    // Detén los resolutores del pool: sin el disconnect, matar un yt-dlp aquí
-    // dispararía finished() (y con él más resoluciones) durante la destrucción;
-    // sin el kill+wait, un yt-dlp podría quedar huérfano.
+    // Stops the pool's resolvers: without the disconnect, killing a yt-dlp
+    // here would fire finished() (and with it more resolutions) during
+    // the destruction; without the kill+wait, a yt-dlp could be left
+    // orphaned.
     for (ResolveJob *job : m_jobs) {
         job->timer.stop();
         QObject::disconnect(&job->proc, nullptr, this, nullptr);
@@ -93,8 +94,9 @@ Player::~Player()
     m_jobs.clear();
 }
 
-// Las URLs de music.youtube.com tardan ~1 s más en resolverse que las de
-// www.youtube.com (mismo vídeo): normalizar acelera y unifica la caché.
+// The music.youtube.com URLs take ~1 s more to resolve than the
+// www.youtube.com ones (same video): normalising speeds it up and unifies
+// the cache.
 QString Player::normalizeUrl(const QString &url)
 {
     if (url.contains(QLatin1String("music.youtube.com")))
@@ -168,11 +170,12 @@ void Player::startMpv()
     QFile::remove(m_socketPath);
 
     m_proc.setProgram(QStringLiteral("mpv"));
-    // Argumentos "frugales": sin ventana, vídeo, OSD/OSC ni subtítulos, y con
-    // las cachés del demuxer al mínimo para recortar el uso de RAM. El audio
-    // NO se recodifica: no se fuerza --audio-format ni --audio-channels, así
-    // que se reproduce el stream original de yt-dlp a máxima fidelidad.
-    // Nota: --ao se omite a propósito para que mpv elija la salida disponible.
+    // "Frugal" arguments: no window, no video, no OSD/OSC nor subtitles,
+    // and with the demuxer caches at the minimum to trim RAM use. The
+    // audio is NOT re-encoded: --audio-format and --audio-channels are not
+    // forced, so yt-dlp's original stream plays at full fidelity.
+    // Note: --ao is left out on purpose so mpv picks the available
+    // output.
     QStringList args{
         QStringLiteral("--no-config"),
         QStringLiteral("--no-video"),
@@ -203,16 +206,17 @@ void Player::startMpv()
         QStringLiteral("--demuxer-max-back-bytes=1MiB"),
         QStringLiteral("--demuxer-readahead-secs=10"),
     };
-    // Si hay sesión de YouTube Music, yt-dlp reproduce con las cookies: así se
-    // resuelven pistas restringidas, "Música que me gusta" y playlists privadas.
+    // If there is a YouTube Music session, yt-dlp plays with the cookies:
+    // that way restricted tracks, "Liked Music" and private playlists
+    // resolve.
     const QString cookies =
         QDir::homePath() + QStringLiteral("/.config/lotus-tune/cookies.txt");
     if (QFile::exists(cookies))
         args << QStringLiteral("--ytdl-raw-options=cookies=") + cookies
              << QStringLiteral("--ytdl-raw-options-append=no-warnings=")
-             // Cliente de extracción que evita los 403 "no audio or video data
-             // played" que YouTube devuelve hoy con el cliente por defecto.
-             // Requiere cookies (cliente autenticado).
+             // Extraction client that avoids the 403 "no audio or video data
+             // played" YouTube returns today with the default client.
+             // It needs cookies (authenticated client).
              << QStringLiteral(
                     "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_creator;player_skip=configs");
     m_proc.setArguments(args);
@@ -232,14 +236,14 @@ void Player::startMpv()
                 m_connectTimer.stop();
                 emit stateChanged();
             });
-    // Si la app muere (incluso con SIGKILL), mpv recibe SIGTERM y no queda como
-    // proceso huérfano bloqueando el socket IPC.
+    // If the app dies (even with SIGKILL) mpv gets SIGTERM and is not
+    // left as an orphan process blocking the IPC socket.
     m_proc.setChildProcessModifier([] {
 #ifdef Q_OS_LINUX
         ::prctl(PR_SET_PDEATHSIG, SIGTERM);
 #endif
     });
-    // Limpia un socket residual de una ejecución anterior antes de arrancar.
+    // Cleans a leftover socket from a previous run before starting.
     QFile::remove(m_socketPath);
     m_proc.start();
     if (!m_proc.waitForStarted(3000))
@@ -308,15 +312,17 @@ void Player::handleLine(const QByteArray &line)
         const QString name = o.value(QStringLiteral("name")).toString();
         const QJsonValue data = o.value(QStringLiteral("data"));
         if (name == QLatin1String("pause")) {
-            // mpv reporta pause=false también en idle (sin fichero): sin el
-            // guard de m_hasFile la app creería estar reproduciendo nada más
-            // arrancar y publicaría un "Playing" fantasma en MPRIS.
+            // mpv reports pause=false when idle too (no file): without
+             // the m_hasFile guard the app would think it is playing
+             // nothing right after starting and would publish a phantom
+             // "Playing" on MPRIS.
             m_playing = m_hasFile && !data.toBool(true);
             emit stateChanged();
         } else if (name == QLatin1String("duration")) {
             const double d = data.toDouble();
-            // Si hay un load() esperando a la pre-resolución, mpv sigue con la
-            // pista anterior: sus eventos no deben dar por terminada la espera.
+            // If a load() is waiting for the pre-resolution, mpv carries
+             // on with the previous track: its events must not end the
+             // wait.
             if (d > 0.0 && m_loading && m_pendingLoadUrl.isEmpty()) {
                 m_loading = false;   // ya hay stream: termina la espera
                 emit stateChanged();
@@ -365,8 +371,9 @@ void Player::handleLine(const QByteArray &line)
             qWarning() << "[player] playback error" << "url=" << m_currentUrl
                        << "err=" << o.value(QStringLiteral("error")).toString()
                        << "file=" << o.value(QStringLiteral("file_error")).toString();
-            // Fallo transitorio típico de YouTube/yt-dlp (rate-limit o token):
-            // reintenta la misma pista un par de veces antes de darla por perdida.
+            // Typical transient YouTube/yt-dlp failure (rate limit or
+             // token): it retries the same track a couple of times before
+             // giving it up.
             if (m_retry < 2 && !m_currentUrl.isEmpty()) {
                 ++m_retry;
                 const QString url = m_currentUrl;
@@ -435,9 +442,9 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
     }
     const bool network = url.startsWith(QLatin1String("http"));
     const bool cached = m_resolved.contains(url);
-    // Caso "ya suena": tenemos la URL directa cacheada, es un fichero local que
-    // mpv abre tal cual, o ya no cabe resolver (nuestra pre-resolución falló y
-    // dejamos que mpv lo intente por su cuenta).
+    // "Already playing" case: we have the direct URL cached, it is a
+    // local file that mpv opens as it is, or it can no longer be resolved
+    // (our pre-resolution failed and we let mpv try on its own).
     if (!network || cached || !allowResolve) {
         m_pendingLoadUrl.clear();
         m_position = 0;
@@ -448,8 +455,9 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
         qInfo() << "[player] load" << url;
         emit positionChanged();
         emit stateChanged();
-        // Se conserva la entrada (no se consume): una repetición vuelve a sonar
-        // al instante. Si la URL resulta caducada, el error de mpv la invalida.
+        // The entry is kept (not consumed): a repeat plays instantly
+         // again. If the URL turns out to be expired, mpv's error
+         // invalidates it.
         const QString direct = m_resolved.value(url);
         send({{QStringLiteral("command"),
                QJsonArray{QStringLiteral("loadfile"), direct.isEmpty() ? url : direct,
@@ -460,10 +468,11 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
         emit stateChanged();
         return;
     }
-    // Sin cachear: la resolvemos NOSOTROS (con prioridad máxima) y esperamos.
-    // Nunca se la pasamos a mpv para que la resuelva: su yt-dlp interno es
-    // bastante más lento (en vídeos sólo-HLS supera los 25 s). La UI muestra
-    // "Cargando…" mientras tanto y, si falla, caemos a mpv (loadImpl(false)).
+    // Not cached: we resolve it OURSELVES (with the highest priority) and
+    // wait. It is never handed to mpv to resolve: its internal yt-dlp is
+    // much slower (on HLS only videos it goes over 25 s). The UI shows
+    // "Loading..." meanwhile and, if it fails, it falls back to mpv
+    // (loadImpl(false)).
     if (!isResolving(url))
         enqueueResolve(url, true, /*urgent=*/true);
     m_pendingLoadUrl = url;
@@ -494,20 +503,22 @@ void Player::prefetchFront(const QString &url)
 
 void Player::clearPrefetch()
 {
-    // Sólo la cola de fondo: la de prioridad (hover/clic) es del usuario y está
-    // a punto de consumirse; además un load() puede estar esperándola.
+    // Only the background queue: the priority one (hover/click) belongs to
+    // the user and is about to be consumed; also a load() may be waiting
+    // for it.
     m_resolveQueue.clear();
 }
 
-// Alta en las colas de pre-resolución. La cola "front" (hover) tiene prioridad
-// absoluta sobre la de fondo (siguientes de la lista): así el clic inminente
-// del usuario no espera detrás de las canciones que aún no va a tocar.
+// Entry into the pre-resolution queues. The "front" queue (hover) has
+// absolute priority over the background one (the list's next tracks):
+// that way the user's imminent click does not wait behind the songs they
+// are not going to play yet.
 //
-// `urgent` (clic del usuario) adelanta SIEMPRE lo que se esté resolviendo, sea
-// de hover o de fondo, porque el usuario ya ha elegido otra pista. Sin `urgent`
-// (hover) sólo se reordena: nunca se descarta trabajo ya empezado. Nunca se
-// descarta, además, si un load() espera esa misma resolución: sería dejar sin
-// cargar la pista pulsada.
+// `urgent` (the user's click) ALWAYS overtakes whatever is being
+// resolved, hover or background, because the user already chose another
+// track. Without `urgent` (hover) it only reorders: work already started
+// is never dropped. And it is never dropped if a load() is waiting for
+// that same resolution: that would leave the pressed track unloaded.
 void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
 {
     const QString url = normalizeUrl(rawUrl);
@@ -517,28 +528,31 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
         return;   // dedupe: nunca dos resoluciones del MISMO url a la vez
     if (front) {
         m_resolveQueue.removeAll(url);
-        // La cola front es LIFO: el hover MÁS RECIENTE (la fila donde está el
-        // ratón, la que el usuario está a punto de pulsar) se resuelve antes
-        // que los hovers antiguos. Re-encolar refresca esa recencia.
+        // The front queue is LIFO: the MOST RECENT hover (the row the
+         // mouse is on, the one the user is about to press) is resolved
+         // before the old ones. Re-queueing refreshes that recency.
         m_resolveFront.removeAll(url);
         m_resolveFront.append(url);
         while (m_resolveFront.size() > 8)
             m_resolveFront.removeFirst();
-        // El hover NO descarta lo que se esté resolviendo: sólo reordena (lo
-        // puesto a mano en `front` corre justo después). Antes un barrido del
-        // ratón mataba la precarga de fondo en vuelo y ésta NUNCA terminaba,
-        // que es justo lo que hacía que una canción buscada tardara en sonar.
-        // Sólo un clic real (`urgent`) adelanta lo que haya en curso, porque el
-        // usuario ya ha elegido otra pista y no puede esperar. Con el pool sólo
-        // se mata si NO hay ningún slot libre: si lo hay, la urgente arranca de
-        // inmediato sin tocar lo que ya está en vuelo.
+        // The hover does NOT drop what is being resolved: it only
+         // reorders (what was put by hand in `front` runs right after).
+         // Before, a mouse sweep killed the background prefetch in
+         // flight and it NEVER finished, which is exactly what made a
+         // searched song take so long to sound. Only a real click
+         // (`urgent`) overtakes what is in progress, because the user
+         // already chose another track and cannot wait. With the pool it
+         // is only killed if there is NO free slot: if there is one, the
+         // urgent one starts right away without touching what is in
+         // flight.
         if (urgent && !hasFreeJob()) {
             ResolveJob *victim = pickVictim(url);
             if (victim) {
-                // La pista abandonada se re-encola AL FINAL (antes iba al
-                // principio, y una pista ya descartada se re-resolvía en bucle
-                // bloqueando las pre-cargas nuevas). Se limpia su url ANTES de
-                // matarla para que su finished() no la vuelva a procesar.
+                // The abandoned track is re-queued at the END (it used to
+                 // go first, and an already dropped track was resolved
+                 // again in a loop blocking the new prefetches). Its url
+                 // is cleared BEFORE killing it so its finished() does
+                 // not process it again.
                 const QString abandoned = victim->url;
                 victim->url.clear();
                 victim->front = false;
@@ -560,9 +574,9 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
     resolveQueue();
 }
 
-// Rellena todos los slots libres del pool con trabajo pendiente. Al consumir
-// una URL por slot (y parar en cuanto no queda nada) nunca se levantan más
-// yt-dlp de los necesarios: 3 solo cuando hay cola suficiente.
+// Fills every free slot of the pool with pending work. Since a slot
+// consumes one URL (and stops as soon as there is nothing left) more
+// yt-dlp are never started than needed: 3 only with enough queue.
 void Player::resolveQueue()
 {
     for (ResolveJob *job : m_jobs) {
@@ -576,9 +590,9 @@ void Player::resolveQueue()
     }
 }
 
-// Siguiente URL a resolver: primero la cola prioritaria (hover más reciente
-// primero, LIFO) y después la de fondo (orden de la lista, FIFO). Descarta lo
-// ya resuelto o en vuelo en otro slot.
+// Next URL to resolve: first the priority queue (most recent hover first,
+// LIFO) and then the background one (list order, FIFO). It skips what is
+// already resolved or in flight in another slot.
 QString Player::takeNextResolve(bool &front)
 {
     for (int pass = 0; pass < 2; ++pass) {
@@ -614,16 +628,18 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     if (QFile::exists(cookies)) {
         args << QStringLiteral("--cookies") << cookies
              << QStringLiteral("--extractor-args")
-             // player_skip=configs evita descargar configs del player: recorta
-             // ~0,5-1 s por resolución sin afectar a la reproducción.
+             // player_skip=configs avoids downloading the player's
+             // configs: it trims ~0.5-1 s per resolution without
+             // affecting the playback.
              << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
     }
     args << url;
     job->proc.setProgram(QStringLiteral("yt-dlp"));
     job->proc.setArguments(args);
-    // Si la app muere (incluso con SIGKILL), el yt-dlp del slot recibe SIGTERM
-    // y no queda huérfano consumiendo CPU/red. Se fija antes de CADA arranque
-    // porque el mismo QProcess se reutiliza para varias resoluciones.
+    // If the app dies (even with SIGKILL) the slot's yt-dlp gets SIGTERM
+    // and is not left orphaned eating CPU/network. It is set before EVERY
+    // start because the same QProcess is reused for several
+    // resolutions.
     job->proc.setChildProcessModifier([] {
 #ifdef Q_OS_LINUX
         ::prctl(PR_SET_PDEATHSIG, SIGTERM);
@@ -633,8 +649,9 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     job->timer.start();
     if (!job->proc.waitForStarted(3000)) {
         qWarning() << "[player] failed to start yt-dlp resolver";
-        // Sin proceso no habrá finished(): libera el slot y, si un load()
-        // esperaba esta pista, deja que mpv la resuelva por su cuenta.
+        // Without a process there will be no finished(): the slot is
+         // freed and, if a load() was waiting for this track, mpv is
+         // left to resolve it on its own.
         job->timer.stop();
         job->url.clear();
         job->front = false;
@@ -663,10 +680,10 @@ bool Player::hasFreeJob() const
     return false;
 }
 
-// Elige qué resolución en curso descartar para atender una urgente. Nunca la
-// misma URL pedida ni una que un load() esté esperando. Prefiere descartar una
-// de fondo antes que una prioritaria y, a igualdad, la más reciente (es la que
-// menos trabajo lleva hecho).
+// Picks which resolution in progress to drop to serve an urgent one.
+// Never the requested URL itself, nor one a load() is waiting for. It
+// prefers dropping a background one over a priority one and, on a tie,
+// the most recent one (it has the least work done).
 Player::ResolveJob *Player::pickVictim(const QString &url)
 {
     ResolveJob *victim = nullptr;
@@ -704,7 +721,7 @@ void Player::onResolveFinished(ResolveJob *job, int code)
                 m_resolvedAt.insert(url, QDateTime::currentSecsSinceEpoch());
                 m_cacheDirty = true;
                 m_cacheSaveTimer.start();
-                // Tope en memoria: descarta las más antiguas.
+                // Memory cap: the oldest ones are dropped.
                 if (m_resolved.size() > 300) {
                     QStringList keys = m_resolvedAt.keys();
                     std::sort(keys.begin(), keys.end(),
@@ -721,9 +738,9 @@ void Player::onResolveFinished(ResolveJob *job, int code)
             }
         }
     }
-    // Un load() que estaba esperando a esta misma pista (en cualquiera de los
-    // slots): ya hay URL directa (o, si la resolución falló, cae a que mpv la
-    // resuelva por su cuenta).
+    // A load() that was waiting for this same track (in any of the slots):
+     // there is already a direct URL (or, if the resolution failed, it
+     // falls back to mpv resolving it on its own).
     if (!url.isEmpty() && m_pendingLoadUrl == url) {
         m_pendingLoadUrl.clear();
         loadImpl(url, /*allowResolve=*/m_resolved.contains(url));
@@ -735,8 +752,9 @@ void Player::onResolveTimeout(ResolveJob *job)
 {
     if (job->proc.state() == QProcess::NotRunning)
         return;
-    // Si un load() espera esta pista, se concede un único margen extra antes de
-    // matarla (la resolución interna de mpv es bastante más lenta).
+    // If a load() is waiting for this track, a single extra margin is
+    // granted before killing it (mpv's internal resolution is much
+    // slower).
     if (!job->grace && !m_pendingLoadUrl.isEmpty() && m_pendingLoadUrl == job->url) {
         job->grace = true;
         job->timer.start(20000);
@@ -759,24 +777,27 @@ void Player::stopPlayback()
 
 void Player::seek(double seconds)
 {
-    // Sin fichero no hay nada que buscar: ignorar evita publicar posiciones
-    // inventadas (Position de MPRIS) cuando el motor está en idle.
+    // Without a file there is nothing to look for: ignoring it avoids
+    // publishing made up positions (MPRIS Position) while the engine is
+    // idle.
     if (!m_hasFile)
         return;
-    // Clamp a [0, duración] si se conoce: un destino fuera de rango hace que
-    // mpv salte a eof y deja a los widgets con position/length inválidos.
+    // Clamp to [0, duration] when it is known: a target out of range
+    // makes mpv jump to eof and leaves the widgets with an invalid
+    // position/length.
     if (seconds < 0.0)
         seconds = 0.0;
     else if (m_duration > 0.0 && seconds > m_duration)
         seconds = m_duration;
 
-    // Un seek justo al final hace que mpv emita end-file de inmediato: la
-    // pista se descarga, PlaybackStatus cae a "Stopped" y los widgets pierden
-    // trackid/length (el "widget se rompe" si arrastras más allá del final).
-    // Con keep-open POR FICHERO mpv se queda clavado en el último instante sin
-    // descargar; si el destino no es el final se restaura keep-open=no DESPUÉS
-    // del seek (restaurarlo antes, estando ya en eof, descargaría la pista)
-    // para que el final natural siga avanzando la cola.
+    // A seek right at the end makes mpv emit end-file immediately: the
+    // track is unloaded, PlaybackStatus drops to "Stopped" and the
+    // widgets lose trackid/length (the "widget breaks" if you drag
+    // past the end). With keep-open PER FILE mpv stays stuck at the last
+    // instant without unloading; if the target is not the end, keep-open
+    // is restored to no AFTER the seek (restoring it before, already in
+    // eof, would unload the track) so the natural end still advances the
+    // queue.
     const bool atEnd = m_duration > 0.0 && seconds >= m_duration - 0.05;
     if (atEnd) {
         send({{QStringLiteral("command"),
@@ -795,8 +816,8 @@ void Player::seek(double seconds)
     }
     m_position = seconds;
     emit positionChanged();
-    // MPRIS anuncia Seeked a partir de aquí (una vez, venga el seek de la app
-    // o del widget).
+    // MPRIS announces Seeked from here (once, whether the seek came from
+    // the app or from the widget).
     emit seeked(seconds);
 }
 
@@ -836,8 +857,8 @@ void Player::setQuality(const QString &q)
         return;
     m_quality = canonical;
     emit qualityChanged();
-    // Cambio en caliente: mpv aplica el nuevo --ytdl-format la próxima vez
-    // que resuelve un stream (no interrumpe la pista actual).
+    // Hot change: mpv applies the new --ytdl-format the next time it
+    // resolves a stream (it does not interrupt the current track).
     send({{QStringLiteral("command"),
            QJsonArray{QStringLiteral("set"), QStringLiteral("ytdl-format"),
                       ytdlFormat()}}});

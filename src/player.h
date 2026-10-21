@@ -25,12 +25,12 @@ class Player : public QObject
     Q_PROPERTY(QString engineStatus READ engineStatus NOTIFY stateChanged)
     // Calidad de audio elegida: "max" | "alta" | "media" | "baja".
     Q_PROPERTY(QString quality READ quality NOTIFY qualityChanged)
-    // ¿Hay (o se está cargando) un fichero en mpv? Necesario en QML para saber
-    // si el "play" debe arrancar la pista restaurada de la sesión (aún sin
-    // cargar) o solo alternar la pausa de lo que ya está sonando.
+    // Is there (or is there loading) a file in mpv? QML needs it to know
+    // whether "play" should start the track restored from the session (not
+    // loaded yet) or just toggle the pause of what is already playing.
     Q_PROPERTY(bool hasFile READ hasFile NOTIFY stateChanged)
-    // Pista pedida pero cuyo stream aún se está resolviendo/cargando en mpv
-    // (todavía no suena). Permite a la UI mostrar un estado de espera.
+    // Track requested but whose stream is still being resolved/loaded in
+    // mpv (it does not sound yet). It lets the UI show a waiting state.
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
 
 public:
@@ -44,13 +44,13 @@ public:
     int volume() const { return m_volume; }
     QString engineStatus() const { return m_status; }
     QString quality() const { return m_quality; }
-    // ¿Hay (o se está cargando) un fichero en mpv? Necesario porque mpv en
-    // idle reporta pause=false: sin este dato se publicaría un "Playing"
-    // fantasma en MPRIS nada más arrancar la app.
+    // Is there (or is there loading) a file in mpv? It is needed because
+    // mpv when idle reports pause=false: without this data a phantom
+    // "Playing" would be published on MPRIS as soon as the app starts.
     bool hasFile() const { return m_hasFile; }
-    // ¿Pedida una pista pero aún sin sonar (resolviendo/cargando)?
+    // A track was asked for but does not sound yet (resolving/loading)?
     bool loading() const { return m_loading; }
-    // URL/página del track en curso (para xesam:url de MPRIS).
+    // URL/page of the current track (for MPRIS' xesam:url).
     QString currentUrl() const { return m_currentUrl; }
 
     Q_INVOKABLE void load(const QString &url);
@@ -60,25 +60,26 @@ public:
     Q_INVOKABLE void setVolume(int v);
     // Cambia el selector --ytdl-format de mpv en caliente (por IPC).
     Q_INVOKABLE void setQuality(const QString &q);
-    // Pre-resuelve la URL directa del stream de `url` en background (yt-dlp
-    // --get-url con la misma sesión/cookies que mpv) y la cachea, de modo que
-    // un load() posterior reciba la URL ya resuelta y empiece casi al instante
-    // (estilo Sonora: sin esperar la resolución dentro de mpv).
+    // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
+    // --get-url with the same session/cookies as mpv) and caches it, so a
+    // later load() gets the already resolved URL and starts almost
+    // instantly (Sonora style: no waiting for the resolution inside mpv).
     Q_INVOKABLE void prefetch(const QString &url);
-    // Igual que prefetch(), pero con PRIORIDAD: se resuelve antes que cualquier
-    // prefetch de lista y, si ahora mismo se está resolviendo una pista de
-    // fondo, se descarta para atender esta ya. Pensado para el hover de una
-    // fila (el usuario está a punto de hacer clic en esa pista).
+    // Like prefetch(), but with PRIORITY: it is resolved before any list
+    // prefetch and, if a background track is being resolved right now, it
+    // is dropped to serve this one. It is meant for the hover of a row
+    // (the user is about to click that track).
     Q_INVOKABLE void prefetchFront(const QString &url);
-    // Descarta las pre-resoluciones PENDIENTES de la cola de fondo (no toca la
-    // que ya está en curso ni las de prioridad). Se llama al cambiar de
-    // contexto (nueva lista, aleatorio, otra pista) para que no queden
-    // resoluciones viejas bloqueando las nuevas.
+    // Drops the PENDING pre-resolutions of the background queue (it does
+     // not touch the one in progress nor the priority ones). It is called
+     // on a context change (new list, shuffle, another track) so no old
+     // resolutions are left blocking the new ones.
     Q_INVOKABLE void clearPrefetch();
 
-    // Normaliza la URL de página: las de music.youtube.com tardan ~1 s más en
-    // resolverse que las de www.youtube.com (mismo vídeo). Devolver siempre la
-    // forma www hace que resolver sea más rápido y comparta caché.
+    // Normalises the page URL: the music.youtube.com ones take ~1 s more
+     // to resolve than the www.youtube.com ones (same video). Always
+     // returning the www form makes the resolving faster and shares the
+     // cache.
     static QString normalizeUrl(const QString &url);
 
 signals:
@@ -86,9 +87,9 @@ signals:
     void positionChanged();
     void volumeChanged();
     void qualityChanged();
-    // Un seek aplicado por el motor (tanto los que hace la propia app como los
-    // que llegan por MPRIS), con la posición final en segundos. MPRIS lo usa
-    // para anunciar Seeked en el bus una sola vez por seek.
+    // A seek applied by the engine (both the ones the app makes and the
+     // ones coming through MPRIS), with the final position in seconds.
+     // MPRIS uses it to announce Seeked on the bus once per seek.
     void seeked(double seconds);
     // A track finished on its own (eof) or failed to play (error).
     void endOfFile(bool ok);
@@ -99,8 +100,8 @@ private:
     void send(const QJsonObject &cmd);
     void handleLine(const QByteArray &line);
     void emitPosition(bool force);
-    // Implementación real de load(): `allowResolve=false` se usa cuando nuestra
-    // pre-resolución ha fallado y toca dejar que mpv lo intente por su cuenta.
+    // Real implementation of load(): `allowResolve=false` is used when
+    // our pre-resolution failed and mpv has to try it on its own.
     void loadImpl(const QString &url, bool allowResolve);
     // Traduce m_quality al selector "--ytdl-format" de yt-dlp.
     QString ytdlFormat() const;
@@ -113,22 +114,24 @@ private:
     QTimer m_connectTimer;
     QTimer m_posFlush;
     QString m_socketPath;
-    // Pre-resolución en background: pool de resolutores yt-dlp --get-url y
-    // caché (url de página -> url de stream directa). Cada "slot" tiene su
-    // propio proceso, temporizador y la URL que está resolviendo, de modo que
-    // la precarga de fondo ("cocer" streams por adelantado) avanza en paralelo
-    // sin cambiar la semántica de prioridades de las colas.
+    // Background pre-resolution: a pool of yt-dlp --get-url resolvers and
+    // a cache (page url -> direct stream url). Every "slot" has its own
+    // process, timer and the URL it is resolving, so the background
+    // prefetch ("cooking" streams ahead) advances in parallel without
+    // changing the priority semantics of the queues.
     struct ResolveJob {
         QProcess proc;
-        // Aborta una pre-resolución que se eterniza (p. ej. vídeos que sólo
-        // tienen HLS y obligan a yt-dlp a resolver retos JS): así una pista
-        // lenta no bloquea las demás de la cola (al pulsarla, mpv la resolverá
-        // por su cuenta).
+        // Aborts a pre-resolution that takes forever (e.g. videos that only
+         // have HLS and force yt-dlp to solve JS challenges): that way a
+         // slow track does not block the rest of the queue (when it is
+         // pressed, mpv resolves it on its own).
         QTimer timer;
-        // Margen extra ya concedido a esta resolución (evita prorrogar sin fin).
+        // Extra margin already granted to this resolution (it avoids
+         // postponing forever).
         bool grace = false;
         QString url;
-        // ¿Esta resolución es de prioridad (hover) o de fondo (lista)?
+        // Is this resolution a priority one (hover) or a background one
+         // (list)?
         bool front = false;
         qint64 start = 0;
     };
@@ -136,38 +139,39 @@ private:
     QStringList m_resolveFront;   // cola prioritaria (hover)
     QStringList m_resolveQueue;   // cola de fondo (siguientes de la lista)
     QHash<QString, QString> m_resolved;
-    // Momento (epoch) en que se resolvió cada entrada, para el TTL de la caché.
+    // Moment (epoch) when each entry was resolved, for the cache's TTL.
     QHash<QString, qint64> m_resolvedAt;
-    // Caché en disco de URLs directas (para que una pista ya resuelta suene al
-    // instante incluso tras reiniciar la app). Caduca por TTL.
+    // On-disk cache of direct URLs (so an already resolved track sounds
+    // instantly even after restarting the app). It expires by TTL.
     QString m_cacheFile;
     QTimer m_cacheSaveTimer;
     bool m_cacheDirty = false;
-    // Encapsula el alta en las colas (dedup, prioridad, cancelación de fondo).
+    // Wraps the entry in the queues (dedup, priority, background cancel).
     void enqueueResolve(const QString &url, bool front, bool urgent = false);
     // Rellena los slots libres con trabajo pendiente (front antes que fondo).
     void resolveQueue();
-    // Saca la siguiente URL a resolver; `front` indica de qué cola salió.
-    // Descarta las ya resueltas o en vuelo en otro slot (dedupe).
+    // Takes the next URL to resolve; `front` says which queue it came
+     // from. It skips the ones already resolved or in flight in another
+     // slot (dedupe).
     QString takeNextResolve(bool &front);
     // Lanza un yt-dlp en el slot dado para resolver `url`.
     void startResolve(ResolveJob *job, const QString &url, bool front);
-    // ¿Hay algún slot resolviendo `url` ahora mismo?
+    // Is any slot resolving `url` right now?
     bool isResolving(const QString &url) const;
-    // ¿Queda algún slot libre para arrancar otro yt-dlp?
+    // Is there a free slot to start another yt-dlp?
     bool hasFreeJob() const;
-    // Elige qué resolución en curso descartar para atender una urgente.
+    // Picks which resolution in progress to drop to serve an urgent one.
     ResolveJob *pickVictim(const QString &url);
-    // Callbacks por slot: fin de proceso y timeout de resolución.
+    // Callbacks per slot: process end and resolution timeout.
     void onResolveFinished(ResolveJob *job, int code);
     void onResolveTimeout(ResolveJob *job);
     // Nº de reintentos seguidos de la pista actual (para fallos transitorios
     // de yt-dlp/YouTube). Se resetea al empezar a sonar una pista distinta.
     int m_retry = 0;
     QString m_pendingUrl;
-    // load() pedido mientras nuestro resolver ya trabajaba en esa misma URL:
-    // se pospone hasta que la pre-resolución termine (evita resolverla dos
-    // veces y aprovecha el adelanto del hover).
+    // load() asked while our resolver was already working on that same
+     // URL: it is postponed until the pre-resolution finishes (it avoids
+     // resolving it twice and takes advantage of the hover's head start).
     QString m_pendingLoadUrl;
     QString m_currentUrl;
     QString m_status = QStringLiteral("starting");
@@ -177,7 +181,7 @@ private:
     // Cierto desde que load() entrega un fichero a mpv hasta que termina
     // (eof/error), se para o mpv muere.
     bool m_hasFile = false;
-    // Cierto desde load() hasta que mpv reporta duración/posición reales.
+    // True from load() until mpv reports a real duration/position.
     bool m_loading = false;
     bool m_posDirty = false;
     double m_position = 0.0;

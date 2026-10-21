@@ -8,15 +8,15 @@
 
 class QLocalSocket;
 
-// Discord Rich Presence sobre el socket IPC local ("discord-ipc-N").
+// Discord Rich Presence over the local IPC socket ("discord-ipc-N").
 //
-// Habla el protocolo nativo de Discord sin librerías externas: descubre el
-// pipe del cliente, hace el handshake (opcode 0) y envía SET_ACTIVITY
-// (opcode 1). Muestra canción, artista, portada y barra de progreso, al
-// estilo de reproductores como Sonora.
+// It speaks Discord's native protocol without external libraries: it
+// discovers the client's pipe, does the handshake (opcode 0) and sends
+// SET_ACTIVITY (opcode 1). It shows the song, the artist, the artwork
+// and the progress bar, in the style of players like Sonora.
 //
-// El padre lo registra como context property `discord`; Ajustes llama a
-// configure() y la UI de reproducción a setActivity()/clear().
+// The parent registers it as the `discord` context property; Settings
+// calls configure() and the playback UI calls setActivity()/clear().
 class DiscordRpc : public QObject
 {
     Q_OBJECT
@@ -32,14 +32,16 @@ public:
     bool connected() const { return m_connected; }
     QString status() const { return m_status; }
 
-    // Llamado desde Ajustes. Persiste enabled/clientId en QSettings
-    // ("lotus-tune"/"lotus-tune", mismas claves que usa AppConfig) para que
-    // sobrevivan al reinicio. Si clientId está vacío se conserva el actual.
+    // Called from Settings. It persists enabled/clientId in QSettings
+     // ("lotus-tune"/"lotus-tune", the same keys AppConfig uses) so
+     // they survive a restart. If clientId is empty the current one is
+     // kept.
     Q_INVOKABLE void configure(bool enabled, const QString &clientId);
 
-    // Publica la pista actual. Ignora llamadas repetidas para no saturar el
-    // IPC de Discord: sólo reenvía cuando cambia la pista/estado o cuando la
-    // posición salta (seek) más de unos segundos.
+    // Publishes the current track. It ignores repeated calls so it does
+     // not flood Discord's IPC: it only resends when the track/state
+     // changes or when the position jumps (a seek) by more than a few
+     // seconds.
     Q_INVOKABLE void setActivity(const QString &title, const QString &artist,
                                  const QString &album, const QString &thumbUrl,
                                  double positionSeconds, double durationSeconds,
@@ -73,7 +75,7 @@ private:
     QString m_status;
     QString m_clientId;
 
-    // Última actividad pedida por setActivity().
+    // Last activity asked for by setActivity().
     QString m_title;
     QString m_artist;
     QString m_album;
@@ -83,7 +85,7 @@ private:
     bool m_playing = false;
     bool m_hasTrack = false;
 
-    // Última actividad realmente enviada (para deduplicar).
+    // Last activity actually sent (for deduplication).
     QString m_sentTitle;
     QString m_sentArtist;
     QString m_sentAlbum;

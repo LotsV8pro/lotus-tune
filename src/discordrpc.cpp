@@ -28,10 +28,11 @@ enum Opcode {
     OpPong      = 4,  // cliente -> Discord (mismo payload)
 };
 
-// Id de aplicación público (el que usa la librería de referencia pypresence).
-// Sirve para que el Rich Presence funcione SIN configuración: la actividad se
-// publica con `name: "Lotus Tune"`, así que Discord muestra "Lotus Tune" como
-// app. El usuario puede sobrescribirlo en Ajustes con su propia aplicación.
+// Public application id (the one the reference pypresence library uses).
+// It makes the Rich Presence work with NO configuration: the activity is
+// published with `name: "Lotus Tune"`, so Discord shows "Lotus Tune" as
+// the app. The user can override it in Settings with their own
+// application.
 const QString kDefaultClientId = QStringLiteral("345229890980937739");
 
 const int kReconnectMs = 15000;             // reintento de conexión
@@ -43,20 +44,21 @@ DiscordRpc::DiscordRpc(QObject *parent)
     : QObject(parent)
     , m_status(QStringLiteral("Desactivado"))
 {
-    // Reutiliza el mismo almacén que AppConfig. Estas claves no están en su
-    // whitelist, así que no chocan con las suyas.
+    // It reuses the same store as AppConfig. These keys are not in its
+    // whitelist, so they do not clash with yours.
     QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
     m_enabled = s.value(QStringLiteral("discordEnabled"), false).toBool();
-    // Un valor vacío guardado (p. ej. de versiones anteriores) cae al id por
-    // defecto: la presencia funciona sin que el usuario configure nada.
+    // An empty stored value (e.g. from older versions) falls back to the
+    // default id: the presence works without the user configuring
+    // anything.
     const QString stored = s.value(QStringLiteral("discordClientId")).toString().trimmed();
     m_clientId = stored.isEmpty() ? kDefaultClientId : stored;
 
     connect(&m_reconnect, &QTimer::timeout, this, &DiscordRpc::tryConnect);
     m_reconnect.setInterval(kReconnectMs);
 
-    // El temporizador sólo late mientras la presencia está activa: así no
-    // despierta la CPU cada 15 s cuando está desactivada.
+    // The timer only ticks while the presence is active: that way it does
+    // not wake the CPU every 15 s when it is disabled.
     if (m_enabled) {
         m_reconnect.start();
         tryConnect();
@@ -84,7 +86,7 @@ void DiscordRpc::setStatus(const QString &s)
 
 void DiscordRpc::configure(bool enabled, const QString &clientId)
 {
-    // Si no se indica id, se usa el de por defecto → funciona en automático.
+    // With no id, the default one is used -> it works out of the box.
     const QString id = clientId.trimmed();
     m_enabled = enabled;
     m_clientId = id.isEmpty() ? kDefaultClientId : id;
@@ -165,8 +167,8 @@ void DiscordRpc::tryConnect()
         return;
     }
 
-    // Sin cliente de Discord: no reintentamos conectar (no spamear), pero el
-    // QTimer vuelve a comprobar cada 15 s por si lo abren después.
+    // Without a Discord client: it does not retry (no spamming), but the
+    // QTimer checks again every 15 s in case they open it later.
     setStatus(QStringLiteral("Discord no detectado"));
 }
 
@@ -175,7 +177,7 @@ void DiscordRpc::onConnected()
     m_connected = true;
     m_buf.clear();
     sendHandshake();
-    // Continúa la reproducción en curso, si la hay.
+    // Carries on with the running playback, if there is one.
     if (m_hasTrack)
         sendActivity(false);
     setStatus(QStringLiteral("Conectado"));
@@ -258,9 +260,10 @@ void DiscordRpc::sendActivity(bool nullActivity)
 QJsonObject DiscordRpc::buildActivity() const
 {
     QJsonObject a;
-    // Nombre mostrado en Discord. Con el id público por defecto, este campo es
-    // lo que hace que aparezca "Lotus Tune" en lugar del nombre de la app
-    // registrada; así el Rich Presence funciona sin configurar nada.
+    // Name shown in Discord. With the default public id, this field is
+    // what makes "Lotus Tune" show up instead of the registered app's
+    // name; that way the Rich Presence works without configuring
+    // anything.
     a[QStringLiteral("name")] = QStringLiteral("Lotus Tune");
     a[QStringLiteral("type")] = 2;   // 2 = Listening
     if (!m_title.isEmpty())
@@ -281,9 +284,9 @@ QJsonObject DiscordRpc::buildActivity() const
 
     QJsonObject assets;
     if (!m_thumb.isEmpty()) {
-        // Limitación: Discord sólo garantiza URLs https en large_image en los
-        // clientes modernos; clientes antiguos ignoran la URL y hay que subir
-        // el arte como "asset" de la app y pasar su clave.
+        // Limitation: Discord only guarantees https URLs in large_image on
+         // modern clients; older ones ignore the URL and the art has to
+         // be uploaded as an app "asset" and its key passed.
         assets[QStringLiteral("large_image")] = m_thumb;
     }
     assets[QStringLiteral("large_text")] =
@@ -311,7 +314,8 @@ void DiscordRpc::setActivity(const QString &title, const QString &artist,
     m_playing = playing;
     m_hasTrack = !title.isEmpty();
 
-    // Sin conexión, basta con guardar: onConnected() enviará el estado actual.
+    // Without a connection it is enough to store it: onConnected() will
+    // send the current state.
     if (!m_connected)
         return;
 
