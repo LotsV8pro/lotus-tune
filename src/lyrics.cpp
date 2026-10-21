@@ -24,6 +24,11 @@
 
 #include <QDebug>
 
+// Helpers of the lyrics alignment (they are defined next to the
+// Musixmatch code, further down).
+static QString normLine(const QString &t);
+static bool isInstrumental(const QString &norm);
+
 // LRCLIB: public API, no key. GET returns the best match (or 404); search
 // returns a list. The User-Agent is required out of courtesy to the service
 // (and so that we are not blocked as an anonymous client).
@@ -1019,6 +1024,29 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
     // another version of the song and it is not used.
     if (!alignWords(lines, m_refLines))
         return false;
+    // The instrumental markers of the video are added (the album may not
+    // have them) and every one of them is marked with as many "♪" as the
+    // stretch lasts.
+    for (const LrcLine &r : m_refLines) {
+        if (!isInstrumental(normLine(r.text)))
+            continue;
+        bool covered = false;
+        for (const LrcLine &l : lines) {
+            if (l.time >= r.time - 0.5 && l.time <= r.time + 2.0) {
+                covered = true;
+                break;
+            }
+        }
+        if (covered)
+            continue;
+        LrcLine m = r;
+        m.words.clear();
+        m.instrumental = true;
+        lines.append(m);
+    }
+    std::sort(lines.begin(), lines.end(),
+              [](const LrcLine &x, const LrcLine &y) { return x.time < y.time; });
+    expandInstrumentals(lines);
     m_lines = std::move(lines);
     m_hasSynced = true;
     m_syncSource = source;
@@ -1964,6 +1992,29 @@ void Lyrics::requestMusixmatchRichsync()
     request(url, Stage::MxmRichsync, m_trackKey);
 }
 
+// An instrumental stretch is marked with as many "♪" as it lasts: one
+// for a short gap, two for a middle one and three for a long one (the
+// silence is not left empty on the screen).
+void Lyrics::expandInstrumentals(QVector<LrcLine> &lines)
+{
+    for (int i = 0; i < lines.size(); ++i) {
+        if (!lines[i].instrumental)
+            continue;
+        const double end = (i + 1 < lines.size()) ? lines.at(i + 1).time
+                                                  : lines.at(i).time + 4.0;
+        const double len = end - lines.at(i).time;
+        int marks = 1;
+        if (len >= 8.0)
+            marks = 3;
+        else if (len >= 4.0)
+            marks = 2;
+        QStringList parts;
+        for (int k = 0; k < marks; ++k)
+            parts << QStringLiteral("♪");
+        lines[i].text = parts.join(QLatin1Char(' '));
+    }
+}
+
 void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
@@ -2010,7 +2061,9 @@ void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
 static QString normLine(const QString &t)
 {
     QString s = t.toLower();
-    s.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} ]")));
+    // The musical notes are kept: they are the markers of the instrumental
+    // parts.
+    s.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} ♪♫♬ ]")));
     return s.simplified();
 }
 
@@ -2074,6 +2127,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         line.instrumental = isInstrumental(normLine(line.text));
         out.append(line);
     }
+
     return out;
 }
 
@@ -2179,34 +2233,67 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
     if (reference.size() < 2)
         return true;   // there is no reference to align with
 
-    // The reference times by normalised text.
-    QHash<QString, QVector<LrcLine>> ref;
-    for (const LrcLine &l : reference) {
-        const QString k = normLine(l.text);
-        if (k.isEmpty())
-            continue;
-        ref[k].append(l);
-    }
-    if (ref.isEmpty())
+    // The reference lines by normalised text (the same phrase can be
+    // repeated in a song, so they are kept in order).
+    QStringList refKeys;
+    for (const LrcLine &l : reference)
+        refKeys.append(normLine(l.text));
+    if (refKeys.isEmpty())
         return true;
+
+    // The two lists are paired with the longest common subsequence: the
+    // lines are matched in order even when some of them are only in one
+    // of the two (and a phrase that is repeated is paired with its own
+    // repetition, not with the first one).
+    const int n = lines.size();
+    const int m = reference.size();
+    QStringList lineKeys;
+    for (const LrcLine &l : lines)
+        lineKeys.append(normLine(l.text));
+    QVector<QVector<int>> dp(n + 1, QVector<int>(m + 1, 0));
+    for (int a = n - 1; a >= 0; --a) {
+        const bool singable = !lineKeys.at(a).isEmpty()
+                              && !isInstrumental(lineKeys.at(a));
+        for (int b = m - 1; b >= 0; --b) {
+            dp[a][b] = (singable && refKeys.at(b) == lineKeys.at(a))
+                ? dp[a + 1][b + 1] + 1
+                : qMax(dp[a + 1][b], dp[a][b + 1]);
+        }
+    }
+
+    // The pairs are taken from the table: the index of the line of the
+    // video that each line of the karaoke is paired with (-1 when there is
+    // none).
+    QVector<int> pairOf(n, -1);
+    int a = 0, b = 0;
+    while (a < n && b < m) {
+        const QString k = lineKeys.at(a);
+        const bool singable = !k.isEmpty() && !isInstrumental(k);
+        if (singable && refKeys.at(b) == k && dp[a][b] == dp[a + 1][b + 1] + 1) {
+            pairOf[a] = b;
+            ++a;
+            ++b;
+        } else if (dp[a + 1][b] >= dp[a][b + 1]) {
+            ++a;   // this line of the karaoke has no pair
+        } else {
+            ++b;   // this line of the video has no pair
+        }
+    }
 
     QVector<double> deltas;
     QVector<LrcLine> out;
     out.reserve(lines.size());
     int matched = 0;
-    for (const LrcLine &l : lines) {
-        const QString k = normLine(l.text);
-        LrcLine aligned = l;
-        if (!k.isEmpty() && !isInstrumental(k)) {
-            auto it = ref.constFind(k);
-            if (it != ref.constEnd() && !it->isEmpty()) {
-                // The line is in the video: the text of the video is the one
-                // that is being sung and the difference of times is a
-                // sample for the offset.
-                deltas.append(it->first().time - l.time);
-                aligned.text = it->first().text;
-                ++matched;
-            }
+    for (int i = 0; i < n; ++i) {
+        LrcLine aligned = lines.at(i);
+        const int j = pairOf.at(i);
+        if (j >= 0) {
+            // The line is in the video: the text of the video is the one
+            // that is being sung and the difference of times is a sample
+            // for the offset.
+            deltas.append(reference.at(j).time - aligned.time);
+            aligned.text = reference.at(j).text;
+            ++matched;
         }
         // The instrumental lines (and the ones the video does not have) are
         // kept: they are shown as they are.
@@ -2214,6 +2301,8 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
     }
     if (out.size() < 2)
         return false;
+    qInfo() << "[lyrics] alineacion: " << matched << "lineas de "
+            << lines.size() << "emparejadas con " << reference.size();
     if (matched * 10 < lines.size() * 3)
         return false;  // it is another version of the song
 

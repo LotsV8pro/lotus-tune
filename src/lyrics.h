@@ -140,6 +140,8 @@ private:
     // of the difference between the lines that match by text.
     bool alignWords(QVector<LrcLine> &lines,
                     const QVector<LrcLine> &reference);
+    // An instrumental stretch is marked with as many "♪" as it lasts.
+    static void expandInstrumentals(QVector<LrcLine> &lines);
     // Musixmatch: the word level timings ("richsync") of the very same
     // catalogue YouTube Music uses, but with the timing of every word.
     void startMusixmatch();
