@@ -4,6 +4,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 
 // ---------------------------------------------------------------------------
 // Caja separable sobre ARGB32. Se aplica sobre un lienzo diminuto (≤128 px),
@@ -226,16 +227,38 @@ void ColorPick::pick(const QUrl &url)
         return;
     m_pending.insert(key);
 
-    QNetworkRequest req(url);
+    // Para sacar el color dominante no hace falta la imagen grande: las
+    // miniaturas de YouTube se piden en su variante de 320 px (la de
+    // 16:9 con barras negras, que el histograma descarta por ser negras).
+    static const QRegularExpression re(
+        QStringLiteral("^https?://i\\.ytimg\\.com/vi/([\\w-]{11,13})/"));
+    const QRegularExpressionMatch m = re.match(key);
+    QUrl small = url;
+    if (m.hasMatch())
+        small = QUrl(QStringLiteral("https://i.ytimg.com/vi/%1/mqdefault.jpg")
+                         .arg(m.captured(1)));
+
+    fetch(url, small, key);
+}
+
+void ColorPick::fetch(const QUrl &orig, const QUrl &download, const QString &key)
+{
+    QNetworkRequest req(download);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, url, key]() {
+                     [this, reply, orig, download, key]() {
         reply->deleteLater();
         m_pending.remove(key);
-        if (reply->error() != QNetworkReply::NoError)
+        if (reply->error() != QNetworkReply::NoError) {
+            // Si la variante pequeña no existe, se prueba con la original.
+            if (download != orig) {
+                m_pending.insert(key);
+                fetch(orig, orig, key);
+            }
             return;
+        }
         const QImage src = QImage::fromData(reply->readAll());
         if (src.isNull())
             return;
@@ -243,6 +266,6 @@ void ColorPick::pick(const QUrl &url)
         if (!c.isValid())
             return;
         m_cache.insert(key, c);
-        emit found(url, c);
+        emit found(orig, c);
     });
 }

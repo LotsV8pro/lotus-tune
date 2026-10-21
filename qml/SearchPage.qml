@@ -496,7 +496,6 @@ Item {
                                 source: rrow.modelData.thumb || ""
                                 visible: String(rrow.modelData.thumb || "") !== ""
                                 radiusSpec: Theme.rMd
-                                decodeWidth: 68
                             }
                             Glyph {
                                 anchors.centerIn: parent
@@ -611,7 +610,6 @@ Item {
                                     source: arow.modelData.thumb || ""
                                     visible: String(arow.modelData.thumb || "") !== ""
                                     radiusSpec: 22
-                                    decodeWidth: 88
                                 }
                                 Glyph {
                                     anchors.centerIn: parent

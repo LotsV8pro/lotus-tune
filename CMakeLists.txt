@@ -12,6 +12,8 @@ qt_standard_project_setup()
 
 qt_add_executable(lotus-tune
     src/main.cpp
+    src/roundedart.cpp
+    src/roundedart.h
     src/theme.h
     src/theme.cpp
     src/player.h

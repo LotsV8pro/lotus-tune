@@ -20,6 +20,12 @@ Item {
     property string badge: ""
     property string thumb: ""
     property bool round: false
+    // Color dominante de la propia portada: el degradado de respaldo del
+    // cuadro lo toma, así la tarjeta tiene el color de su arte mientras
+    // carga y, si la imagen no llega, se queda con él en vez de con un
+    // azul genérico. Transparente = todavía sin saber el color.
+    property color artColor: "transparent"
+    readonly property bool hasArtColor: artColor.a > 0
     // Color del icono de respaldo: se resuelve por cuenta propia para no
     // depender del objeto del tema en el instante exacto del repintado (un
     // TypeError intermitente leía Sys.text cuando Sys aún no estaba listo).
@@ -28,6 +34,22 @@ Item {
 
     signal clicked()
     signal playClicked()
+
+    // Al cambiar la portada se pide su color dominante (el C++ lo saca de
+    // la imagen y lo devuelve por la señal «found»).
+    onThumbChanged: {
+        artColor = "transparent"
+        if (thumb && thumb.length > 0 && typeof colorpick !== "undefined")
+            colorpick.pick(thumb)
+    }
+
+    Connections {
+        target: colorpick
+        function onFound(url, color) {
+            if (String(url) === card.thumb)
+                card.artColor = color
+        }
+    }
 
     readonly property bool hovered: hoverHandler.hovered
 
@@ -75,8 +97,12 @@ Item {
             clip: true
 
             gradient: Gradient {
-                GradientStop { position: 0.0; color: card.coverA }
-                GradientStop { position: 1.0; color: card.coverB }
+                GradientStop { position: 0.0
+                              color: card.hasArtColor ? Qt.lighter(card.artColor, 1.35)
+                                                      : card.coverA }
+                GradientStop { position: 1.0
+                              color: card.hasArtColor ? Qt.darker(card.artColor, 1.7)
+                                                      : card.coverB }
             }
 
             RoundedArt {
@@ -84,7 +110,6 @@ Item {
                 anchors.fill: parent
                 source: card.thumb
                 radiusSpec: card.round ? "circle" : Theme.rXl
-                decodeWidth: 320
             }
 
             // Icono de respaldo cuando no hay portada.

@@ -1,105 +1,70 @@
 import QtQuick
 
-// Portada redondeada para el backend de software (sin shaders).
+// Portada redondeada.
 //
-// El `clip` de un Rectangle sólo recorta por el cuadro envolvente e
-// IGNORA el `radius`: por eso los degradados de respaldo se veían
-// redondeados pero las portadas con imagen real salían cuadradas. Aquí la
-// imagen se pinta dentro de un Canvas con una trayectoria de esquinas
-// redondeadas — recorte en CPU, compatible con la ejecución sin GPU.
-//
-// La imagen se carga con `asynchronous`, así que su pixmap puede llegar
-// DESPUÉS del primer pintado: como el lienzo se limpia en cada repintado,
-// un repintado puede llegar con la imagen todavía ausente y la portada se
-// queda en blanco para siempre. Por eso se insiste con un temporizador
-// hasta que la imagen se pinte de verdad (y entonces se para). Coste: un
-// repintado cada 120 ms, sólo durante la carga.
+// El recorte (al centro) y las esquinas redondeadas los hace el servidor
+// de imágenes en C++ («rart»): la foto se baja una vez, se recorta al
+// tamaño exacto del hueco y se le aplica la máscara de esquinas, así que
+// llega ya lista. Hace falta porque el `clip` de un Rectangle ignora el
+// `radius` (las esquinas salían cuadradas) y porque el recorte con Canvas
+// dependía de la caché de imágenes por URL (si otra parte de la app pedía
+// la misma foto en otro tamaño, la portada salía descentrada o vacía).
 Item {
     id: art
 
     property string source: ""
-    // «circle» = círculo perfecto; número = píxeles de radio.
+    // «circle» = círculo perfecto; número = píxeles de radio (en el hueco).
     property var radiusSpec: 16
-    // Tope de decodificado; 0 = auto (tamaño del hueco × DPR).
-    property int decodeWidth: 0
 
-    readonly property bool ready: artImg.status === Image.Ready
+    readonly property bool ready: img.status === Image.Ready
 
-    // Intentos de repintado mientras la imagen aún no se ve.
-    property int attempts: 0
+    // Radio en píxeles lógicos. El círculo se resuelve en el C++, que lo
+    // recorta a media vida.
+    readonly property int radius: radiusSpec === "circle" ? 10000 : radiusSpec
 
-    onRadiusSpecChanged: canvas.requestPaint()
-    onSourceChanged: { art.attempts = 0; retry.start(); canvas.requestPaint() }
+    // La URL del proveedor (lleva la versión, para que al reprocesar se
+    // vuelva a pedir y se repinte).
+    property string artUrl: ""
 
-    Component.onCompleted: { retry.start(); canvas.requestPaint() }
+    function refresh() {
+        const w = Math.round(art.width)
+        const h = Math.round(art.height)
+        if (!art.source || art.source.length === 0 || w <= 0 || h <= 0) {
+            art.artUrl = ""
+            return
+        }
+        art.artUrl = rart.url([art.source], w, h, art.radius,
+                              Screen.devicePixelRatio)
+    }
+
+    onSourceChanged: refresh()
+    onWidthChanged: refresh()
+    onHeightChanged: refresh()
+    onRadiusChanged: refresh()
+
+    Component.onCompleted: refresh()
+
+    // Cuando el C++ termina de recortar, se vuelve a pedir la URL (ya
+    // tiene versión nueva) y la portada aparece.
+    Connections {
+        target: rart
+        function onReady(key) {
+            if (key === rart.key([art.source], Math.round(art.width),
+                                 Math.round(art.height), art.radius,
+                                 Screen.devicePixelRatio))
+                art.refresh()
+        }
+    }
 
     Image {
-        id: artImg
-        source: art.source
-        visible: false
+        id: img
+        anchors.fill: parent
+        source: art.artUrl
+        // La imagen ya viene recortada al hueco y con el alfa de las
+        // esquinas: sólo se estira.
+        fillMode: Image.Stretch
         asynchronous: true
         cache: true
-        // Sólo el ancho: así el alto sale del propio aspecto de la imagen y
-        // el tamaño implícito coincide con el pixmap (si se fijan los dos
-        // lados, Qt toma sourceSize como tamaño del item aunque la imagen
-        // sea menor y el recorte se sale del pixmap).
-        sourceSize.width: art.decodeWidth > 0
-                          ? art.decodeWidth
-                          : Math.max(64, Math.round(art.width * Screen.devicePixelRatio))
-        onStatusChanged: { art.attempts = 0; retry.start(); canvas.requestPaint() }
-    }
-
-    // Insiste hasta que la imagen se pinte de verdad.
-    Timer {
-        id: retry
-        interval: 120
-        repeat: true
-        onTriggered: {
-            if (art.attempts > 40) {
-                retry.stop()
-                return
-            }
-            art.attempts++
-            canvas.requestPaint()
-        }
-    }
-
-    Canvas {
-        id: canvas
-        anchors.fill: parent
-        renderStrategy: Canvas.Immediate
-
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
-
-        onPaint: {
-            const ctx = getContext("2d")
-            ctx.clearRect(0, 0, width, height)
-            if (artImg.status !== Image.Ready || width <= 0 || height <= 0)
-                return
-            // La Image oculta se queda con su tamaño natural: ese es el
-            // lienzo de origen del que recortamos (PreserveAspectCrop al
-            // centro, como hacían los Image con fillMode antes).
-            const iw = artImg.width, ih = artImg.height
-            if (iw <= 0 || ih <= 0)
-                return
-            const s = Math.max(width / iw, height / ih)
-            const sw = width / s, sh = height / s
-            const sx = (iw - sw) / 2, sy = (ih - sh) / 2
-            const r = art.radiusSpec === "circle"
-                      ? Math.min(width, height) / 2
-                      : Math.min(art.radiusSpec, Math.min(width, height) / 2)
-            ctx.save()
-            ctx.beginPath()
-            ctx.moveTo(r, 0)
-            ctx.arcTo(width, 0, width, height, r)
-            ctx.arcTo(width, height, 0, height, r)
-            ctx.arcTo(0, height, 0, 0, r)
-            ctx.arcTo(0, 0, width, 0, r)
-            ctx.closePath()
-            ctx.clip()
-            ctx.drawImage(artImg, sx, sy, sw, sh, 0, 0, width, height)
-            ctx.restore()
-        }
+        smooth: true
     }
 }

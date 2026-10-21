@@ -132,7 +132,6 @@ Rectangle {
                             anchors.fill: parent
                             source: bar.currentThumb
                             radiusSpec: Theme.rMd
-                            decodeWidth: 120
                         }
                         LotusMark {
                             anchors.centerIn: parent

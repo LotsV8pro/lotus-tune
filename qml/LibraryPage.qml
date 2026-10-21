@@ -590,7 +590,6 @@ Item {
                         anchors.fill: parent
                         source: page.viewCover()
                         radiusSpec: Theme.rLg
-                        decodeWidth: 336
                     }
                     Glyph {
                         anchors.centerIn: parent
@@ -1404,7 +1403,6 @@ Item {
                                     source: fcell.modelData.thumb || ""
                                     visible: String(fcell.modelData.thumb || "") !== ""
                                     radiusSpec: Theme.rMd
-                                    decodeWidth: 256
                                 }
                                 Glyph {
                                     anchors.centerIn: parent
@@ -1553,7 +1551,6 @@ Item {
                                         source: modelData.thumb || ""
                                         visible: String(modelData.thumb || "") !== ""
                                         radiusSpec: Theme.rSm
-                                        decodeWidth: 64
                                     }
                                     ActionIcon {
                                         anchors.centerIn: parent
