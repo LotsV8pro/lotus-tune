@@ -245,11 +245,11 @@ Item {
             + Math.round(bl * 255) + "," + (Math.round(al * 100) / 100) + ")"
     }
 
-    // La parte aún no cantada de la línea activa: la MISMA tinta de la línea
-    // pero apagada (alfa baja), como hace el widget del shell. Con un gris
-    // aparte la línea parecía partida en dos y el karaoke quedaba feo.
+    // La parte aún no cantada de la línea activa: la MISMA tinta de la
+    // línea pero apagada (alfa baja), como hace el widget del shell. Con un
+    // gris aparte la línea parecía partida en dos y el karaoke quedaba feo.
     readonly property real _unsungAlpha: 0.34
-    readonly property color _sungColor: Theme.mix(Sys.text, Sys.accent, 0.14)
+    readonly property color _sungColor: Sys.text
     readonly property color _unsungColor: Theme.alpha(_sungColor, _unsungAlpha)
 
     // Pinta una línea letra a letra: `fill` va de 0 (recién entró, apagada) a 1
@@ -521,6 +521,11 @@ Item {
                     }
 
                     width: lv.colW
+                    // En un panel estrecho las frases largas no caben: que
+                    // envuelvan en vez de cortarse a media palabra.
+                    wrapMode: Text.WordWrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
                     text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: lv.karaoke ? Text.RichText : Text.PlainText
                 }
