@@ -42,14 +42,15 @@ Item {
         return m ? m[1] : ""
     }
 
-    // The candidates, largest first: the C++ side tries them in order and
-    // keeps the first one that downloads fine.
+    // The candidates, most reliable first: the C++ side tries them in order
+    // and keeps the first one that downloads fine. The 480 px "hq2" comes
+    // first because it always answers (the 1280 px "maxresdefault" often
+    // hangs, and a cover that takes ten seconds to appear is a cover that
+    // looks broken). The base thumbnail is the fallback.
     readonly property var candidates: {
         var list = []
-        if (art.vid) {
-            list.push("https://i.ytimg.com/vi/" + art.vid + "/maxresdefault.jpg")
+        if (art.vid)
             list.push("https://i.ytimg.com/vi/" + art.vid + "/hq2.jpg")
-        }
         if (art.src)
             list.push(art.src)
         return list

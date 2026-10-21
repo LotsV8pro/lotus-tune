@@ -48,6 +48,9 @@ class Catalog : public QObject
     // has been loaded (or the attempt with a session failed); likedRevision
     // goes up on every change so the rows repaint the heart.
     Q_PROPERTY(bool likedReady READ likedReady NOTIFY likedChanged)
+    // The "liked" tracks WITH their metadata (artist, title, url): the home
+    // uses their artists to seed the recommended radios.
+    Q_PROPERTY(QVariantList likedTracks READ likedTracks NOTIFY likedChanged)
     Q_PROPERTY(int likedRevision READ likedRevision NOTIFY likedChanged)
     Q_PROPERTY(QString loginError READ loginError NOTIFY loginChanged)
     Q_PROPERTY(QString loginUrl READ loginUrl NOTIFY loginChanged)
@@ -72,6 +75,7 @@ public:
     QString openPlaylistId() const { return m_openPlaylistId; }
     QString openListUrl() const { return m_openListUrl; }
     bool likedReady() const { return m_likedReady; }
+    QVariantList likedTracks() const { return m_likedTracks; }
     int likedRevision() const { return m_likedRevision; }
     QString loginError() const { return m_loginError; }
     QString loginUrl() const { return m_loginUrl; }
@@ -356,6 +360,7 @@ private:
     QString m_plSetId;         // setVideoId pendiente (quitar de una lista)
     QProcess m_likedProc;      // one-shot "me gusta" (LM) para el estado de las filas
     QSet<QString> m_likedIds;  // videoIds en "me gusta"
+    QVariantList m_likedTracks;  // "me gusta" con su artista y título
     // Local path (downloaded file) -> YouTube videoId, resolved once by
     // reading the sibling .info.json. It allows liking the local tracks as
     // if they were from YouTube (same videoId, same sync).
