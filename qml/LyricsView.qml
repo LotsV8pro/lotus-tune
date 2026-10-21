@@ -207,17 +207,17 @@ Item {
     // ya se cantó (arriba) o está por venir (abajo).
     function lineOpacity(i) {
         if (activeIndex < 0)
-            return 0.6
+            return 0.78
         var d = Math.abs(i - activeIndex)
         if (d === 0)
             return 1
         if (d === 1)
-            return 0.40
+            return 0.62
         if (d === 2)
-            return 0.25
+            return 0.44
         if (d === 3)
-            return 0.16
-        return 0.1
+            return 0.30
+        return 0.20
     }
 
     // ---- relleno progresivo -------------------------------------------------
@@ -528,6 +528,29 @@ Item {
                     elide: Text.ElideRight
                     text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: lv.karaoke ? Text.RichText : Text.PlainText
+                    color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
+                                  : Sys.textDim
+                    font.pixelSize: active ? lv.lineSize + lv.activeBoost
+                                            : lv.lineSize
+                    font.weight: active ? Font.DemiBold : Font.Normal
+                    // La opacidad sube al pasar el ratón: la línea bajo el
+                    // cursor se marca como «clicable» (salta a ese momento).
+                    // Todo ello, multiplicado por el desvanecido de borde.
+                    opacity: Math.min(vfade, lv.lineOpacity(index)
+                                      + (lineMa.containsMouse ? 0.22 : 0))
+                    horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
+                    lineHeight: 1.32
+                    Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+                    Behavior on color { ColorAnimation { duration: Theme.medMs } }
+
+                    // Clic en una línea: salta a ese momento de la canción.
+                    MouseArea {
+                        id: lineMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: lv.seekTo(modelData.time)
+                    }
                 }
             }
         }
