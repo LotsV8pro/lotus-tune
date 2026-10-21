@@ -53,6 +53,11 @@ Item {
 
     readonly property bool hovered: hoverHandler.hovered
 
+    // Color con el que se tiñe el fondo de la tarjeta: el dominante de la
+    // portada cuando ya se sabe; si la tarjeta no tiene foto (Me gusta,
+    // los accesos directos), el color base de su cuadro.
+    readonly property color tintColor: hasArtColor ? artColor : coverA
+
     // ---- medidas fijas (no cambian con el hover) ----------------------
     readonly property int cardWidth: 172
     readonly property int coverSize: cardWidth
@@ -74,6 +79,28 @@ Item {
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
+    }
+
+    // Fondo de la tarjeta teñido con el color de su portada: degradado
+    // desde el color fuerte arriba (donde está la foto) hacia
+    // transparente abajo, para que el texto siga leyéndose.
+    Rectangle {
+        anchors.fill: parent
+        radius: Theme.rXl
+        visible: card.tintColor.a > 0
+        gradient: Gradient {
+            // Con color de portada el tinte se nota más; con el color
+            // base (tarjetas sin foto) va más suave, que si no el carril
+            // parece un psicodélico.
+            GradientStop { position: 0.0
+                          color: Theme.alpha(card.tintColor,
+                                             card.hasArtColor ? 0.40 : 0.26) }
+            GradientStop { position: 0.62
+                          color: Theme.alpha(card.tintColor,
+                                             card.hasArtColor ? 0.16 : 0.10) }
+            GradientStop { position: 1.0
+                          color: Theme.alpha(card.tintColor, 0.0) }
+        }
     }
 
     // El contenido se eleva 2 px al pasar el ratón. La tarjeta no cambia de
