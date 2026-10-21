@@ -201,6 +201,8 @@ private:
     bool hasWordTimings() const;
     // Adopts already built lines (with words) as synced lyrics.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source);
+    // True when the current lyrics carry word level timings.
+    bool m_worded = false;
 
     // ---- state published for the desktop (inir widgets) ---------------
     // The app dumps its lyrics state in ~/.local/state/lotus-tune/ so the
