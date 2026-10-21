@@ -26,7 +26,7 @@ Item {
     // Max width of the reading column: in fullscreen the right panel is
     // huge and a 2000 px line is impossible to read.
     property real maxLineWidth: 820
-    // Lectura por la izquierda (modo cine, como en el repo de referencia):
+    // Reading on the left (cinema mode, like in the reference repo):
     // the column starts at the edge of the area instead of being centred.
     // Panel and Now Playing stay centred (default).
     property bool leftAlign: false
@@ -73,7 +73,7 @@ Item {
     }
     // Is word level karaoke on? It is turned off from Settings (or by the
     // backend).
-    // Lo mantiene `rebuild()` (el binding sobre la `var lyr` no rastrea cambios).
+    // Kept by `rebuild()` (the binding over the `var lyr` does not track changes).
     property bool karaokeOn: true
 
     // ---- geometry of the reading column --------------------------------
@@ -93,7 +93,7 @@ Item {
     property bool following: true
     property bool _animating: false
 
-    // ---- relleno progresivo (karaoke) ----------------------------------
+    // ---- progressive fill (karaoke) -------------------------------------
     // Position interpolated between the engine's reports.
     // `positionChanged` arrives at most every 240 ms; the fill's front is
     // computed on top of this position, so it moves smoothly instead of
@@ -114,10 +114,12 @@ Item {
     // publishes the applied offset).
     property real offset: 0
     function setOffset(v) {
-        offset = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // pasos de 50 ms
+        // The range is wide: a video may have a much longer intro than
+        // the album (and the opposite too).
+        offset = Math.round(Theme.clamp(v, -180, 180) * 4) / 4    // 250 ms steps
         if (typeof appcfg !== "undefined") {
             appcfg.set("lyricsOffset", offset.toFixed(2))
-            // Offset por pista: "artist - title" -> segundos.
+            // Offset per track: "artist - title" -> seconds.
             const key = String(lv.lyr && lv.lyr.trackKey ? lv.lyr.trackKey : "")
             if (key.length > 0) {
                 let map = {}
@@ -131,13 +133,13 @@ Item {
             }
             appcfg.save()
         }
-        // El backend publica este mismo ajuste en el estado de letras para que
-        // los widgets del escritorio cuadren con el audio igual que la app.
+        // The backend publishes this same adjustment in the lyrics state so
+        // that the desktop widgets match the audio just like the app.
         if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
             lv.lyr.setPublishedOffset(offset)
     }
 
-    // Aplica el offset guardado para esta pista (si lo hay) al cargar la letra.
+    // Applies the offset saved for this track (if any) when the lyrics load.
     function applyStoredOffset() {
         if (typeof appcfg === "undefined")
             return
@@ -202,7 +204,7 @@ Item {
         // Every track has its own offset (the video may have a longer intro
         // than the album): the one saved for it is applied here.
         applyStoredOffset()
-        // Pista nueva: volvemos a seguir el canto desde el principio.
+        // New track: we go back to following the singing from the beginning.
         following = true
         computeActive()
         // Track change: jump without animation to the new active line.
@@ -218,7 +220,7 @@ Item {
         var item = lyricRepeater.itemAt(activeIndex)
         if (!item)
             return
-        // La activa se fija al 32 % de la altura (estilo Sonora), no centrada.
+        // The active one is fixed at 32 % of the height (Sonora style), not centred.
         var target = item.y + item.height / 2 - syncedFlick.height * pinFrac
         var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
         target = Math.max(0, Math.min(target, maxY))
@@ -268,7 +270,7 @@ Item {
         return 0.20
     }
 
-    // ---- relleno progresivo -------------------------------------------------
+    // ---- progressive fill ---------------------------------------------------
     function _rgbaStr(c) {
         var col = (typeof c === "string") ? Qt.color(c) : c
         return "rgba(" + Math.round(col.r * 255) + "," + Math.round(col.g * 255)
@@ -278,7 +280,7 @@ Item {
 
     // Colour half way between dimmed and lit. The text right at the front
     // is painted halfway, and that is why you see it eating the line
-    // de forma continua en vez de encenderse de golpe.
+    // continuously instead of lighting up all at once.
     function _mixCss(a, b, f) {
         var t = Math.max(0, Math.min(1, f))
         var A = (typeof a === "string") ? Qt.color(a) : a
@@ -353,11 +355,11 @@ Item {
     function _wordHtml(words) {
         if (!words || words.length === 0)
             return ""
-        // Tramos encadenados, EXACTAMENTE como los calcula el widget del
-        // escritorio: la palabra N empieza donde acaba la N-1 y ocupa su
-        // tramo real (sin mínimos que retrasen el frente). La primera
-        // palabra entra 100 ms después de la línea y con un relleno
-        // mínimo, para que no se encienda de golpe al empezar.
+        // Chained segments, EXACTLY as the desktop
+        // widget computes them: word N starts where N-1 ends and occupies
+        // its real segment (no minimums that delay the front). The first
+        // word enters 100 ms after the line and with a minimum
+        // fill, so it does not light up all at once at the start.
         var tramos = []
         var prevFin = -1
         for (var i = 0; i < words.length; i++) {
@@ -409,7 +411,7 @@ Item {
     Connections {
         target: lv.lyr
         function onChanged() {
-            // Ajustes (u otra vista en pantalla) pueden haber movido la
+            // Settings (or another view on screen) may have moved the
             // compensation or the karaoke: the backend is the shared one,
             // so the offset is brought over and everything is recomputed.
             if (lv.lyr) {
@@ -420,8 +422,8 @@ Item {
             lv.rebuild()
         }
     }
-    // El motor emite positionChanged como mucho cada 240 ms: ese aviso reancla
-    // the interpolated position and recomputes the active line.
+    // The engine emits positionChanged at most every 240 ms: that notice
+    // re-anchors the interpolated position and recomputes the active line.
     // `stateChanged` covers play/pause/seek, so that when paused the front
     // stays where it sounds and not where the last interpolation left it.
     Connections {
@@ -434,7 +436,7 @@ Item {
     // front moves smoothly. It is always needed with synced lyrics playing:
     // with word level timings it animates the front word by word, and with
     // line level timings it feeds the sweep of the active phrase. The engine
-    // del motor llega a 240 ms; a 50 ms el frente se mueve suave.
+    // of the engine arrives at 240 ms; at 50 ms the front moves smoothly.
     Timer {
         interval: 50
         repeat: true
@@ -491,11 +493,11 @@ Item {
         interval: 100
         onTriggered: lv.scrollToActive(false)
     }
-    // Re-centramos al redimensionar (cambio de ventana <-> pantalla completa).
+    // Re-centre on resize (window <-> fullscreen change).
     onHeightChanged: Qt.callLater(function () { lv.scrollToActive(true) })
     onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
 
-    // Al volverse visible (abrir el cine o el panel de cola): el scroll se
+    // When it becomes visible (opening the cinema or the queue panel): the scroll
     // had been skipped while it was hidden (`scrollToActive` bails if the
     // Flick is not visible), so on open we re-pin the position and jump
     // WITHOUT animation to the line that sounds. Without this, the cinema
@@ -552,7 +554,7 @@ Item {
         onContentYChanged: if (!lv._animating && syncedFlick.moving
                                && lv.following) lv.following = false
 
-        // Columna de lectura centrada y de ancho acotado.
+        // Reading column centred and with a bounded width.
         Column {
             id: lyricCol
             width: lv.colW
@@ -570,11 +572,15 @@ Item {
                     required property int index
                     readonly property bool active: index === lv.activeIndex
 
-                    // Con tiempos por palabra (y karaoke activado): el frente
-                    // goes word by word. Without them: the whole line is
-                    // ilumina al ser la activa (sin barrido a medias).
+                    // With word level timings (and karaoke enabled): the front
+                    // goes word by word. Without them: the whole line
+                    // lights up when it becomes active (no half sweep).
                     readonly property var _w: modelData.words ? modelData.words : []
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
+                    // The instrumental markers ("♪") are shown, but they are
+                    // not sung: they are not filled and they do not move the
+                    // front of the karaoke.
+                    readonly property bool instrumental: modelData.instrumental === true
 
                     // Without word level timings the line still fills in
                     // little by little: it goes from the start of the line to
@@ -594,10 +600,10 @@ Item {
 
 
 
-                    // Desvanecido de borde (como en el repo de referencia): la
+                    // Edge fade (like in the reference repo): the
                     // line fades itself out when it gets near the top or
-                    // suelo de la vista. Nada de bandas negras por encima:
-                    // sobre el lavado de la portada quedaban horrorosas.
+                    // the bottom of the view. No black bands above:
+                    // over the artwork wash they looked horrible.
                     readonly property real vfade: {
                         var zone = Math.max(28, lv.height * 0.14)
                         var top = y - syncedFlick.contentY
@@ -607,27 +613,34 @@ Item {
                     }
 
                     width: lv.colW
-                    // En un panel estrecho las frases largas no caben: que
-                    // envuelvan en vez de cortarse a media palabra. SIN
-                    // maximumLineCount ni elide: con texto enriquecido
-                    // (el karaoke pinta la línea con <span> de color) esos
-                    // dos hacen que Qt se coma el formato y la línea sale
-                    // entera encendida, sin barrido.
+                    // In a narrow panel the long phrases do not fit: let
+                    // them wrap instead of being cut at half a word. WITHOUT
+                    // maximumLineCount nor elide: with rich text
+                    // (the karaoke paints the line with <span> of colour) those
+                    // two make Qt swallow the format and the line comes out
+                    // entirely lit, without any sweep.
                     wrapMode: Text.WordWrap
-                    text: lv.karaoke ? lv._wordHtml(_w)
-                                     : (active ? lv._fillHtml(modelData.text, _lineFrac)
-                                                : modelData.text)
-                    textFormat: (lv.karaoke || active) ? Text.RichText : Text.PlainText
-                    color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
-                                  : Sys.textDim
+                    text: rrow.instrumental
+                          ? modelData.text
+                          : (lv.karaoke ? lv._wordHtml(_w)
+                                        : (active ? lv._fillHtml(modelData.text, _lineFrac)
+                                                   : modelData.text))
+                    textFormat: (lv.karaoke || active) && !rrow.instrumental
+                                ? Text.RichText : Text.PlainText
+                    color: rrow.instrumental
+                           ? Theme.alpha(Sys.textDim, 0.75)
+                           : (active ? Theme.mix(Sys.text, Sys.accent, 0.14)
+                                     : Sys.textDim)
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
                     font.weight: active ? Font.DemiBold : Font.Normal
                     // The opacity goes up on hover: the line under the
-                    // cursor se marca como «clicable» (salta a ese momento).
-                    // Todo ello, multiplicado por el desvanecido de borde.
-                    opacity: Math.min(vfade, lv.lineOpacity(index)
-                                      + (lineMa.containsMouse ? 0.22 : 0))
+                    // cursor is marked as «clickable» (it jumps to that moment).
+                    // All of that, multiplied by the edge fade.
+                    opacity: rrow.instrumental
+                             ? Math.min(vfade, 0.7)
+                             : Math.min(vfade, lv.lineOpacity(index)
+                                        + (lineMa.containsMouse ? 0.22 : 0))
                     horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
                     lineHeight: 1.32
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
@@ -657,7 +670,7 @@ Item {
 
     // The edges are no longer padded with colour bands: every line fades
     // on its own (see `vfade` in the delegate). The bands cut the fade and
-    // sobre el lavado de la portada quedaban fatal.
+    // over the artwork wash they looked awful.
 
     // "Follow the song" button: it shows when the user scrolls and stops
     // following the active line automatically (like Sonora).
@@ -763,7 +776,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: lv.showError ? "Intentando con la siguiente pista." : "No encontramos la letra de esta canción."
+            text: lv.showError ? "No encontramos la letra de esta canción." : "Buscando la letra…"
             color: Sys.textDim
             font.pixelSize: Theme.tMd
             horizontalAlignment: Text.AlignHCenter
@@ -812,7 +825,25 @@ Item {
                     font.weight: Font.DemiBold
                 }
                 HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) } }
+                TapHandler {
+                    id: minusTap
+                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) }
+                    // Holding it down repeats the change: a video with a long
+                    // intro may need a lot of seconds.
+                    onPressedChanged: {
+                        minusHold.armed = pressed
+                        if (pressed)
+                            minusHold.running = true
+                    }
+                }
+                Timer {
+                    id: minusHold
+                    interval: 90
+                    repeat: true
+                    running: false
+                    property bool armed: false
+                    onTriggered: if (armed) lv.setOffset(lv.offset - 0.5)
+                }
             }
 
             Glyph {
@@ -845,7 +876,24 @@ Item {
                     font.weight: Font.DemiBold
                 }
                 HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) } }
+                TapHandler {
+                    id: plusTap
+                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) }
+                    // Holding it down repeats the change.
+                    onPressedChanged: {
+                        plusHold.armed = pressed
+                        if (pressed)
+                            plusHold.running = true
+                    }
+                }
+                Timer {
+                    id: plusHold
+                    interval: 90
+                    repeat: true
+                    running: false
+                    property bool armed: false
+                    onTriggered: if (armed) lv.setOffset(lv.offset + 0.5)
+                }
             }
         }
     }

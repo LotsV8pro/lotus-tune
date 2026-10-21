@@ -77,9 +77,9 @@ Item {
     // never did anything.
     MouseArea {
         anchors.fill: parent
-        // Sin `hoverEnabled`: un MouseArea con el hover activado se queda con
-        // los eventos de hover y el HoverHandler de la tarjeta se quedaría sin
-        // ellos (y el zoom y el botón de play no aparecerían nunca).
+        // Without `hoverEnabled`: a MouseArea with the hover enabled keeps the
+        // hover events and the card's HoverHandler would be left without
+        // them (and the zoom and the play button would never appear).
         cursorShape: Qt.PointingHandCursor
         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
     }

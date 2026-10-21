@@ -85,7 +85,7 @@ protected:
                 fn = "mouseNavForward";
             if (fn && m_root) {
                 QMetaObject::invokeMethod(m_root, fn);
-                return true;   // consumido: que no lo reciba el QML
+                return true;   // consumed: the QML must not receive it
             }
         }
         return QObject::eventFilter(obj, ev);

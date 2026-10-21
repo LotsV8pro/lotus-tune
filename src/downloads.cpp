@@ -21,7 +21,7 @@
 
 namespace {
 
-// Extensiones de audio que forman la biblioteca local.
+// Audio extensions that make up the local library.
 const char *const kAudioExts[] = {
     "mp3", "flac", "m4a", "opus", "ogg", "wav", "webm", "mka",
 };
@@ -59,14 +59,14 @@ constexpr qint64 kOrphanAgeSecs = 6 * 3600;
 Downloads::Downloads(QObject *parent)
     : QObject(parent)
 {
-    // Carpeta persistida por el usuario; si no hay, la de por defecto.
+    // Folder persisted by the user; if there is none, the default one.
     const QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
     QString saved = s.value(QStringLiteral("downloadFolder")).toString().trimmed();
     // A value inherited from old test runs (temp folders like
     // /tmp/lotus-tune-tests-XXXX) is not a real folder: it is dropped and
     // the default one is used, which is also recreated if missing.
     if (!saved.isEmpty() && QDir(saved).isRelative())
-        saved.clear();   // ruta relativa: inservible fuera de su contexto
+        saved.clear();   // relative path: useless outside its context
     if (!saved.isEmpty() && QFileInfo(saved).absoluteFilePath()
                                .startsWith(QDir::tempPath()))
         saved.clear();
@@ -80,8 +80,8 @@ Downloads::Downloads(QObject *parent)
     connect(&m_proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) { finishJob(code); });
 
-    // Escaneo incremental: el QDirIterator avanza por lotes en cada tick para
-    // no congelar la UI con bibliotecas grandes.
+    // Incremental scan: the QDirIterator advances in batches on every tick so
+    // it does not freeze the UI with big libraries.
     m_scanTimer.setInterval(2);
     connect(&m_scanTimer, &QTimer::timeout, this, &Downloads::scanChunk);
 
@@ -131,7 +131,7 @@ void Downloads::setFolder(const QString &dir)
     s.sync();
 
     emit changed();
-    // La biblioteca local ahora vive en otra carpeta: reescanear.
+    // The local library now lives in another folder: rescan.
     refreshLocal();
 }
 
@@ -153,8 +153,8 @@ QVariantList Downloads::jobs() const
         m.insert(QStringLiteral("name"), j.name);
         m.insert(QStringLiteral("url"), j.url);
         m.insert(QStringLiteral("playlist"), j.playlist);
-        // Carpeta destino de una lista ("" en pistas sueltas), para que la UI
-        // pueda dar feedback dentro de la propia lista.
+        // Target folder of a list ("" for loose tracks), so that the UI
+        // can give feedback inside the list itself.
         m.insert(QStringLiteral("folder"), j.folder);
         m.insert(QStringLiteral("progress"), j.progress);
         m.insert(QStringLiteral("state"), j.state);
@@ -189,7 +189,7 @@ QString Downloads::safeSegment(const QString &text)
         const QChar last = s.at(s.size() - 1);
         s.chop(last.isLowSurrogate() && s.size() >= 2 ? 2 : 1);
     }
-    // El recorte puede dejar un punto/espacio final o inicial otra vez.
+    // The truncation may leave a trailing/leading dot or space again.
     while (s.startsWith(QLatin1Char('.')) || s.startsWith(QLatin1Char(' ')))
         s.remove(0, 1);
     while (s.endsWith(QLatin1Char('.')) || s.endsWith(QLatin1Char(' ')))
@@ -216,7 +216,7 @@ QString Downloads::uniqueListFolder(const QString &seg, const QString &url) cons
         const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
         const QString prev = o.value(QStringLiteral("url")).toString().trimmed();
         if (!url.isEmpty() && prev == url)
-            return seg;   // misma lista: se reutiliza y se reanuda
+            return seg;   // same list: it is reused and resumed
     }
 
     for (int i = 2; i < 10000; ++i) {
@@ -276,8 +276,8 @@ void Downloads::setJob(int index, const QString &state, const QString &error)
     m_jobs[index].error = error;
 }
 
-// Marca un job como fallido con un mensaje LEGIBLE, avisa a la UI y, si era la
-// descarga en curso, libera el proceso y arranca la siguiente de la cola.
+// Marks a job as failed with a READABLE message, warns the UI and, if it was
+// the running download, frees the process and starts the next one of the queue.
 void Downloads::failJob(int index, const QString &message)
 {
     if (index < 0 || index >= m_jobs.size())
@@ -300,7 +300,7 @@ void Downloads::failJob(int index, const QString &message)
 void Downloads::startNext()
 {
     if (m_current >= 0)
-        return;  // ya hay una descarga en curso
+        return;  // there is already a download in progress
 
     int idx = -1;
     for (int i = 0; i < m_jobs.size(); ++i) {
@@ -404,8 +404,8 @@ void Downloads::startNext()
         QStringLiteral("--audio-format"), QStringLiteral("opus"),
         QStringLiteral("--audio-quality"), QStringLiteral("0"),
         QStringLiteral("--embed-metadata"),
-        // Sin miniatura embebida y sin `.info.json`: menos peso, menos
-        // postprocesado y sin depender de mutagen.
+        // Without embedded thumbnail and without `.info.json`: less weight, less
+        // post-processing and without depending on mutagen.
         QStringLiteral("--no-embed-thumbnail"),
         QStringLiteral("--no-write-info-json"),
         // Resumable and without downloading again what is already there.
@@ -423,7 +423,7 @@ void Downloads::startNext()
         QStringLiteral("-o"), outTemplate,
     };
 
-    // Si es pista suelta, evitar bajar playlists si la URL viene con &list=...
+    // If it is a loose track, avoid downloading playlists if the URL comes with &list=...
     if (!j.playlist)
         args << QStringLiteral("--no-playlist");
 
@@ -502,10 +502,10 @@ void Downloads::readStdout()
             if (total > 0)
                 m_plTotal = total;
             updateProgress(mt.captured(3).toDouble() / 100.0);
-            continue;   // es una línea de progreso: nada más que mirar
+            continue;   // it is a progress line: nothing else to look at
         }
 
-        // Compatibilidad con yt-dlp antiguos: "Downloading item 3 of 20".
+        // Compatibility with old yt-dlp: "Downloading item 3 of 20".
         static const QRegularExpression reItem(
             QStringLiteral("Downloading item ([0-9]+) of ([0-9]+)"));
         const QRegularExpressionMatch mi = reItem.match(line);
@@ -570,7 +570,7 @@ QString Downloads::friendlyError(const QString &raw)
         || has("no video formats") || has("no formats"))
         return QStringLiteral("No hay ningún formato de audio disponible.");
 
-    // Sin coincidencia: usa el mensaje original (ya recortado por yt-dlp).
+    // No match: use the original message (already trimmed by yt-dlp).
     return r;
 }
 
@@ -620,20 +620,20 @@ void Downloads::sweepOrphans(qint64 ageSecs)
 
 void Downloads::finishJob(int code)
 {
-    readStdout();  // drena lo que quede pendiente antes de cerrar el job
+    readStdout();  // it drains what is pending before closing the job
     if (m_current < 0)
         return;
 
     const int idx = m_current;
     m_current = -1;
 
-    const Job job = m_jobs[idx];   // copia: nombre, playlist y carpeta
+    const Job job = m_jobs[idx];   // copy: name, playlist and folder
     const QString dir = job.folder.isEmpty()
         ? m_folder
         : m_folder + QLatin1Char('/') + job.folder;
 
     if (m_cancelling) {
-        // Cancelado a mitad: borra los restos parciales para no dejar basura.
+        // Cancelled halfway: it deletes the partial leftovers so no trash is left.
         removePartials(dir);
         setJob(idx, QStringLiteral("error"), QStringLiteral("Cancelado"));
         m_cancelling = false;
@@ -641,7 +641,7 @@ void Downloads::finishJob(int code)
         emit jobsChanged();
         emit changed();
         emit activeProgressChanged();
-        return;  // cancelAll() ya marcó el resto de la cola
+        return;  // cancelAll() already marked the rest of the queue
     }
 
     if (code == 0) {
@@ -668,7 +668,7 @@ void Downloads::finishJob(int code)
         emit downloadCompleted(job.name, job.folder);
         emit activeProgressChanged();
     } else {
-        // Fallo: limpia parciales y publica un motivo legible.
+        // Failure: it cleans the partials and publishes a readable reason.
         const QString raw = m_lastError.isEmpty()
             ? QStringLiteral("yt-dlp terminó con código %1").arg(code)
             : m_lastError;
@@ -717,14 +717,14 @@ QString Downloads::artistForPath(const QString &dir) const
 
 QVariantList Downloads::folders() const
 {
-    // Agrupa la biblioteca local por carpeta de primer nivel: cada carpeta es
-    // una lista descargada (con nombre, nº de pistas y una miniatura).
+    // Groups the local library by top level folder: every folder is
+    // a downloaded list (with name, number of tracks and a thumbnail).
     QStringList order;
     QHash<QString, QVariantList> groups;
     for (const QVariant &v : m_local) {
         const QString f = v.toMap().value(QStringLiteral("folder")).toString();
         if (f.isEmpty())
-            continue;   // pistas sueltas en la raíz: no forman lista
+            continue;   // loose tracks in the root: they do not form a list
         if (!groups.contains(f))
             order.append(f);
         groups[f].append(v);
@@ -747,7 +747,7 @@ QVariantList Downloads::folders() const
         m.insert(QStringLiteral("folder"), f);
         m.insert(QStringLiteral("count"), tr.size());
         m.insert(QStringLiteral("thumb"), thumb);
-        // Metadatos de la lista (si existen): nombre original y URL de origen.
+        // Metadata of the list (if it exists): original name and source URL.
         QFile mf(m_folder + QLatin1Char('/') + f
                  + QStringLiteral("/.lotus-list.json"));
         if (mf.open(QIODevice::ReadOnly)) {
@@ -826,7 +826,7 @@ QVariantMap Downloads::makeLocalTrack(const QString &path) const
 
 void Downloads::refreshLocal()
 {
-    // Reinicia cualquier escaneo en curso y empieza de cero.
+    // Restarts any scan in progress and starts from scratch.
     stopScan();
     m_scanItems.clear();
     m_scanDirs.clear();
@@ -935,7 +935,7 @@ void Downloads::removeList(const QString &folder)
     const QString rootCanon = QDir::cleanPath(root.absolutePath());
     if (canon == rootCanon
         || !canon.startsWith(rootCanon + QLatin1Char('/')))
-        return;   // fuera de la carpeta de descargas
+        return;   // outside the downloads folder
 
     // If that list is being downloaded (or is queued) it is cancelled
      // before deleting so yt-dlp does not recreate the folder.
@@ -959,7 +959,7 @@ void Downloads::removeList(const QString &folder)
     }
 
     QDir(canon).removeRecursively();
-    // Reescanea para que la lista desaparezca al instante de la UI.
+    // Rescans so the list disappears from the UI at once.
     refreshLocal();
     emit jobsChanged();
     emit changed();

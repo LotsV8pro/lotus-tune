@@ -32,11 +32,11 @@ private:
     void loadSettings();
     void saveSettings();
     void preloadAll();
-    // Devuelve (creando si hace falta) el QSoundEffect de un recurso.
+    // Returns (creating it if needed) the QSoundEffect of a resource.
     QSoundEffect *effectFor(const QString &path);
     void tryPlayWithSoundEffect(const QString &path);
     void playWithPw(const QString &path);
-    // Bucle silencioso para mantener despierto el motor de audio.
+    // Silent loop to keep the audio engine awake.
     void startKeepAlive();
 
     QSettings *m_settings;

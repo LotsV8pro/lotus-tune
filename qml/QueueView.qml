@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import "theme.js" as Theme
 
 // Playback queue. The model is Main's `queue` ListModel; it is passed
-// como dato (no se referencia `root`) para poder vivir en su propio archivo.
+// as data (`root` is not referenced) so it can live in its own file.
 Item {
     id: qv
 
@@ -174,11 +174,11 @@ Item {
                                          && catalog.videoIdOf(row.url) !== ""
                             revealed: rowHover.hovered
                             liked: {
-                                // Sin depender de likedReady: isLiked ya es
+                                // Without relying on likedReady: isLiked is already
                                 // authoritative and toggleLiked bumps the
                                 // revision, so the heart is marked at once
                                 // (also
-                                // en pistas locales, resueltas por su .info.json).
+                                // on local tracks, resolved by their .info.json).
                                 const rev = catalog.likedRevision
                                 return catalog.isLiked(row.url)
                             }
@@ -197,7 +197,7 @@ Item {
 
                 // Duration as a faint pill: it groups the metadata on the
                 // right
-                // y ordena la lectura de la fila.
+                // and orders the reading of the row.
                 Rectangle {
                     Layout.alignment: Qt.AlignVCenter
                     implicitWidth: durText.implicitWidth + Theme.s2 * 2

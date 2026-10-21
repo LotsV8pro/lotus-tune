@@ -42,7 +42,7 @@ public:
     explicit Mpris(Player *player = nullptr, QObject *parent = nullptr);
     ~Mpris() override;
 
-    // --- API hacia la app (context property "mpris" en QML) -------------
+    // --- API towards the app (context property "mpris" in QML) -------------
 
     // New track playing. durationSeconds <= 0 becomes 0. A call with no
     // data at all (empty title/artist/album/cover and duration <= 0) is
@@ -59,7 +59,7 @@ public:
     // Repeat state of the app's button ("None" | "Playlist" |
     // "Track"), so the system controls paint it the same way.
     Q_INVOKABLE void setLoopStatus(const QString &status);
-    // Refleja en el bus el volumen fijado por la app (0..150 %).
+    // Reflects on the bus the volume set by the app (0..150 %).
     Q_INVOKABLE void updateVolume(int percent);
 
     // Is there (or is there loading) a file in the engine? It is used to
@@ -80,10 +80,10 @@ signals:
     void setPositionRequested(double seconds);
 
     // Extras useful to complete the MPRIS interface.
-    void volumeRequested(double volume);          // Volume (0..1) fijado por el cliente
+    void volumeRequested(double volume);          // Volume (0..1) set by the client
     void openUriRequested(const QString &uri);    // OpenUri()
     void quitRequested();                         // Quit()
-    void raiseRequested();                        // Raise() -> traer la ventana al frente
+    void raiseRequested();                        // Raise() -> bring the window to the front
 
 private:
     QVariantMap metadata() const;
@@ -99,7 +99,7 @@ private:
      // with the position the engine really applied.
     void requestSeek(qint64 targetUs, bool absolute);
     void announceSeek(qint64 us);
-    // Player::seeked -> anuncia Seeked + PropertiesChanged(Position) en el bus.
+    // Player::seeked -> announces Seeked + PropertiesChanged(Position) on the bus.
     void onPlayerSeeked(double seconds);
     // Player::positionChanged (the engine's ~240 ms timer) -> publishes
      // Position on the bus with a throttle (~500 ms). MPRIS allows reading
@@ -108,7 +108,7 @@ private:
      // pushes the widget keeps moving from the previous track's position
      // after a Next (running ahead while the new track buffers).
     void onPlayerPositionChanged();
-    // Recalcula CanSeek cuando cambia el estado del motor.
+    // Recalculates CanSeek when the engine state changes.
     void refreshCanSeek();
 
     // Sends org.freedesktop.DBus.Properties.PropertiesChanged in an
@@ -121,12 +121,12 @@ private:
     MprisRootAdaptor *m_rootAdaptor = nullptr;
     MprisPlayerAdaptor *m_playerAdaptor = nullptr;
 
-    Player *m_player = nullptr;       // motor mpv (puede ser nullptr)
-    QTimer m_seekConfirm;             // confirmación de Seeked con la posición real
-    qint64 m_lastSeekUs = -1;         // última posición anunciada con Seeked
-    qint64 m_lastPosPublishMs = -1;   // throttle de la publicación periódica de Position
-    qint64 m_lastPosPublishedUs = -1; // última posición publicada (detección de reset)
-    bool m_canSeek = true;            // cache de CanSeek (se anuncia al cambiar)
+    Player *m_player = nullptr;       // mpv engine (it can be nullptr)
+    QTimer m_seekConfirm;             // Seeked confirmation with the real position
+    qint64 m_lastSeekUs = -1;         // last position announced with Seeked
+    qint64 m_lastPosPublishMs = -1;   // throttle of the periodic Position publication
+    qint64 m_lastPosPublishedUs = -1; // last published position (reset detection)
+    bool m_canSeek = true;            // CanSeek cache (it is announced on change)
 
     QDBusObjectPath m_trackId;      // /lotustune/track/<n>
     int m_trackCounter = 0;
@@ -136,18 +136,18 @@ private:
     QString m_artist;
     QString m_album;
     QString m_artUrl;
-    qint64 m_lengthUs = 0;          // duración en microsegundos
+    qint64 m_lengthUs = 0;          // duration in microseconds
 
     QString m_playbackStatus = QStringLiteral("Stopped");
     QString m_loopStatus = QStringLiteral("None");
     double m_rate = 1.0;
     bool m_shuffle = false;
     double m_volume = 1.0;
-    double m_position = 0.0;        // segundos
+    double m_position = 0.0;        // seconds
 };
 
-// Adaptador de org.mpris.MediaPlayer2 (identidad y ciclo de vida).
-// getters constantes -> no necesitan PropertiesChanged.
+// Adaptor of org.mpris.MediaPlayer2 (identity and life cycle).
+// constant getters -> they do not need PropertiesChanged.
 class MprisRootAdaptor : public QDBusAbstractAdaptor
 {
     Q_OBJECT

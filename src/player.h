@@ -23,7 +23,7 @@ class Player : public QObject
     Q_PROPERTY(double duration READ duration NOTIFY stateChanged)
     Q_PROPERTY(int volume READ volume NOTIFY volumeChanged)
     Q_PROPERTY(QString engineStatus READ engineStatus NOTIFY stateChanged)
-    // Calidad de audio elegida: "max" | "alta" | "media" | "baja".
+    // Chosen audio quality: "max" | "alta" | "media" | "baja".
     Q_PROPERTY(QString quality READ quality NOTIFY qualityChanged)
     // Is there (or is there loading) a file in mpv? QML needs it to know
     // whether "play" should start the track restored from the session (not
@@ -58,7 +58,7 @@ public:
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void setVolume(int v);
-    // Cambia el selector --ytdl-format de mpv en caliente (por IPC).
+    // Changes mpv's --ytdl-format selector on the fly (through IPC).
     Q_INVOKABLE void setQuality(const QString &q);
     // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
     // --get-url with the same session/cookies as mpv) and caches it, so a
@@ -103,7 +103,7 @@ private:
     // Real implementation of load(): `allowResolve=false` is used when
     // our pre-resolution failed and mpv has to try it on its own.
     void loadImpl(const QString &url, bool allowResolve);
-    // Traduce m_quality al selector "--ytdl-format" de yt-dlp.
+    // Translates m_quality into yt-dlp's "--ytdl-format" selector.
     QString ytdlFormat() const;
     void loadStreamCache();
     void saveStreamCache();
@@ -136,8 +136,8 @@ private:
         qint64 start = 0;
     };
     QVector<ResolveJob *> m_jobs;
-    QStringList m_resolveFront;   // cola prioritaria (hover)
-    QStringList m_resolveQueue;   // cola de fondo (siguientes de la lista)
+    QStringList m_resolveFront;   // priority queue (hover)
+    QStringList m_resolveQueue;   // background queue (the next ones of the list)
     QHash<QString, QString> m_resolved;
     // Moment (epoch) when each entry was resolved, for the cache's TTL.
     QHash<QString, qint64> m_resolvedAt;
@@ -148,13 +148,13 @@ private:
     bool m_cacheDirty = false;
     // Wraps the entry in the queues (dedup, priority, background cancel).
     void enqueueResolve(const QString &url, bool front, bool urgent = false);
-    // Rellena los slots libres con trabajo pendiente (front antes que fondo).
+    // Fills the free slots with pending work (front before background).
     void resolveQueue();
     // Takes the next URL to resolve; `front` says which queue it came
      // from. It skips the ones already resolved or in flight in another
      // slot (dedupe).
     QString takeNextResolve(bool &front);
-    // Lanza un yt-dlp en el slot dado para resolver `url`.
+    // Launches an yt-dlp in the given slot to resolve `url`.
     void startResolve(ResolveJob *job, const QString &url, bool front);
     // Is any slot resolving `url` right now?
     bool isResolving(const QString &url) const;
@@ -165,8 +165,8 @@ private:
     // Callbacks per slot: process end and resolution timeout.
     void onResolveFinished(ResolveJob *job, int code);
     void onResolveTimeout(ResolveJob *job);
-    // Nº de reintentos seguidos de la pista actual (para fallos transitorios
-    // de yt-dlp/YouTube). Se resetea al empezar a sonar una pista distinta.
+    // Number of consecutive retries of the current track (for transient
+    // yt-dlp/YouTube failures). It is reset when a different track starts playing.
     int m_retry = 0;
     QString m_pendingUrl;
     // load() asked while our resolver was already working on that same
@@ -178,8 +178,8 @@ private:
     QString m_quality = QStringLiteral("max");  // "max"|"alta"|"media"|"baja"
     bool m_ready = false;
     bool m_playing = false;
-    // Cierto desde que load() entrega un fichero a mpv hasta que termina
-    // (eof/error), se para o mpv muere.
+    // True from the moment load() hands a file to mpv until it finishes
+    // (eof/error), it is stopped or mpv dies.
     bool m_hasFile = false;
     // True from load() until mpv reports a real duration/position.
     bool m_loading = false;

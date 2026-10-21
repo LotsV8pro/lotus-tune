@@ -150,6 +150,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_videoId = videoId.trimmed();
     m_exactTried = m_videoId.isEmpty();
     m_neteaseTried = false;
+    m_mxmTried = false;
     ++m_gen;
 
     m_loading = true;
@@ -157,8 +158,13 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_hasSynced = false;
     m_plain.clear();
     m_synced.clear();
-    m_sonoraLines.clear();
-    m_sonoraSource.clear();
+    m_cacheLines.clear();
+    m_cacheSource.clear();
+    // The word level flag belongs to the track that was playing: without
+    // this reset the lyrics of the previous song (with its word timings)
+    // were kept and the new ones were never shown.
+    m_worded = false;
+    m_refLines.clear();
     m_error.clear();
     m_syncSource.clear();
     m_plainSource.clear();
@@ -166,7 +172,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_ytmIds.clear();
     m_ytmIdx = 0;
     m_ytmBrowseId.clear();
-    publishTrack();   // el widget del shell se entera antes de que llegue nada
+    publishTrack();   // the shell widget finds out before anything arrives
     emit changed();
 
     if (t.isEmpty()) {
@@ -192,7 +198,12 @@ void Lyrics::fetch(const QString &artist, const QString &title,
         return;
     }
 
+    // YouTube Music and Musixmatch go in parallel: the first one brings
+    // the lyrics of the video that is playing (the reference for the word
+    // timings) and the second one the timing of every word. Whichever
+    // answers first is used and the other one completes it.
     startYtm();
+    startMusixmatch();
 }
 
 // Classic plan (LRCLIB -> NetEase), used when YouTube Music has no lyrics
@@ -238,6 +249,8 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
         case Stage::LrclibSearch: onSearchReply(reply, key); break;
         case Stage::NeteaseSearch: onNeteaseSearchReply(reply, key); break;
         case Stage::NeteaseLyric:  onNeteaseLyricReply(reply, key); break;
+        case Stage::MxmToken:      onMxmTokenReply(reply, key); break;
+        case Stage::MxmRichsync:   onMxmRichsyncReply(reply, key); break;
         }
     });
 }
@@ -453,7 +466,7 @@ void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         ytmGiveUp(QStringLiteral("búsqueda fallida (%1)")
@@ -465,7 +478,7 @@ void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
     QJsonArray items;
     collectJson(root, QStringLiteral("musicResponsiveListItemRenderer"), &items);
 
-    QList<QPair<int, QString>> ranked;   // puntuación, videoId
+    QList<QPair<int, QString>> ranked;   // score, videoId
     for (const QJsonValue &v : items) {
         const QJsonObject item = v.toObject();
         const QString videoId = firstString(item, QStringLiteral("videoId"));
@@ -564,7 +577,7 @@ void Lyrics::onYtmNextReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo().noquote()
@@ -607,7 +620,7 @@ void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo().noquote()
@@ -702,7 +715,7 @@ void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -742,7 +755,7 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] lrclib search falló:" << reply->errorString();
@@ -767,8 +780,13 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
     }
 
     qInfo() << "[lyrics] lrclib search:" << arr.size()
-            << "resultados, ninguno sincronizado -> probando NetEase";
-    startNetease();
+            << "resultados, ninguno sincronizado -> probando Musixmatch";
+    if (!m_mxmTried)
+        startMusixmatch();
+    else {
+        m_neteaseTried = true;
+        startNetease();
+    }
 }
 
 // ---- NetEase Cloud Music --------------------------------------------------
@@ -798,7 +816,7 @@ void Lyrics::onNeteaseSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] netease search falló:" << reply->errorString();
@@ -845,7 +863,7 @@ void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen))
-        return;   // respuesta antigua
+        return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] netease lyric falló:" << reply->errorString();
@@ -921,7 +939,7 @@ int Lyrics::scoreNetease(const QJsonObject &song) const
              && (gotTitle.contains(wantTitle) || wantTitle.contains(gotTitle)))
         score += 30;
     else
-        return 0;   // ni siquiera el título encaja
+        return 0;   // not even the title matches
 
     const QString wantArtist = norm(m_artist);
     if (!wantArtist.isEmpty()) {
@@ -973,10 +991,20 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
 {
     QVector<LrcLine> parsed = parseLrc(lrc, filterCredits);
     if (parsed.size() < 2)
-        return false;   // casi nada: no compensa ocultar el texto plano
+        return false;   // almost nothing: it is not worth hiding the plain text
 
     m_synced = lrc;
-    m_lines = std::move(parsed);
+    // The timed lines of the video are kept as the reference: the word
+    // level timings that come later are aligned with them.
+    m_refLines = parsed;
+    // The word level lyrics are never replaced by the line ones.
+    if (!m_worded) {
+        m_lines = std::move(parsed);
+    } else {
+        // The lines of the video arrived after the karaoke: the words are
+        // aligned with them now.
+        alignWords(m_lines, m_refLines);
+    }
     m_hasSynced = true;
     m_syncSource = source;
     return true;
@@ -985,6 +1013,11 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
 bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
 {
     if (lines.size() < 2)
+        return false;
+    // The words come from the album: they are aligned with the video and
+    // the text of the video wins. If the lines do not match at all it is
+    // another version of the song and it is not used.
+    if (!alignWords(lines, m_refLines))
         return false;
     m_lines = std::move(lines);
     m_hasSynced = true;
@@ -1021,7 +1054,7 @@ bool Lyrics::trySonoraCache()
     // BEFORE removeDatabase(): if it is still alive, Qt warns that the
     // connection is in use.
     QByteArray raw;
-    const QString conn = QStringLiteral("sonora_lyrics");
+    const QString conn = QStringLiteral("lotus_lyrics");
     {
         {
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), conn);
@@ -1112,16 +1145,16 @@ bool Lyrics::trySonoraCache()
     if (best.size() < 2)
         return false;
 
-    const QString source = QStringLiteral("sonora · %1").arg(
+    const QString source = QStringLiteral("lotus tune · %1").arg(
         bestSource.isEmpty() ? QStringLiteral("cache") : bestSource);
     if (bestWorded <= 0) {
         // Without word level timings this is not karaoke: it is kept aside
         // and the network is asked first (YouTube Music may bring the real
         // word timings).
-        m_sonoraLines = best;
-        m_sonoraSource = source;
+        m_cacheLines = best;
+        m_cacheSource = source;
         qInfo().noquote()
-            << QString("[lyrics] sonora (cache) sin letra a letra: se sigue con la red");
+            << QString("[lyrics] cache local sin letra a letra: se sigue con la red");
         return false;
     }
 
@@ -1150,7 +1183,7 @@ bool Lyrics::trySonoraByTitle()
         // Own and ephemeral connection, read only. The handle is
         // destroyed BEFORE removeDatabase(): if it is still alive, Qt
         // warns that the connection is in use.
-        const QString cname = QStringLiteral("sonora_lyrics_title");
+        const QString cname = QStringLiteral("lotus_lyrics_title");
         {
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), cname);
             db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
@@ -1201,7 +1234,7 @@ bool Lyrics::trySonoraByTitle()
     if (payloads.isEmpty())
         return false;
 
-    qInfo() << "[lyrics] sonora por título: filas =" << payloads.size()
+    qInfo() << "[lyrics] cache local por titulo: filas =" << payloads.size()
             << "pista =" << m_trackKey;
 
     static const QHash<QString, int> rank{
@@ -1305,10 +1338,10 @@ bool Lyrics::trySonoraByTitle()
     if (bestWorded <= 0) {
         // Same as the cache by id: without word timings it is only the last
         // resort.
-        m_sonoraLines = best;
-        m_sonoraSource = source;
+        m_cacheLines = best;
+        m_cacheSource = source;
         qInfo().noquote()
-            << QString("[lyrics] sonora (por titulo) sin letra a letra: se sigue con la red");
+            << QString("[lyrics] cache local (por titulo) sin letra a letra: se sigue con la red");
         return false;
     }
 
@@ -1323,17 +1356,24 @@ void Lyrics::settleOrFail()
     }
     // Last resort: the Sonora lyrics without word level timings (the
     // network had nothing better for this track).
-    if (m_sonoraLines.size() >= 2) {
-        m_lines = m_sonoraLines;
+    if (m_cacheLines.size() >= 2) {
+        m_lines = m_cacheLines;
         m_hasSynced = true;
-        m_syncSource = m_sonoraSource;
+        m_syncSource = m_cacheSource;
         qInfo().noquote()
-            << QString("[lyrics] sonora por lineas (ultimo recurso): %1")
-                   .arg(m_sonoraSource);
+            << QString("[lyrics] cache local por lineas (ultimo recurso): %1")
+                   .arg(m_cacheSource);
         finish();
         return;
     }
-    fail(QStringLiteral("Sin letra disponible"));
+    // Nothing at all: Musixmatch is tried (it also has the line timings)
+    // and, if it does not know the song, NetEase.
+    if (!m_mxmTried)
+        startMusixmatch();
+    else {
+        m_neteaseTried = true;
+        startNetease();
+    }
 }
 
 void Lyrics::finish()
@@ -1346,10 +1386,13 @@ void Lyrics::finish()
     // The lyrics we have bring no word level timings: NetEase is asked for
     // its "klyric" (which does bring them) to get the word level karaoke,
     // like the shell widget. If it arrives, it replaces the lyrics.
-    if (m_hasSynced && !hasWordTimings() && !m_neteaseTried
+    if (m_hasSynced && !hasWordTimings() && !m_mxmTried
         && !m_title.trimmed().isEmpty()) {
-        m_neteaseTried = true;
-        startNetease();
+        // The lyrics have no word level timings: Musixmatch is asked for
+        // them (it is the catalogue YouTube Music uses) and, if it does not
+        // have them either, NetEase.
+        if (!m_mxmTried)
+            startMusixmatch();
     }
 
     const QString source = m_hasSynced
@@ -1369,7 +1412,7 @@ void Lyrics::finish()
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
-    publishLines();   // vuelco completo al estado publicado (líneas o descarte)
+    publishLines();   // full dump to the published state (lines or discard)
     emit changed();
 }
 
@@ -1435,7 +1478,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredit
             out.append(LrcLine{ts, QString()});
         }
         if (lastEnd < 0)
-            continue;   // sin timestamp: metadato o línea vacía
+            continue;   // no timestamp: metadata or empty line
         // The text is what follows the last timestamp of the line.
         const QString body = line.mid(lastEnd).trimmed();
         if (body.isEmpty() || (filterCredits && looksLikeCredit(body))) {
@@ -1574,7 +1617,7 @@ int Lyrics::lineIndexAt(double seconds)
 
 void Lyrics::clear()
 {
-    ++m_gen;              // invalida cualquier respuesta aún en vuelo
+    ++m_gen;              // it invalidates any answer still in flight
     m_trackKey.clear();
     m_artist.clear();
     m_title.clear();
@@ -1587,8 +1630,8 @@ void Lyrics::clear()
     m_hasSynced = false;
     m_plain.clear();
     m_synced.clear();
-    m_sonoraLines.clear();
-    m_sonoraSource.clear();
+    m_cacheLines.clear();
+    m_cacheSource.clear();
     m_error.clear();
     m_syncSource.clear();
     m_plainSource.clear();
@@ -1637,7 +1680,7 @@ void Lyrics::setEngine(Player *player)
         connect(m_runtimeBeat, &QTimer::timeout, this, [this]() {
             publishRuntime();
             if (m_engine && m_engine->playing())
-                m_runtimeBeat->start();   // latido sólo mientras suena
+                m_runtimeBeat->start();   // the beat only while it sounds
         });
     }
     // Play/pause/state change: it is written right away (when paused there
@@ -1798,4 +1841,419 @@ void Lyrics::removePublished()
     rt.insert(QStringLiteral("playing"), false);
     rt.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
     writeJsonFile(stateDir() + QStringLiteral("/lyrics-runtime.json"), rt);
+}
+
+
+// ---------------------------------------------------------------------------
+// Musixmatch: word level timings (the "richsync" of the macro call).
+//
+// It is the same catalogue YouTube Music uses for its lyrics, but the
+// answer carries the timing of every word, so the karaoke is real. The
+// token is asked only once every ten minutes and it is kept on disk, so
+// neither the app nor the API are hammered.
+// ---------------------------------------------------------------------------
+static QString mxmTokenPath()
+{
+    return QDir::homePath() + QStringLiteral("/.cache/lotus-tune/mxm_token.json");
+}
+
+// The titles that come from YouTube Music carry the uploader and the
+// marketing noise ("xi - Topic - Freedom Dive", "Savior (Official Music
+// Video)"). Musixmatch knows the song without them.
+static QString cleanTrackTitle(const QString &in)
+{
+    QString t = in;
+    const QStringList junk = {
+        QStringLiteral("official music video"), QStringLiteral("official video"),
+        QStringLiteral("official audio"), QStringLiteral("official lyric video"),
+        QStringLiteral("official lyrics"), QStringLiteral("lyric video"),
+        QStringLiteral("lyrics"), QStringLiteral("audio"), QStringLiteral("video"),
+        QStringLiteral("music video"), QStringLiteral("mv"), QStringLiteral("hd"),
+        QStringLiteral("hq"), QStringLiteral("4k"), QStringLiteral("remastered"),
+        QStringLiteral("topic")
+    };
+    t.remove(QRegularExpression(QStringLiteral("\\s*\\[[^\\]]*\\]")));
+    t.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)")));
+    t.remove(QRegularExpression(QStringLiteral("\\s*-\\s*Topic\\s*$"),
+                                QRegularExpression::CaseInsensitiveOption));
+    for (const QString &j : junk) {
+        const QRegularExpression re(
+            QStringLiteral("\\s*\\(?\\b%1\\b\\)?\\s*").arg(j),
+            QRegularExpression::CaseInsensitiveOption);
+        t.remove(re);
+    }
+    t = t.simplified();
+    return t;
+}
+
+static QString cleanTrackArtist(const QString &in)
+{
+    QString a = in;
+    a.remove(QRegularExpression(QStringLiteral("\\s*-\\s*Topic\\s*$"),
+                                QRegularExpression::CaseInsensitiveOption));
+    a.remove(QRegularExpression(QStringLiteral("\\s*\\(.*\\)\\s*$")));
+    a = a.simplified();
+    return a;
+}
+
+void Lyrics::startMusixmatch()
+{
+    if (m_mxmTried)
+        return;   // it is already on its way
+    m_mxmTried = true;
+    // A token in memory that is still fresh?
+    if (!m_mxmToken.isEmpty() && m_mxmTokenAt.isValid()
+        && m_mxmTokenAt.secsTo(QDateTime::currentDateTimeUtc()) < 540) {
+        requestMusixmatchRichsync();
+        return;
+    }
+    // ... or one on disk?
+    QFile f(mxmTokenPath());
+    if (f.open(QIODevice::ReadOnly)) {
+        const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        const QString tok = o.value(QStringLiteral("token")).toString();
+        const qint64 exp =
+            static_cast<qint64>(o.value(QStringLiteral("exp")).toDouble());
+        if (!tok.isEmpty()
+            && exp > QDateTime::currentDateTimeUtc().toSecsSinceEpoch()) {
+            m_mxmToken = tok;
+            m_mxmTokenAt = QDateTime::currentDateTimeUtc();
+            requestMusixmatchRichsync();
+            return;
+        }
+    }
+    QUrl url(QStringLiteral("https://apic.musixmatch.com/ws/1.1/token.get"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("app_id"),
+                   QStringLiteral("android-player-v1.0"));
+    q.addQueryItem(QStringLiteral("user_language"), QStringLiteral("en"));
+    url.setQuery(q);
+    request(url, Stage::MxmToken, m_trackKey);
+}
+
+void Lyrics::requestMusixmatchRichsync()
+{
+    if (m_mxmToken.isEmpty() || m_title.trimmed().isEmpty())
+        return;
+    const QString title = cleanTrackTitle(m_title);
+    const QString artist = cleanTrackArtist(m_artist);
+    if (title.isEmpty())
+        return;
+
+    QUrl url(QStringLiteral("https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("format"), QStringLiteral("json"));
+    q.addQueryItem(QStringLiteral("namespace"),
+                   QStringLiteral("lyrics_richsynched"));
+    q.addQueryItem(QStringLiteral("subtitle_format"), QStringLiteral("mxm"));
+    q.addQueryItem(QStringLiteral("app_id"),
+                   QStringLiteral("android-player-v1.0"));
+    q.addQueryItem(QStringLiteral("usertoken"), m_mxmToken);
+    q.addQueryItem(QStringLiteral("q_track"), title);
+    q.addQueryItem(QStringLiteral("q_artist"), artist);
+    if (m_duration > 0)
+        q.addQueryItem(QStringLiteral("q_duration"),
+                       QString::number(m_duration));
+    // The word timings come as an extra sub call of the same request.
+    q.addQueryItem(QStringLiteral("optional_calls"),
+                   QStringLiteral("track.richsync"));
+    q.addQueryItem(QStringLiteral("richsync_compact_type"),
+                   QStringLiteral("words"));
+    url.setQuery(q);
+    request(url, Stage::MxmRichsync, m_trackKey);
+}
+
+void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (key != m_trackKey)
+        return;
+    const QByteArray body = reply->readAll();
+    const QJsonObject root = QJsonDocument::fromJson(body).object();
+    const QJsonObject msg = root.value(QStringLiteral("message")).toObject();
+    const int code =
+        msg.value(QStringLiteral("header")).toObject()
+            .value(QStringLiteral("status_code")).toInt();
+    const QString tok =
+        msg.value(QStringLiteral("body")).toObject()
+            .value(QStringLiteral("user_token")).toString();
+    if (code != 200 || tok.isEmpty()) {
+        qInfo() << "[lyrics] musixmatch: token no válido (" << code << ")";
+        if (m_neteaseTried)
+            fail(QStringLiteral("Sin letra disponible"));
+        else {
+            m_neteaseTried = true;
+            startNetease();
+        }
+        return;
+    }
+    m_mxmToken = tok;
+    m_mxmTokenAt = QDateTime::currentDateTimeUtc();
+    // It is kept on disk: a new token is not asked for on every track.
+    QDir().mkpath(QDir::homePath() + QStringLiteral("/.cache/lotus-tune"));
+    QFile f(mxmTokenPath());
+    if (f.open(QIODevice::WriteOnly)) {
+        QJsonObject o;
+        o.insert(QStringLiteral("token"), tok);
+        o.insert(QStringLiteral("exp"),
+                 QDateTime::currentDateTimeUtc().addSecs(540)
+                     .toSecsSinceEpoch());
+        f.write(QJsonDocument(o).toJson());
+        f.close();
+    }
+    requestMusixmatchRichsync();
+}
+
+// Normalises a line of text so two of them can be compared: lower case,
+// without punctuation and with single spaces.
+static QString normLine(const QString &t)
+{
+    QString s = t.toLower();
+    s.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} ]")));
+    return s.simplified();
+}
+
+// The instrumental markers ("♪") are not a line of the song: they do not
+// say anything about when the words are sung.
+static bool isInstrumental(const QString &norm)
+{
+    return norm == QStringLiteral("♪") || norm == QStringLiteral("♫")
+        || norm == QStringLiteral("♬") || norm == QStringLiteral("music")
+        || norm == QStringLiteral("instrumental");
+}
+
+QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
+{
+    QVector<LrcLine> out;
+    for (const QJsonValue &lv : arr) {
+        const QJsonObject e = lv.toObject();
+        const double ts = e.value(QStringLiteral("ts")).toDouble();
+        const double te = e.value(QStringLiteral("te")).toDouble(ts + 4.0);
+        const QJsonArray chunks = e.value(QStringLiteral("l")).toArray();
+        LrcLine line;
+        line.time = ts;
+        QString text;
+        int i = 0;
+        while (i < chunks.size()) {
+            const QJsonObject c = chunks.at(i).toObject();
+            const QString ct = c.value(QStringLiteral("c")).toString();
+            if (ct.trimmed().isEmpty()) {   // a space on its own
+                text += ct;
+                ++i;
+                continue;
+            }
+            // The word takes the spaces that follow it.
+            QString wtext = ct;
+            int j = i + 1;
+            while (j < chunks.size()
+                   && chunks.at(j).toObject().value(QStringLiteral("c"))
+                          .toString().trimmed().isEmpty()) {
+                wtext += chunks.at(j).toObject().value(QStringLiteral("c")).toString();
+                ++j;
+            }
+            const double t0 = ts + c.value(QStringLiteral("o")).toDouble();
+            const double t1 = (j < chunks.size())
+                ? ts + chunks.at(j).toObject().value(QStringLiteral("o")).toDouble()
+                : te;
+            QVariantMap wm;
+            wm.insert(QStringLiteral("t"), t0);
+            wm.insert(QStringLiteral("e"), t1);
+            wm.insert(QStringLiteral("text"), wtext);
+            line.words.append(wm);
+            text += wtext;
+            i = j;
+        }
+        if (line.words.size() < 2)
+            continue;
+        line.text = text.trimmed();
+        if (line.text.isEmpty())
+            continue;
+        // The instrumental markers ("♪") are kept: they are shown as they
+        // are, without being sung.
+        line.instrumental = isInstrumental(normLine(line.text));
+        out.append(line);
+    }
+    return out;
+}
+
+void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (key != m_trackKey)
+        return;
+    const QByteArray body = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || body.isEmpty()) {
+        qInfo() << "[lyrics] musixmatch: richsync falló:" << reply->errorString();
+        if (m_neteaseTried)
+            fail(QStringLiteral("Sin letra disponible"));
+        else {
+            m_neteaseTried = true;
+            startNetease();
+        }
+        return;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(body).object();
+    const QJsonObject calls =
+        root.value(QStringLiteral("message")).toObject()
+            .value(QStringLiteral("body")).toObject()
+            .value(QStringLiteral("macro_calls")).toObject();
+
+    // The word level timings.
+    const QJsonObject rs =
+        calls.value(QStringLiteral("track.richsync.get")).toObject()
+            .value(QStringLiteral("message")).toObject();
+    if (rs.value(QStringLiteral("header")).toObject()
+            .value(QStringLiteral("status_code")).toInt() == 200) {
+        const QString raw =
+            rs.value(QStringLiteral("body")).toObject()
+                .value(QStringLiteral("richsync")).toObject()
+                .value(QStringLiteral("richsync_body")).toString();
+        if (!raw.isEmpty()) {
+            const QJsonArray arr =
+                QJsonDocument::fromJson(raw.toUtf8()).array();
+            QVector<LrcLine> worded = parseRichsync(arr);
+            if (worded.size() >= 2) {
+                qInfo() << "[lyrics] musixmatch: karaoke con tiempos por palabra ("
+                        << worded.size() << " líneas)";
+                if (adoptWorded(std::move(worded),
+                                QStringLiteral("musixmatch"))) {
+                    finish();
+                    return;
+                }
+            }
+        }
+    }
+
+    // No word timings: the line timings of the same answer are used.
+    const QJsonObject subs =
+        calls.value(QStringLiteral("track.subtitles.get")).toObject()
+            .value(QStringLiteral("message")).toObject();
+    if (subs.value(QStringLiteral("header")).toObject()
+            .value(QStringLiteral("status_code")).toInt() == 200) {
+        const QJsonArray list =
+            subs.value(QStringLiteral("body")).toObject()
+                .value(QStringLiteral("subtitle_list")).toArray();
+        if (!list.isEmpty()) {
+            const QString lrc = list.at(0).toObject()
+                    .value(QStringLiteral("subtitle")).toObject()
+                    .value(QStringLiteral("subtitle_body")).toString();
+            if (!lrc.trimmed().isEmpty()) {
+                QVector<LrcLine> worded = parseLrcWords(lrc);
+                if (worded.size() >= 2) {
+                    qInfo() << "[lyrics] musixmatch: karaoke con tiempos por palabra ("
+                            << worded.size() << " líneas)";
+                    if (adoptWorded(std::move(worded),
+                                    QStringLiteral("musixmatch"))) {
+                        finish();
+                        return;
+                    }
+                }
+                if (adoptSynced(lrc, QStringLiteral("musixmatch"),
+                                /*filterCredits=*/true)) {
+                    finish();
+                    return;
+                }
+            }
+        }
+    }
+
+    // Nothing here: NetEase carries on.
+    qInfo() << "[lyrics] musixmatch: sin karaoke para esta canción";
+    if (m_neteaseTried)
+        fail(QStringLiteral("Sin letra disponible"));
+    else {
+        m_neteaseTried = true;
+        startNetease();
+    }
+}
+
+
+// It returns false when the reference and the words do not match at all:
+// the lyrics are not used then.
+bool Lyrics::alignWords(QVector<LrcLine> &lines,
+                        const QVector<LrcLine> &reference)
+{
+    if (lines.size() < 2)
+        return false;
+    if (reference.size() < 2)
+        return true;   // there is no reference to align with
+
+    // The reference times by normalised text.
+    QHash<QString, QVector<LrcLine>> ref;
+    for (const LrcLine &l : reference) {
+        const QString k = normLine(l.text);
+        if (k.isEmpty())
+            continue;
+        ref[k].append(l);
+    }
+    if (ref.isEmpty())
+        return true;
+
+    QVector<double> deltas;
+    QVector<LrcLine> out;
+    out.reserve(lines.size());
+    int matched = 0;
+    for (const LrcLine &l : lines) {
+        const QString k = normLine(l.text);
+        LrcLine aligned = l;
+        if (!k.isEmpty() && !isInstrumental(k)) {
+            auto it = ref.constFind(k);
+            if (it != ref.constEnd() && !it->isEmpty()) {
+                // The line is in the video: the text of the video is the one
+                // that is being sung and the difference of times is a
+                // sample for the offset.
+                deltas.append(it->first().time - l.time);
+                aligned.text = it->first().text;
+                ++matched;
+            }
+        }
+        // The instrumental lines (and the ones the video does not have) are
+        // kept: they are shown as they are.
+        out.append(aligned);
+    }
+    if (out.size() < 2)
+        return false;
+    if (matched * 10 < lines.size() * 3)
+        return false;  // it is another version of the song
+
+    std::sort(deltas.begin(), deltas.end());
+    double shift = deltas.at(deltas.size() / 2);
+    // The offset is the one that most of the lines share: a few lines of
+    // another take (or an instrumental marker) must not move the karaoke
+    // several seconds away. The group of lines that agree with the median
+    // is the one that counts, and if it is too small the timings are left
+    // as they are.
+    QVector<double> agree;
+    for (double d : deltas)
+        if (qAbs(d - shift) <= 1.5)
+            agree.append(d);
+    if (agree.size() * 10 < deltas.size() * 4) {
+        // The times do not agree with the video: the karaoke is left as it
+        // is (the manual offset of the track can still move it).
+        qInfo() << "[lyrics] karaoke sin alinear: los tiempos no coinciden"
+                << deltas.size() << "muestras";
+        lines = out;
+        return true;
+    }
+    std::sort(agree.begin(), agree.end());
+    shift = agree.at(agree.size() / 2);
+    if (qAbs(shift) >= 0.02) {
+        for (LrcLine &l : out) {
+            l.time += shift;
+            for (QVariant &wv : l.words) {
+                QVariantMap w = wv.toMap();
+                w.insert(QStringLiteral("t"),
+                         w.value(QStringLiteral("t")).toDouble() + shift);
+                w.insert(QStringLiteral("e"),
+                         w.value(QStringLiteral("e")).toDouble() + shift);
+                wv = w;
+            }
+        }
+        qInfo() << "[lyrics] karaoke alineada com o vídeo: desfase"
+                << QString::number(shift, 'f', 2) << "s"
+                << "(" << deltas.size() << " lineas)";
+    }
+    lines = out;
+    return true;
 }

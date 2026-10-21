@@ -298,7 +298,7 @@ private:
     SourceManager *m_sources;
     QProcess m_proc;
     QString m_purpose;
-    QString m_radioSeed;   // videoId semilla de la radio en curso
+    QString m_radioSeed;   // seed videoId of the current radio
     // The user opened by hand a list that was already being fetched in the
     // background (a radio prefetch on mouse over): the in-flight result
     // also works as the open list, without downloading it again.
@@ -316,8 +316,8 @@ private:
     // Search across all the sources: the groups fill one by one (each
     // source is a query) and they are emitted as each one finishes.
     QVariantList m_resultsBySource;
-    QStringList m_multiQueue;       // ids de las fuentes que faltan
-    QString m_multiCurrent;         // id de la fuente que se está consultando
+    QStringList m_multiQueue;       // ids of the sources that are missing
+    QString m_multiCurrent;         // id of the source being queried
     QString m_multiQuery;
     bool m_multiActive = false;
     QVariantList m_tracks;
@@ -326,8 +326,8 @@ private:
     // normalised target (e.g. "list:<id>"); it is limited to 24 entries.
     QHash<QString, QVariantList> m_playlistCache;
     QHash<QString, QString> m_playlistTitles;
-    QList<QString> m_cacheOrder;   // orden FIFO para evacuar la caché
-    QString m_pendingKey;          // clave de la carga de lista en curso
+    QList<QString> m_cacheOrder;   // FIFO order to evict the cache
+    QString m_pendingKey;          // key of the list load in progress
     // Timestamp (epoch secs) of every cache entry, for the TTL of the on
     // disk file (playlists.json).
     QHash<QString, qint64> m_playlistCacheAt;
@@ -335,43 +335,43 @@ private:
     // on the next dump: without this, reopening the list would bring the
     // old one.
     QSet<QString> m_cacheForgotten;
-    QTimer m_cacheSaveTimer;       // volcado diferido de la caché a disco
-    bool m_cacheDirty = false;     // ¿hay cambios pendientes de guardar?
+    QTimer m_cacheSaveTimer;       // deferred dump of the cache to disk
+    bool m_cacheDirty = false;     // are there pending changes to save?
     QVariantList m_playlists;
     QVariantList m_recent;
     QVariantList m_ytmLibrary;
     bool m_libraryBusy = false;
     QProcess m_loginProc;      // dedicated: must not disturb m_proc searches
     QProcess m_statusProc;     // one-shot token check at startup
-    QProcess m_libraryProc;    // one-shot "mis listas" fetch (ytm_api.py)
-    QProcess m_artistProc;     // one-shot artistas/discografía/álbumes (ytm_api.py)
-    QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (vacío: anulada)
-    QString m_artistArg;       // dato que se devuelve en la señal
-    QVariantMap m_topTrack;    // pista principal resuelta (radio del artista)
+    QProcess m_libraryProc;    // one-shot "my lists" fetch (ytm_api.py)
+    QProcess m_artistProc;     // one-shot artists/discography/albums (ytm_api.py)
+    QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (empty: cancelled)
+    QString m_artistArg;       // data returned in the signal
+    QVariantMap m_topTrack;    // resolved main track (artist radio)
     // Alternative video for a track whose video died: its own process so
     // it does not step on the artist navigation that may be in flight.
     QProcess m_altProc;
-    QString m_altKey;          // videoId fallido que se está reintentando
-    QProcess m_ytmProc;        // one-shot acciones (rate/addpl/rmpl)
-    QString m_ytmOkMessage;    // mensaje de éxito asociado a la acción en curso
-    QProcess m_plProc;         // one-shot gestión de listas (create/rename/delete/info)
-    QString m_plMode;          // cómo interpretar la salida de m_plProc
-    QString m_plAddVideo;      // pista a añadir tras crear una lista (o "")
-    QString m_plSetId;         // setVideoId pendiente (quitar de una lista)
-    QProcess m_likedProc;      // one-shot "me gusta" (LM) para el estado de las filas
-    QSet<QString> m_likedIds;  // videoIds en "me gusta"
-    QVariantList m_likedTracks;  // "me gusta" con su artista y título
+    QString m_altKey;          // failed videoId that is being retried
+    QProcess m_ytmProc;        // one-shot actions (rate/addpl/rmpl)
+    QString m_ytmOkMessage;    // success message tied to the action in progress
+    QProcess m_plProc;         // one-shot list management (create/rename/delete/info)
+    QString m_plMode;          // how to interpret the output of m_plProc
+    QString m_plAddVideo;      // track to add after creating a list (or "")
+    QString m_plSetId;         // pending setVideoId (remove from a list)
+    QProcess m_likedProc;      // one-shot "liked" (LM) for the state of the rows
+    QSet<QString> m_likedIds;  // videoIds in "liked"
+    QVariantList m_likedTracks;  // "liked" with its artist and title
     // Local path (downloaded file) -> YouTube videoId, resolved once by
     // reading the sibling .info.json. It allows liking the local tracks as
     // if they were from YouTube (same videoId, same sync).
     mutable QHash<QString, QString> m_localIdCache;
     int m_likedRevision = 0;
     bool m_likedReady = false;
-    qint64 m_likedTs = 0;      // marca de la última carga de red (epoch secs)
+    qint64 m_likedTs = 0;      // timestamp of the last network fetch (epoch secs)
     // Fallback to yt-dlp if the fast path for playlists (internal API)
     // fails.
-    QString m_fastFallback;      // destino yt-dlp pendiente ("" si no aplica)
-    QString m_fastFallbackTitle; // título a conservar en el respaldo
+    QString m_fastFallback;      // pending yt-dlp target ("" if it does not apply)
+    QString m_fastFallbackTitle; // title to keep in the fallback
     // Playlist opened through the fast path (for the "remove from the
     // list" button).
     QString m_openPlaylistId;

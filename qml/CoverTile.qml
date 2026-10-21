@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Tile de portada de la rejilla de Biblioteca: tarjeta con portada cuadrada,
+// Cover tile of the Library grid: a card with a square cover,
 // title with elide (it never overflows) and a one line subtitle. The root is
 // transparent and the card leaves a gutter on the right/bottom so the page
 // background separates the grid columns. On mouse hover
-// la tarjeta se aclara y aparecen las acciones (descargar / quitar).
+// the card brightens and the actions appear (download / remove).
 Rectangle {
     id: tile
 
@@ -16,8 +16,8 @@ Rectangle {
     property bool downloadable: false
     property bool removable: false
 
-    signal clicked()          // clic en la tarjeta -> ABRIR la lista
-    signal playClicked()      // clic en el botón de play flotante -> REPRODUCIR
+    signal clicked()          // click on the card -> OPEN the list
+    signal playClicked()      // click on the floating play button -> PLAY
     signal downloadRequested()
     signal removeRequested()
     // Right click on the card: context menu (x/y in window coordinates).
@@ -30,8 +30,8 @@ Rectangle {
     color: "transparent"
     border.width: 0
 
-    Rectangle {                       // tarjeta SIN caja: portada directa y
-        id: card                      // texto debajo, como en el repo base
+    Rectangle {                       // card WITHOUT box: direct cover and
+        id: card                      // text below, like in the base repo
         x: 0
         y: 0
         width: tile.width - 14
@@ -46,7 +46,7 @@ Rectangle {
             anchors.margins: Theme.s2
             spacing: Theme.s2
 
-            Rectangle {                // portada cuadrada
+            Rectangle {                // square cover
                 id: coverBox
                 Layout.fillWidth: true
                 Layout.preferredHeight: card.width - Theme.s4
@@ -68,7 +68,7 @@ Rectangle {
                     kind: "music"
                     color: Sys.textDim
                 }
-                Rectangle {            // botón de play flotante (sobre el ratón)
+                Rectangle {            // floating play button (over the mouse)
                     id: playBadge
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
@@ -124,7 +124,7 @@ Rectangle {
 
         // Does the mouse fall inside the floating play button? (it is below
         // this MouseArea, so it is checked by hand instead of with a
-        // MouseArea propio: evita robarle el hover a la tarjeta).
+        // its own MouseArea: it avoids stealing the hover from the card).
         function overPlayBtn(x, y) {
             const p = playBadge.mapToItem(tileMa, 0, 0)
             return x >= p.x && x <= p.x + playBadge.width
@@ -152,7 +152,7 @@ Rectangle {
         }
     }
 
-    // Acciones: por encima del MouseArea principal para recibir los clics.
+    // Actions: above the main MouseArea to receive the clicks.
     Column {
         x: card.width - width - Theme.s1
         y: Theme.s1

@@ -19,13 +19,13 @@
 
 namespace {
 
-// Opcodes del protocolo Discord IPC.
+// Opcodes of the Discord IPC protocol.
 enum Opcode {
-    OpHandshake = 0,  // cliente -> Discord: {"v":1,"client_id":"..."}
-    OpFrame     = 1,  // comandos, p.ej. SET_ACTIVITY
-    OpClose     = 2,  // cierre
-    OpPing      = 3,  // Discord -> cliente
-    OpPong      = 4,  // cliente -> Discord (mismo payload)
+    OpHandshake = 0,  // client -> Discord: {"v":1,"client_id":"..."}
+    OpFrame     = 1,  // commands, e.g. SET_ACTIVITY
+    OpClose     = 2,  // close
+    OpPing      = 3,  // Discord -> client
+    OpPong      = 4,  // client -> Discord (same payload)
 };
 
 // Public application id (the one the reference pypresence library uses).
@@ -35,8 +35,8 @@ enum Opcode {
 // application.
 const QString kDefaultClientId = QStringLiteral("345229890980937739");
 
-const int kReconnectMs = 15000;             // reintento de conexión
-const double kSeekToleranceSeconds = 3.0;   // resincroniza la barra tras un seek
+const int kReconnectMs = 15000;             // connection retry
+const double kSeekToleranceSeconds = 3.0;   // it resyncs the bar after a seek
 
 } // namespace
 
@@ -67,7 +67,7 @@ DiscordRpc::DiscordRpc(QObject *parent)
 
 DiscordRpc::~DiscordRpc()
 {
-    // Deja el perfil limpio al cerrar la app.
+    // Leaves the profile clean when the app is closed.
     if (m_socket && m_socket->state() == QLocalSocket::ConnectedState) {
         if (m_connected)
             sendActivity(true);
@@ -96,7 +96,7 @@ void DiscordRpc::configure(bool enabled, const QString &clientId)
     s.setValue(QStringLiteral("discordClientId"), m_clientId);
 
     if (!m_enabled) {
-        // Apaga la presencia y cierra el pipe, pero no toca los ajustes.
+        // Turns the presence off and closes the pipe, but does not touch the settings.
         m_reconnect.stop();
         if (m_connected)
             sendActivity(true);
@@ -107,14 +107,14 @@ void DiscordRpc::configure(bool enabled, const QString &clientId)
     } else {
         m_reconnect.start();
         if (m_connected || (m_socket && m_socket->state() == QLocalSocket::ConnectedState))
-            sendActivity(false);   // re-aplica la pista activa con el nuevo id
+            sendActivity(false);   // it re-applies the active track with the new id
         else
             tryConnect();
     }
     emit changed();
 }
 
-// Rutas candidatas del socket del cliente de Discord, en orden de prioridad.
+// Candidate paths of the Discord client socket, in priority order.
 QStringList DiscordRpc::socketPaths()
 {
     QStringList dirs;
@@ -125,7 +125,7 @@ QStringList DiscordRpc::socketPaths()
     dirs << QStringLiteral("/run/user/%1").arg(::getuid());
 #endif
     dirs << QStringLiteral("/tmp");
-    // Instalaciones Snap/Flatpak usan su propio runtime privado.
+    // Snap/Flatpak installations use their own private runtime.
     dirs << QDir::homePath() + QStringLiteral("/.var/app/com.discordapp.Discord/tmp");
     dirs.removeDuplicates();
 
@@ -158,7 +158,7 @@ void DiscordRpc::tryConnect()
         connect(m_socket, &QLocalSocket::errorOccurred, this, &DiscordRpc::onErrorOccurred);
     }
 
-    // Conecta al primer socket que exista.
+    // Connects to the first socket that exists.
     for (const QString &path : socketPaths()) {
         if (!QFile::exists(path))
             continue;
@@ -199,8 +199,8 @@ void DiscordRpc::onDisconnected()
 
 void DiscordRpc::onErrorOccurred()
 {
-    // Discord puede no estar instalado o el pipe cerrarse: el QTimer de 15 s
-    // se encarga de reintentar sin inundar de mensajes.
+    // Discord may not be installed or the pipe may close: the 15 s QTimer
+    // takes care of retrying without flooding with messages.
     const bool was = m_connected;
     m_connected = false;
     m_buf.clear();
@@ -217,7 +217,7 @@ void DiscordRpc::sendFrame(int opcode, const QByteArray &payload)
     if (!m_socket || m_socket->state() != QLocalSocket::ConnectedState)
         return;
 
-    // Cabecera: int32 LE opcode + int32 LE longitud del payload.
+    // Header: int32 LE opcode + int32 LE payload length.
     QByteArray frame;
     frame.reserve(8 + payload.size());
     QDataStream ds(&frame, QIODevice::WriteOnly);
@@ -267,11 +267,11 @@ QJsonObject DiscordRpc::buildActivity() const
     a[QStringLiteral("name")] = QStringLiteral("Lotus Tune");
     a[QStringLiteral("type")] = 2;   // 2 = Listening
     if (!m_title.isEmpty())
-        a[QStringLiteral("details")] = m_title;    // canción
+        a[QStringLiteral("details")] = m_title;    // song
     if (!m_artist.isEmpty())
-        a[QStringLiteral("state")] = m_artist;     // artista
+        a[QStringLiteral("state")] = m_artist;     // artist
 
-    // Progreso: Discord calcula la barra a partir de los timestamps.
+    // Progress: Discord computes the bar from the timestamps.
     if (m_playing) {
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         QJsonObject ts;
@@ -350,7 +350,7 @@ void DiscordRpc::onReadyRead()
         return;
     m_buf.append(m_socket->readAll());
 
-    // Cada frame: int32 LE opcode + int32 LE longitud + payload.
+    // Each frame: int32 LE opcode + int32 LE length + payload.
     while (m_buf.size() >= 8) {
         QDataStream ds(m_buf);
         ds.setByteOrder(QDataStream::LittleEndian);
@@ -358,22 +358,22 @@ void DiscordRpc::onReadyRead()
         qint32 len = 0;
         ds >> opcode >> len;
 
-        if (len < 0 || len > 8 * 1024 * 1024) {   // frame corrupto
+        if (len < 0 || len > 8 * 1024 * 1024) {   // corrupt frame
             m_buf.clear();
             break;
         }
         if (m_buf.size() < 8 + len)
-            break;                                // frame incompleto
+            break;                                // incomplete frame
 
         const QByteArray payload = m_buf.mid(8, len);
         m_buf.remove(0, 8 + len);
 
         if (opcode == OpPing) {
-            sendFrame(OpPong, payload);           // responde PONG con lo mismo
+            sendFrame(OpPong, payload);           // it answers PONG with the same
         } else if (opcode == OpClose) {
             m_socket->abort();
             break;
         }
-        // Opcode 1 (respuesta a SET_ACTIVITY) se descarta.
+        // Opcode 1 (SET_ACTIVITY answer) is discarded.
     }
 }

@@ -146,7 +146,7 @@ void Player::saveStreamCache()
     }
     std::sort(items.begin(), items.end(),
               [](const QPair<QString, qint64> &a, const QPair<QString, qint64> &b) {
-                  return a.second > b.second;   // más recientes primero
+                  return a.second > b.second;   // most recent first
               });
     if (items.size() > 300)
         items = items.mid(0, 300);
@@ -179,16 +179,16 @@ void Player::startMpv()
     QStringList args{
         QStringLiteral("--no-config"),
         QStringLiteral("--no-video"),
-        QStringLiteral("--video=no"),        // alias de --vid=no (sin pista de vídeo)
-        QStringLiteral("--vo=null"),         // sin salida de vídeo ni ventana
+        QStringLiteral("--video=no"),        // alias of --vid=no (no video track)
+        QStringLiteral("--vo=null"),         // no video output nor window
         QStringLiteral("--no-terminal"),
         QStringLiteral("--really-quiet"),
         QStringLiteral("--idle=yes"),
         QStringLiteral("--force-window=no"),
-        QStringLiteral("--no-osc"),          // sin controller en pantalla
-        QStringLiteral("--osc=no"),          // equivalente a --no-osc (por si acaso)
+        QStringLiteral("--no-osc"),          // no on screen controller
+        QStringLiteral("--osc=no"),          // equivalent to --no-osc (just in case)
         QStringLiteral("--no-osd-bar"),
-        // --no-stats ya no existe en mpv >= 0.38; este es su equivalente actual.
+        // --no-stats no longer exists in mpv >= 0.38; this is its current equivalent.
         QStringLiteral("--load-stats-overlay=no"),
         QStringLiteral("--input-ipc-server=") + m_socketPath,
         QStringLiteral("--no-input-default-bindings"),
@@ -200,8 +200,8 @@ void Player::startMpv()
         QStringLiteral("--no-sub"),
         QStringLiteral("--sub-auto=no"),
         QStringLiteral("--audio-buffer=0.2"),
-        QStringLiteral("--audio-display=no"),  // no incrustar carátulas
-        QStringLiteral("--cache=no"),          // sin caché de red en disco/memoria
+        QStringLiteral("--audio-display=no"),  // do not embed cover art
+        QStringLiteral("--cache=no"),          // no network cache on disk/memory
         QStringLiteral("--demuxer-max-bytes=3MiB"),
         QStringLiteral("--demuxer-max-back-bytes=1MiB"),
         QStringLiteral("--demuxer-readahead-secs=10"),
@@ -324,7 +324,7 @@ void Player::handleLine(const QByteArray &line)
              // on with the previous track: its events must not end the
              // wait.
             if (d > 0.0 && m_loading && m_pendingLoadUrl.isEmpty()) {
-                m_loading = false;   // ya hay stream: termina la espera
+                m_loading = false;   // there is already a stream: the wait ends
                 emit stateChanged();
             }
             if (qAbs(d - m_duration) > 0.25) {
@@ -361,8 +361,8 @@ void Player::handleLine(const QByteArray &line)
         } else if (reason == QLatin1String("error")) {
             m_hasFile = false;
             m_loading = false;
-            // La URL directa cacheada puede haber caducado: se invalida para
-            // que el reintento vuelva a resolverla (y no falle en bucle).
+            // The cached direct URL may have expired: it is invalidated so
+            // the retry resolves it again (and does not fail in a loop).
             if (!m_currentUrl.isEmpty() && m_resolved.remove(m_currentUrl) > 0) {
                 m_resolvedAt.remove(m_currentUrl);
                 m_cacheDirty = true;
@@ -432,8 +432,8 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
     const QString url = normalizeUrl(rawUrl);
     if (url.isEmpty())
         return;
-    // Una pista nueva (distinta de la actual) reinicia el contador de
-    // reintentos; un reintento de la misma pista lo conserva.
+    // A new track (different from the current one) resets the counter of
+    // retries; a retry of the same track keeps it.
     if (url != m_currentUrl)
         m_retry = 0;
     if (!m_ready) {
@@ -523,9 +523,9 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
 {
     const QString url = normalizeUrl(rawUrl);
     if (url.isEmpty() || !url.startsWith(QLatin1String("http")))
-        return;   // sólo hay que resolver streams de red (los locales son ya directos)
+        return;   // only network streams have to be resolved (the local ones are already direct)
     if (m_resolved.contains(url) || isResolving(url))
-        return;   // dedupe: nunca dos resoluciones del MISMO url a la vez
+        return;   // dedupe: never two resolutions of the SAME url at once
     if (front) {
         m_resolveQueue.removeAll(url);
         // The front queue is LIFO: the MOST RECENT hover (the row the
@@ -560,7 +560,7 @@ void Player::enqueueResolve(const QString &rawUrl, bool front, bool urgent)
                     m_resolveQueue.append(abandoned);
                 while (m_resolveQueue.size() > 24)
                     m_resolveQueue.removeFirst();
-                victim->proc.kill();   // finished() vuelve a llamar a resolveQueue()
+                victim->proc.kill();   // finished() calls resolveQueue() again
                 return;
             }
         }
@@ -585,7 +585,7 @@ void Player::resolveQueue()
         bool front = false;
         const QString url = takeNextResolve(front);
         if (url.isEmpty())
-            return;   // no queda trabajo: deja los slots libres dormidos
+            return;   // no work left: it leaves the free slots asleep
         startResolve(job, url, front);
     }
 }
@@ -760,7 +760,7 @@ void Player::onResolveTimeout(ResolveJob *job)
         job->timer.start(20000);
         return;
     }
-    job->proc.kill();   // finished() limpia el estado y sigue con la cola
+    job->proc.kill();   // finished() clears the state and carries on with the queue
 }
 
 void Player::stopPlayback()
@@ -831,8 +831,8 @@ void Player::setVolume(int v)
                       QString::number(v)}}});
 }
 
-// Traduce la calidad elegida al selector que entiende yt-dlp. Se comparte
-// entre los argumentos iniciales y el cambio en caliente por IPC.
+// Translates the chosen quality into the selector yt-dlp understands. It is
+// shared between the initial arguments and the hot change through IPC.
 QString Player::ytdlFormat() const
 {
     if (m_quality == QLatin1String("alta"))
@@ -841,7 +841,7 @@ QString Player::ytdlFormat() const
         return QStringLiteral("bestaudio[abr<=160]/bestaudio/best");
     if (m_quality == QLatin1String("baja"))
         return QStringLiteral("bestaudio[abr<=96]/bestaudio/best");
-    // "max" (por defecto): mejor audio disponible, sin recodificar.
+    // "max" (default): best available audio, without re-encoding.
     return QStringLiteral("bestaudio/best");
 }
 
