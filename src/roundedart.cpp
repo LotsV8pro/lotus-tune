@@ -7,6 +7,7 @@
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPainterPath>
+#include <QTimer>
 #include <QUrl>
 
 namespace {
@@ -163,16 +164,23 @@ void RoundedArt::tryNext(const QString &key, int index)
         radius = it->radius;
         scale = it->scale;
     }
-    if (index >= candidates.size()) {
-        qInfo() << "[rart] sin candidatas válidas para" << key;
+    if (index >= candidates.size())
         return;      // ninguna sirve: la tarjeta se queda con su degradado.
-    }
 
     const QString url = candidates.at(index);
     QNetworkRequest req{QUrl(url)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
+    // Red de seguridad: si esta candidata no contesta en 10 s (una URL que
+    // se queda colgada, un CDN que no responde) se aborta y se prueba la
+    // siguiente. Sin esto la portada se queda vacía para siempre.
+    QTimer::singleShot(10000, reply, [this, reply, key, index]() {
+        if (reply->isRunning()) {
+            reply->abort();
+            tryNext(key, index + 1);
+        }
+    });
     QObject::connect(reply, &QNetworkReply::finished, this,
                      [this, reply, key, index, url, boxW, boxH, radius, scale]() {
         reply->deleteLater();

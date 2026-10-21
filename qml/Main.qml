@@ -1042,7 +1042,9 @@ Window {
             } else if (a === "--fslyrics" || a === "--nowplaying") {
                 // QA: opens the fullscreen lyrics directly.
                 // (--nowplaying is the old name of the same mode.)
-                Qt.callLater(root.openFullscreenLyrics)
+                // It waits for the track to be there: the cinema mode needs
+                // one to open.
+                root.qaFsLyrics = true
             } else if (a === "--shuffle") {
                 // QA: turns the shuffle on before loading anything.
                 shuffle = true
@@ -1160,6 +1162,15 @@ Window {
     // Fullscreen lyrics (cinema mode, Liner style): an overlay on top of
     // everything.
     property bool fsLyricsOpen: false
+    // QA: open the cinema mode as soon as there is a track playing.
+    property bool qaFsLyrics: false
+
+    Timer {
+        running: root.qaFsLyrics && root.currentTitle.length > 0
+        interval: 400
+        repeat: false
+        onTriggered: { root.qaFsLyrics = false; root.openFullscreenLyrics() }
+    }
     // Word level karaoke for the views that bring word level timings; if
     // it is off (or there are no timings) the whole line lights up when
     // it is sung.
@@ -3037,7 +3048,9 @@ Window {
                 Layout.fillWidth: true
                 implicitHeight: body.implicitHeight + Theme.s4 * 2
                 radius: Theme.rLg
-                color: Sys.surface
+                // A shade lighter than the island, so the card reads as a
+                // card on top of it (like the rest of the app).
+                color: Sys.surfaceAlt
                 // The same faint edge as the islands: the hierarchy is
                 // marked by the air, not by a hard line.
                 border.width: 1
@@ -3333,18 +3346,16 @@ Window {
             }
         }
 
-        // The Settings island: same rounded surface and same faint edge
-        // as the rest of the shell. The content goes on top with its own
-        // padding.
+        // The Settings island: the same rounded surface and the same faint
+        // edge as the rest of the shell (the rail, the bar, the panels), but
+        // nearly opaque because it is a modal. The content goes on top with
+        // its own padding, exactly like the other islands.
         Panel {
             id: settingsIsland
             anchors.fill: parent
             anchors.margins: Theme.panelMargin
             radius: Theme.rPanel
-            // Base background (the same as the window): that way the
-            // section cards (`surface`) and the buttons (`surfaceAlt`) keep
-            // their contrast.
-            color: Sys.bg
+            color: Theme.alpha(Sys.surface, 0.97)
             clipContent: true
         }
 
