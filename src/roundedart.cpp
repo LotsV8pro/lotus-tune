@@ -207,9 +207,9 @@ void RoundedArt::tryNext(const QString &key, int index)
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
-    // Red de seguridad: si esta candidata no contesta en 4 s (una URL que
-    // se queda colgada, un CDN que no responde) se aborta y se prueba la
-    // siguiente. Sin esto la portada se queda vacía para siempre.
+    // Safety net: if this candidate does not answer in 4 s (a URL that
+    // hangs, a CDN that does not respond) it is aborted and the next one is
+    // tried. Without this the cover stays empty forever.
     QTimer::singleShot(4000, reply, [this, reply, key, index]() {
         if (reply->isRunning()) {
             reply->abort();
@@ -244,7 +244,7 @@ void RoundedArt::tryNext(const QString &key, int index)
 
         {
             QMutexLocker lock(&m_mutex);
-            // La foto original se guarda para no volver a bajarla si
+            // The original photo is saved so it is not downloaded again if
             // another part of the app asks for it at another size.
             m_originals.insert(url, src);
             m_originalOrder.removeAll(url);
@@ -279,7 +279,7 @@ QImage RoundedArt::process(const QImage &src, int boxW, int boxH, int radius,
     const int h = qMax(1, qRound(boxH * s));
     const int r = qBound(0, qRound(radius * s), qMin(w, h) / 2);
 
-    // Recorte central (KeepAspectRatioByExpanding + corte del centro =
+    // Centre crop (KeepAspectRatioByExpanding + centre crop =
     // PreserveAspectCrop) and the corner mask.
     QImage scaled = src.scaled(w, h, Qt::KeepAspectRatioByExpanding,
                                Qt::SmoothTransformation);
@@ -311,7 +311,7 @@ QImage RoundedArtProvider::requestImage(const QString &id, QSize *size,
                                          const QSize &requestedSize)
 {
     Q_UNUSED(requestedSize);
-    // La clave va antes del «?v=…».
+    // The key goes before the «?v=…».
     const QString key = id.section(QLatin1Char('?'), 0, 0);
     const QImage img = m_art->image(key);
     if (size)

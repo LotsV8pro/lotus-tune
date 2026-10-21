@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QDateTime>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -48,7 +49,7 @@ class Lyrics : public QObject
     Q_PROPERTY(bool hasLyrics READ hasLyrics NOTIFY changed)
     Q_PROPERTY(bool hasSynced READ hasSynced NOTIFY changed)
     Q_PROPERTY(QString plain READ plain NOTIFY changed)
-    Q_PROPERTY(QString synced READ synced NOTIFY changed)   // LRC crudo
+    Q_PROPERTY(QString synced READ synced NOTIFY changed)   // raw LRC
     Q_PROPERTY(QVariantList lines READ lines NOTIFY changed) // [{time, text}]
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed)
@@ -110,27 +111,44 @@ private:
     friend class TestLotusTune;
 
     struct LrcLine {
-        double time;    // segundos desde el inicio
+        double time;    // seconds from the start
         QString text;
         // WORD level timings (only if the source brings them): [{t,e,text}].
         // Empty in the line level sources (YTM/LRCLIB/NetEase).
         QVariantList words;
-        bool instrumental = false;   // tramo sin voz (solo Sonora lo marca)
+        bool instrumental = false;   // stretch without voice (only Sonora marks it)
     };
 
     // Stage of the sources cascade; it travels attached to the reply to
     // know which handler has to process the answer.
     enum class Stage {
-        YtmSearch,        // POST /youtubei/v1/search  (candidatos)
-        YtmNext,          // POST /youtubei/v1/next    (pestaña «Letra»)
-        YtmBrowse,        // POST /youtubei/v1/browse  (letra con tiempos)
+        YtmSearch,        // POST /youtubei/v1/search  (candidates)
+        YtmNext,          // POST /youtubei/v1/next    («Lyrics» tab)
+        YtmBrowse,        // POST /youtubei/v1/browse  (lyrics with timings)
         LrclibGet,        // GET /api/get
         LrclibSearch,     // GET /api/search
         NeteaseSearch,    // GET music.163.com/api/search/get
-        NeteaseLyric      // GET music.163.com/api/song/lyric
+        NeteaseLyric,     // GET music.163.com/api/song/lyric
+        MxmToken,         // GET apic.musixmatch.com/ws/1.1/token.get
+        MxmRichsync       // GET apic.musixmatch.com/ws/1.1/macro.subtitles.get
     };
 
     void request(const QUrl &url, Stage stage, const QString &key);
+    // The word level timings come from the ALBUM while the reference
+    // timeline is the video being played: the text of the reference wins
+    // (it is the version that is being sung) and the offset is the median
+    // of the difference between the lines that match by text.
+    bool alignWords(QVector<LrcLine> &lines,
+                    const QVector<LrcLine> &reference);
+    // Musixmatch: the word level timings ("richsync") of the very same
+    // catalogue YouTube Music uses, but with the timing of every word.
+    void startMusixmatch();
+    void requestMusixmatchRichsync();
+    void onMxmTokenReply(QNetworkReply *reply, const QString &key);
+    void onMxmRichsyncReply(QNetworkReply *reply, const QString &key);
+    // The richsync body: one entry per line, with the words and their
+    // offsets inside the line.
+    static QVector<LrcLine> parseRichsync(const QJsonArray &arr);
     // Like request() but sending a JSON body (YouTube Music).
     void postJson(const QUrl &url, const QJsonObject &body, Stage stage,
                   const QString &key);
@@ -218,10 +236,10 @@ private:
     // is real (microseconds) while the bus one arrives rounded for other
     // cases.
 private:
-    void publishTrack();          // pista nueva: reescribir ambos ficheros
-    void publishLines();          // letra resuelta (o descartada): letras + meta
-    void publishRuntime();        // posición/offset/playing al vuelo (ligero)
-    void removePublished();       // sin letra o app fuera: borrar los ficheros
+    void publishTrack();          // new track: rewrite both files
+    void publishLines();          // resolved lyrics (or discarded): lyrics + meta
+    void publishRuntime();        // position/offset/playing on the fly (light)
+    void removePublished();       // no lyrics or app gone: delete the files
     // The engine and the publishing beat (position every ~1 s while playing).
     Player *m_engine = nullptr;
     QTimer *m_runtimeBeat = nullptr;
@@ -232,20 +250,24 @@ private:
     QString m_trackKey;
     QString m_artist;
     QString m_title;
-    int m_duration = 0;         // segundos redondeados
+    int m_duration = 0;         // rounded seconds
     // Number of fetch() in flight. Together with m_trackKey it drops any
     // reply from an old request even if the key repeats (e.g. two
     // fetch() in a row for the same track while the duration loaded).
     int m_gen = 0;
-    QStringList m_ytmIds;       // vídeos candidatos de YouTube Music
-    int m_ytmIdx = 0;           // candidato en curso
-    QString m_ytmBrowseId;      // browseId «MPLYt_*» de la letra actual
+    QStringList m_ytmIds;       // candidate videos from YouTube Music
+    int m_ytmIdx = 0;           // candidate in progress
+    QString m_ytmBrowseId;      // browseId «MPLYt_*» of the current lyrics
     // True when the exact video m_videoId has already been tried and had
     // no lyrics: the title search then works as a fallback (once).
     bool m_exactTried = false;
     // Has NetEase already been asked for the word level timings? (it
     // avoids the loop: NetEase without "klyric" lands here again).
     bool m_neteaseTried = false;
+    // Musixmatch: the token lasts ten minutes and it is kept on disk.
+    bool m_mxmTried = false;
+    QString m_mxmToken;
+    QDateTime m_mxmTokenAt;
     bool m_loading = false;
     bool m_hasLyrics = false;
     bool m_hasSynced = false;
@@ -254,12 +276,15 @@ private:
     QString m_error;
     QString m_syncSource;       // "ytmusic" | "lrclib" | "netease"
     QString m_plainSource;      // "ytmusic" | "lrclib"
-    QVector<LrcLine> m_lines;   // LRC cacheado y ordenado
+    QVector<LrcLine> m_lines;   // cached and sorted LRC
+    // The timed lines of the video being played: the reference the word
+    // level timings are aligned with.
+    QVector<LrcLine> m_refLines;
     // Sonora lyrics without word level timings: they are only used when
     // the network has nothing better (the network may bring the real
     // karaoke, the local cache usually does not).
-    QVector<LrcLine> m_sonoraLines;
-    QString m_sonoraSource;
+    QVector<LrcLine> m_cacheLines;
+    QString m_cacheSource;
     // Exact video being played (if the track came from YouTube): it is
     // tried first, before searching again by title.
     QString m_videoId;

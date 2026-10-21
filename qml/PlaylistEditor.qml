@@ -2,10 +2,10 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Editor de listas: crear o editar (nombre + privacidad), al estilo de Sonora.
+// List editor: create or edit (name + privacy), in Sonora's style.
 // It is self contained: it receives the state through properties and emits
 // `submitted` / 
-// `deleteRequested`; Main habla con `catalog`.
+// `deleteRequested`; Main talks to `catalog`.
 Item {
     id: pel
 
@@ -31,18 +31,18 @@ Item {
     })
     // The real info of the list (fetchPlaylistInfo) can arrive AFTER
     // opening;
-    // al llegar, refresca el nombre y la privacidad.
+    // on arrival, it refreshes the name and the privacy.
     onInitialTitleChanged: if (open && !pel.createMode) nameField.text = String(pel.initialTitle || "")
     onInitialPrivateChanged: if (open && !pel.createMode) privToggle.priv = pel.initialPrivate
 
-    // Fondo oscuro: clic fuera cancela.
+    // Dark background: a click outside cancels.
     MouseArea {
         anchors.fill: parent
         onClicked: pel.canceled()
     }
 
-    // Isla flotante: `Panel` da las esquinas redondeadas y el filo luminoso
-    // que despega el editor del fondo, sin sombras ni efectos.
+    // Floating island: `Panel` gives the rounded corners and the bright edge
+    // that lifts the editor off the background, without shadows nor effects.
     Panel {
         id: card
         anchors.centerIn: parent
@@ -58,7 +58,7 @@ Item {
             anchors.margins: Theme.s5
             spacing: Theme.s4
 
-            // ---- cabecera ----
+            // ---- header ----
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
@@ -77,7 +77,7 @@ Item {
                 }
             }
 
-            // ---- nombre ----
+            // ---- name ----
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
@@ -111,7 +111,7 @@ Item {
                 }
             }
 
-            // ---- privacidad ----
+            // ---- privacy ----
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
@@ -156,7 +156,7 @@ Item {
                 }
             }
 
-            // ---- acciones ----
+            // ---- actions ----
             RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2

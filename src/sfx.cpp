@@ -46,10 +46,10 @@ void Sfx::preloadAll()
 
 void Sfx::startKeepAlive()
 {
-    // Un bucle de silencio digital (samples a 0, por eso es inaudible a
-    // cualquier volumen) mantiene activo el motor de audio. Sin esto, el
+    // A digital silence loop (it samples 0, hence it is inaudible at any
+    // volume) keeps the audio engine alive. Without this, the
     // first sound after a while of silence could be lost because the sink
-    // suspende y el motor tarda en despertar.
+    // suspends and the engine takes a while to wake up.
     m_keepAlive = new QSoundEffect(this);
     m_keepAlive->setSource(QUrl(QStringLiteral("qrc:/sounds/silence.wav")));
     m_keepAlive->setLoopCount(QSoundEffect::Infinite);
@@ -141,7 +141,7 @@ void Sfx::playWithPw(const QString &path)
 {
     if (path.isEmpty()) return;
     QString file = path;
-    // Los recursos (qrc:/…) no son ficheros: buscar la copia en disco junto al
+    // The resources (qrc:/…) are not files: look for the copy on disk next to the
     // binary or in the source tree for the pw-play fallback.
     if (file.startsWith(QLatin1String("qrc:/"))) {
         const QString base = QFileInfo(file).fileName();

@@ -71,8 +71,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
         m_loginState.clear();
     }
 
-    // "Mis listas": consulta puntual a la API de YT Music con ytm_api.py. Usa
-    // su propio QProcess para no interferir con m_proc ni con el login.
+    // "My lists": one-off query to the YT Music API with ytm_api.py. It uses
+    // its own QProcess so it does not interfere with m_proc nor with the login.
     m_libraryProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_libraryProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
@@ -122,7 +122,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 m_artistMode.clear();
                 m_artistArg.clear();
                 if (mode.isEmpty())
-                    return;   // anulado por una petición nueva: se ignora
+                    return;   // cancelled by a new request: it is ignored
                 QVariantList list;
                 if (code == 0) {
                     const QJsonDocument doc = QJsonDocument::fromJson(out);
@@ -250,8 +250,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     if (mode == QLatin1String("info")) {
                         emit playlistInfoReady({});
                     } else {
-                        // Un reordenado fallido deja la fila movida en local:
-                        // se recarga la lista abierta para volver al orden real.
+                        // A failed reorder leaves the row moved locally:
+                        // the open list is reloaded to get back the real order.
                         if (mode == QLatin1String("move")
                             && !m_openPlaylistId.isEmpty())
                             run(QStringLiteral("https://music.youtube.com/"
@@ -309,7 +309,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     return;
                 }
                 if (mode == QLatin1String("remove")) {
-                    // Ya confirmado por YouTube: quita la fila de la lista abierta.
+                    // Already confirmed by YouTube: it removes the row from the open list.
                     const QString sid = m_plSetId;
                     m_plSetId.clear();
                     if (!sid.isEmpty()) {
@@ -332,15 +332,15 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 }
             });
 
-    // "Me gusta" (biblioteca): una consulta puntual a la playlist LM para
-    // conocer el estado real de cada pista, con su propio QProcess.
+    // "Liked" (library): a one-off query to the LM playlist to
+    // know the real state of every track, with its own QProcess.
     m_likedProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_likedProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
                 const QByteArray out = m_likedProc.readAllStandardOutput();
                 if (code != 0) {
                     qWarning() << "[catalog] no se pudo cargar \"me gusta\"";
-                    return;   // sin sesión/red: las filas usan el likeStatus embebido
+                    return;   // no session/network: the rows use the embedded likeStatus
                 }
                 const QJsonDocument doc = QJsonDocument::fromJson(out);
                 const QJsonArray entries =
@@ -402,7 +402,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                         return;
                     }
                     emit changed();
-                    return;   // éxito
+                    return;   // success
                 }
 
                 // Fallback: if the fast path for playlists failed (internal
@@ -584,7 +584,7 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     if (target.isEmpty())
         return;
 
-    // Recordamos la URL real de la lista abierta (para descargarla).
+    // It remembers the real URL of the open list (to download it).
     if (purpose == QLatin1String("playlist"))
         m_openListUrl = target;
 
@@ -623,11 +623,11 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
                 && !isRadioTarget(target))
                 m_openPlaylistId = key.mid(QStringLiteral("list:").size());
             m_error.clear();
-            // Diferido: no reentramos en QML desde dentro de la propia llamada.
+            // Deferred: it does not re-enter QML from inside the call itself.
             QTimer::singleShot(0, this, [this, cached, cachedTitle]() {
                 m_tracks = cached;
                 m_tracksTitle = cachedTitle;
-                m_busy = false;   // servir de caché nunca deja la UI bloqueada
+                m_busy = false;   // serving as a cache never leaves the UI blocked
                 emit tracksReady(cached, cachedTitle);
                 emit changed();
             });
@@ -640,7 +640,7 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     // in flight is waited for and its result is served as the open list.
     if (m_busy && m_pendingKey == key) {
         if (purpose == QLatin1String("playlist"))
-            m_promotePending = true;   // sólo se activa, nunca se quita
+            m_promotePending = true;   // it is only set, never cleared
         return;
     }
 
@@ -773,7 +773,7 @@ void Catalog::searchAll(const QString &query)
     m_resultsBySource.clear();
     m_resultsQuery = q;
 
-    // Todas las fuentes del registro, en su orden (YouTube Music primero).
+    // All the sources of the registry, in their order (YouTube Music first).
     const QVariantList all = m_sources->list();
     for (const QVariant &v : all) {
         const QString id = v.toMap().value(QStringLiteral("id")).toString();
@@ -810,15 +810,15 @@ void Catalog::nextMultiSource()
     m_resultsBySource.append(group);
 
     if (!ready) {
-        // Bloqueada (le faltan credenciales): no hay nada que consultar.
+        // Locked (it lacks the credentials): there is nothing to query.
         nextMultiSource();
         return;
     }
     searchInSource(id, m_multiQuery);
 }
 
-// Los resultados de la fuente que acaba de terminar se guardan en su grupo
-// y se pasa a la siguiente.
+// The results of the source that just finished are stored in its group
+// and it moves on to the next one.
 void Catalog::absorbMultiResults()
 {
     if (m_multiCurrent.isEmpty())
@@ -886,8 +886,8 @@ void Catalog::runRadio(const QString &videoId, const QString &title,
     const QString v = videoId.trimmed();
     if (v.isEmpty())
         return;
-    // Best-effort: la radio es un extra (no debe interrumpir ni dar error si
-    // ya hay otra consulta en marcha). Se reintenta en la siguiente pista.
+    // Best-effort: the radio is an extra (it must not interrupt nor report an
+    // error if there is another query in progress). It is retried on the next track.
     if (m_busy)
         return;
     m_radioSeed = v;
@@ -915,7 +915,7 @@ void Catalog::runArtist(const QStringList &args, const QString &mode,
     }
     m_artistMode = mode;
     m_artistArg = arg;
-    // normalize() etiqueta las pistas con la fuente activa.
+    // normalize() tags the tracks with the active source.
     m_currentSource = m_sources->activeId();
     m_artistProc.setProgram(QStringLiteral("python3"));
     m_artistProc.setArguments(args);
@@ -985,7 +985,7 @@ void Catalog::resolveAlternate(const QString &artist, const QString &title,
         emit alternateResolved(failedVideoId, {});
         return;
     }
-    // Un recambio a medias: se ignora (la pista fallida se salta igual).
+    // A half done replacement: it is ignored (the failed track is skipped anyway).
     if (m_altProc.state() != QProcess::NotRunning)
         return;
     m_altKey = failedVideoId;
@@ -1023,14 +1023,14 @@ void Catalog::syncLiked()
     run(lm, QStringLiteral("playlist"), QStringLiteral("Liked Music"));
 }
 
-// ------------------------------------------------------------ "mis listas" ----
+// ------------------------------------------------------------ "my lists" ----
 
 void Catalog::refreshYtmLibrary()
 {
     if (!ytmLoggedIn())
         return;
     if (m_libraryProc.state() != QProcess::NotRunning)
-        return;  // ya hay una consulta en curso
+        return;  // there is already a query in progress
     if (!QFile::exists(ytmApiPath()))
         return;
 
@@ -1110,8 +1110,8 @@ void Catalog::removeFromPlaylist(const QString &playlistId, const QString &video
                  QStringLiteral("Quitado de la lista"));
 }
 
-// Reordena la pista `setVideoId` de la lista abierta `delta` posiciones (±1).
-// La fila se mueve al instante en local y el cambio se sube a YouTube Music.
+// Reorders the track `setVideoId` of the open list `delta` positions (±1).
+// The row moves at once locally and the change is uploaded to YouTube Music.
 void Catalog::moveOpenPlaylistTrack(const QString &setVideoId, int delta)
 {
     const QString sid = setVideoId.trimmed();
@@ -1133,13 +1133,13 @@ void Catalog::moveOpenPlaylistTrack(const QString &setVideoId, int delta)
         return;
     const int j = i + delta;
     if (j < 0 || j >= m_tracks.size())
-        return;   // ya está en un extremo
-    // Vecino y sentido ANTES de mutar la lista local.
+        return;   // it is already at one end
+    // Neighbour and direction BEFORE mutating the local list.
     const QString neighbor =
         m_tracks.at(j).toMap().value(QStringLiteral("setId")).toString();
     if (neighbor.isEmpty())
         return;
-    const bool before = delta < 0;   // subir -> antes del vecino de arriba
+    const bool before = delta < 0;   // up -> before the neighbour above
     const QString plId = m_openPlaylistId;
     m_tracks.move(i, j);
     forgetCachedPlaylist(QStringLiteral("list:") + plId);
@@ -1407,7 +1407,7 @@ void Catalog::launchLikedFetch()
 
 // ------------------------------------------------- "liked" cache ----
 
-// Fichero JSON junto al estado de la biblioteca (library.json).
+// JSON file next to the library state (library.json).
 QString Catalog::likedFile()
 {
     const QString dir = QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
@@ -1415,7 +1415,7 @@ QString Catalog::likedFile()
     return dir + QStringLiteral("/liked.json");
 }
 
-// Carga el conjunto desde disco; deja m_likedTs con su marca de tiempo.
+// Loads the set from disk; it leaves m_likedTs with its timestamp.
 bool Catalog::loadLikedFromDisk()
 {
     QFile f(likedFile());
@@ -1558,7 +1558,7 @@ void Catalog::loadPlaylistCache()
     for (const auto &p : order) {
         const qint64 ts = p.first;
         if (ts <= 0 || now - ts > kPlaylistTtlSecs)
-            continue;   // caducada: no se siembra (se podará al guardar)
+            continue;   // expired: it is not seeded (it will be pruned on save)
         const QJsonObject e = o.value(p.second).toObject();
         const QJsonArray arr = e.value(QStringLiteral("l")).toArray();
         if (arr.isEmpty())
@@ -1614,7 +1614,7 @@ void Catalog::rememberPlaylistForDisk(const QString &key)
 {
     if (key.isEmpty())
         return;
-    m_cacheForgotten.remove(key);   // recién cargada: ya no hay que borrarla
+    m_cacheForgotten.remove(key);   // freshly loaded: there is nothing to forget any more
     m_playlistCacheAt.insert(key, QDateTime::currentSecsSinceEpoch());
     m_cacheDirty = true;
     m_cacheSaveTimer.start();
@@ -1669,7 +1669,7 @@ void Catalog::savePlaylistCache()
     std::sort(items.begin(), items.end(),
               [](const QPair<qint64, QString> &a,
                  const QPair<qint64, QString> &b) {
-                  return a.first > b.first;   // más recientes primero
+                  return a.first > b.first;   // most recent first
               });
     if (items.size() > kPlaylistCacheMax)
         items = items.mid(0, kPlaylistCacheMax);
@@ -1980,8 +1980,8 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
     t.insert(QStringLiteral("url"), url);
     t.insert(QStringLiteral("source"), source);
     t.insert(QStringLiteral("thumb"), thumb);
-    // setVideoId de YouTube Music: identifica la fila de la pista dentro de la
-    // playlist en la que estaba, necesario para quitarla con rmpl.
+    // setVideoId of YouTube Music: it identifies the row of the track inside
+    // the playlist it was in, needed to remove it with rmpl.
     const QString setId = e.value(QStringLiteral("setVideoId")).toString();
     if (!setId.isEmpty())
         t.insert(QStringLiteral("setId"), setId);

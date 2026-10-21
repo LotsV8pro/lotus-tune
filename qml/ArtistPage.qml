@@ -9,7 +9,7 @@ import "theme.js" as Theme
 Item {
     id: page
 
-    // Datos que llegan de Main: artista { name, browseId, thumb } y albums
+    // Data coming from Main: artist { name, browseId, thumb } and albums
     // [{ title, browseId, thumb, subtitle, year }].
     property var artist: null
     property var albums: []
@@ -34,7 +34,7 @@ Item {
         anchors.margins: Theme.s5
         spacing: Theme.s3
 
-        // ---- cabecera: volver + nombre ------------------------------------
+        // ---- header: back + name ----------------------------------------
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.s2
@@ -74,7 +74,7 @@ Item {
             }
         }
 
-        // ---- ficha: retrato, acciones --------------------------------------
+        // ---- card: portrait, actions --------------------------------------
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: Theme.s2
@@ -303,7 +303,7 @@ Item {
                             }
                         }
 
-                        // Pista de que la fila se reproduce entera.
+                        // Hint that the whole row is being played.
                         Glyph {
                             width: 16
                             height: 16

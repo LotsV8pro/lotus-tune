@@ -11,7 +11,7 @@ Rectangle {
     id: top
 
     property string title: ""
-    property string subtitle: ""   // se conserva por compatibilidad; no se pinta
+    property string subtitle: ""   // kept for compatibility; it is not painted
     property bool showBack: false
 
     signal backRequested()

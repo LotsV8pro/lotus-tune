@@ -36,7 +36,7 @@ class Downloads : public QObject
     Q_PROPERTY(QVariantList jobs READ jobs NOTIFY jobsChanged)
     Q_PROPERTY(QString folder READ folder NOTIFY changed)
     Q_PROPERTY(QVariantList local READ local NOTIFY libraryChanged)
-    // Listas descargadas: una entrada por carpeta de primer nivel
+    // Downloaded lists: one entry per top level folder
     // ({ name, folder, count, thumb, url }).
     Q_PROPERTY(QVariantList folders READ folders NOTIFY libraryChanged)
     Q_PROPERTY(bool localBusy READ localBusy NOTIFY libraryChanged)
@@ -65,12 +65,12 @@ public:
     Q_INVOKABLE void downloadTrack(const QString &url, const QString &title,
                                    const QString &artist);
     Q_INVOKABLE void cancelAll();
-    // Escanea recursivamente la carpeta buscando audio (no bloqueante).
+    // Scans the folder recursively looking for audio (non blocking).
     Q_INVOKABLE void refreshLocal();
     // xdg-open on the root folder.
     Q_INVOKABLE void openFolder();
-    // Desinstala una lista descargada: borra su carpeta de primer nivel
-    // (recursivo y con guardas de seguridad) y reescanea la biblioteca.
+    // Uninstalls a downloaded list: deletes its top level folder
+    // (recursively and with safety guards) and rescans the library.
     Q_INVOKABLE void removeList(const QString &folder);
     // Folder name that would be used for a list with that name (same
      // sanitising as when downloading); to match old lists that have no
@@ -105,7 +105,7 @@ private:
         QString name;
         QString url;
         bool playlist = false;
-        QString folder;      // carpeta destino (listas); "" en pistas sueltas
+        QString folder;      // target folder (lists); "" for loose tracks
         int progress = 0;
         QString state = QStringLiteral("queued");
         QString error;
@@ -116,8 +116,8 @@ private:
     void readStdout();
     void finishJob(int code);
     void setJob(int index, const QString &state, const QString &error = QString());
-    // Marca el job como fallido con un mensaje legible, avisa a la UI y sigue
-    // con la cola (si era el job en curso).
+    // Marks the job as failed with a readable message, warns the UI and
+    // carries on with the queue (if it was the running job).
     void failJob(int index, const QString &message);
     // Updates the aggregated progress of the running job from the fraction
      // (0..1) of the current track and publishes it (jobsChanged +
@@ -139,10 +139,10 @@ private:
 
     QProcess m_proc;
     QVector<Job> m_jobs;
-    int m_current = -1;      // índice del job en curso, -1 si ninguno
+    int m_current = -1;      // index of the running job, -1 if none
     bool m_busy = false;
     bool m_cancelling = false;
-    QString m_lastError;     // último "ERROR:" visto en la salida
+    QString m_lastError;     // last "ERROR:" seen in the output
     QByteArray m_buf;
     // Global progress of a list: yt-dlp emits "Downloading item X of Y" and
      // then the % of each track. They are combined to show ONE 0-100 %
@@ -156,7 +156,7 @@ private:
     QDirIterator *m_scan = nullptr;
     QVariantList m_scanItems;
     QTimer m_scanTimer;
-    QSet<QString> m_scanDirs;      // carpetas vistas en el escaneo en curso
+    QSet<QString> m_scanDirs;      // folders seen in the scan in progress
 
     // Auto sync: it watches the downloads folder (and its subfolders) and
      // rescans with a small debounce when something changes on disk.

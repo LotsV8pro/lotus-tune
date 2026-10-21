@@ -47,7 +47,7 @@ public:
                                  double positionSeconds, double durationSeconds,
                                  bool playing);
 
-    // Borra la presencia (SET_ACTIVITY con activity = null).
+    // Clears the presence (SET_ACTIVITY with activity = null).
     Q_INVOKABLE void clear();
 
 signals:
@@ -69,7 +69,7 @@ private:
     QJsonObject buildActivity() const;
 
     QLocalSocket *m_socket = nullptr;
-    QTimer m_reconnect;              // reintento / watchdog cada 15 s
+    QTimer m_reconnect;              // retry / watchdog every 15 s
     bool m_enabled = false;
     bool m_connected = false;
     QString m_status;
@@ -94,5 +94,5 @@ private:
     bool m_sentValid = false;
     double m_sentPosition = 0.0;
 
-    QByteArray m_buf;                // acumulador de lecturas parciales
+    QByteArray m_buf;                // accumulator of partial reads
 };

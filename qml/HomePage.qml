@@ -11,8 +11,8 @@ import "theme.js" as Theme
 // PILLS. The hierarchy comes from the air, not from lines. No shadows and
 // no shaders.
 //
-// Comportamiento de clic en las tarjetas:
-//   · clic en la PORTADA -> ABRE la lista (vista de pistas), sin reproducir.
+// Click behaviour on the cards:
+//   · click on the COVER -> OPENS the list (tracks view), without playing.
 //   . play button        -> loads the list and PLAYS it (without leaving
 //                           Home).
 //   . "Recent" row       -> a click already plays (it has no button of its
@@ -32,25 +32,25 @@ Item {
     // query.
     signal searchRequested(string query)
 
-    // Altura fija de cada carril de tarjetas (portada 172 + texto 54).
+    // Fixed height of each card rail (cover 172 + text 54).
     readonly property int rowHeight: 230
     readonly property int cardSpacing: 14
 
-    // ---- Reciente (deck estilo Sonora) ----------------------------------
-    // Rejilla paginada de filas compactas. Es un «RECIENTE» combinado de TODAS
-    // las fuentes: las canciones SUELTAS escuchadas (se excluyen las que
-    // played inside a playlist) and the 5 most recent lists.
+    // ---- Recent (Sonora style deck) -------------------------------------
+    // Paginated grid of compact rows. It is a «RECENT» combined of ALL
+    // the sources: the LOOSE songs listened (the ones played inside a
+    // playlist are excluded) and the 5 most recent lists.
     property int picksPage: 0
-    // Rejilla de accesos directos: 3 columnas × 2 filas, como en el repo de
-    // reference (full screen without long pagination; the arrows only
+    // Shortcuts grid: 3 columns × 2 rows, like in the reference
+    // repo (full screen without long pagination; the arrows only
     // show if there is more than one page).
     readonly property int picksPerPage: 6
     readonly property int picksCols: 3
     readonly property int picksRows: 2
 
     // Recent loose songs (catalog.recent, newest first). They
-    // excluyen las que sonaron dentro de una playlist (`setId`) y las antiguas
-    // sin clasificar (`legacy`).
+    // exclude the ones played inside a playlist (`setId`) and the old
+    // unclassified ones (`legacy`).
     function recentTracks() {
         const out = []
         const rec = catalog.recent
@@ -66,7 +66,7 @@ Item {
     }
 
     // Up to `limit` lists, most recent first. ALL of them are combined
-    // fuentes: las listas guardadas por el usuario y las de YouTube Music.
+    // sources: the lists saved by the user and the YouTube Music ones.
     function recentLists(limit) {
         const out = []
         const seen = {}
@@ -101,8 +101,8 @@ Item {
         return out
     }
 
-    // Mismo truco que con las recomendadas: el modelo de los accesos
-    // shortcuts are cached and only change if the content changes, so the
+    // Same trick as with the recommended ones: the model of the
+    // shortcuts is cached and only changes if the content changes, so the
     // loading thumbnails are not restarted on every library signal.
     property var picksCache: []
     function refreshPicks() {
@@ -134,7 +134,7 @@ Item {
         }
         // Loose song: a single click already plays (it opens neither a list
         // view nor
-        // pasa por yt-dlp: se entrega la pista tal cual al reproductor).
+        // goes through yt-dlp: the track is handed to the player as it is).
         if (item.kind === "track") {
             page.playRequested([{
                 title: item.title || "",
@@ -161,7 +161,7 @@ Item {
     readonly property var src: sourceEntry(sources.activeId)
     readonly property bool ytmOk: String(catalog.loginState || "") === "ok"
 
-    // ---- portadas con degradado derivadas del propio texto --------------
+    // ---- covers with gradients derived from the text itself ---------------
     function _hash(s) {
         var h = 0
         s = String(s || "")
@@ -184,7 +184,7 @@ Item {
     }
     // Mood radios without any artwork: every label gets its OWN hue (the
     // whole spectrum instead of a single blue) so the rail does not
-    // sea un clon repetido. La pareja de tonos sale de la misma semilla.
+    // become a repeated clone. The pair of tones comes from the same seed.
     function moodA(seed) {
         var h = page._hash(seed)
         return Qt.hsla(((h >> 5) % 360) / 360, 0.50, 0.34, 1)
@@ -194,7 +194,7 @@ Item {
         return Qt.hsla((((h >> 5) + 28) % 360) / 360, 0.55, 0.13, 1)
     }
 
-    // ---- saludo fechado ---------------------------------------------------
+    // ---- dated greeting ---------------------------------------------------
     readonly property string today: {
         const d = new Date()
         const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
@@ -262,7 +262,7 @@ Item {
         }
     }
 
-    // ---- recomendaciones: radios a partir del historial ------------------
+    // ---- recommendations: radios from the history ------------------------
     function recCards() {
         const out = []
         if (page.ytmOk) {
@@ -311,11 +311,12 @@ Item {
             return true
         }
         if (d.trackId) {
-            // La primera pista de la radio es la propia semilla: se resuelve
-            // YA (con prioridad) mientras yt-dlp trae el resto de la lista, de
+            // The first track of the radio is the seed itself: it is
+            // resolved RIGHT AWAY (with priority) while yt-dlp brings the rest
+            // of the list, in such a
             // mode so that on arrival it does not wait for the resolution
             // again and plays
-            // de inmediato.
+            // immediately.
             if (typeof player !== "undefined")
                 player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
             page.openListRequested(!!play)
@@ -328,9 +329,10 @@ Item {
         return false
     }
 
-    // ---- precarga en segundo plano de las radios de «Para ti» ------------
-    // Traer la lista de una radio cuesta ~1,4 s FIJOS de red (dos idas y
-    // vueltas a YouTube Music; da igual pedir 8 que 25 pistas). Para que el
+    // ---- background prefetch of the "For you" radios ---------------------
+    // Bringing the list of a radio costs ~1.4 s FIXED of network (two trips
+    // to YouTube Music; it does not matter whether you ask for 8 or 25
+    // tracks). So that the
     // click is instant, the radios of "Recommended for you" are fetched on
     // their own, one at a time, while Home is visible: by the time the
     // user presses, they are already in the in-memory list cache.
@@ -345,8 +347,8 @@ Item {
     // radio prefetches emit that signal in a cascade, a new model per
     // evaluation restarted the loading artworks (they never finished
     // downloading). The result is cached and only replaced if the CONTENT
-    // cambia de verdad: mismo contenido => mismo objeto modelo => las
-    // tarjetas no se reciclan gratis.
+    // really changes: same content => same model object => the
+    // cards are not recycled for free.
     property var recCardsCache: []
     function refreshRecCards() {
         const cur = page.recCards()
@@ -374,7 +376,7 @@ Item {
         running: false
         onTriggered: {
             if (typeof catalog === "undefined" || catalog.busy)
-                return   // en cuanto esté libre, se reanuda
+                return   // as soon as it is free, it resumes
             while (page.recPrefetchQueue.length) {
                 const it = page.recPrefetchQueue.shift()
                 if (page.recPrefetched[it.id])
@@ -387,8 +389,8 @@ Item {
         }
     }
 
-    // Al mostrarse Inicio (y cuando cambia el historial, que rehace las
-    // tarjetas) se pone en marcha la ronda de precarga.
+    // When Home is shown (and when the history changes, which rebuilds
+    // the cards) the prefetch round is started.
     onVisibleChanged: if (visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() }
 
     Connections {
@@ -396,7 +398,7 @@ Item {
         function onLibraryChanged() { if (page.visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() } }
     }
 
-    // ---- radios de YouTube (estado de animo / genero) --------------------
+    // ---- YouTube radios (mood / genre) ------------------------------------
     readonly property var moodRadios: [
         { q: "éxitos pop 2024", t: "Éxitos pop", s: "Lo más escuchado", icon: "radio" },
         { q: "reggaeton 2024", t: "Reggaetón", s: "Para la fiesta", icon: "radio" },
@@ -411,8 +413,8 @@ Item {
     ]
 
     // Section title: icon in the accent colour + label in bold and
-    // mayusculas normalizadas (el estilo del repo de referencia: el icono
-    // presenta la seccion, el tamano la jerarquiza).
+    // normalised capitals (the style of the reference repo: the icon
+    // presents the section, the size hierarchies it).
     component SectionTitle: RowLayout {
         id: secTitle
 
@@ -477,7 +479,7 @@ Item {
             width: pageFlick.width - Theme.s5 * 2
             spacing: Theme.panelGap
 
-            // ---- cabecera: saludo + buscador (isla flotante) ------------
+            // ---- header: greeting + search box (floating island) ---------
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s4
@@ -599,17 +601,18 @@ Item {
                 }
             }
 
-            // ---- RECIENTE (isla con rejilla paginada) ------------------
+            // ---- RECENT (island with paginated grid) --------------------
             // Max 5 loose songs + 5 recent lists (quickPicks),
-            // repartidas en 3 columnas × 5 filas.
+            // spread over 3 columns × 5 rows.
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
                 visible: page.picksTotal > 0
 
-                // Sin rotulo: el saludo ya preside la pagina (como en el repo
-                // reference). The page arrows are discreet and only
-                // existen si hay mas de una pagina de accesos.
+                // Without a title: the greeting already presides over the
+                // page (like in the reference
+                // repo). The page arrows are discreet and only
+                // exist if there is more than one page of shortcuts.
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s2
@@ -665,9 +668,9 @@ Item {
                     }
                 }
 
-                // Rejilla: 3 columnas × 2 filas (llenado por columnas: con
+                // Grid: 3 columns × 2 rows (filled by columns: with
                 // vertical flow the GridLayout groups by ROWS, so the
-                // punto de envoltura es rows=2).
+                // wrap point is rows=2).
                 GridLayout {
                     Layout.fillWidth: true
                     rows: page.picksRows
@@ -685,9 +688,9 @@ Item {
 
                             Layout.fillWidth: true
                             Layout.preferredHeight: 58
-                            // Pastilla siempre insinuada (como en el repo de
-                            // referencia): el acceso directo se ve accesible
-                            // sin pasar el raton encima.
+                            // Pill always hinted (like in the reference
+                            // repo): the shortcut looks accessible
+                            // without passing the mouse over it.
                             radius: Theme.rMd
                             color: pickMouse.containsMouse
                                    ? Theme.alpha(Sys.text, 0.11) : Theme.alpha(Sys.text, 0.055)
@@ -752,7 +755,7 @@ Item {
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
                                 // Loose songs: on hover they are already
-                                // pre-resuelve el stream (un clic = suena ya).
+                                // pre-resolve the stream (a click = it sounds right away).
                                 onContainsMouseChanged: if (containsMouse
                                         && pickRow.modelData
                                         && pickRow.modelData.kind === "track"
@@ -765,9 +768,9 @@ Item {
                 }
             }
 
-            // ---- recomendaciones (radios del historial) — isla ---------
+            // ---- recommendations (radios of the history) — island -------
             // Right after RECENT: it is the closest at hand (in the style
-            // de los «Made for you» de Spotify).
+            // of Spotify's «Made for you»).
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
@@ -798,8 +801,8 @@ Item {
                         subtitle: modelData.sub
                         icon: modelData.icon
                         badge: modelData.kind === "liked" ? "YT" : "RADIO"
-                        // La radio suena sobre una pista semilla: su portada
-                        // (en miniatura grande) es la que preside la tarjeta.
+                        // The radio plays over a seed track: its cover
+                        // (in a big thumbnail) is the one presides over the card.
                         thumb: modelData.thumb
                                || (modelData.trackId
                                    ? "https://i.ytimg.com/vi/" + modelData.trackId
@@ -823,7 +826,7 @@ Item {
                 }
             }
 
-            // ---- radios de YouTube — isla ------------------------------
+            // ---- YouTube radios — island --------------------------------
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
@@ -871,7 +874,7 @@ Item {
             // ---- search history - island -------------------------------
             // Pills with the latest queries (appcfg "searchHistory").
             // Clicking re-runs the search: Main opens Search and runs the
-            // query. «Borrar» limpia el historial persistido.
+            // query. «Clear» empties the persisted history.
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3

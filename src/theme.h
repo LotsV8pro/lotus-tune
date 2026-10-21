@@ -84,7 +84,7 @@ private:
     QVariantMap m_sys;   // parsed system palette (app-palette/colors json)
     QVariantMap m_over;  // parsed config.ini overrides
     bool m_followSystem = true;
-    bool m_dynamicBg = false;   // "Fondo dinámico" pedido por la UI (Main.qml)
+    bool m_dynamicBg = false;   // "Dynamic background" asked for by the UI (Main.qml)
 
     // resolved values
     QColor m_bg, m_surface, m_surfaceAlt, m_border, m_borderSubtle;

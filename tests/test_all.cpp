@@ -20,9 +20,9 @@ class TestLotusTune : public QObject
 {
     Q_OBJECT
 
-    // HOME temporal: Catalog escribe su estado en
-    // ~/.local/state/lotus-tune vía QDir::homePath(), así que la suite entera
-    // corre con el HOME apuntando aquí para no tocar la biblioteca del usuario.
+    // Temporary HOME: Catalog writes its state in
+    // ~/.local/state/lotus-tune through QDir::homePath(), so the whole suite
+    // runs with the HOME pointing here to avoid touching the user's library.
     QTemporaryDir *m_homeDir = nullptr;
 
 private slots:
@@ -62,10 +62,10 @@ void TestLotusTune::cleanupTestCase()
 
 void TestLotusTune::testSafeSegment()
 {
-    // Segmentos básicos
+    // Basic segments
     QCOMPARE(Downloads::safeSegment("Coldplay - Yellow"), QString("Coldplay - Yellow"));
 
-    // Segmentos con caracteres prohibidos en sistemas de archivos
+    // Segments with characters forbidden in file systems
     QString invalid = "Track: Title / With \\ Slashes * And ? Quotes \" < > |";
     QString safe = Downloads::safeSegment(invalid);
     QVERIFY(!safe.contains('/'));
@@ -78,20 +78,20 @@ void TestLotusTune::testSafeSegment()
     QVERIFY(!safe.contains('>'));
     QVERIFY(!safe.contains('|'));
 
-    // Puntos y espacios al principio/final
+    // Dots and spaces at the beginning/end
     QCOMPARE(Downloads::safeSegment("...test..."), QString("test"));
     QCOMPARE(Downloads::safeSegment("   test   "), QString("test"));
 
-    // Texto vacío cae a "descarga"
+    // Empty text falls back to "download"
     QCOMPARE(Downloads::safeSegment(""), QString("descarga"));
     QCOMPARE(Downloads::safeSegment("   "), QString("descarga"));
     QCOMPARE(Downloads::safeSegment(":::"), QString("descarga"));
 
-    // Caracteres unicode con tildes
+    // Unicode characters with accents
     QString unicodeText = "Canción Épica (Año 2026)";
     QCOMPARE(Downloads::safeSegment(unicodeText), unicodeText);
 
-    // Límite de longitud (recorte a <= 180 bytes)
+    // Length limit (truncated to <= 180 bytes)
     QString veryLong(200, 'A');
     QString safeLong = Downloads::safeSegment(veryLong);
     QVERIFY(safeLong.toUtf8().size() <= 180);
@@ -99,27 +99,27 @@ void TestLotusTune::testSafeSegment()
 
 void TestLotusTune::testFriendlyError()
 {
-    // 404 / no existe
+    // 404 / does not exist
     QString err404 = Downloads::friendlyError("ERROR: [youtube] Video does not exist or was removed");
     QVERIFY(err404.contains("no existe") || err404.contains("privada"));
 
-    // Contenido privado / login
+    // Private content / login
     QString errPrivate = Downloads::friendlyError("ERROR: Sign in to confirm you’re not a bot / private video");
     QVERIFY(errPrivate.contains("privado") || errPrivate.contains("sesión"));
 
-    // Fallo de red
+    // Network failure
     QString errNet = Downloads::friendlyError("ERROR: unable to download webpage: <urlopen error timed out>");
     QVERIFY(errNet.contains("red") || errNet.contains("conexión"));
 
-    // Falta de espacio
+    // Not enough space
     QString errDisk = Downloads::friendlyError("ERROR: [Errno 28] No space left on device");
     QVERIFY(errDisk.contains("espacio"));
 
-    // Falta ffmpeg
+    // ffmpeg missing
     QString errFfmpeg = Downloads::friendlyError("ERROR: ffprobe or avprobe not found. Please install ffmpeg.");
     QVERIFY(errFfmpeg.contains("ffmpeg"));
 
-    // Mensaje vacío
+    // Empty message
     QCOMPARE(Downloads::friendlyError(""), QString("La descarga falló."));
 }
 
@@ -129,7 +129,7 @@ void TestLotusTune::testPartialFilesCleanup()
     QVERIFY(tempDir.isValid());
     const QString dirPath = tempDir.path();
 
-    // Crear ficheros temporales y parciales
+    // Create temporary and partial files
     QStringList partials = {
         dirPath + "/song.mp3.part",
         dirPath + "/song.mp3.ytdl",
@@ -146,7 +146,7 @@ void TestLotusTune::testPartialFilesCleanup()
         QVERIFY(QFile::exists(p));
     }
 
-    // Crear un fichero de audio legítimo
+    // Create a legitimate audio file
     QString audioFile = dirPath + "/final_song.mp3";
     {
         QFile f(audioFile);
@@ -156,15 +156,15 @@ void TestLotusTune::testPartialFilesCleanup()
     }
     QVERIFY(QFile::exists(audioFile));
 
-    // Limpiar parciales
+    // Clean the partials
     Downloads::removePartials(dirPath);
 
-    // Comprobar que los parciales se eliminaron
+    // Check that the partials were removed
     for (const QString &p : partials) {
         QVERIFY2(!QFile::exists(p), qPrintable(p + " no fue eliminado"));
     }
 
-    // El fichero legítimo debe seguir existiendo
+    // The legitimate file must still exist
     QVERIFY(QFile::exists(audioFile));
 }
 
@@ -176,7 +176,7 @@ void TestLotusTune::testCountAudioFiles()
 
     QCOMPARE(Downloads::countAudioFiles(dirPath), 0);
 
-    // Crear ficheros de varios tipos
+    // Create files of several types
     QStringList audios = {"track1.mp3", "track2.m4a", "track3.opus", "track4.flac"};
     for (const QString &a : audios) {
         QFile f(dirPath + "/" + a);
@@ -184,7 +184,7 @@ void TestLotusTune::testCountAudioFiles()
         f.close();
     }
 
-    // Crear ficheros no de audio
+    // Create non audio files
     QStringList others = {"cover.jpg", "info.json", "notes.txt"};
     for (const QString &o : others) {
         QFile f(dirPath + "/" + o);
@@ -203,11 +203,11 @@ void TestLotusTune::testUniqueListFolder()
     Downloads dl;
     dl.setFolder(tempDir.path());
 
-    // Primera vez: nombre original
+    // First time: original name
     QString f1 = dl.uniqueListFolder("Rock Clásico", "https://music.youtube.com/playlist?list=123");
     QCOMPARE(f1, QString("Rock Clásico"));
 
-    // Simular que se crea la carpeta con metadatos
+    // Simulate that the folder is created with metadata
     QString fullPath = tempDir.path() + "/Rock Clásico";
     QDir().mkpath(fullPath);
     QFile metaFile(fullPath + "/.lotus-list.json");
@@ -215,30 +215,30 @@ void TestLotusTune::testUniqueListFolder()
     metaFile.write("{\"url\":\"https://music.youtube.com/playlist?list=123\"}");
     metaFile.close();
 
-    // Misma lista (misma URL): debe reutilizar la misma carpeta para reanudar
+    // Same list (same URL): it must reuse the same folder to resume
     QString fSame = dl.uniqueListFolder("Rock Clásico", "https://music.youtube.com/playlist?list=123");
     QCOMPARE(fSame, QString("Rock Clásico"));
 
-    // Otra lista distinta con el mismo nombre (otra URL): debe asignar sufijo (2)
+    // Another different list with the same name (other URL): it must assign the (2) suffix
     QString fDifferent = dl.uniqueListFolder("Rock Clásico", "https://music.youtube.com/playlist?list=999");
     QCOMPARE(fDifferent, QString("Rock Clásico (2)"));
 }
 
 void TestLotusTune::testNormalizeUrl()
 {
-    // music.youtube.com a www.youtube.com
+    // music.youtube.com to www.youtube.com
     QString musicUrl = "https://music.youtube.com/watch?v=dQw4w9WgXcQ";
     QCOMPARE(Player::normalizeUrl(musicUrl), QString("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
 
-    // www.youtube.com intacta
+    // www.youtube.com untouched
     QString wwwUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
     QCOMPARE(Player::normalizeUrl(wwwUrl), wwwUrl);
 
-    // Fichero local intacto
+    // Local file untouched
     QString fileUrl = "file:///home/lots/music/song.opus";
     QCOMPARE(Player::normalizeUrl(fileUrl), fileUrl);
 
-    // Vacío intacto
+    // Empty untouched
     QCOMPARE(Player::normalizeUrl(""), QString(""));
 }
 
@@ -253,23 +253,23 @@ void TestLotusTune::testAppConfig()
 void TestLotusTune::testSourceManager()
 {
     SourceManager sm;
-    // YouTube Music es la fuente activa por defecto y está lista.
+    // YouTube Music is the default active source and it is ready.
     QCOMPARE(sm.activeId(), QString("ytm"));
     QVERIFY(sm.isReady("ytm"));
     QVERIFY(sm.isReady("soundcloud"));
-    // Los backends sin implementar vienen "locked" (spotify, tidal).
+    // The not implemented backends come "locked" (spotify, tidal).
     QVERIFY(!sm.isReady("spotify"));
     QVERIFY(!sm.isReady("tidal"));
     QVERIFY(sm.entry("no-existe").isEmpty());
 
-    // Prefijos de búsqueda que se pasan a yt-dlp.
+    // Search prefixes that are passed to yt-dlp.
     QCOMPARE(sm.searchPrefix("ytm"), QString("ytsearch15:"));
     QCOMPARE(sm.searchPrefix("soundcloud"), QString("scsearch15:"));
     QCOMPARE(sm.searchPrefix("spotify"), QString(""));
     QCOMPARE(sm.list().size(), 4);
 
-    // Cambiar de fuente; una fuente desconocida se ignora y re-seleccionar
-    // la misma no vuelve a emitir.
+    // Change the source; an unknown source is ignored and re-selecting
+    // the same one does not emit again.
     QSignalSpy changed(&sm, &SourceManager::activeChanged);
     sm.select("soundcloud");
     QCOMPARE(sm.activeId(), QString("soundcloud"));
@@ -285,7 +285,7 @@ void TestLotusTune::testVideoIdOf()
     SourceManager sources;
     Catalog catalog(&sources);
 
-    // Las formas normales de URL de YouTube.
+    // The normal shapes of a YouTube URL.
     QCOMPARE(catalog.videoIdOf("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
              QString("dQw4w9WgXcQ"));
     QCOMPARE(catalog.videoIdOf("https://music.youtube.com/watch?v=dQw4w9WgXcQ&t=42"),
@@ -295,17 +295,17 @@ void TestLotusTune::testVideoIdOf()
     QCOMPARE(catalog.videoIdOf("https://www.youtube.com/shorts/dQw4w9WgXcQ"),
              QString("dQw4w9WgXcQ"));
 
-    // Un videoId crudo de 11 caracteres pasa tal cual.
+    // A raw videoId of 11 characters passes as it is.
     QCOMPARE(catalog.videoIdOf("dQw4w9WgXcQ"), QString("dQw4w9WgXcQ"));
 
-    // Lo que no lleva videoId se queda vacío (playlists, basura, vacío).
+    // What does not carry a videoId stays empty (playlists, rubbish, empty).
     QCOMPARE(catalog.videoIdOf(""), QString(""));
     QCOMPARE(catalog.videoIdOf("   "), QString(""));
     QCOMPARE(catalog.videoIdOf("https://music.youtube.com/playlist?list=RDCLAK5uy_l"),
              QString(""));
     QCOMPARE(catalog.videoIdOf("no es una url"), QString(""));
 
-    // Fichero local descargado: el id real sale del .info.json hermano.
+    // Downloaded local file: the real id comes from the sibling .info.json.
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString audio = dir.path() + QStringLiteral("/Canci\u00f3n.opus");
@@ -328,7 +328,7 @@ void TestLotusTune::testLikes()
     SourceManager sources;
     Catalog catalog(&sources);
 
-    // Voto local: encender y apagar; por URL se resuelve el videoId primero.
+    // Local vote: turn on and turn off; by URL the videoId is resolved first.
     QVERIFY(!catalog.isLiked("dQw4w9WgXcQ"));
     QSignalSpy liked(&catalog, &Catalog::likedChanged);
     catalog.setLiked("dQw4w9WgXcQ", true);
@@ -336,15 +336,15 @@ void TestLotusTune::testLikes()
     QVERIFY(catalog.isLiked("https://youtu.be/dQw4w9WgXcQ"));
     QCOMPARE(liked.count(), 1);
 
-    // Id vacío: no hace nada ni emite.
+    // Empty id: it does nothing and does not emit.
     catalog.setLiked(QString(), true);
     QCOMPARE(liked.count(), 1);
 
     catalog.setLiked("dQw4w9WgXcQ", false);
     QVERIFY(!catalog.isLiked("dQw4w9WgXcQ"));
 
-    // Persistencia: el voto se guarda en liked.json bajo el HOME de pruebas
-    // (nunca bajo la biblioteca real del usuario).
+    // Persistence: the vote is stored in liked.json under the test HOME
+    // (never under the real user's library).
     catalog.setLiked("abc123DEF45", true);
     QFile f(QDir::homePath() + QStringLiteral("/.local/state/lotus-tune/liked.json"));
     QVERIFY(f.open(QIODevice::ReadOnly));
@@ -359,7 +359,7 @@ void TestLotusTune::testLikes()
 void TestLotusTune::testLyricsState()
 {
     Lyrics lyrics;
-    // Estado inicial: nada cargado y nada que resaltar.
+    // Initial state: nothing loaded and nothing to highlight.
     QVERIFY(!lyrics.loading());
     QVERIFY(!lyrics.hasLyrics());
     QVERIFY(!lyrics.hasSynced());
@@ -369,7 +369,7 @@ void TestLotusTune::testLyricsState()
     QCOMPARE(lyrics.lineIndexAt(120.5), -1);
     QCOMPARE(lyrics.lineIndexAt(-5), -1);
 
-    // clear() sobre vacío deja el estado vacío pero avisa a la UI.
+    // clear() over an empty one leaves the state empty but warns the UI.
     QSignalSpy changed(&lyrics, &Lyrics::changed);
     lyrics.clear();
     QCOMPARE(changed.count(), 1);
@@ -379,7 +379,7 @@ void TestLotusTune::testLyricsState()
 
 void TestLotusTune::testParseLrc()
 {
-    // LRC básico: tiempos exactos y texto recortado.
+    // Basic LRC: exact timings and trimmed text.
     const QVector<Lyrics::LrcLine> basic = Lyrics::parseLrc(
         "[00:12.50]  Primer verso \n[01:05.00]Segundo verso\n", true);
     QCOMPARE(basic.size(), 2);
@@ -388,7 +388,7 @@ void TestLotusTune::testParseLrc()
     QCOMPARE(basic[1].time, 65.0);
     QCOMPARE(basic[1].text, QString("Segundo verso"));
 
-    // Varios timestamps comparten el texto de la línea (estribillo repetido).
+    // Several timestamps share the text of the line (repeated chorus).
     const QVector<Lyrics::LrcLine> chorus = Lyrics::parseLrc(
         "[00:10.00][00:50.00]estribillo\n", true);
     QCOMPARE(chorus.size(), 2);
@@ -396,24 +396,24 @@ void TestLotusTune::testParseLrc()
     QCOMPARE(chorus[1].time, 50.0);
     QCOMPARE(chorus[0].text, chorus[1].text);
 
-    // Los dos puntos también valen como separador de décimas: 12:50 = 12.5 s.
+    // The colon also works as a tenths separator: 12:50 = 12.5 s.
     const QVector<Lyrics::LrcLine> colon = Lyrics::parseLrc("[00:12:50]x\n", true);
     QCOMPARE(colon.size(), 1);
     QCOMPARE(colon[0].time, 12.5);
 
-    // Minutos de tres dígitos: 100:01.50 = 6001.5 s.
+    // Three digit minutes: 100:01.50 = 6001.5 s.
     const QVector<Lyrics::LrcLine> long_ = Lyrics::parseLrc("[100:01.50]larga\n", true);
     QCOMPARE(long_.size(), 1);
     QCOMPARE(long_[0].time, 6001.5);
 
-    // Metadatos ([ar:...], [ti:...]) y líneas sin tiempo se descartan.
+    // Metadata ([ar:...], [ti:...]) and lines without time are discarded.
     QVERIFY(Lyrics::parseLrc("[ar:Radiohead]\n[ti:Creep]\n", true).isEmpty());
     QVERIFY(Lyrics::parseLrc("", true).isEmpty());
 
-    // Un timestamp sin texto detrás no genera línea.
+    // A timestamp with no text behind it does not generate a line.
     QVERIFY(Lyrics::parseLrc("[00:10.00]\n", true).isEmpty());
 
-    // La salida sale ordenada por tiempo aunque la entrada no lo esté.
+    // The output comes sorted by time even if the input is not.
     const QVector<Lyrics::LrcLine> sorted = Lyrics::parseLrc(
         "[01:00.00]tercero\n[00:30.00]primero\n[00:45.00]segundo\n", true);
     QCOMPARE(sorted.size(), 3);
@@ -421,7 +421,7 @@ void TestLotusTune::testParseLrc()
     QCOMPARE(sorted[1].text, QString("segundo"));
     QCOMPARE(sorted[2].text, QString("tercero"));
 
-    // Créditos: fuera con el filtro, dentro sin él.
+    // Credits: out with the filter, in without it.
     const QString mixed = QStringLiteral(
         "[00:01.00]作词 : 张三\n[00:02.00]Written by Max Martin\n"
         "[00:03.00]verso normal\n[00:04.00]otro verso\n");
@@ -434,17 +434,17 @@ void TestLotusTune::testParseLrc()
 
 void TestLotusTune::testLooksLikeCredit()
 {
-    // Créditos al estilo NetEase (CJK).
+    // Credits in the NetEase style (CJK).
     QVERIFY(Lyrics::looksLikeCredit(QString::fromUtf8("\u8bcd\u66f2 : \u5f20\u4e09")));
     QVERIFY(Lyrics::looksLikeCredit(QString::fromUtf8("\u7279\u522b\u9e23\u8c22 : \u67d0\u4eba")));
 
-    // Créditos en inglés.
+    // Credits in English.
     QVERIFY(Lyrics::looksLikeCredit("Written by Max Martin"));
     QVERIFY(Lyrics::looksLikeCredit("produced by shellback"));
     QVERIFY(Lyrics::looksLikeCredit("  Recorded by Someone"));
 
-    // Versos normales que no deben desaparecer: la lista solo vale al
-    // principio de la línea.
+    // Normal verses that must not disappear: the list only counts at
+    // the beginning of the line.
     QVERIFY(!Lyrics::looksLikeCredit("Shut up and dance with me"));
     QVERIFY(!Lyrics::looksLikeCredit("By your side tonight"));
     QVERIFY(!Lyrics::looksLikeCredit("I am written in the stars"));
@@ -454,22 +454,22 @@ void TestLotusTune::testLooksLikeCredit()
 void TestLotusTune::testLineIndexAt()
 {
     Lyrics lyrics;
-    // adoptSynced exige al menos 2 líneas aprovechables.
+    // adoptSynced requires at least 2 usable lines.
     QVERIFY(!lyrics.adoptSynced("[00:12.50]una línea sola", "test", true));
     QVERIFY(!lyrics.hasSynced());
 
-    // Créditos filtrados dejan menos de 2 líneas: el LRC entero se rechaza.
+    // Filtered credits leave less than 2 lines: the whole LRC is rejected.
     QVERIFY(!lyrics.adoptSynced(
         "[00:01.00]作词 : X\n[00:02.00]Written by Y\n", "test", true));
 
-    // Con el filtro apagado, esas mismas líneas sí se aceptan.
+    // With the filter off, those same lines are accepted.
     QVERIFY(lyrics.adoptSynced(
         "[00:01.00]作词 : X\n[00:02.00]Written by Y\n", "test", false));
     QVERIFY(lyrics.hasSynced());
     QCOMPARE(lyrics.lines().size(), 2);
 
-    // Bisección: -1 antes de la primera línea, índice en cada tiempo exacto,
-    // el anterior entre líneas y el último pasado el final.
+    // Bisection: -1 before the first line, the index at every exact time,
+    // the previous one between lines and the last one past the end.
     QCOMPARE(lyrics.lineIndexAt(0.5), -1);
     QCOMPARE(lyrics.lineIndexAt(-1.0), -1);
     QCOMPARE(lyrics.lineIndexAt(1.0), 0);
@@ -477,7 +477,7 @@ void TestLotusTune::testLineIndexAt()
     QCOMPARE(lyrics.lineIndexAt(2.0), 1);
     QCOMPARE(lyrics.lineIndexAt(999.0), 1);
 
-    // clear() deja otra vez la bisección sin datos.
+    // clear() leaves the bisection without data again.
     lyrics.clear();
     QVERIFY(!lyrics.hasSynced());
     QCOMPARE(lyrics.lines().size(), 0);

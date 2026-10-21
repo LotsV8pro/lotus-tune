@@ -10,7 +10,7 @@
 #include <QDebug>
 #include <QtGlobal>
 
-// Nombres exactos que exige MPRIS2.
+// Exact names required by MPRIS2.
 static constexpr const char *kServiceName = "org.mpris.MediaPlayer2.lotustune";
 static constexpr const char *kObjectPath = "/org/mpris/MediaPlayer2";
 static constexpr const char *kTrackIdPrefix = "/lotustune/track/";
@@ -55,7 +55,7 @@ Mpris::Mpris(Player *player, QObject *parent)
     m_rootAdaptor = new MprisRootAdaptor(this);
     m_playerAdaptor = new MprisPlayerAdaptor(this);
 
-    // Todo ocurre en el hilo principal: sin hilos ni bucles propios.
+    // Everything happens in the main thread: no threads nor own loops.
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected()) {
         qWarning() << "[mpris] no hay sesión D-Bus; integración MPRIS desactivada";
@@ -81,7 +81,7 @@ Mpris::~Mpris()
     QDBusConnection bus = QDBusConnection::sessionBus();
     if (!bus.isConnected())
         return;
-    // Liberar el nombre y el objeto (idempotente si no llegaron a registrarse).
+    // Release the name and the object (idempotent if they never got registered).
     bus.unregisterService(QString::fromLatin1(kServiceName));
     bus.unregisterObject(QString::fromLatin1(kObjectPath));
 }
@@ -98,7 +98,7 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
     if (title.isEmpty() && artist.isEmpty() && album.isEmpty()
         && artUrl.isEmpty() && durationSeconds <= 0.0) {
         if (!m_hasTrack)
-            return;                    // aún no ha habido ninguna pista real
+            return;                    // there has not been any real track yet
         // The duration is only refreshed if the engine already knows it.
         if (m_player && m_player->duration() > 0.0 && m_lengthUs <= 0)
             m_lengthUs = qRound64(m_player->duration() * 1e6);
@@ -133,7 +133,7 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
     if (durationSeconds > 0.0)
         m_lengthUs = qRound64(durationSeconds * 1e6);
     else if (trackChanged)
-        m_lengthUs = 0;                 // pista nueva: la duración aún se ignora
+        m_lengthUs = 0;                 // new track: the duration is still ignored
     // Same track with a momentarily 0 duration: the known one is kept so
      // "mpris:length = 0" is not published (the widgets penalise that
      // metadata).
@@ -208,9 +208,9 @@ void Mpris::setLoopStatus(const QString &status)
                           {{QStringLiteral("LoopStatus"), m_loopStatus}});
 }
 
-// Refleja en el bus el volumen que fija la propia app (p. ej. al subir/bajar
-// con las flechas o silenciar con M), para que el widget del sistema no se
-// quede con un valor obsoleto.
+// Reflects on the bus the volume set by the app itself (e.g. when raising/
+// lowering it with the arrows or muting with M), so the system widget does
+// not stay with an outdated value.
 void Mpris::updateVolume(int percent)
 {
     const double v = qBound(0.0, percent / 100.0, 1.0);
@@ -227,7 +227,7 @@ QVariantMap Mpris::metadata() const
 {
     QVariantMap m;
     if (!m_hasTrack)
-        return m;                 // sin pista real: nada de trackid fantasma
+        return m;                 // no real track: no phantom trackid
     m.insert(QStringLiteral("mpris:trackid"), QVariant::fromValue(m_trackId));
     if (!m_title.isEmpty())
         m.insert(QStringLiteral("xesam:title"), m_title);
@@ -445,8 +445,8 @@ void MprisPlayerAdaptor::Stop()
 
 void MprisPlayerAdaptor::Seek(qint64 offsetUs)
 {
-    // Seek() es relativo (puede ser negativo); la app espera segundos
-    // absolutos.
+    // Seek() is relative (it can be negative); the app expects absolute
+    // seconds.
     m_mpris->requestSeek(m_mpris->positionUs() + offsetUs, false);
 }
 
@@ -467,7 +467,7 @@ void MprisPlayerAdaptor::OpenUri(const QString &uri)
 
 void MprisPlayerAdaptor::setLoopStatus(const QString &status)
 {
-    // Solo se soporta "None"; se ignoran Track/Playlist para no mentir.
+    // Only "None" is supported; Track/Playlist are ignored so it does not lie.
     if (status != QStringLiteral("None"))
         return;
     if (m_mpris->m_loopStatus == status)
@@ -492,6 +492,6 @@ void MprisPlayerAdaptor::setVolume(double volume)
     emit volumeChanged();
     m_mpris->emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
                                    {{QStringLiteral("Volume"), volume}});
-    // La app aplica el volumen real en el motor (mpv).
+    // The app applies the real volume in the engine (mpv).
     emit m_mpris->volumeRequested(volume);
 }

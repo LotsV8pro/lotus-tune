@@ -11,7 +11,7 @@ import "theme.js" as Theme
 Item {
     id: panel
 
-    property int tab: 0                 // 0 = cola, 1 = letras
+    property int tab: 0                 // 0 = queue, 1 = lyrics
     property var queueModel: null
     property int queueIndex: -1
 

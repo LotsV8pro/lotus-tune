@@ -82,7 +82,7 @@ Window {
     property bool followSys: true
     property var launcherRows: []
 
-    // ---- preferencias nuevas (calidad, letras, Discord, descargas) --------
+    // ---- new preferences (quality, lyrics, Discord, downloads) ------------
     property bool lyricsEnabled: true
     property bool discordEnabled: false
     // Autoplay: when the queue runs out, YouTube Music is asked for the
@@ -90,9 +90,9 @@ Window {
     // not stop. On by default; remembered between sessions.
     property bool autoplayEnabled: true
 
-    // ---- panel derecho (cola / letra) ------------------------------------
+    // ---- right panel (queue / lyrics) -------------------------------------
     property bool panelOpen: false
-    property int panelTab: 0            // 0 = cola, 1 = letra
+    property int panelTab: 0            // 0 = queue, 1 = lyrics
 
     function openPanel(tab) {
         panelTab = tab
@@ -153,7 +153,7 @@ Window {
         ], x, y)
     }
 
-    // ---- editor de listas (crear / renombrar / privacidad) ---------------
+    // ---- list editor (create / rename / privacy) ---------------------------
     property bool editorOpen: false
     property bool editorCreate: true
     property string editorId: ""
@@ -228,7 +228,7 @@ Window {
                         })
     }
 
-    // ---- portapapeles (copiar enlace) ------------------------------------
+    // ---- clipboard (copy link) ---------------------------------------------
     function copyToClipboard(text) {
         const s = String(text || "")
         if (!s)
@@ -265,7 +265,7 @@ Window {
             root.playTracks([t], 0)
             return
         }
-        root.autoplayRadioPending = false   // ya hay una cola puesta a mano
+        root.autoplayRadioPending = false   // there is already a queue set by hand
         root.radioResumePending = false
         queue.append(root.queueRow(t))
         root.toast("Añadido a la cola")
@@ -708,7 +708,7 @@ Window {
     function openTracksView() {
         const from = page
         if (!(page === "library" && libPage.showingTracks))
-            pushPage("library", true)   // guarda la página de la que venías
+            pushPage("library", true)   // it stores the page you came from
         libPage.openTracks()
     }
 
@@ -1065,7 +1065,7 @@ Window {
             } else if (a.startsWith("--accent=")) {
                 cfgSet("accent", a.substring(9))
             } else if (a.startsWith("--openurl=")) {
-                cliOpen = true   // QA: no restaura la sesión, abre esta URL
+                cliOpen = true   // QA: it does not restore the session, it opens this URL
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
@@ -1419,10 +1419,10 @@ Window {
     // What the app expects from the albums: "" none, "all", "shuffle",
     // "album".
     property string artistWant: ""
-    property string artistWantBrowse: ""   // browseId pedido en vuelo
-    property var artistFetchQueue: []      // browseIds que aún faltan
-    property bool artistStarted: false     // ya sonó la primera pista
-    property int artistAdded: 0            // pistas añadidas de la tanda
+    property string artistWantBrowse: ""   // browseId requested in flight
+    property var artistFetchQueue: []      // browseIds still missing
+    property bool artistStarted: false     // the first track already played
+    property int artistAdded: 0            // tracks added from the batch
 
     // Opens an artist's page and asks for their discography.
     function openArtist(a) {
@@ -1685,9 +1685,9 @@ Window {
         shuffle = !shuffle
         if (queue.count > 0) {
             if (shuffle)
-                reshuffleQueue()      // la cola visible pasa a orden aleatorio
+                reshuffleQueue()      // the visible queue goes to random order
             else
-                restoreOriginalOrder() // orden estable original
+                restoreOriginalOrder() // original stable order
         }
         mpris.setShuffle(shuffle)
         toast(shuffle ? "Aleatorio activado" : "Aleatorio desactivado")
@@ -1727,7 +1727,7 @@ Window {
     // the backend - which publishes it for the desktop widgets - and the
     // on screen views pick it up when the notice arrives.
     function setLyricsOffset(v) {
-        const x = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // pasos de 50 ms
+        const x = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // 50 ms steps
         root.lyricsOffset = x
         cfgSet("lyricsOffset", x.toFixed(2))
         if (typeof lyrics !== "undefined")
@@ -1760,7 +1760,7 @@ Window {
         if (sameTrack && lyrics.loading)
             return
         root.lyricsKey = key
-        // El intento inmediato ya trajo letra de ESTA pista: no repetimos.
+        // The immediate attempt already brought the lyrics of THIS track: no repeat.
         if (sameTrack && (lyrics.hasLyrics || lyrics.hasSynced))
             return
         lyrics.fetch(root.currentArtist, root.currentTitle, dur,
@@ -1793,7 +1793,7 @@ Window {
         const arr = toTrackList(list)
         if (arr.length === 0 || idx < 0 || idx >= arr.length)
             return
-        originalOrder = arr            // orden original (copia sin barajar)
+        originalOrder = arr            // original order (copy without shuffling)
         let order = arr
         if (shuffle && arr.length > 1) {
             // The pressed track goes first; the rest, shuffled.
@@ -2389,7 +2389,7 @@ Window {
         // rest are added without cutting what sounds (see artistAdvance).
         function onAlbumTracksReady(browseId, tracks) {
             if (root.artistWant === "" || browseId !== root.artistWantBrowse)
-                return   // respuesta de una petición ya anulada
+                return   // answer of an already cancelled request
             if (!tracks || !tracks.length) {
                 if (root.artistWant === "album") {
                     root.artistWant = ""
@@ -3396,7 +3396,7 @@ Window {
                 }
                 Item { Layout.fillWidth: true }
 
-                Rectangle { // cerrar
+                Rectangle { // close
                     width: 32
                     height: 32
                     radius: Theme.rMd
@@ -3751,7 +3751,7 @@ Window {
                                     elide: Text.ElideRight
                                 }
 
-                                RowLayout { // sesión iniciada
+                                RowLayout { // session signed in
                                     Layout.fillWidth: true
                                     spacing: Theme.s2
                                     visible: modelData.id === "ytm" && root.ytmState() === "ok"
@@ -3768,14 +3768,14 @@ Window {
                                     Item { Layout.fillWidth: true }
                                 }
 
-                                PrimaryButton { // iniciar sesión
+                                PrimaryButton { // sign in
                                     visible: modelData.id === "ytm"
                                              && (root.ytmState() === "" || root.ytmState() === "nologin")
                                     text: "Iniciar sesión con Google"
                                     onClicked: root.ytmLogin()
                                 }
 
-                                ColumnLayout { // esperando inicio de sesión
+                                ColumnLayout { // waiting for the sign in
                                     Layout.fillWidth: true
                                     spacing: Theme.s2
                                     visible: modelData.id === "ytm" && root.ytmState() === "waiting"
@@ -3783,7 +3783,7 @@ Window {
                                     RowLayout {
                                         Layout.fillWidth: true
                                         spacing: Theme.s3
-                                        Item { // indicador girando (solo con el panel abierto)
+                                        Item { // spinning indicator (only with the panel open)
                                             width: 18
                                             height: 18
                                             Rectangle {
