@@ -88,6 +88,16 @@ QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
     if (needStart)
         start(key);
 
+    // Mientras la foto no esté procesada NO se devuelve URL: el QML deja el
+    // hueco vacío (sin pedir una imagen que todavía no existe) y la pinta
+    // cuando llega la señal «ready».
+    {
+        QMutexLocker lock(&m_mutex);
+        auto it = m_jobs.constFind(key);
+        if (it == m_jobs.constEnd() || !it->done)
+            return QString();
+        version = it->version;
+    }
     return QStringLiteral("image://rart/%1?v=%2").arg(key).arg(version);
 }
 
@@ -111,8 +121,7 @@ QImage RoundedArt::image(const QString &key) const
 
 void RoundedArt::start(const QString &key)
 {
-    // Si la foto ya está en caché (otra parte de la app la pidió), se
-    // procesa al momento y la portada sale en el primer pintado.
+    bool done = false;
     {
         QMutexLocker lock(&m_mutex);
         auto it = m_jobs.find(key);
@@ -127,9 +136,12 @@ void RoundedArt::start(const QString &key)
             it->image = img;
             it->done = true;
             it->version++;
+            done = true;
             break;
         }
     }
+    if (done)
+        emit ready(key);
     tryNext(key, 0);
 }
 
