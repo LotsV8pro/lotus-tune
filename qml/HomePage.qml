@@ -797,63 +797,6 @@ Item {
                 }
             }
 
-            // ---- TUS PLAYLISTS (YouTube Music) — isla ------------------
-            // Sólo listas: las canciones sueltas se buscan en Buscar.
-            Island {
-                Layout.fillWidth: true
-                spacing: Theme.s3
-                visible: catalog.ytmLibrary.length > 0 || catalog.libraryBusy
-
-                SectionTitle {
-                    Layout.fillWidth: true
-                    icon: "clock"
-                    text: "Tus playlists"
-                }
-
-                ListView {
-                    id: ytmLibView
-                    visible: catalog.ytmLibrary.length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: page.rowHeight
-                    orientation: ListView.Horizontal
-                    clip: true
-                    spacing: page.cardSpacing
-                    model: catalog.ytmLibrary
-                    reuseItems: true
-                    cacheBuffer: 600
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    delegate: HomeCard {
-                        required property var modelData
-                        thumb: modelData.thumb || ""
-                        title: modelData.name
-                        subtitle: modelData.count
-                                  ? "YouTube Music · " + modelData.count + " pistas"
-                                  : "YouTube Music"
-                        icon: "queue"
-                        coverA: page.coverA(modelData.name)
-                        coverB: page.coverB(modelData.name)
-                        // Portada -> ABRIR la lista; botón de play -> reproducirla.
-                        onClicked: {
-                            page.openListRequested(false)
-                            catalog.openUrl(modelData.url, modelData.name)
-                        }
-                        onPlayClicked: {
-                            page.openListRequested(true)
-                            catalog.openUrl(modelData.url, modelData.name)
-                        }
-                    }
-                }
-
-                Text {
-                    visible: catalog.libraryBusy
-                    text: "Cargando…"
-                    color: Sys.textDim
-                    font.pixelSize: Theme.tSm
-                    opacity: 0.8
-                }
-            }
-
             // ---- radios de YouTube — isla ------------------------------
             Island {
                 Layout.fillWidth: true

@@ -2348,7 +2348,11 @@ Window {
             // ni un bloque. El serial rompe la caché al cambiar de pista.
             source: Sys.dynamicBg && root.currentThumb
                     ? "image://wash/" + wash.serial : ""
-            fillMode: Image.PreserveAspectCrop
+            // ESTIRADA, no recortada: la vela se adapta a la ventana y se ve
+            // la portada entera. Recortada (PreserveAspectCrop) en una
+            // ventana alta se ampliaba x5 y sólo se veía el trozo central
+            // del arte, con los bordes oscuros a los lados.
+            fillMode: Image.Stretch
             smooth: true
             asynchronous: true
             cache: false
