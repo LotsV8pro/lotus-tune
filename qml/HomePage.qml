@@ -547,6 +547,10 @@ Item {
                     Layout.preferredHeight: 40
                     color: "transparent"
 
+                    // The field is INSIDE the page's carousel: without this
+                    // the wheel over it dragged the whole page.
+                    WheelHandler { onWheel: (event) => { event.accepted = true } }
+
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s1

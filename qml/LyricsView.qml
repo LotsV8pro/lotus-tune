@@ -576,6 +576,22 @@ Item {
                     readonly property var _w: modelData.words ? modelData.words : []
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
+                    // Without word level timings the line still fills in
+                    // little by little: it goes from the start of the line to
+                    // the start of the next one while it is sung, instead of
+                    // lighting up all at once (which looked broken).
+                    readonly property real _lineFrac: {
+                        if (!active)
+                            return 0
+                        const start = Number(modelData.time || 0)
+                        if (lv.karaokePos <= start)
+                            return 0
+                        const next = lv.lines[index + 1]
+                        const end = (next && Number(next.time || 0) > start)
+                                   ? Number(next.time) : start + 4
+                        return Math.max(0, Math.min(1, (lv.karaokePos - start) / (end - start)))
+                    }
+
 
 
                     // Desvanecido de borde (como en el repo de referencia): la
@@ -598,8 +614,10 @@ Item {
                     // dos hacen que Qt se coma el formato y la línea sale
                     // entera encendida, sin barrido.
                     wrapMode: Text.WordWrap
-                    text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
-                    textFormat: lv.karaoke ? Text.RichText : Text.PlainText
+                    text: lv.karaoke ? lv._wordHtml(_w)
+                                     : (active ? lv._fillHtml(modelData.text, _lineFrac)
+                                                : modelData.text)
+                    textFormat: (lv.karaoke || active) ? Text.RichText : Text.PlainText
                     color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
                                   : Sys.textDim
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
