@@ -7,8 +7,8 @@
 #include <QRegularExpression>
 
 // ---------------------------------------------------------------------------
-// Caja separable sobre ARGB32. Se aplica sobre un lienzo diminuto (≤128 px),
-// así que el coste es de unos pocos cientos de miles de sumas: nada.
+// Separable box over ARGB32. It is applied on a tiny canvas (<=128 px), so
+// the cost is a few hundred thousand additions: nothing.
 // ---------------------------------------------------------------------------
 static QImage boxBlur(const QImage &in, int r)
 {
@@ -17,7 +17,7 @@ static QImage boxBlur(const QImage &in, int r)
     QImage tmp(w, h, QImage::Format_ARGB32);
     QImage out(w, h, QImage::Format_ARGB32);
 
-    // Barrido horizontal.
+    // Horizontal pass.
     for (int y = 0; y < h; ++y) {
         const QRgb *row = reinterpret_cast<const QRgb *>(in.constScanLine(y));
         QRgb *dst = reinterpret_cast<QRgb *>(tmp.scanLine(y));
@@ -37,7 +37,7 @@ static QImage boxBlur(const QImage &in, int r)
         }
     }
 
-    // Barrido vertical sobre el resultado horizontal.
+    // Vertical pass over the horizontal result.
     for (int x = 0; x < w; ++x) {
         long sa = 0, sr = 0, sg = 0, sb = 0;
         for (int k = -r; k <= r; ++k) {
@@ -64,9 +64,9 @@ QImage Wash::blurPipeline(const QImage &src0)
     if (src.isNull())
         return {};
 
-    // 1) Bajada por mitades hasta ~240 px: promedio de verdad, no muestreo.
-    //    Aquí es donde los bloques JPEG del original se funden (a este
-    //    tamaño ya miden 2 px y se diluyen).
+    // 1) Halving down to ~240 px: a real average, not sampling. This is
+    //    where the JPEG blocks of the original melt (at this size they
+    //    are 2 px long and they fade away).
     QImage img = src;
     int w = img.width(), h = img.height();
     while (w > 240 || h > 240) {
@@ -75,14 +75,14 @@ QImage Wash::blurPipeline(const QImage &src0)
         img = img.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
     }
 
-    // 2) Subida bilineal al lienzo de trabajo (480 px): se recupera el
-    //    detalle perdido en la bajada sin re-introducir bloques.
+    // 2) Bilinear upscale to the working canvas (480 px): the detail lost
+    //    in the halving comes back without bringing the blocks back.
     img = img.scaled(480, 480, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-    // 3) Caja separable sobre el lienzo grande: dos pasadas de radio medio.
-    //    Corto para que la portada se RECONOZCA, lo justo para fundir también
-    //    los bordes duros del propio arte (collages, esquinas) que con radios
-    //    menores salían como costuras rectangulares.
+    // 3) Separable box over the big canvas: two passes of medium radius.
+    //    Short enough for the artwork to be RECOGNISED, just enough to
+    //    also blend the hard edges of the art itself (collages, corners)
+    //    that with smaller radii showed up as rectangular seams.
     img = boxBlur(img, 5);
     img = boxBlur(img, 5);
     return img;
@@ -103,8 +103,8 @@ void Wash::setSource(const QUrl &url)
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
-    // «this» como contexto: si la app muere antes de responder, nada se
-    // dispara. La réplica se auto-destruye al terminar.
+    // "this" as context: if the app dies before answering, nothing is
+    // fired. The copy destroys itself when it finishes.
     QObject::connect(reply, &QNetworkReply::finished, this,
                      [this, reply, url]() {
         reply->deleteLater();
@@ -126,8 +126,9 @@ void Wash::setSource(const QUrl &url)
 }
 
 // ---------------------------------------------------------------------------
-// Proveedor de imágenes para QML: image://wash/<serial>
-// La clave sólo rompe la caché del Image; la imagen se sirve ya desenfocada.
+// Image provider for QML: image://wash/<serial>
+// The key only breaks the Image's cache; the image is served already
+// blurred.
 // ---------------------------------------------------------------------------
 WashProvider::WashProvider(Wash *wash)
     : QQuickImageProvider(QQuickImageProvider::Image), m_wash(wash)
@@ -146,7 +147,7 @@ QImage WashProvider::requestImage(const QString &id, QSize *size,
 }
 
 // ---------------------------------------------------------------------------
-// Sacacolors
+// Colour picker
 // ---------------------------------------------------------------------------
 ColorPick::ColorPick(QObject *parent)
     : QObject(parent), m_net(new QNetworkAccessManager(this))
@@ -160,9 +161,9 @@ QColor ColorPick::dominant(const QImage &src0)
         return {};
     img = img.scaled(48, 48, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
 
-    // Histograma 5×5×5 con la media de cada cubo. El peso de cada píxel es
-    // su saturación: un arte lleno de negros y humos grises no debe salir
-    // «gris apagado», sino su color verdadero.
+    // 5x5x5 histogram with the average of each cube. Every pixel is
+    // weighted by its saturation: an artwork full of blacks and grey
+    // haze must not come out "dull grey" but with its true colour.
     double cnt[5][5][5] = {};
     double sr[5][5][5] = {}, sg[5][5][5] = {}, sb[5][5][5] = {};
     double totW = 0.0, totR = 0.0, totG = 0.0, totB = 0.0;
@@ -176,7 +177,7 @@ QColor ColorPick::dominant(const QImage &src0)
             const int r = qRed(p), g = qGreen(p), b = qBlue(p);
             const int mx = qMax(r, qMax(g, b)), mn = qMin(r, qMin(g, b));
             const int sat = mx - mn;                    // 0..255
-            // Los negros no puntúan ni para el promedio global.
+            // The blacks do not score, not even for the global average.
             if (mx < 24)
                 continue;
             const double w = 0.10 + sat / 255.0;
@@ -195,8 +196,9 @@ QColor ColorPick::dominant(const QImage &src0)
     for (int i = 0; i < 5; ++i)
         for (int j = 0; j < 5; ++j)
             for (int k = 0; k < 5; ++k) {
-                // Se pondera el cubo también por su tamaño relativo respecto
-                // a la media de los vecinos: evita empates a 1 px de ruido.
+                // The cube is also weighted by its size relative to the
+                // average of its neighbours: it avoids ties decided by
+                // 1 px of noise.
                 if (cnt[i][j][k] > best) {
                     best = cnt[i][j][k];
                     bx = i; by = j; bz = k;
@@ -212,10 +214,10 @@ QColor ColorPick::dominant(const QImage &src0)
         c = QColor::fromRgb(qBound(0, int(sr[bx][by][bz] / best), 255),
                             qBound(0, int(sg[bx][by][bz] / best), 255),
                             qBound(0, int(sb[bx][by][bz] / best), 255));
-    // Un poco de vida: el color tal cual sale casi siempre apagado (las
-    // portadas son fotos oscuras) y no se aprecia como «el color de la
-    // portada». Se sube la saturación y se levanta el brillo sin llegar a
-    // pasarlo de Saturado.
+    // A bit of life: the colour as it comes is almost always dull (the
+    // artworks are dark photos) and it does not read as "the colour of
+    // the artwork". The saturation goes up and the brightness is lifted
+    // without going over the top.
     const QColor hsv = c.toHsv();
     const int s = qMin(255, int(hsv.saturation() * 1.35) + 20);
     const int v = qBound(60, hsv.value(), 235);
@@ -237,9 +239,9 @@ void ColorPick::pick(const QUrl &url)
         return;
     m_pending.insert(key);
 
-    // Para sacar el color dominante no hace falta la imagen grande: las
-    // miniaturas de YouTube se piden en su variante de 320 px (la de
-    // 16:9 con barras negras, que el histograma descarta por ser negras).
+    // To get the dominant colour the big image is not needed: YouTube's
+    // thumbnails are asked for in their 320 px variant (the 16:9 one
+    // with black bars, which the histogram drops for being black).
     static const QRegularExpression re(
         QStringLiteral("^https?://i\\.ytimg\\.com/vi/([\\w-]{11,13})/"));
     const QRegularExpressionMatch m = re.match(key);
@@ -262,7 +264,7 @@ void ColorPick::fetch(const QUrl &orig, const QUrl &download, const QString &key
         reply->deleteLater();
         m_pending.remove(key);
         if (reply->error() != QNetworkReply::NoError) {
-            // Si la variante pequeña no existe, se prueba con la original.
+            // If the small variant does not exist, the original is tried.
             if (download != orig) {
                 m_pending.insert(key);
                 fetch(orig, orig, key);

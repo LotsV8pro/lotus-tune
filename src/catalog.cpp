@@ -21,12 +21,13 @@
 
 #include <QDebug>
 
-// El conjunto «me gusta» se sincroniza solo al arrancar y al hacer login
-// (refreshLikedSet); ya no se hace gating por TTL de 24 h, porque la consulta
-// a la API interna es asíncrona y barata. syncLiked() lo refuerza a demanda.
+// The "liked" set syncs by itself on startup and on login
+// (refreshLikedSet); there is no longer a 24 h TTL gate, because the
+// query to the internal API is asynchronous and cheap. syncLiked()
+// reinforces it on demand.
 
-// Caché en disco de listas (playlists.json): TTL de validez y un tope de 300
-// entradas (las más antiguas se podan) para que el fichero no crezca sin freno.
+// On-disk list cache (playlists.json): validity TTL and a cap of 300
+// entries (the oldest ones are pruned) so the file does not grow
 static constexpr qint64 kPlaylistTtlSecs = 24 * 60 * 60;
 static constexpr int kPlaylistCacheMax = 300;
 
@@ -36,10 +37,10 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
 {
     loadLibrary();
 
-    // Caché en disco de listas: se vuelca en diferido (igual que streams.json
-    // del reproductor) para no escribir en cada carga, y se lee ya en el
-    // arranque para que reabrir una lista (o una radio precargada) sea
-    // instantáneo incluso tras reiniciar la app.
+    // On-disk list cache: it is dumped in a deferred way (like the player's
+    // streams.json) so it does not write on every load, and it is read at
+    // startup so that reopening a list (or a pre-fetched radio) is instant
+    // even after restarting the app.
     m_cacheSaveTimer.setSingleShot(true);
     m_cacheSaveTimer.setInterval(2500);
     connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Catalog::savePlaylistCache);
@@ -95,9 +96,9 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                                   o.value(QStringLiteral("count")).toInt());
                         it.insert(QStringLiteral("thumb"),
                                   o.value(QStringLiteral("thumb")).toString());
-                        // Una lista PROPIA (se le puede renombrar/borrar) trae
-                        // las acciones EDIT/DELETE en su menú; una guardada de
-                        // otro, no.
+                        // An OWN list (it can be renamed/deleted) brings the
+                        // EDIT/DELETE actions in its menu; someone else's
+                        // saved list does not.
                         it.insert(QStringLiteral("owned"),
                                   o.value(QStringLiteral("owned")).toBool());
                         items.append(it);
@@ -108,9 +109,10 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit libraryChanged();
             });
 
-    // Artistas: búsqueda, discografía y pistas de álbum (ytm_api.py, vía anónima
-    // cuando no hay sesión). Proceso propio para no pisar búsquedas de canciones
-    // ni la apertura de listas; su respuesta llega por señales dedicadas.
+    // Artists: search, discography and album tracks (ytm_api.py, anonymously
+    // when there is no session). Its own process so it does not step on
+    // the song searches or the list opening; its answer arrives through
+    // dedicated signals.
     m_artistProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_artistProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
@@ -179,9 +181,10 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit artistTopTrackResolved(arg, m_topTrack);
             });
 
-    // Vídeo alternativo (m_altProc): el JSON que devuelve ytm_api.py ya es una
-    // pista completa; se normaliza igual que una pista de búsqueda, pero con la
-    // fuente fijada a YouTube Music (es lo que siempre es un candidato de YTM).
+    // Alternative video (m_altProc): the JSON that ytm_api.py returns is
+    // already a whole track; it is normalised like a search track, but with
+    // the source fixed to YouTube Music (which is what a YTM candidate
+    // always is).
     m_altProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_altProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
@@ -192,8 +195,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 if (code == 0) {
                     const QJsonDocument doc = QJsonDocument::fromJson(out);
                     if (doc.isObject()) {
-                        // normalize() etiqueta con m_currentSource; lo que se
-                        // reproduce es la pista de YTM, así que el origen es ytm.
+                        // normalize() tags it with m_currentSource; what
+                         // plays is the YTM track, so the source is ytm.
                         track = normalize(doc.object().toVariantMap());
                         if (!track.isEmpty())
                             track.insert(QStringLiteral("source"),
@@ -203,8 +206,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit alternateResolved(key, track);
             });
 
-    // Acciones puntuales sobre YT Music (votar, añadir/quitar de lista). Van en
-    // su propio QProcess para no bloquear búsquedas ni "mis listas".
+    // One off actions on YouTube Music (vote, add/remove from list). They go
+    // in their own QProcess so they do not block searches or "my lists".
     m_ytmProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_ytmProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
@@ -225,8 +228,9 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit interactionDone(true, message);
             });
 
-    // Gestión de listas propias (crear/renombrar/privacidad/borrar y leer su
-    // info). Proceso propio para no chocar con las acciones de voto/addpl/rmpl.
+    // Own list management (create/rename/privacy/delete and reading its
+    // info). Its own process so it does not clash with the vote/addpl/rmpl
+    // actions.
     m_plProc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_plProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
@@ -268,8 +272,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     const QString id =
                         doc.object().value(QStringLiteral("id")).toString();
                     if (!m_plAddVideo.isEmpty() && !id.isEmpty()) {
-                        // Encadena: crea la lista y añade la pista en la misma
-                        // tanda (mismo QProcess, ya libre).
+                        // Chained: it creates the list and adds the track in
+                         // the same batch (same QProcess, already free).
                         m_plMode = QStringLiteral("createadd");
                         m_plProc.setProgram(QStringLiteral("python3"));
                         m_plProc.setArguments({ytmApiPath(), QStringLiteral("addpl"),
@@ -355,11 +359,12 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 m_likedTs = QDateTime::currentSecsSinceEpoch();
                 saveLikedToDisk();
                 ++m_likedRevision;
-                // La misma respuesta trae el contenido de la lista «Me gusta»
-                // (LM): lo dejamos en caché para que al pulsar «Me gusta» se vea
-                // al instante y sin volver a la red. Si la lista LM está abierta
-                // ahora mismo, la refrescamos en pantalla (así un unlike hecho
-                // en otro sitio quita la fila sin recargar).
+                // The same answer brings the content of the "Liked" list
+                // (LM): it is left in the cache so that pressing "Liked"
+                // shows it at once and without going back to the network. If
+                // the LM list is open right now, it is refreshed on screen
+                // (so an unlike done elsewhere removes the row without
+                // reloading).
                 if (!lmTracks.isEmpty()) {
                     cachePlaylist(QStringLiteral("list:LM"), lmTracks,
                                   QStringLiteral("Me gusta"));
@@ -376,8 +381,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     m_proc.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_proc, &QProcess::finished, this,
             [this](int code, QProcess::ExitStatus) {
-                // Proceso anulado al ceder el paso a una petición explícita
-                // del usuario: no hay nada que informar.
+                // Process cancelled to give way to an explicit request
+                // from the user: there is nothing to report.
                 if (m_killed) {
                     m_killed = false;
                     return;
@@ -385,9 +390,9 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 const QByteArray out = m_proc.readAllStandardOutput();
                 if (code == 0 && handleOutput(out)) {
                     m_busy = false;
-                    // Búsqueda por todas las fuentes: lo que acaba de llegar
-                    // es de una fuente; se guarda en su grupo y se sigue con
-                    // la siguiente.
+                    // Search across all the sources: what just arrived
+                    // belongs to one source; it is stored in its group and
+                    // it goes on with the next one.
                     if (m_multiActive && m_purpose == QLatin1String("search")) {
                         absorbMultiResults();
                         return;
@@ -396,8 +401,9 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     return;   // éxito
                 }
 
-                // Respaldo: si la vía rápida de playlists falló (API interna no
-                // accesible, lista vacía, etc.) se reintenta con yt-dlp.
+                // Fallback: if the fast path for playlists failed (internal
+                // API not reachable, empty list...) it is retried with
+                // yt-dlp.
                 if (!m_fastFallback.isEmpty()) {
                     const QString target = m_fastFallback;
                     const QString title = m_fastFallbackTitle;
@@ -410,8 +416,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     return;
                 }
 
-                // Una fuente que falla no puede hundir la búsqueda completa:
-                // se pasa a la siguiente.
+                // A failing source cannot sink the whole search: it moves
+                // on to the next one.
                 if (m_multiActive && m_purpose == QLatin1String("search")) {
                     m_busy = false;
                     m_error.clear();
@@ -439,7 +445,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit changed();
             });
 
-    // Si ya hay sesión guardada, traer "mis listas" al arrancar.
+    // If there is a stored session, bring "my lists" on startup.
     if (ytmLoggedIn()) {
         refreshYtmLibrary();
         refreshLikedSet();
@@ -448,15 +454,15 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
 
 Catalog::~Catalog()
 {
-    // El chequeo de sesión que arranca el constructor no debe quedar suelto:
-    // si sigue en marcha se le mata (igual que ~Player con mpv y sus
-    // resolutores) para no dejar procesos huérfanos ni avisos al destruir.
+    // The session check the constructor starts must not be left loose: if
+    // it is still running it is killed (like ~Player with mpv and its
+    // resolvers) so no orphan processes or warnings are left on destroy.
     if (m_statusProc.state() != QProcess::NotRunning) {
         m_statusProc.kill();
         m_statusProc.waitForFinished(500);
     }
-    // Al salir, vuelca ya lo que quede pendiente: sin esto, una lista cargada
-    // justo antes de cerrar no llegaría a persistir (el volcado va diferido).
+    // On exit, dump what is still pending: without this, a list loaded
+    // just before closing would not persist (the dump is deferred).
     savePlaylistCache();
 }
 
@@ -488,8 +494,8 @@ QString Catalog::cookieFile()
     return QDir::homePath() + QStringLiteral("/.config/lotus-tune/cookies.txt");
 }
 
-// El helper de "mis listas": junto al binario (post-build) o en el árbol de
-// fuentes vía el fallback ../tools.
+// The "my lists" helper: next to the binary (post-build) or in the source
+// tree through the ../tools fallback.
 QString Catalog::ytmApiPath()
 {
     const QString beside =
@@ -503,10 +509,10 @@ QString Catalog::ytmApiPath()
     return beside;
 }
 
-// Propósitos que van en segundo plano: son best-effort, no deben bloquear a
-// nadie ni informar error si algo los pisa. Son dos: la radio del autoplay
-// (pide más pistas) y la precarga de las radios de Inicio (pide pocas, para
-// estar lista en ~1,4 s).
+// Purposes that run in the background: they are best-effort, they must not
+// block anybody nor report an error if something steps on them. There are
+// two: the autoplay radio (it asks for more tracks) and the prefetch of
+// the home radios (it asks for few, to be ready in ~1.4 s).
 static bool isBackgroundPurpose(const QString &purpose)
 {
     return purpose == QLatin1String("radio")
@@ -520,8 +526,8 @@ bool Catalog::cancelBackgroundFetch()
     if (!m_busy || !isBackgroundPurpose(m_purpose))
         return false;
     if (m_proc.state() != QProcess::NotRunning) {
-        // La marca hace que el finished() posterior se ignore en silencio (si
-        // no, informaría de un fallo que no interesa a nadie).
+        // The mark makes the later finished() be ignored silently (it would
+        // otherwise report a failure that nobody cares about).
         m_killed = true;
         m_proc.kill();
         m_proc.waitForFinished(300);
@@ -533,10 +539,9 @@ bool Catalog::cancelBackgroundFetch()
 void Catalog::startFetch(const QString &program, const QStringList &args,
                          const QString &purpose, const QString &title)
 {
-    // Una consulta en segundo plano (radio del autoplay o precarga de las
-    // radios de Inicio) es siempre best-effort: una petición explícita del
-    // usuario la pisa sin más. Cualquier otra operación en marcha sigue
-    // esperando como antes.
+    // A background query (the autoplay radio or the home radio prefetch) is
+    // always best-effort: an explicit user request steps on it without
+    // more. Any other operation in flight keeps waiting as before.
     if (m_busy && !cancelBackgroundFetch()) {
         fail(QStringLiteral("Espera a que termine la operación actual"));
         return;
@@ -559,10 +564,11 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     }
 }
 
-// Una radio de YouTube Music no es una lista normal: el identificador
-// «RDAMVM<videoId>» lo entiende sólo yt-dlp (la API interna devuelve vacío y
-// dispara el respaldo, que es lo que hacía que tardara ~20 s) y el tope de
-// pistas es lo único que decide lo que tarda (ver runYtdlp()).
+// A YouTube Music radio is not a normal list: the "RDAMVM<videoId>"
+// identifier is only understood by yt-dlp (the internal API returns empty
+// and triggers the fallback, which is what made it take ~20 s) and the
+// track cap is the only thing that decides how long it takes (see
+// runYtdlp()).
 static bool isRadioTarget(const QString &target)
 {
     return target.contains(QLatin1String("list=RDAMVM"))
@@ -578,12 +584,13 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     if (purpose == QLatin1String("playlist"))
         m_openListUrl = target;
 
-    // Caché de listas: reabrir una ya cargada no lanza ningún proceso y
-    // responde al instante. Se mira primero la memoria y, si falla, el fichero
-    // en disco (playlists.json), de modo que también es instantáneo tras
-    // reiniciar. Solo para listas; la búsqueda siempre va a la red.
-    // Una precarga de fondo en vuelo no debe impedirlo (es justo lo que hace
-    // que abrir una radio de «Para ti» sea instantáneo): se cancela y se sirve.
+    // List cache: reopening an already loaded one does not start any
+    // process and answers instantly. Memory is looked at first and, if
+    // that fails, the file on disk (playlists.json), so it is instant
+    // after a restart too. Only for lists; the search always goes to the
+    // network. A background prefetch in flight must not stop it (it is
+    // exactly what makes opening a "For you" radio instant): it is
+    // cancelled and the cached one is served.
     const QString key = cacheKeyFor(target);
     const bool bgBusy = m_busy && isBackgroundPurpose(m_purpose);
     if (purpose == QLatin1String("playlist") && (!m_busy || bgBusy)) {
@@ -594,9 +601,9 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
             cached = m_playlistCache.value(key);
             cachedTitle = m_playlistTitles.value(key);
         } else {
-            // No está en memoria: puede seguir en la caché en disco de una
-            // sesión anterior. Si es así se sirve igual de rápido (sin red) y
-            // se asciende a memoria para las próximas veces.
+            // Not in memory: it may still be in the on-disk cache from a
+            // previous session. If so it is served just as fast (no network)
+            // and promoted to memory for the next times.
             hit = cachedPlaylistFromDisk(key, &cached, &cachedTitle);
             if (hit)
                 cachePlaylist(key, cached, cachedTitle);
@@ -624,9 +631,9 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         }
     }
 
-    // Ya se está trayendo esta misma lista en segundo plano (precarga de una
-    // radio al pasar el ratón). No se relanza el proceso: se espera el que
-    // está en vuelo y su resultado se sirve como lista abierta.
+    // This same list is already being fetched in the background (a radio
+    // prefetch on mouse over). The process is not started again: the one
+    // in flight is waited for and its result is served as the open list.
     if (m_busy && m_pendingKey == key) {
         if (purpose == QLatin1String("playlist"))
             m_promotePending = true;   // sólo se activa, nunca se quita
@@ -640,19 +647,21 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
     m_fastFallbackTitle.clear();
     m_openPlaylistId.clear();
 
-    // Vía rápida de listas: para playlists de YouTube Music, la API interna
-    // devuelve todas las pistas en ~0.5 s (sin arrancar yt-dlp, que tarda
-    // varios segundos). Se usa cuando hay sesión; si no, se cae a yt-dlp.
-    // Las radios (RDAMVM/start_radio) se saltan este atajo: ytm_api.py no las
-    // conoce y su respuesta vacía sólo servía para demorar el respaldo.
+    // Fast path for lists: for YouTube Music playlists the internal API
+    // returns all the tracks in ~0.5 s (without starting yt-dlp, which
+    // takes several seconds). It is used when there is a session;
+    // without one it falls back to yt-dlp. The radios (RDAMVM/start_radio)
+    // skip this shortcut: ytm_api.py does not know them and its empty
+    // answer only served to delay the fallback.
     if (purpose == QLatin1String("playlist") && ytmLoggedIn()
         && !isRadioTarget(target)) {
         const QRegularExpression re(
             QStringLiteral("list=([A-Za-z0-9_-]+)"));
         const QRegularExpressionMatch m = re.match(target);
         if (target.contains(QLatin1String("youtube.com")) && m.hasMatch()) {
-            // Guardamos el destino por si la vía rápida falla (playlist no
-            // accesible por la API interna): se reintenta con yt-dlp.
+            // The target is stored in case the fast path fails (playlist not
+            // reachable through the internal API): it is retried with
+            // yt-dlp.
             m_fastFallback = target;
             m_fastFallbackTitle = title;
             m_openPlaylistId = m.captured(1);
@@ -670,11 +679,11 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
 void Catalog::runYtdlp(const QString &target, const QString &purpose,
                        const QString &title)
 {
-    // Una radio no necesita 500 pistas: la API de YouTube la trae página a
-    // página, así que el tope decide el tiempo de espera. La radio abierta
-    // como lista (las de «Para ti») bloquea la vista, así que se pide corta:
-    // 25 pistas ≈1.4 s y ≈2 h de música. La de autoplay llega en segundo
-    // plano sin interrumpir, así que se pide más larga.
+    // A radio does not need 500 tracks: the YouTube API brings them page
+    // by page, so the cap decides the timeout. The radio opened as a list
+    // (the "For you" ones) blocks the view, so it is asked short:
+    // 25 tracks ~1.4 s and ~2 h of music. The autoplay one arrives in the
+    // background without interrupting, so it is asked longer.
     const int radioEnd = purpose == QLatin1String("radio") ? 80 : 25;
     QStringList args{
         QStringLiteral("-J"),
@@ -695,9 +704,9 @@ void Catalog::runYtdlp(const QString &target, const QString &purpose,
         && target.contains(QLatin1String("soundcloud.com/"));
     if (!soundcloudPlaylist)
         args << QStringLiteral("--flat-playlist");
-    // Sesión de YT Music: usar las cookies del login integrado en los destinos
-    // de YouTube (búsqueda, playlists, Liked Music). El resto de fuentes van
-    // sin cookies.
+    // YouTube Music session: use the cookies of the integrated login for the
+    // YouTube targets (search, playlists, Liked Music). The other sources
+    // go without cookies.
     if (ytmLoggedIn()
         && (target.contains(QLatin1String("youtube.com"))
             || target.startsWith(QLatin1String("ytsearch")))) {
@@ -722,15 +731,16 @@ void Catalog::search(const QString &query)
     searchInSource(source, q);
 }
 
-// Búsqueda en una fuente concreta. La vía rápida (API interna de YT Music)
-// sólo aplica a YouTube Music con sesión iniciada; el resto va por yt-dlp
-// con el prefijo de la fuente (ytsearch15:, scsearch15:…).
+// Search in a concrete source. The fast path (YouTube Music's internal
+// API) only applies to YouTube Music with a signed in session; the rest goes
+// through yt-dlp with the source's prefix (ytsearch15:, scsearch15:...).
 void Catalog::searchInSource(const QString &source, const QString &query)
 {
-    // Vía rápida: la API interna de YT Music busca en ~0.6 s lo que yt-dlp
-    // tarda ~2.4 s (arranca la extracción completa en cada búsqueda). Sólo con
-    // sesión iniciada y en YouTube Music; si la API falla o no devuelve nada,
-    // el respaldo (m_fastFallback) reintenta con yt-dlp automáticamente.
+    // Fast path: YouTube Music's internal API finds in ~0.6 s what yt-dlp
+    // takes ~2.4 s (it starts the full extraction on every search). Only
+    // with a session and on YouTube Music; if the API fails or returns
+    // nothing, the fallback (m_fastFallback) retries with yt-dlp
+    // automatically.
     if (source == QLatin1String("ytm") && ytmLoggedIn()) {
         m_fastFallback = m_sources->searchPrefix(source) + query;
         m_fastFallbackTitle = query;
@@ -742,10 +752,10 @@ void Catalog::searchInSource(const QString &source, const QString &query)
     run(m_sources->searchPrefix(source) + query, QStringLiteral("search"), query);
 }
 
-// ---- búsqueda por todas las fuentes ---------------------------------------
-// Se consulta una fuente tras otra (cada búsqueda es un proceso) y los
-// grupos se van rellenando: la interfaz ve los resultados de cada fuente
-// según llegan, sin esperar a la última.
+// ---- search across all the sources ---------------------------------------
+// One source is queried after the other (each search is a process) and the
+// groups fill up: the interface sees each source's results as they
+// arrive, without waiting for the last one.
 void Catalog::searchAll(const QString &query)
 {
     const QString q = query.trimmed();
@@ -786,8 +796,8 @@ void Catalog::nextMultiSource()
     const QVariantMap src = m_sources->entry(id);
     const bool ready = m_sources->isReady(id);
 
-    // El grupo se crea ya (vacío) para que la interfaz pueda mostrar la
-    // sección de la fuente aunque no devuelva nada.
+    // The group is created right away (empty) so the interface can show the
+    // source's section even if it returns nothing.
     QVariantMap group;
     group.insert(QStringLiteral("id"), id);
     group.insert(QStringLiteral("name"), src.value(QStringLiteral("name")).toString());
@@ -840,21 +850,22 @@ void Catalog::openUrl(const QString &url, const QString &name)
     run(u, QStringLiteral("playlist"), name.trimmed());
 }
 
-// Radio/autoplay de YouTube Music: la lista que la propia app reproduce "a
-// continuación" de un vídeo es la mix RDAMVM<videoId>. yt-dlp la resuelve como
-// playlist plana (la semilla primero y luego la autorradio). Se usa a propósito
-// un propósito de fondo (no "playlist") para que run() omita la vía rápida de la
-// API interna (ytm_api.py devuelve vacío para RDAMVM...) y acabe en runYtdlp(),
-// que ya adjunta las cookies de YT Music.
+// YouTube Music radio/autoplay: the list the app itself plays "next"
+// after a video is the RDAMVM<videoId> mix. yt-dlp resolves it as a flat
+// playlist (the seed first and then the self radio). It uses a background
+// purpose on purpose (not "playlist") so run() skips the internal API
+// fast path (ytm_api.py returns empty for RDAMVM...) and ends in
+// runYtdlp(), which already attaches the YouTube Music cookies.
 //
-// Hay dos variantes, y la diferencia es el tope de pistas, que es lo único que
-// decide el tiempo de espera (YouTube entrega la lista página a página):
-//   · fetchRadio()    — la del autoplay: pide 80 (≈5 h) porque va sin
-//                       interrumpir a nadie.
-//   · prefetchRadio() — la precarga de las radios de Inicio: pide 25 (≈1,4 s),
-//                       justo lo que verá quien abra la radio a mano. Al
-//                       guardarla igualmente en caché de listas, abrirla a
-//                       continuación sale al instante.
+// There are two variants, and the difference is the track cap, which is
+// the only thing that decides the timeout (YouTube delivers the list page
+// by page):
+//   . fetchRadio()    - the autoplay one: it asks for 80 (~5 h) because it
+//                     goes without interrupting anybody.
+//   . prefetchRadio() - the prefetch of the home radios: it asks for 25
+//                     (~1.4 s), just what whoever opens the radio by hand
+//                     will see. Storing it in the list cache as well
+//                     makes opening it next instant.
 void Catalog::fetchRadio(const QString &videoId, const QString &title)
 {
     runRadio(videoId, title, QStringLiteral("radio"));
@@ -883,16 +894,16 @@ void Catalog::runRadio(const QString &videoId, const QString &title,
         title.trimmed().isEmpty() ? QStringLiteral("Radio") : title.trimmed());
 }
 
-// ---- Artistas -------------------------------------------------------------
-// Los tres lanzados corren en m_artistProc (una petición a la vez); la salida
-// se interpreta en el finished() conectado en el constructor.
+// ---- Artists -------------------------------------------------------------
+// The three launches run in m_artistProc (one request at a time); the output
+// is read in the finished() connected in the constructor.
 
 void Catalog::runArtist(const QStringList &args, const QString &mode,
                         const QString &arg)
 {
     if (m_artistProc.state() != QProcess::NotRunning) {
-        // La petición nueva manda: se anula la anterior y su respuesta se
-        // ignora (m_artistMode queda vacío antes del kill).
+        // The new request wins: the previous one is cancelled and its
+        // answer is ignored (m_artistMode is emptied before the kill).
         m_artistMode.clear();
         m_artistArg.clear();
         m_artistProc.kill();
@@ -940,9 +951,10 @@ void Catalog::fetchAlbumTracks(const QString &browseId)
               QStringLiteral("album"), id);
 }
 
-// Pista principal del artista (lo más escuchado): es la mejor semilla para su
-// radio sin pasar por "Radio de la canción". Si el proceso de artistas está
-// ocupado se rinde al instante (el menú cae a la radio de la pista pulsada).
+// The artist's main track (the most played one): it is the best seed for
+// their radio without going through "Radio of the song". If the artist
+// process is busy it gives up at once (the menu falls back to the radio of
+// the pressed track).
 void Catalog::resolveArtistRadio(const QString &artistName)
 {
     const QString name = artistName.trimmed();
@@ -955,10 +967,11 @@ void Catalog::resolveArtistRadio(const QString &artistName)
               QStringLiteral("toptrack"), name);
 }
 
-// Vídeo alternativo para una pista cuyo vídeo original murió. Se busca en YT
-// Music descartando el id fallido; la búsqueda de YTM sólo devuelve vídeos
-// reproducibles, así que el mejor candidato sirve para sustituirlo. El
-// argumento va con campos separados por TAB (título con espacios incluido).
+// Alternative video for a track whose original video died. It is looked up
+// in YouTube Music dropping the failed id; the YTM search only returns
+// playable videos, so the best candidate serves to replace it. The
+// argument travels with fields separated by TAB (title with spaces
+// included).
 void Catalog::resolveAlternate(const QString &artist, const QString &title,
                                const QString &failedVideoId, double duration)
 {
@@ -994,11 +1007,12 @@ void Catalog::syncLiked()
         fail(QStringLiteral("Inicia sesión en Ajustes para sincronizar «Me gusta»"));
         return;
     }
-    // Botón manual: fuerza el fetch de red del conjunto de "me gusta" (ignora
-    // la TTL y la caché en disco) para que el corazón refleje el estado real.
+    // Manual button: it forces the network fetch of the "liked" set (it
+    // ignores the TTL and the on-disk cache) so the heart reflects the
+    // real state.
     launchLikedFetch();
-    // Y recarga la lista "Liked Music" en la cola, saltándose la caché en
-    // memoria para traer el contenido fresco.
+    // And it reloads the "Liked Music" list in the queue, skipping the
+    // memory cache to bring the fresh content.
     const QString lm =
         QStringLiteral("https://music.youtube.com/playlist?list=LM");
     forgetCachedPlaylist(cacheKeyFor(lm));
@@ -1023,7 +1037,7 @@ void Catalog::refreshYtmLibrary()
     m_libraryProc.start();
 }
 
-// --------------------------------------------------- interacción YT Music ----
+// --------------------------------------------------- YouTube Music interaction ----
 
 void Catalog::runYtmAction(const QStringList &args, const QString &okMessage)
 {
@@ -1132,8 +1146,9 @@ void Catalog::moveOpenPlaylistTrack(const QString &setVideoId, int delta)
                       QStringLiteral("move"));
 }
 
-// Quita de la lista abierta la pista con ese setVideoId. Se espera a que
-// YouTube confirme para borrar la fila (así no queda descuadrado si falla).
+// Removes from the open list the track with that setVideoId. It waits for
+// YouTube to confirm before deleting the row (so it does not end up
+// misaligned if it fails).
 void Catalog::removeOpenPlaylistTrack(const QString &videoId,
                                       const QString &setVideoId)
 {
@@ -1150,7 +1165,7 @@ void Catalog::removeOpenPlaylistTrack(const QString &videoId,
                       QStringLiteral("remove"));
 }
 
-// --------------------------------------------------- gestión de listas ----
+// --------------------------------------------------- list management ----
 
 void Catalog::runPlaylistAction(const QStringList &args, const QString &mode)
 {
@@ -1240,9 +1255,10 @@ QString Catalog::videoIdOf(const QString &urlOrId) const
     if (s.isEmpty())
         return {};
 
-    // Fichero local descargado: el .info.json hermano guarda el videoId real de
-    // YouTube. Así las pistas locales se pueden "marcar" y sincronizar con YT
-    // Music igual que las de la nube. Se cachea por ruta (I/O sólo la 1ª vez).
+    // Downloaded local file: the sibling .info.json stores the real YouTube
+    // videoId. That way the local tracks can be "liked" and synced with
+    // YouTube Music just like the cloud ones. It is cached by path (I/O
+    // only the first time).
     if (s.startsWith(QLatin1String("file://"))) {
         const QString path = QUrl(s).toLocalFile();
         const auto cached = m_localIdCache.constFind(path);
@@ -1288,7 +1304,7 @@ QString Catalog::videoIdOf(const QString &urlOrId) const
         const int q = id.indexOf(QLatin1Char('?'));
         return q >= 0 ? id.left(q) : id;
     }
-    // ¿Ya es un videoId crudo de YouTube? (11 caracteres, sin separadores).
+    // Is it already a raw YouTube videoId? (11 characters, no separators).
     if (s.size() == 11 && !s.contains(QLatin1Char('/'))
         && !s.contains(QLatin1Char('.')) && !s.contains(QLatin1Char(' ')))
         return s;
@@ -1304,16 +1320,18 @@ void Catalog::setLiked(const QString &videoId, bool liked)
         m_likedIds.insert(videoId);
     else if (!liked && had)
         m_likedIds.remove(videoId);
-    // Sigue subiendo la revisión aunque no cambie: el voto ya se envió y las
-    // filas/corazón deben repintarse con el estado decidido localmente.
+    // The revision goes up even if nothing changed: the vote has already
+    // been sent and the rows/heart must repaint with the locally decided
+    // state.
     ++m_likedRevision;
-    // La lista «Me gusta» (LM) acaba de quedar vieja en cualquier caso: se
-    // descarta su caché (memoria y disco) para que la próxima apertura traiga
-    // el contenido fresco de YouTube Music.
+    // The "Liked" list (LM) has gone stale anyway: its cache is dropped
+    // (memory and disk) so the next open brings the fresh content from
+    // YouTube Music.
     forgetCachedPlaylist(QStringLiteral("list:LM"));
-    // Y si la lista LM está abierta ahora mismo: al quitar el corazón la fila
-    // desaparece al instante (en YT esa pista ya no está en «Me gusta»). Sólo
-    // en la vista «Me gusta»: en otras listas abiertas el unlike no toca filas.
+    // And if the LM list is open right now: removing the heart makes the
+    // row disappear at once (in YouTube that track is no longer in
+    // "Liked"). Only in the "Liked" view: in other open lists the
+    // unlike does not touch rows.
     if (!liked && m_openPlaylistId == QLatin1String("LM")) {
         bool removed = false;
         for (int k = 0; k < m_tracks.size(); k++) {
@@ -1328,8 +1346,8 @@ void Catalog::setLiked(const QString &videoId, bool liked)
         if (removed)
             emit changed();
     }
-    // Persistir el conjunto local (conservando m_likedTs) para que el arranque
-    // pinte el corazón al instante y no pierda el voto recién hecho.
+    // Persist the local set (keeping m_likedTs) so the startup paints the
+    // heart at once and does not lose the vote that was just made.
     saveLikedToDisk();
     emit likedChanged();
 }
@@ -1352,23 +1370,25 @@ void Catalog::refreshLikedSet()
     if (!ytmLoggedIn())
         return;
 
-    // 1) Carga inmediata desde disco (sin red): el conjunto queda listo al
-    //    instante y las filas pintan el corazón sin esperar al fetch.
+    // 1) Immediate load from disk (no network): the set is ready at once
+    //    and the rows paint the heart without waiting for the fetch.
     if (loadLikedFromDisk()) {
         m_likedReady = true;
         ++m_likedRevision;
         emit likedChanged();
     }
 
-    // 2) Sincronización automática: la consulta a la red se lanza siempre que
-    //    hay sesión (arranque y login), no sólo cuando la caché caduca. Así
-    //    los «me gusta» que diste —o quitaste— en otro sitio se reflejan solos
-    //    sin pulsar nada. Es asíncrona y barata (una página de la API interna).
+    // 2) Automatic sync: the network query is always fired when there is
+    //    a session (startup and login), not only when the cache expires.
+    //    That way the "liked" you gave - or took away - somewhere else
+    //    shows up on its own without pressing anything. It is asynchronous
+    //    and cheap (one page of the internal API).
     launchLikedFetch();
 }
 
-// Lanza el fetch de red del conjunto "me gusta" (m_likedProc). No mira la TTL
-// ni la caché: lo llama el refresco perezoso (ya filtrado) y syncLiked().
+// Starts the network fetch of the "liked" set (m_likedProc). It does not
+// look at the TTL nor the cache: the lazy refresh (already filtered) and
+// syncLiked() call it.
 void Catalog::launchLikedFetch()
 {
     if (!ytmLoggedIn() || m_likedProc.state() != QProcess::NotRunning)
@@ -1381,7 +1401,7 @@ void Catalog::launchLikedFetch()
     m_likedProc.start();
 }
 
-// ------------------------------------------------- caché de "me gusta" ----
+// ------------------------------------------------- "liked" cache ----
 
 // Fichero JSON junto al estado de la biblioteca (library.json).
 QString Catalog::likedFile()
@@ -1426,11 +1446,11 @@ void Catalog::saveLikedToDisk() const
         f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }
 
-// ------------------------------------------- caché de listas (memoria) ----
+// ------------------------------------------- list cache (memory) ----
 
-// Normaliza el `list=<id>` de YouTube: la misma lista abierta por URL, por id
-// o desde "mis listas" comparte entrada de caché. El resto de destinos
-// (ytsearch..., SoundCloud, etc.) usan la URL tal cual.
+// Normalises YouTube's `list=<id>`: the same list opened by URL, by id
+// or from "my lists" shares a cache entry. The other targets
+// (ytsearch..., SoundCloud, etc.) use the URL as it is.
 QString Catalog::cacheKeyFor(const QString &target)
 {
     static const QRegularExpression re(QStringLiteral("list=([A-Za-z0-9_-]+)"));
@@ -1447,7 +1467,7 @@ void Catalog::cachePlaylist(const QString &key, const QVariantList &tracks,
         return;
     if (!m_playlistCache.contains(key)) {
         m_cacheOrder.append(key);
-        // Límite de RAM: evacuar las más antiguas por encima de 24 entradas.
+        // RAM limit: evict the oldest ones above 24 entries.
         while (m_cacheOrder.size() > 24) {
             const QString old = m_cacheOrder.takeFirst();
             m_playlistCache.remove(old);
@@ -1465,16 +1485,16 @@ void Catalog::forgetCachedPlaylist(const QString &key)
     m_playlistTitles.remove(key);
     m_cacheOrder.removeAll(key);
     m_playlistCacheAt.remove(key);
-    // También se descarta la copia en disco: si no, la próxima apertura la
-    // serviría vieja (p. ej. tras quitar o reordenar una pista, o al forzar el
-    // refresco de "Liked Music").
+    // The on-disk copy is dropped too: otherwise the next open would serve
+    // it stale (e.g. after removing or reordering a track, or when forcing
+    // the refresh of "Liked Music").
     m_cacheForgotten.insert(key);
     m_cacheDirty = true;
     m_cacheSaveTimer.start();
 }
 
-// Olvida las listas cacheadas (memoria y disco): la próxima apertura las
-// recarga. Se usa al cerrar sesión y para "refrescar" la biblioteca.
+// Forgets the cached lists (memory and disk): the next open reloads them.
+// It is used on sign out and to "refresh" the library.
 void Catalog::invalidatePlaylistCache()
 {
     m_playlistCache.clear();
@@ -1482,26 +1502,26 @@ void Catalog::invalidatePlaylistCache()
     m_cacheOrder.clear();
     m_playlistCacheAt.clear();
     m_cacheForgotten.clear();
-    // El fichero también se olvida: sin esto, reabrir una lista "invalidada"
-    // volvería a servirse desde disco.
+    // The file is forgotten too: without this, reopening an "invalidated"
+    // list would be served from disk.
     QFile::remove(playlistsFile());
     m_cacheDirty = false;
 }
 
-// ------------------------------------------------- caché en disco ----
+// ------------------------------------------------- on-disk cache ----
 
-// Caché en disco de listas ya cargadas (persiste entre reinicios). Vive en la
-// caché del usuario, como streams.json del reproductor.
+// On-disk cache of the lists already loaded (it survives restarts). It
+// lives in the user's cache, like the player's streams.json.
 QString Catalog::playlistsFile()
 {
     return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
            + QStringLiteral("/playlists.json");
 }
 
-// Lee el fichero al arrancar y siembra la caché en memoria con las entradas
-// más recientes (respetando el tope de RAM de cachePlaylist). No lo marca
-// sucio: lo leído no necesita volver a escribirse. Un fichero corrupto o
-// ilegible se ignora sin más.
+// Reads the file on startup and seeds the in-memory cache with the most
+// recent entries (respecting the RAM cap of cachePlaylist). It does not
+// mark it dirty: what was read does not need to be written again. A
+// corrupt or unreadable file is simply ignored.
 void Catalog::loadPlaylistCache()
 {
     QFile f(playlistsFile());
@@ -1513,8 +1533,9 @@ void Catalog::loadPlaylistCache()
     if (perr.error != QJsonParseError::NoError || o.isEmpty())
         return;
 
-    // Orden cronológico ascendente: al sembrar con cachePlaylist() (FIFO de 24)
-    // quedan en memoria las más recientes, justo como si se hubieran abierto.
+    // Chronological ascending order: when seeded with cachePlaylist() (FIFO of
+    // 24) the most recent ones stay in memory, just as if they had been
+    // opened.
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     QList<QPair<qint64, QString>> order;
     order.reserve(o.size());
@@ -1544,8 +1565,8 @@ void Catalog::loadPlaylistCache()
     }
 }
 
-// Sirve una lista desde el fichero (si sigue dentro de la TTL) cuando no está
-// en memoria. Lo usa la vía rápida de run() antes de lanzar ninguna consulta.
+// Serves a list from the file (if it is still within the TTL) when it is
+// not in memory. The fast path of run() uses it before firing any query.
 bool Catalog::cachedPlaylistFromDisk(const QString &key, QVariantList *tracks,
                                      QString *title) const
 {
@@ -1580,8 +1601,8 @@ bool Catalog::cachedPlaylistFromDisk(const QString &key, QVariantList *tracks,
     return true;
 }
 
-// Marca una lista recién cargada con su marca de tiempo y programa el volcado
-// diferido (no se escribe en disco en cada carga).
+// Marks a freshly loaded list with its timestamp and schedules the
+// deferred dump (it does not write to disk on every load).
 void Catalog::rememberPlaylistForDisk(const QString &key)
 {
     if (key.isEmpty())
@@ -1592,9 +1613,9 @@ void Catalog::rememberPlaylistForDisk(const QString &key)
     m_cacheSaveTimer.start();
 }
 
-// Vuelca la caché a disco. Parte de lo que ya había en el fichero (entradas
-// antiguas que no cupieron en memoria), lo fusiona con la caché en memoria,
-// poda lo caducado y recorta a las 300 entradas más recientes.
+// Dumps the cache to disk. It starts from what was already in the file
+// (old entries that did not fit in memory), merges it with the in-memory
+// cache, prunes the expired ones and cuts to the 300 most recent entries.
 void Catalog::savePlaylistCache()
 {
     if (!m_cacheDirty)
@@ -1602,8 +1623,8 @@ void Catalog::savePlaylistCache()
     m_cacheDirty = false;
     const qint64 now = QDateTime::currentSecsSinceEpoch();
 
-    // El fichero se escribe entero y compacto; si estuviera corrupto se parte
-    // de vacío (la memoria lo regenera).
+    // The file is written whole and compact; if it were corrupt it starts
+    // from empty (the memory regenerates it).
     QJsonObject o;
     QFile f(playlistsFile());
     if (f.open(QIODevice::ReadOnly)) {
@@ -1627,7 +1648,8 @@ void Catalog::savePlaylistCache()
                  });
     }
 
-    // Poda: fuera lo caducado, y sólo las 300 entradas más recientes.
+    // Pruning: out goes the expired stuff, and only the 300 most recent
+    // entries stay.
     QList<QPair<qint64, QString>> items;
     items.reserve(o.size());
     for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
@@ -1662,7 +1684,7 @@ bool Catalog::ytmLoggedIn() const
     if (m_loginState == QLatin1String("ok"))
         return true;
 
-    // Comprobación ligera: ¿hay una cookie SAPISID en el cookies.txt?
+    // Light check: is there a SAPISID cookie in cookies.txt?
     QFile f(cookieFile());
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
         return false;
@@ -1687,8 +1709,8 @@ void Catalog::setLoginState(const QString &state)
         return;
     m_loginState = state;
     emit loginChanged();
-    // Al iniciar sesión, traer automáticamente las listas guardadas y el
-    // conjunto de "me gusta".
+    // On sign in, automatically bring the saved lists and the "liked"
+    // set.
     if (state == QLatin1String("ok")) {
         forgetCachedPlaylist(QStringLiteral("list:LM"));
         refreshYtmLibrary();
@@ -1766,12 +1788,13 @@ void Catalog::logoutYTM()
     QFile::remove(cookieFile());
     QFile::remove(QDir::homePath()
                   + QStringLiteral("/.config/lotus-tune/ytm_session.json"));
-    // La sesión se fue: olvidar listas cacheadas y el "me gusta" persistido.
+    // The session is gone: forget the cached lists and the persisted
+    // "liked" set.
     invalidatePlaylistCache();
     QFile::remove(likedFile());
     m_loginError.clear();
     setLoginState(QString());
-    // Al cerrar sesión, olvidar el conjunto de "me gusta".
+    // On sign out, forget the "liked" set.
     if (!m_likedIds.isEmpty() || m_likedReady) {
         m_likedIds.clear();
         m_likedReady = false;
@@ -1817,16 +1840,17 @@ bool Catalog::handleOutput(const QByteArray &json)
     if (m_purpose == QLatin1String("search")) {
         m_results = list;
     } else if (isBackgroundPurpose(m_purpose)) {
-        // La radio no reemplaza la cola: el reproductor la usa solo para
-        // ampliar «a continuación» tras la pista semilla. Sí se cachea con su
-        // clave normal (list:RDAMVM<semilla>), para que la precarga que se
-        // hace en segundo plano desde Inicio deje la lista lista y abrirla
-        // desde «Recomendado para ti» sea instantánea.
+        // The radio does not replace the queue: the player only uses it to
+         // extend "up next" after the seed track. It is cached with its
+         // normal key (list:RDAMVM<seed>), so the prefetch done in the
+         // background from Home leaves the list ready and opening it from
+         // "Recommended for you" is instant.
         cachePlaylist(m_pendingKey, list, m_pendingTitle);
         rememberPlaylistForDisk(m_pendingKey);
         emit radioReady(m_radioSeed, list);
-        // Si mientras cargaba el usuario abrió la radio a mano, ese mismo
-        // resultado sirve como lista abierta (no se vuelve a descargar).
+        // If the user opened the radio by hand while it was loading, that
+         // same result works as the open list (it is not downloaded
+         // again).
         if (m_promotePending) {
             m_promotePending = false;
             m_tracks = list;
@@ -1841,7 +1865,8 @@ bool Catalog::handleOutput(const QByteArray &json)
             title = QStringLiteral("Playlist");
         m_tracks = list;
         m_tracksTitle = title;
-        // Guarda en la caché en memoria: reabrir esta lista será instantáneo.
+        // It is stored in the in-memory cache: reopening this list will be
+         // instant.
         cachePlaylist(m_pendingKey, list, title);
         rememberPlaylistForDisk(m_pendingKey);
         emit tracksReady(list, title);
@@ -1913,9 +1938,10 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
             artist = segs.constFirst();
     }
 
-    // Miniatura: si yt-dlp trae varias resoluciones, tomar la mejor que no
-    // pase de 480 px para no malgastar RAM; si no hay ninguna válida, la
-    // cadena suelta `thumbnail`; y como último recurso la última de la lista.
+    // Thumbnail: if yt-dlp brings several resolutions, it takes the best one
+     // that does not go over 480 px so it does not waste RAM; if there is
+     // no valid one, the plain `thumbnail` string; and as a last resort
+     // the last one of the list.
     QString thumb = e.value(QStringLiteral("thumbnail")).toString();
     const QVariantList thumbs = e.value(QStringLiteral("thumbnails")).toList();
     if (!thumbs.isEmpty()) {
@@ -1952,8 +1978,9 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
     const QString setId = e.value(QStringLiteral("setVideoId")).toString();
     if (!setId.isEmpty())
         t.insert(QStringLiteral("setId"), setId);
-    // likeStatus de YT Music ("LIKE"/"DISLIKE"/"INDIFFERENT"): estado de "me
-    // gusta" que trae cada pista con sesión, para pintar el corazón de la fila.
+    // YouTube Music's likeStatus ("LIKE"/"DISLIKE"/"INDIFFERENT"): the
+     // "liked" state that every track brings with a session, to paint
+     // the row's heart.
     const QString like = e.value(QStringLiteral("likeStatus")).toString();
     if (!like.isEmpty())
         t.insert(QStringLiteral("liked"), like == QLatin1String("LIKE"));
@@ -2052,10 +2079,10 @@ void Catalog::loadLibrary()
     const QJsonArray pls = o.value(QStringLiteral("playlists")).toArray();
     for (const QJsonValue &v : pls)
         m_playlists.append(v.toObject().toVariantMap());
-    // Los «recientes» anteriores a la v1 no guardaban `setId`, así que no se
-    // puede saber cuáles sonaron dentro de una playlist. Se marcan como
-    // «legacy»: no se pintan como canciones sueltas, pero siguen alimentando
-    // «Recomendado para ti» hasta que se van cayendo solos.
+    // The "recent" ones before v1 did not store `setId`, so it cannot be
+     // known which ones played inside a playlist. They are tagged as
+     // "legacy": they are not painted as loose songs, but they still feed
+     // "Recommended for you" until they fall away on their own.
     const int schema = o.value(QStringLiteral("schema")).toInt();
     const QJsonArray rec = o.value(QStringLiteral("recent")).toArray();
     for (const QJsonValue &v : rec) {

@@ -24,21 +24,21 @@
 
 #include <QDebug>
 
-// LRCLIB: API pública, sin clave. GET devuelve la mejor coincidencia (o 404);
-// search devuelve una lista. El User-Agent es obligatorio por cortesía con el
-// servicio (y para que no nos bloqueen como cliente anónimo).
+// LRCLIB: public API, no key. GET returns the best match (or 404); search
+// returns a list. The User-Agent is required out of courtesy to the service
+// (and so that we are not blocked as an anonymous client).
 static const char *kUserAgent = "LotusTune/0.1 (https://github.com/lotus-tune)";
 static const char *kApiGet = "https://lrclib.net/api/get";
 static const char *kApiSearch = "https://lrclib.net/api/search";
-// NetEase Cloud Music: también sin clave. /api/search/get localiza el id de la
-// canción y /api/song/lyric devuelve el LRC en "lrc.lyric". Es nuestro plan C
-// cuando LRCLIB solo tiene texto plano (sin timestamps).
+// NetEase Cloud Music: also without a key. /api/search/get finds the song id
+// and /song/lyric returns the LRC in "lrc.lyric". It is our plan C when
+// LRCLIB only has plain text (without timestamps).
 static const char *kNeteaseSearch = "https://music.163.com/api/search/get";
 static const char *kNeteaseLyric = "https://music.163.com/api/song/lyric";
-// ---- YouTube Music (primera fuente) --------------------------------------
-// Interfaz interna del cliente web/móvil de YouTube Music. No lleva clave de
-// autorización ni cookies: se consulta en anónimo (ver nota en lyrics.h) con
-// la misma key pública que usa el reproductor web.
+// ---- YouTube Music (first source) --------------------------------------
+// Internal API of the YouTube Music web/mobile client. It carries no
+// authorisation key and no cookies: it is queried anonymously (see the note
+// in lyrics.h) with the same public key the web player uses.
 static const char *kYtmApi = "https://music.youtube.com/youtubei/v1/";
 static const char *kYtmKey = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30";
 static const char *kYtmWebClient = "WEB_REMIX";
@@ -51,13 +51,14 @@ static const char *kYtmWebUa =
 static const char *kYtmAppUa =
     "com.google.android.apps.youtube.music/7.27.52 "
     "(Linux; U; Android 14) gzip";
-// params de búsqueda de YouTube Music con filtro «Canciones».
+// YouTube Music search params with the "Songs" filter.
 static const char *kYtmSearchParams = "EgWKAQIIAWoKEAoQAxAEEAkQBQ==";
-// Cuántos vídeos se prueban antes de rendirse con YouTube Music. Cada intento
-// son dos peticiones cortas (next + browse); con 3 cubrimos los casos en los
-// que el vídeo oficial no tiene letra y sí la tiene la subida alternativa.
+// How many videos are tried before giving up on YouTube Music. Each
+// attempt is two short requests (next + browse); with 3 we cover the
+// cases where the official video has no lyrics and the alternative upload
+// does.
 static const int kYtmMaxCandidates = 3;
-// Suficiente para redes domésticas; evita quedarnos "loading" para siempre.
+// Enough for home networks; it avoids staying "loading" forever.
 static const int kTimeoutMs = 10000;
 
 Lyrics::Lyrics(QObject *parent)
@@ -66,7 +67,8 @@ Lyrics::Lyrics(QObject *parent)
 {
 }
 
-// Normaliza para comparar: sin mayúsculas, tildes, espacios ni puntuación.
+// Normalises for comparison: no capitals, no accents, no spaces, no
+// punctuation.
 static QString norm(const QString &s)
 {
     static const QRegularExpression junk(
@@ -76,9 +78,9 @@ static QString norm(const QString &s)
         .remove(junk);
 }
 
-// Quita las coletillas entre paréntesis o corchetes: "Not Ready to Die
-// (From "Call of the Dead")" -> "Not Ready to Die". La caché de Sonora
-// guarda el título pelado, así que para compararlo hay que pelarlo igual.
+// Removes the little tails in parentheses or brackets: "Not Ready to Die
+// (From "Call of the Dead")" -> "Not Ready to Die". The Sonora cache
+// stores the bare title, so it has to be stripped to compare it.
 static QString stripParenthetical(const QString &s)
 {
     QString out = s;
@@ -88,13 +90,13 @@ static QString stripParenthetical(const QString &s)
     return out.trimmed();
 }
 
-// Kugou y algunas letras de Apple Music enmascaran la palabra que no se
-// puede decir con asteriscos ("your **** nightmare"). El widget del shell
-// las quita; la app las pintaba literales y, además, su tramo de tiempo
-// rompía el barrido palabra a palabra. El asterisco va DENTRO del token
-// ("your **** "), así que hay que limpiarlo, no descartar el token entero.
-// OJO: el espacio final de la palabra se conserva ("your "), si no las
-// palabras salen pegadas al pintarlas.
+// Kugou and some Apple Music lyrics mask the word that cannot be said with
+// asterisks ("your **** nightmare"). The shell widget removes them; the
+// app painted them literally and, on top of that, their time range broke
+// the word by word sweep. The asterisk goes INSIDE the token
+// ("your **** "), so it has to be cleaned, not the whole token dropped.
+// NOTE: the word's trailing space is kept ("your "), otherwise the words
+// come out glued when they are painted.
 static QString stripMask(const QString &s)
 {
     static const QRegularExpression re(QStringLiteral("\\s*\\*+"));
@@ -103,7 +105,7 @@ static QString stripMask(const QString &s)
     return out;
 }
 
-// ¿El token es sólo una máscara? (entonces se descarta entero)
+// Is the token only a mask? (then it is dropped entirely)
 static bool isMaskedToken(const QString &s)
 {
     const QString t = s.trimmed();
@@ -116,7 +118,7 @@ static bool isMaskedToken(const QString &s)
     return true;
 }
 
-// Quita las máscaras de una línea de letra.
+// Removes the masks from a lyrics line.
 static QString stripMaskedTokens(const QString &text)
 {
     QString out;
@@ -138,9 +140,9 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     const QString a = artist.trimmed();
     const QString t = title.trimmed();
 
-    // La clave identifica la pista en curso. Cualquier respuesta cuya clave no
-    // coincida con m_trackKey se descarta (el usuario ya cambió de canción).
-    // `m_gen` cubre el caso de dos fetch() seguidos con la misma clave.
+    // The key identifies the track being played. Any reply whose key does
+    // not match m_trackKey is dropped (the user already changed the song).
+    // `m_gen` covers the case of two fetch() in a row with the same key.
     m_trackKey = a + QStringLiteral(" - ") + t;
     m_artist = a;
     m_title = t;
@@ -174,14 +176,15 @@ void Lyrics::fetch(const QString &artist, const QString &title,
                              .arg(m_trackKey)
                              .arg(m_duration);
 
-    // Primero la caché local de Sonora: es instantánea y trae tiempos por
-    // palabra (karaoke real). Si no está, se sigue con la red.
+    // First the local Sonora cache: it is instant and it brings word level
+    // timings (real karaoke). If it is not there, the network carries on.
     if (trySonoraCache()) {
         finish();
         return;
     }
-    // La caché puede tener la pista bajo otro videoId (el que Sonora
-    // cacheó): se busca por título y artista, como hace el widget del shell.
+    // The cache may have the track under another videoId (the one Sonora
+    // cached): it is looked up by title and artist, like the shell widget
+    // does.
     if (trySonoraByTitle()) {
         finish();
         return;
@@ -190,8 +193,8 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     startYtm();
 }
 
-// Plan clásico (LRCLIB -> NetEase), al que se recurre cuando YouTube Music no
-// tiene letra para la pista.
+// Classic plan (LRCLIB -> NetEase), used when YouTube Music has no lyrics
+// for the track.
 void Lyrics::startLrclib()
 {
     QUrl url(QString::fromLatin1(kApiGet));
@@ -210,8 +213,8 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
     req.setHeader(QNetworkRequest::UserAgentHeader,
                   QString::fromLatin1(kUserAgent));
     req.setRawHeader("Accept", "application/json");
-    // Qt6 sigue redirecciones de forma segura por defecto; lo dejamos explícito
-    // para que un 301/302 del CDN no corte el fetch.
+    // Qt6 follows redirects safely by default; it is set explicitly so a
+    // 301/302 from the CDN does not cut the fetch.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     if (url.host().endsWith(QLatin1String("163.com")))
@@ -219,7 +222,8 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
     req.setTransferTimeout(kTimeoutMs);
 
     QNetworkReply *reply = m_net->get(req);
-    // La clave viaja con el reply: el handler la compara con m_trackKey.
+    // The key travels with the reply: the handler compares it with
+    // m_trackKey.
     reply->setProperty("trackKey", key);
     reply->setProperty("gen", m_gen);
     connect(reply, &QNetworkReply::finished, this, [this, reply, stage] {
@@ -236,9 +240,9 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
     });
 }
 
-// POST con cuerpo JSON para la API interna de YouTube Music. Sin cookies ni
-// Authorization: en anónimo funciona (autenticado la API devuelve
-// «La letra no está disponible» o 400).
+// POST with a JSON body for YouTube Music's internal API. No cookies and
+// no Authorization: anonymously it works (authenticated the API returns
+// "Lyrics not available" or 400).
 void Lyrics::postJson(const QUrl &url, const QJsonObject &body, Stage stage,
                       const QString &key)
 {
@@ -267,7 +271,7 @@ void Lyrics::postJson(const QUrl &url, const QJsonObject &body, Stage stage,
     });
 }
 
-// ¿La respuesta corresponde a un fetch() anterior (misma pista o no)?
+// Does the reply belong to an earlier fetch() (same track or not)?
 static bool isStale(QNetworkReply *reply, const QString &key,
                     const QString &currentKey, int currentGen)
 {
@@ -276,9 +280,10 @@ static bool isStale(QNetworkReply *reply, const QString &key,
 
 // ---- YouTube Music --------------------------------------------------------
 
-// Cuerpo base con el `context` que exige la API interna de YouTube Music.
-// `android` añade los campos que el cliente ANDROID_MUSIC necesita para que el
-// servidor devuelva la letra con tiempos (solo la app móvil la sirve).
+// Base body with the `context` that YouTube Music's internal API demands.
+// `android` adds the fields the ANDROID_MUSIC client needs for the
+// server to serve the lyrics with timings (only the mobile app gets
+// them).
 static QJsonObject ytmContext(const char *client, const char *version,
                               bool android)
 {
@@ -308,8 +313,9 @@ static QUrl ytmUrl(const char *endpoint)
                 + QString::fromLatin1(kYtmKey));
 }
 
-// Recorre un árbol JSON y acumula todos los valores de `key` (búsquedas
-// profundas: así no dependemos de la ruta exacta, que cambia de versión).
+// Walks a JSON tree and gathers every value of `key` (deep searches: that
+// way we do not depend on the exact path, which changes between
+// versions).
 static void collectJson(const QJsonValue &v, const QString &key, QJsonArray *out)
 {
     if (v.isObject()) {
@@ -325,7 +331,7 @@ static void collectJson(const QJsonValue &v, const QString &key, QJsonArray *out
     }
 }
 
-// Primera cadena de texto encontrada bajo `key` (título, videoId, etc.).
+// First text string found under `key` (title, videoId, etc.).
 static QString firstString(const QJsonValue &v, const QString &key)
 {
     if (v.isObject()) {
@@ -349,9 +355,9 @@ static QString firstString(const QJsonValue &v, const QString &key)
 
 void Lyrics::startYtm()
 {
-    // Si la pista viene de YouTube con su videoId exacto, probar ese vídeo
-    // directamente en /next (sus tiempos corresponden a la grabación en
-    // reproducción; la búsqueda por título puede traer un cover u otra toma).
+    // If the track comes from YouTube with its exact videoId, that video
+    // is tried directly in /next (its timings match the recording being
+    // played; a title search may bring a cover or another take).
     if (!m_videoId.isEmpty()) {
         qInfo().noquote()
             << QString("[lyrics] youtube music: vídeo exacto %1").arg(m_videoId);
@@ -372,8 +378,9 @@ void Lyrics::startYtm()
     postJson(ytmUrl("search"), body, Stage::YtmSearch, m_trackKey);
 }
 
-// Divide en palabras normalizadas (sin tildes ni puntuación). A diferencia de
-// `norm()` aquí NO se concatenan: se necesita la cobertura token a token.
+// Splits into normalised words (no accents, no punctuation). Unlike
+// `norm()` they are NOT concatenated here: the token by token coverage
+// is needed.
 static QStringList wordsOf(const QString &s)
 {
     static const QRegularExpression junk(
@@ -388,14 +395,16 @@ static QStringList wordsOf(const QString &s)
     return out;
 }
 
-// Puntúa un resultado de búsqueda: 45 por título exacto, 30 si encaja
-// parcialmente (p. ej. añade «(Official Video)») y 25 si el artista también
-// aparece. El encaje parcial exige DOBLE cobertura para no leer la letra de
-// una canción equivocada:
-//   - ≥70% de las palabras del título buscado aparecen en el candidato, y
-//   - ≥50% de las palabras del candidato están en el título+artista buscados.
-// Sin esto, un candidato de título corto («Python») pasaba por subcadena de
-// «Python Full Course for free» y se traía letra de otra canción.
+// Scores a search result: 45 for an exact title, 30 if it fits partially
+// (e.g. it adds "(Official Video)") and 25 if the artist shows up too.
+// A partial fit needs DOUBLE coverage so the lyrics of the wrong song
+// are not read:
+//   - at least 70% of the searched title's words appear in the candidate,
+//   - and at least 50% of the candidate's words are in the searched
+//     title+artist.
+// Without this, a short titled candidate ("Python") passed as a
+// substring of "Python Full Course for free" and brought the lyrics of
+// another song.
 static int scoreYtm(const QString &title, const QString &line,
                     const QString &wantTitle, const QString &wantArtist)
 {
@@ -460,7 +469,7 @@ void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
         const QString videoId = firstString(item, QStringLiteral("videoId"));
         if (videoId.isEmpty())
             continue;
-        // Título en la primera columna; artista/álbum en la segunda.
+        // Title in the first column; artist/album in the second.
         const QJsonArray cols = item.value(QStringLiteral("flexColumns")).toArray();
         auto runsText = [](const QJsonValue &col) {
             const QJsonArray runs = col.toObject()
@@ -505,8 +514,8 @@ void Lyrics::ytmNextFor(int index)
 {
     if (index >= m_ytmIds.size()) {
         if (!m_exactTried) {
-            // El vídeo exacto en reproducción no tenía letra: se busca por
-            // título/artista (respaldo clásico) una sola vez.
+            // The exact video being played had no lyrics: it is looked up
+            // by title/artist (classic fallback) just once.
             m_exactTried = true;
             m_videoId.clear();
             m_ytmIds.clear();
@@ -524,9 +533,10 @@ void Lyrics::ytmNextFor(int index)
     postJson(ytmUrl("next"), body, Stage::YtmNext, m_trackKey);
 }
 
-// Localiza la pestaña «Letra» (Lyrics/Letra) y su browseId MPLYt_*. Si la
-// pestaña viene `unselectable` YouTube no va a servir la letra para ese vídeo,
-// así que se pasa al siguiente candidato sin siquiera pedir el browse.
+// Finds the "Lyrics" tab (Lyrics/Letra) and its MPLYt_* browseId. If the
+// tab comes `unselectable` YouTube will not serve the lyrics for that
+// video, so it moves to the next candidate without even asking for the
+// browse.
 static QString lyricsBrowseId(const QJsonObject &root, bool *unselectable)
 {
     *unselectable = false;
@@ -607,14 +617,14 @@ void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
 
     const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
 
-    // Ruta real: contents.elementRenderer.newElement.type.componentType.model
+    // Real path: contents.elementRenderer.newElement.type.componentType.model
     //   .timedLyricsModel.lyricsData -> { sourceMessage, timedLyricsData:[...] }
-    // Buscamos por clave para tolerar cambios de ruta entre versiones.
+    // It is looked up by key to tolerate path changes between versions.
     QJsonArray timed;
     collectJson(root, QStringLiteral("timedLyricsData"), &timed);
     if (!timed.isEmpty()) {
         const QJsonArray entries = timed.at(0).toArray();
-        // Fuente (LyricFind, Musixmatch, ...) para el log.
+        // Source (LyricFind, Musixmatch, ...) for the log.
         QJsonArray sources;
         collectJson(root, QStringLiteral("sourceMessage"), &sources);
         const QString source = sources.isEmpty()
@@ -622,8 +632,8 @@ void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
             : QStringLiteral("youtube music · %1")
                   .arg(sources.at(0).toString());
 
-        // Se genera un LRC con el mismo formato que el resto de fuentes para
-        // que lo parsee un único código (parseLrc).
+        // An LRC is generated with the same format as the other sources so
+        // that a single code parses it (parseLrc).
         QString lrc;
         int withTime = 0;
         for (const QJsonValue &v : entries) {
@@ -659,8 +669,8 @@ void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
             finish();
             return;
         }
-        // Sin tiempos utilizables: nos quedamos el texto plano y seguimos
-        // mirando los demás candidatos por si esos sí llevan tiempos.
+        // Without usable timings: the plain text is kept and the other
+        // candidates are looked at, in case those do have timings.
         QString plain;
         for (const QJsonValue &v : entries) {
             const QString t =
@@ -671,11 +681,11 @@ void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
         rememberPlain(plain, "ytmusic");
     }
 
-    // O bien no había tiempos, o bien solo texto plano: siguiente candidato.
+    // Either there were no timings, or only plain text: next candidate.
     ytmNextFor(m_ytmIdx + 1);
 }
 
-// YouTube Music no ha dado letra: se pasa al plan clásico (LRCLIB/NetEase).
+// YouTube Music did not give lyrics: the classic plan (LRCLIB/NetEase)
 void Lyrics::ytmGiveUp(const QString &why)
 {
     qInfo().noquote()
@@ -696,7 +706,7 @@ void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray body = reply->readAll();
 
-    // 404 (o cualquier fallo) => plan B: búsqueda por nombre.
+    // 404 (or any failure) => plan B: search by name.
     if (reply->error() == QNetworkReply::NoError && status < 400) {
         const QJsonObject obj = QJsonDocument::fromJson(body).object();
         if (!obj.isEmpty()) {
@@ -768,7 +778,7 @@ void Lyrics::startNetease()
         return;
     }
 
-    // La búsqueda funciona mejor con "título artista".
+    // The search works better with "title artist".
     QString query = m_title;
     if (!m_artist.isEmpty())
         query += QStringLiteral(" ") + m_artist;
@@ -851,8 +861,9 @@ void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
 
     const QString lrc = root.value(QStringLiteral("lrc")).toObject()
                             .value(QStringLiteral("lyric")).toString();
-    // "klyric" es la misma letra con los tiempos POR PALABRA: si está, se
-    // usa para el karaoke (el widget del shell también va a por ella).
+    // "klyric" is the same lyrics with WORD level timings: if it is
+    // there, it is used for the karaoke (the shell widget goes for it
+    // too).
     const QString klyric = root.value(QStringLiteral("klyric")).toObject()
                                 .value(QStringLiteral("lyric")).toString();
     if (!klyric.trimmed().isEmpty()) {
@@ -873,14 +884,14 @@ void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
             }
         }
     }
-    // Sin tiempos por palabra: sólo se usa si aún no tenemos letra
-    // sincronizada (no se pisa una letra buena con otra peor).
+    // Without word level timings: it is only used if there is no synced
+    // lyrics yet (a good lyrics is not overwritten with a worse one).
     if (!m_hasSynced && adoptSynced(lrc, "netease", /*filterCredits=*/true)) {
         finish();
         return;
     }
     if (m_hasSynced) {
-        // Ya teníamos letra: NetEase no aporta nada mejor.
+        // We already had lyrics: NetEase brings nothing better.
         settleOrFail();
         return;
     }
@@ -890,9 +901,10 @@ void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
     settleOrFail();
 }
 
-// Elige la canción de NetEase que mejor encaja con título/artista/duración.
-// Puntuación orientativa: 45 por título exacto, 30 si solo coincide en parte,
-// 35 por artista y 25 por duración. Se exige al menos 45 (título exacto).
+// Picks the NetEase song that best fits the title/artist/duration.
+// Rough scoring: 45 for an exact title, 30 if it only matches in part, 35
+// for the artist and 25 for the duration. At least 45 is required (exact
+// title).
 int Lyrics::scoreNetease(const QJsonObject &song) const
 {
     const QString wantTitle = norm(m_title);
@@ -924,7 +936,7 @@ int Lyrics::scoreNetease(const QJsonObject &song) const
         }
     }
 
-    // NetEase da la duración en milisegundos.
+    // NetEase gives the duration in milliseconds.
     const int ms = song.value(QStringLiteral("duration")).toInt();
     if (m_duration > 0 && ms > 0) {
         const int diff = qAbs(ms / 1000 - m_duration);
@@ -936,7 +948,7 @@ int Lyrics::scoreNetease(const QJsonObject &song) const
     return score;
 }
 
-// ---- resultado ------------------------------------------------------------
+// ---- result ------------------------------------------------------------
 
 void Lyrics::applyPayload(const QJsonObject &obj)
 {
@@ -978,7 +990,7 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
     return true;
 }
 
-// Convierte {"secs":N,"nanos":M} a segundos.
+// Converts {"secs":N,"nanos":M} to seconds.
 static double secsOf(const QJsonValue &v)
 {
     const QJsonObject o = v.toObject();
@@ -995,9 +1007,9 @@ bool Lyrics::trySonoraCache()
     if (!QFile::exists(path))
         return false;
 
-    // Conexión propia y efímera, en solo lectura. El handle se destruye
-    // ANTES de removeDatabase(): si sigue vivo, Qt avisa de que la
-    // conexión está en uso.
+    // Own and ephemeral connection, read only. The handle is destroyed
+    // BEFORE removeDatabase(): if it is still alive, Qt warns that the
+    // connection is in use.
     QByteArray raw;
     const QString conn = QStringLiteral("sonora_lyrics");
     {
@@ -1025,8 +1037,8 @@ bool Lyrics::trySonoraCache()
     const QJsonArray hits =
         QJsonDocument::fromJson(raw).object().value(QStringLiteral("hits")).toArray();
 
-    // Se elige el hit con más líneas "palabreadas"; a igualdad, el de fuente
-    // más fiable (Apple Music trae los tiempos por palabra más exactos).
+    // The hit with the most "worded" lines wins; on a tie, the most
+    // reliable source (Apple Music has the most exact word timings).
     static const QHash<QString, int> rank{
         { QStringLiteral("Apple Music"), 0 }, { QStringLiteral("Musixmatch"), 1 },
         { QStringLiteral("NetEase"), 2 },     { QStringLiteral("Kugou"), 3 },
@@ -1096,12 +1108,13 @@ bool Lyrics::trySonoraCache()
                                                 : bestSource));
 }
 
-// Fallback de la caché de Sonora: buscar por TÍTULO y ARTISTA, no sólo por
-// el videoId. El widget del shell lo hace así (prefiltrando en SQL con
-// `instr` y comparando bien cada hit) y por eso finds word timings for
-// tracks whose videoId is not the one Sonora cached: the app fell back to
-// YTM/LRCLIB (times per line) and the karaoke por palabra disappeared.
-// Ahora la app usa la misma búsqueda y trae los tiempos por palabra.
+// Fallback of the Sonora cache: look it up by TITLE and ARTIST, not only
+// by videoId. The shell widget does it like this (prefiltering in SQL
+// with `instr` and comparing every hit properly) and that is why the
+// widget finds word timings for tracks whose videoId is not the one
+// Sonora cached: the app fell back to YTM/LRCLIB (times per line) and
+// the word level karaoke disappeared. Now the app uses the same search
+// and brings the word level timings.
 bool Lyrics::trySonoraByTitle()
 {
     if (m_title.isEmpty())
@@ -1114,9 +1127,9 @@ bool Lyrics::trySonoraByTitle()
     QByteArray conn;
     QVector<QByteArray> payloads;
     {
-        // Conexión propia y efímera, en solo lectura. El handle se
-        // destruye ANTES de removeDatabase(): si sigue vivo, Qt avisa de
-        // que la conexión está en uso.
+        // Own and ephemeral connection, read only. The handle is
+        // destroyed BEFORE removeDatabase(): if it is still alive, Qt
+        // warns that the connection is in use.
         const QString cname = QStringLiteral("sonora_lyrics_title");
         {
             QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), cname);
@@ -1124,18 +1137,19 @@ bool Lyrics::trySonoraByTitle()
             db.setDatabaseName(path);
             if (db.open()) {
                 QSqlQuery q(db);
-                // Prefiltro barato: sólo las filas cuyo texto menciona la
-                // pista. La comparación buena va después, con el JSON ya
-                // parseado. Se prueban varias agujas porque el título de la
-                // app suele traer coletillas ("Not Ready to Die (From "Call
-                // of the Dead")") que en la caché están peladas.
+                // Cheap prefilter: only the rows whose text mentions the
+                // track. The good comparison comes later, with the JSON
+                // already parsed. Several needles are tried because the
+                // app's title usually has little tails ("Not Ready to
+                // Die (From "Call of the Dead")") that the cache stores
+                // bare.
                 QStringList needles;
                 const QString bare = stripParenthetical(m_title);
                 if (!bare.isEmpty() && bare != m_title)
                     needles << bare;
                 needles << m_title;
-                // Las primeras palabras del título: un prefijo corto que
-                // aparece dentro del valor de la fila.
+                // The first words of the title: a short prefix that
+                // appears inside the row's value.
                 const QStringList words = m_title.split(QLatin1Char(' '),
                                                         Qt::SkipEmptyParts);
                 if (words.size() >= 3) {
@@ -1189,8 +1203,8 @@ bool Lyrics::trySonoraByTitle()
         const QJsonArray hits = entry.value(QStringLiteral("hits")).toArray();
         for (const QJsonValue &hv : hits) {
             const QJsonObject h = hv.toObject();
-            // ¿Es esta pista? Título y artista (el artista puede venir con
-            // remitentes: "Artista - Tema").
+            // Is this the track? Title and artist (the artist may come
+            // with suffixes: "Artist - Theme").
             const QString hTitle = norm(h.value(QStringLiteral("title")).toString());
             const QString hArtist = norm(h.value(QStringLiteral("artist")).toString());
             if (!wantTitle.isEmpty() && !hTitle.isEmpty()
@@ -1241,15 +1255,15 @@ bool Lyrics::trySonoraByTitle()
                 continue;
             const QString src = h.value(QStringLiteral("source")).toString();
             const int rk = rank.value(src, 9);
-            // Duración de la pista en la caché, para desempatar.
+            // The track's duration in the cache, used to break ties.
             int diff = 0;
             const QJsonObject dur = h.value(QStringLiteral("duration")).toObject();
             if (m_duration > 0 && dur.contains(QStringLiteral("secs"))) {
                 const int ds = dur.value(QStringLiteral("secs")).toInt();
                 diff = qAbs(ds - m_duration);
             }
-            // Orden: primero el que tiene tiempos por palabra, luego la
-            // fuente más fiable y luego el que encaja en la duración.
+            // Order: first the one with word level timings, then the most
+            // reliable source and then the one that fits the duration.
             const bool better = (worded > bestWorded)
                 || (worded == bestWorded && rk < bestRank)
                 || (worded == bestWorded && rk == bestRank && diff < bestDiff);
@@ -1287,9 +1301,9 @@ void Lyrics::finish()
     if (m_hasLyrics)
         m_error.clear();
 
-    // La letra que tenemos no trae tiempos por palabra: se pide a NetEase
-    // su "klyric" (que sí los trae) para tener el karaoke palabra a
-    // palabra, como el widget del shell. Si arrives, se sustituye.
+    // The lyrics we have bring no word level timings: NetEase is asked for
+    // its "klyric" (which does bring them) to get the word level karaoke,
+    // like the shell widget. If it arrives, it replaces the lyrics.
     if (m_hasSynced && !hasWordTimings() && !m_neteaseTried
         && !m_title.trimmed().isEmpty()) {
         m_neteaseTried = true;
@@ -1300,13 +1314,13 @@ void Lyrics::finish()
         ? (m_syncSource.isEmpty() ? QStringLiteral("?") : m_syncSource)
         : (m_plainSource.isEmpty() ? QStringLiteral("ninguna")
                                    : QStringLiteral("plana de ") + m_plainSource);
-    // En modo sincronizado contamos las líneas con marca de tiempo; en modo
-    // plano, las líneas de texto (m_lines queda vacío en ese caso).
+    // In synced mode the timed lines are counted; in plain mode, the text
+    // lines (m_lines stays empty in that case).
     const int count = m_hasSynced
         ? m_lines.size()
         : m_plain.split(QLatin1Char('\n'), Qt::SkipEmptyParts).size();
-    // Formato de QA: se emite SIEMPRE que haya un resultado, sea de la fuente
-    // que sea (YouTube Music, LRCLIB o NetEase).
+    // QA format: it is ALWAYS emitted when there is a result, whatever the
+    // source (YouTube Music, LRCLIB or NetEase).
     qInfo().noquote()
         << QString("[lyrics] fuente: %1 | synced: %2 | lineas: %3 | pista=\"%4\"")
                .arg(source,
@@ -1330,7 +1344,7 @@ void Lyrics::fail(const QString &message)
     m_error = message;
     qInfo().noquote() << QString("[lyrics] sin letra: %1 (pista=\"%2\")")
                              .arg(message, m_trackKey);
-    // Mismo formato que en finish(): QA espera la línea de fuente siempre.
+    // Same format as in finish(): QA always expects the source line.
     qInfo().noquote() << QString("[lyrics] fuente: ninguna | synced: no | "
                                  "pista=\"%1\"").arg(m_trackKey);
     emit changed();
@@ -1355,10 +1369,10 @@ QVariantList Lyrics::lines() const
 
 // ---- LRC ------------------------------------------------------------------
 
-// Convierte el LRC a un vector ordenado de {segundos, texto}. Admite varios
-// timestamps por línea ("[00:12.00][01:20.00]estribillo"), acepta tanto el
-// punto como los dos puntos como separador de décimas y descarta las líneas sin
-// tiempo (metadatos como [ar:...]) y, opcionalmente, las de créditos.
+// Converts the LRC into a sorted vector of {seconds, text}. It accepts
+// several timestamps per line ("[00:12.00][01:20.00]chorus"), takes both
+// the dot and the colon as the decimal separator and drops the lines
+// without a time (metadata like [ar:...]) and, optionally, the credits.
 QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredits)
 {
     static const QRegularExpression re(
@@ -1380,7 +1394,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredit
         }
         if (lastEnd < 0)
             continue;   // sin timestamp: metadato o línea vacía
-        // El texto es lo que sigue al último timestamp de la línea.
+        // The text is what follows the last timestamp of the line.
         const QString body = line.mid(lastEnd).trimmed();
         if (body.isEmpty() || (filterCredits && looksLikeCredit(body))) {
             out.resize(first);
@@ -1395,10 +1409,10 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredit
     return out;
 }
 
-// LRC "enriquecido": además de la marca de línea trae la marca de cada
-// palabra entre ángulos: [00:12.34]<00:12.34>Hola <00:12.80>mundo. Es lo
-// que NetEase llama "klyric" y lo que permite el karaoke palabra a
-// palabra.
+// "Enriched" LRC: besides the line timing it has the timing of every
+// word between angle brackets: [00:12.34]<00:12.34>Hello
+// <00:12.80>world. That is what NetEase calls "klyric" and what allows
+// the word level karaoke.
 QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
 {
     static const QRegularExpression lineRe(
@@ -1415,7 +1429,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
         const double lineTime = lm.captured(1).toInt() * 60.0
                               + lm.captured(2).replace(QLatin1Char(':'),
                                                       QLatin1Char('.')).toDouble();
-        // Texto y marcas de palabra: se corta por las marcas.
+        // Text and word marks: it is cut by the marks.
         const QString body = rawLine.mid(lm.capturedEnd(0));
         LrcLine line;
         line.time = lineTime;
@@ -1427,7 +1441,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
             const double t = m.captured(1).toInt() * 60.0
                            + m.captured(2).replace(QLatin1Char(':'),
                                                    QLatin1Char('.')).toDouble();
-            // El texto de la palabra va hasta la siguiente marca (o al fin).
+            // The word's text goes until the next mark (or the end).
             const int start = m.capturedEnd(0);
             int end = body.size();
             const QRegularExpressionMatch nx = wordRe.match(body, start);
@@ -1447,7 +1461,7 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
             }
             pos = end;
         }
-        // El texto de la línea: todo sin las marcas.
+        // The line's text: everything without the marks.
         QString plain = body;
         plain.remove(wordRe);
         plain = stripMaskedTokens(plain.simplified());
@@ -1478,8 +1492,8 @@ bool Lyrics::hasWordTimings() const
     return false;
 }
 
-// Detecta las líneas de créditos que NetEase (y alguna otra fuente) intercala
-// con la letra: "作词 : ..." / "Written by ...". No se muestran.
+// Detects the credit lines that NetEase (and some other source) mixes in
+// with the lyrics: "作词 : ..." / "Written by ...". They are not shown.
 bool Lyrics::looksLikeCredit(const QString &line)
 {
     static const QRegularExpression cjk(
@@ -1500,7 +1514,7 @@ int Lyrics::lineIndexAt(double seconds)
 {
     if (m_lines.isEmpty() || seconds < 0)
         return -1;
-    // Última línea cuyo tiempo sea <= seconds (búsqueda binaria).
+    // Last line whose time is <= seconds (binary search).
     int lo = 0;
     int hi = m_lines.size() - 1;
     int found = -1;
@@ -1539,11 +1553,12 @@ void Lyrics::clear()
     emit changed();
 }
 
-// ---- estado publicado para el escritorio (widgets inir) ---------------------
-// Ver la nota en lyrics.h. Los ficheros viven en ~/.local/state/lotus-tune/ y
-// el shell (LyricsService de inir) los lee con FileView: por eso el formato de
-// `lines` es EL MISMO que produce lyrics.py ({t,e,text,w,instrumental}), para
-// que el widget no distinga entre letra propia y letra heredada de la app.
+// ---- state published for the desktop (inir widgets) ---------------------
+// See the note in lyrics.h. The files live in ~/.local/state/lotus-tune/
+// and the shell (inir's LyricsService) reads them with FileView: that is
+// why the format of `lines` is THE SAME one lyrics.py produces
+// ({t,e,text,w,instrumental}), so the widget cannot tell the app's own
+// lyrics from the ones inherited from it.
 
 namespace {
 
@@ -1555,8 +1570,8 @@ QString stateDir()
 bool writeJsonFile(const QString &path, const QJsonObject &obj)
 {
     QDir().mkpath(QFileInfo(path).absolutePath());
-    // Escritura ATOMICA (temporal + rename): los widgets del escritorio leen
-    // estos ficheros en cuanto cambian y nunca deben ver JSON a medias.
+    // ATOMIC write (temp file + rename): the desktop widgets read these
+    // files as soon as they change and must never see half a JSON.
     QSaveFile f(path);
     if (!f.open(QIODevice::WriteOnly))
         return false;
@@ -1581,8 +1596,8 @@ void Lyrics::setEngine(Player *player)
                 m_runtimeBeat->start();   // latido sólo mientras suena
         });
     }
-    // Play/pausa/cambio de estado: se escribe al momento (al pausar no hay
-    // latido, y el widget debe saber que el reloj queda congelado aquí).
+    // Play/pause/state change: it is written right away (when paused there
+    // is no beat, and the widget must know the clock is frozen here).
     connect(player, &Player::stateChanged, this, [this]() {
         if (m_engine && m_engine->playing()) {
             if (m_runtimeBeat && !m_runtimeBeat->isActive())
@@ -1592,8 +1607,8 @@ void Lyrics::setEngine(Player *player)
         }
         publishRuntime();
     });
-    // Búsqueda con la pausa puesta: positionChanged no vuelve a sonar hasta
-    // reanudar, así que el seek se publica a parte.
+    // Search with the pause on: positionChanged does not fire again until
+    // resuming, so the seek is published apart.
     connect(player, &Player::seeked, this, [this]() { publishRuntime(); });
 }
 
@@ -1616,8 +1631,9 @@ void Lyrics::setKaraoke(bool on)
     emit changed();
 }
 
-// Pista nueva (o reintento de fetch): el widget se entera al instante de qué
-// suena y de que la letra está en camino, para no pedir dos veces la misma.
+// New track (or a fetch() retry): the widget knows right away what is
+// playing and that the lyrics are on the way, so it does not ask twice
+// for the same thing.
 void Lyrics::publishTrack()
 {
     if (m_trackKey.isEmpty()) {
@@ -1640,16 +1656,16 @@ void Lyrics::publishTrack()
     publishRuntime();
 }
 
-// Letra resuelta (o descartada): se vuelcan las líneas completas con sus
-// palabras. `e` de cada línea es el inicio de la siguiente (el contrato de
-// lyrics.py), con un techo razonable para no anunciar duraciones enormes.
+// Lyrics resolved (or dropped): the full lines are dumped with their
+// words. The `e` of each line is the start of the next one (the lyrics.py
+// contract), with a reasonable cap so no huge durations are announced.
 void Lyrics::publishLines()
 {
     if (m_trackKey.isEmpty())
         return;
-    // El widget espera la letra por pista terminada; si la búsqueda aún sigue
-    // (hubo publishTrack después), no soltamos líneas viejas en un fichero
-    // que ya describe otra pista.
+    // The widget waits for the lyrics of a finished track; if the search
+    // is still running (there was a publishTrack after), old lines are
+    // not released into a file that already describes another track.
     QJsonArray lines;
     if (m_hasSynced) {
         for (int i = 0; i < m_lines.size(); ++i) {
@@ -1662,8 +1678,8 @@ void Lyrics::publishLines()
             lo.insert(QStringLiteral("e"), e);
             lo.insert(QStringLiteral("text"), l.text);
             if (!l.words.isEmpty()) {
-                // LrcLine::words son QVariantMap {t,e,text}: pasan tal cual al
-                // contrato del widget, pero en formato JSON de verdad.
+                // LrcLine::words are QVariantMap {t,e,text}: they pass as
+                // they are to the widget's contract, but as real JSON.
                 QJsonArray ws;
                 for (const QVariant &wv : l.words)
                     ws.append(QJsonValue::fromVariant(wv));
@@ -1692,9 +1708,9 @@ void Lyrics::publishLines()
     publishRuntime();
 }
 
-// Posición/estado del motor: fichero pequeño para que el widget lo relea sin
-// coste. La posición es la cruda del motor; el ajuste (`offset`) viaja aparte
-// y lo suma el widget, igual que la app.
+// Engine position/state: a small file so the widget can read it without
+// cost. The position is the raw one from the engine; the adjustment
+// (`offset`) travels apart and the widget adds it, just like the app.
 void Lyrics::publishRuntime()
 {
     if (m_trackKey.isEmpty())
@@ -1718,9 +1734,10 @@ void Lyrics::publishRuntime()
 
 void Lyrics::removePublished()
 {
-    // En vez de borrar los ficheros publicados, se sobrescriben vacíos. Un
-    // FileView del shell no siempre percibe el `remove` y el widget se quedaba
-    // pintando la letra de la pista anterior — el «Creep» eterno del widget—.
+    // Instead of deleting the published files, they are overwritten
+    // empty. A FileView in the shell does not always notice the `remove`
+    // and the widget kept painting the previous track's lyrics - the
+    // eternal "Creep" of the widget.
     QJsonObject obj;
     obj.insert(QStringLiteral("v"), 1);
     obj.insert(QStringLiteral("app"), QStringLiteral("lotus-tune"));
