@@ -245,17 +245,12 @@ Item {
             + Math.round(bl * 255) + "," + (Math.round(al * 100) / 100) + ")"
     }
 
-    // La parte aún no cantada de la línea activa: una versión tenue de la
-    // letra (texto apagado hacia el fondo). Sin acento: solo el blanco de la
-    // voz marca la línea que canta, el resto se desvanece en `Sys.textDim`.
-    readonly property real _unsungAlpha: 0.55
-    readonly property color _unsungColor: {
-        var a = edgeColor
-        var b = Sys.textDim
-        var t = _unsungAlpha
-        return Qt.rgba(a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t,
-                       a.b + (b.b - a.b) * t, 1)
-    }
+    // La parte aún no cantada de la línea activa: la MISMA tinta de la línea
+    // pero apagada (alfa baja), como hace el widget del shell. Con un gris
+    // aparte la línea parecía partida en dos y el karaoke quedaba feo.
+    readonly property real _unsungAlpha: 0.34
+    readonly property color _sungColor: Theme.mix(Sys.text, Sys.accent, 0.14)
+    readonly property color _unsungColor: Theme.alpha(_sungColor, _unsungAlpha)
 
     // Pinta una línea letra a letra: `fill` va de 0 (recién entró, apagada) a 1
     // (cantada, en texto a pleno). Los caracteres contiguos del mismo color
@@ -279,7 +274,7 @@ Item {
         for (var j = 0; j < s.length; j++) {
             var c = s.charAt(j)
             var isVis = (c !== " " && c !== "\t")
-            var css = _mixCss(_unsungColor, Sys.text, isVis ? front - k : 0)
+            var css = _mixCss(_unsungColor, _sungColor, isVis ? front - k : 0)
             if (isVis)
                 k++
             if (css !== runCss) {
