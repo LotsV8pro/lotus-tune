@@ -29,7 +29,8 @@ Canvas {
     onActiveChanged: maybePulse()
     onVisibleChanged: maybePulse()
 
-    // Solo late si está activo Y visible; en cualquier otro caso, estático.
+    // It only pulses when active AND visible; otherwise it stays
+    // still.
     function maybePulse() {
         if (active && visible)
             pulse.restart()
@@ -39,7 +40,7 @@ Canvas {
         }
     }
 
-    // Un único latido corto (2 x 130 ms = 260 ms), sin `loops`.
+    // A single short pulse (2 x 130 ms = 260 ms), no `loops`.
     SequentialAnimation {
         id: pulse
         running: false

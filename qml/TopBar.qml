@@ -2,11 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Barra superior por página. Ahora es UNA isla flotante: todo el contenido vive
-// dentro de un `Panel` redondeado con sombra suave, el mismo ladrillo que usa
-// el resto de la interfaz. Atrás (si aplica), el título de la página y dos
-// accesos discretos (lanzador y ajustes). Sin subtítulo y sin separadores: la
-// jerarquía viene del aire.
+// Per page top bar. It is ONE floating island: all the content lives
+// inside a rounded `Panel` with a soft shadow, the same brick the rest of
+// the interface uses. Back (if it applies), the page title and two
+// discreet actions (launcher and settings). No subtitle and no separators:
+// the hierarchy comes from the air.
 Rectangle {
     id: top
 
@@ -20,8 +20,9 @@ Rectangle {
 
     color: "transparent"
 
-    // Isla: la superficie la pone el propio `Panel`, pero en el lenguaje plano
-    // actual la barra va directa sobre el fondo (sin caja ni filo).
+    // Island: the surface comes from `Panel` itself, but in the current
+    // flat language the bar sits straight on the background (no box, no
+    // edge).
     Panel {
         anchors.fill: parent
         color: "transparent"
@@ -32,7 +33,8 @@ Rectangle {
             anchors.rightMargin: Theme.s3
             spacing: Theme.s2
 
-            // Atrás: sólo cuando la página es hija de otra. Diana circular.
+            // Back: only when the page is a child of another. Round
+            // button.
             Rectangle {
                 visible: top.showBack
                 Layout.alignment: Qt.AlignVCenter
@@ -63,7 +65,8 @@ Rectangle {
 
             Item { Layout.fillWidth: true }
 
-            // Lanzador: un acceso callado, no un campo con borde. Diana circular.
+            // Launcher: a quiet action, not a bordered field. Round
+            // button.
             Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 width: Theme.rowThin

@@ -18,24 +18,23 @@ Item {
     id: lv
     clip: true
 
-    // Tamaño base de la línea de letra. NowPlaying lo sube para la vista grande.
+    // Base size of a lyrics line. NowPlaying raises it for the big view.
     property int lineSize: 16
-    // Incremento de la línea ACTIVA: es la que «canta», así que se dibuja
-    // más grande (karaoke de escritorio, estilo haku_widgets `lyr-cur`).
+    // Size bump of the ACTIVE line: it is the one "singing", so it is
+    // drawn bigger (desktop karaoke, haku_widgets `lyr-cur` style).
     property int activeBoost: 7
-    // Ancho máximo de la columna de lectura: en pantalla completa el panel
-    // derecho es gigante y una línea de 2000 px es imposible de leer.
+    // Max width of the reading column: in fullscreen the right panel is
+    // huge and a 2000 px line is impossible to read.
     property real maxLineWidth: 820
     // Lectura por la izquierda (modo cine, como en el repo de referencia):
-    // la columna arranca en el borde del área en vez de centrarse. Panel y
-    // Now Playing siguen centrados (valor por defecto).
+    // the column starts at the edge of the area instead of being centred.
+    // Panel and Now Playing stay centred (default).
     property bool leftAlign: false
-    // Pastilla de sincronía: arriba al centro (modo cine) y visible mientras
-    // los mandos están a la vista (`pillShown`). Por defecto: abajo a la
-    // derecha, al pasar el ratón.
+    // Sync pill: top centre (cinema mode) and visible while the controls
+    // are around (`pillShown`). By default: bottom right, on hover.
     property bool pillTop: false
     property bool pillShown: false
-    // Color real del fondo del panel; con él se difuminan los bordes.
+    // Real background colour of the panel; the edges fade into it.
     property color edgeColor: Sys.surface
 
     // Guarded references so the view still renders before the backend registers
@@ -43,7 +42,7 @@ Item {
     readonly property var lyr: (typeof lyrics !== "undefined") ? lyrics : null
     readonly property var ply: (typeof player !== "undefined") ? player : null
 
-    // Líneas sincronizadas ya parseadas por el backend: [{ time, text }]
+    // Synced lines already parsed by the backend: [{ time, text }]
     property var lines: []
     property int activeIndex: -1
 
@@ -58,12 +57,12 @@ Item {
     readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
 
-    // Karaoke: con tiempos POR PALABRA (Sonora/Apple Music) la línea activa se
-    // rellena palabra a palabra. Cuando la fuente sólo da tiempos por línea
-    // (YTM/LRCLIB/NetEase) NO se barre la frase a medias: la línea entera se
-    // ilumina al cantarla (menos confuso, y coincide con el widget del
-    // escritorio). El conmutador `karaoke` apaga el relleno por palabra y deja
-    // siempre la línea entera.
+    // Karaoke: with WORD level timings (Sonora/Apple Music) the active line
+    // is filled word by word. When the source only gives line level timings
+    // (YTM/LRCLIB/NetEase) the phrase is NOT swept halfway: the whole line
+    // lights up when it is sung (less confusing, and it matches the desktop
+    // widget). The `karaoke` switch turns the word fill off and always
+    // leaves the whole line.
     readonly property bool hasWordSync: {
         for (var i = 0; i < lines.length; i++) {
             var w = lines[i].words
@@ -72,7 +71,8 @@ Item {
         }
         return false
     }
-    // ¿Karaoke por palabra activo? Se apaga desde Ajustes (o por el backend).
+    // Is word level karaoke on? It is turned off from Settings (or by the
+    // backend).
     // Lo mantiene `rebuild()` (el binding sobre la `var lyr` no rastrea cambios).
     property bool karaokeOn: true
 
@@ -80,11 +80,13 @@ Item {
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
     readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
-    // Media altura: así la primera y la última línea también pueden centrarse.
+    // Half height: that way the first and the last line can be centred
+    // too.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
-    // Sonora ancla la línea activa al 32 % de la altura (no centrada). El
-    // relleno de arriba/abajo permite fijar cualquier línea a esa altura, y
-    // `following` controla si seguimos al canto o respetamos el scroll manual.
+    // Sonora anchors the active line at 32 % of the height (not centred).
+    // The padding above/below allows pinning any line at that height, and
+    // `following` decides whether we follow the singing or respect a manual
+    // scroll.
     readonly property real pinFrac: 0.5
     readonly property real pinTop: Math.max(56, Math.floor(height * pinFrac))
     readonly property real pinBottom: Math.max(56, Math.ceil(height * (1 - pinFrac)))
@@ -92,15 +94,16 @@ Item {
     property bool _animating: false
 
     // ---- relleno progresivo (karaoke) ----------------------------------
-    // Posición interpolada entre los avisos del motor. `positionChanged` llega
-    // como mucho cada 240 ms; sobre esta posición se calcula el frente del
-    // relleno, que así avanza fluido en lugar de a saltos de 240 ms.
+    // Position interpolated between the engine's reports.
+    // `positionChanged` arrives at most every 240 ms; the fill's front is
+    // computed on top of this position, so it moves smoothly instead of
+    // jumping every 240 ms.
     property real karaokePos: 0
     property real _posAnchor: 0
     property double _posStamp: 0
 
-    // Ajuste fino de sincronía (equivalente al `positionTrim` de Sonora):
-    // segundos que se suman a la posición del motor al casar la letra. Positivo
+    // Fine sync adjustment (Sonora's `positionTrim` equivalent): seconds
+    // added to the engine position when the lyrics are matched. Positive
     // = la letra va adelantada y se retrasa para cuadrar con el audio. Se
     // persiste en la config de la app para que sobreviva al reinicio.
     property real offset: 0
@@ -158,11 +161,11 @@ Item {
         // Pista nueva: volvemos a seguir el canto desde el principio.
         following = true
         computeActive()
-        // Cambio de pista: saltamos sin animación a la nueva línea activa.
+        // Track change: jump without animation to the new active line.
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Centra la línea activa en el viewport con una animación suave.
+    // Centres the active line in the viewport with a smooth animation.
     function scrollToActive(instant) {
         if (!syncedFlick.visible)
             return
@@ -191,8 +194,9 @@ Item {
         scrollAnim.restart()
     }
 
-    // Clic en una línea: salta a ese momento y vuelve a seguir el canto (como
-    // Sonora). El pequeño margen evita que el resaltado caiga en la anterior.
+    // Click on a line: jumps to that moment and goes back to following
+    // the singing (like Sonora). The small margin keeps the highlight off
+    // the previous line.
     function seekTo(t) {
         if (!ply || typeof ply.seek !== "function")
             return
@@ -202,9 +206,9 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Degradado por distancia a la línea activa: la activa al 100 % y las de
-    // alrededor apagándose en escalones suaves. Simétrico: da igual si la línea
-    // ya se cantó (arriba) o está por venir (abajo).
+    // Fade by distance to the active line: the active one at 100 % and the
+    // ones around it dimming in soft steps. Symmetric: it does not matter if
+    // the line was already sung (above) or is still to come (below).
     function lineOpacity(i) {
         if (activeIndex < 0)
             return 0.78
@@ -228,8 +232,8 @@ Item {
             + (Math.round(col.a * 100) / 100) + ")"
     }
 
-    // Color a medio camino entre el apagado y el encendido. La letra que está
-    // justo en el frente se pinta a medias, y por eso se ve comerse la línea
+    // Colour half way between dimmed and lit. The text right at the front
+    // is painted halfway, and that is why you see it eating the line
     // de forma continua en vez de encenderse de golpe.
     function _mixCss(a, b, f) {
         var t = Math.max(0, Math.min(1, f))
@@ -245,17 +249,17 @@ Item {
             + Math.round(bl * 255) + "," + (Math.round(al * 100) / 100) + ")"
     }
 
-    // La parte aún no cantada de la línea activa: la MISMA tinta de la
-    // línea pero apagada (alfa baja), como hace el widget del shell. Con un
-    // gris aparte la línea parecía partida en dos y el karaoke quedaba feo.
+    // The part of the active line not sung yet: the SAME ink as the line
+    // but dimmed (low alpha), like the shell widget does. With a separate
+    // grey the line looked split in two and the karaoke looked ugly.
     readonly property real _unsungAlpha: 0.34
     readonly property color _sungColor: Sys.text
     readonly property color _unsungColor: Theme.alpha(_sungColor, _unsungAlpha)
 
-    // Pinta una línea letra a letra: `fill` va de 0 (recién entró, apagada) a 1
-    // (cantada, en texto a pleno). Los caracteres contiguos del mismo color
-    // se agrupan en una sola etiqueta: una por letra rompería el kerning y se
-    // notaría en el salto de línea.
+    // Paints a line letter by letter: `fill` goes from 0 (just came in,
+    // dimmed) to 1 (sung, in full text). Contiguous characters of the same
+    // colour are grouped in a single tag: one tag per letter would break
+    // the kerning and it would show in the line break.
     function _fillHtml(str, fill) {
         var s = String(str || "")
         if (s.length === 0)
@@ -290,18 +294,18 @@ Item {
         return out
     }
 
-    // Rellena una línea CON tiempos por palabra: cada palabra se enciende
-    // sobre su propio tramo, así el frente sigue la voz en lugar de repartirse
-    // uniformemente por toda la frase (que es lo que hace el widget de
-    // escritorio). Reutiliza `_fillHtml` palabra a palabra.
+    // Fills a line WITH word level timings: every word lights up on its
+    // own segment, so the front follows the voice instead of spreading
+    // evenly over the whole phrase (which is what the desktop widget
+    // does). It reuses `_fillHtml` word by word.
     //
-    // OJO con los tramos: Apple Music redondea los tiempos al segundo, así
-    // que varias palabras de la misma línea comparten EL MISMO instante (y
-    // su "fin" también). Si se usara el tiempo de cada palabra tal cual,
-    // todas se encenderían a la vez y la línea aparecería completa de
-    // golpe. Por eso los tramos se ENCADENAN: la palabra N empieza donde
-    // acaba la N-1, y así el frente avanza palabra a palabra (es lo que
-    // hace el widget del shell).
+    // Careful with the segments: Apple Music rounds the timings to the
+    // second, so several words of the same line share THE SAME instant
+    // (and their "end" too). Using each word's time as it comes would
+    // light them all at once and the line would appear complete all of a
+    // sudden. That is why the segments are CHAINED: word N starts where
+    // word N-1 ended, so the front advances word by word (which is what
+    // the shell widget does).
     function _wordHtml(words) {
         if (!words || words.length === 0)
             return ""
@@ -319,7 +323,7 @@ Item {
             tramos.push({ ini: ini, fin: fin })
             prevFin = fin
         }
-        // La palabra que se está comiendo el frente ahora mismo.
+        // The word that is eating the front right now.
         var actual = -1
         for (var j = 0; j < tramos.length; j++) {
             if (karaokePos >= tramos[j].ini)
@@ -343,7 +347,7 @@ Item {
         return out
     }
 
-    // Reancla la posición interpolada al último valor que dio el motor.
+    // Re-anchors the interpolated position to the engine's last value.
     function syncKaraokePos() {
         if (!ply)
             return
@@ -356,8 +360,8 @@ Item {
         target: lv.lyr
         function onChanged() {
             // Ajustes (u otra vista en pantalla) pueden haber movido la
-            // compensación o el karaoke: el backend es el común, se trae el
-            // desfase y se recalcula todo.
+            // compensation or the karaoke: the backend is the shared one,
+            // so the offset is brought over and everything is recomputed.
             if (lv.lyr) {
                 var o = Number(lv.lyr.offset)
                 if (!isNaN(o) && Math.abs(o - lv.offset) > 0.001)
@@ -367,19 +371,19 @@ Item {
         }
     }
     // El motor emite positionChanged como mucho cada 240 ms: ese aviso reancla
-    // la posición interpolada y recalcula la línea activa. `stateChanged`
-    // cubre play/pausa/seek, para que al pausar el frente quede justo donde
-    // suena y no donde lo dejó la última interpolación.
+    // the interpolated position and recomputes the active line.
+    // `stateChanged` covers play/pause/seek, so that when paused the front
+    // stays where it sounds and not where the last interpolation left it.
     Connections {
         target: lv.ply
         function onPositionChanged() { lv.syncKaraokePos(); lv.computeActive() }
         function onStateChanged() { lv.syncKaraokePos(); lv.computeActive() }
     }
 
-    // Interpola la posición entre avisos del motor para que el frente del
-    // relleno avance fluido. Hace falta siempre que haya letra sincronizada
-    // sonando: con tiempos por palabra anima el frente palabra a palabra, y
-    // con tiempos por línea alimenta el barrido de la frase activa. El aviso
+    // Interpolates the position between the engine's reports so the fill's
+    // front moves smoothly. It is always needed with synced lyrics playing:
+    // with word level timings it animates the front word by word, and with
+    // line level timings it feeds the sweep of the active phrase. The engine
     // del motor llega a 240 ms; a 50 ms el frente se mueve suave.
     Timer {
         interval: 50
@@ -393,8 +397,9 @@ Item {
             if (dur > 0)
                 est = Math.min(est, dur)
             lv.karaokePos = est + lv.offset
-            // Con el tick la línea activa cambia en cuanto cruza su instante,
-            // sin esperar al aviso del motor (hasta 240 ms antes).
+            // With the tick the active line changes as soon as it crosses
+            // its instant, without waiting for the engine's report (up to
+            // 240 ms late).
             lv.computeActive()
         }
     }
@@ -412,9 +417,10 @@ Item {
     onLinesChanged: computeActive()
     onActiveIndexChanged: {
         Qt.callLater(function () { if (lv.following) lv.scrollToActive(false) })
-        // La activa crece de tamaño al volverse activa: la columna se
-        // reordena y el primer centrado puede haberse calculado antes del
-        // reflow. Este segundo paso (100 ms) corrige la posición suavemente.
+        // The active one grows when it becomes active: the column
+        // reorders and the first centring may have been computed before
+        // the reflow. This second step (100 ms) smoothly fixes the
+        // position.
         if (lv.following)
             settleScroll.restart()
     }
@@ -429,10 +435,11 @@ Item {
     onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
 
     // Al volverse visible (abrir el cine o el panel de cola): el scroll se
-    // había omitido mientras estaba oculto (`scrollToActive` sale si el Flick
-    // no es visible), así que al abrir reenclavamos la posición y saltamos SIN
-    // animación a la línea que suena. Sin esto, el cine abría con la letra
-    // donde la dejó la última vez y no se colocaba hasta pasar la línea.
+    // had been skipped while it was hidden (`scrollToActive` bails if the
+    // Flick is not visible), so on open we re-pin the position and jump
+    // WITHOUT animation to the line that sounds. Without this, the cinema
+    // opened with the lyrics where the last time left them and did not
+    // settle until the line went by.
     onVisibleChanged: {
         if (!lv.visible || !lv.showSynced)
             return
@@ -478,8 +485,8 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
 
-        // Scroll manual: dejamos de seguir la canción hasta que se pulse
-        // «Seguir la canción». La animación propia no cuenta.
+        // Manual scroll: we stop following the song until "Follow the
+        // song" is pressed. The animation of its own does not count.
         onMovementStarted: if (!lv._animating) lv.following = false
         onContentYChanged: if (!lv._animating && syncedFlick.moving
                                && lv.following) lv.following = false
@@ -503,13 +510,13 @@ Item {
                     readonly property bool active: index === lv.activeIndex
 
                     // Con tiempos por palabra (y karaoke activado): el frente
-                    // va palabra a palabra. Sin ellos: la línea entera se
+                    // goes word by word. Without them: the whole line is
                     // ilumina al ser la activa (sin barrido a medias).
                     readonly property var _w: modelData.words ? modelData.words : []
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
                     // Desvanecido de borde (como en el repo de referencia): la
-                    // línea se atenúa a sí misma al acercarse al techo o al
+                    // line fades itself out when it gets near the top or
                     // suelo de la vista. Nada de bandas negras por encima:
                     // sobre el lavado de la portada quedaban horrorosas.
                     readonly property real vfade: {
@@ -533,7 +540,7 @@ Item {
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
                     font.weight: active ? Font.DemiBold : Font.Normal
-                    // La opacidad sube al pasar el ratón: la línea bajo el
+                    // The opacity goes up on hover: the line under the
                     // cursor se marca como «clicable» (salta a ese momento).
                     // Todo ello, multiplicado por el desvanecido de borde.
                     opacity: Math.min(vfade, lv.lineOpacity(index)
@@ -543,7 +550,7 @@ Item {
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
                     Behavior on color { ColorAnimation { duration: Theme.medMs } }
 
-                    // Clic en una línea: salta a ese momento de la canción.
+                    // Click on a line: jumps to that moment of the song.
                     MouseArea {
                         id: lineMa
                         anchors.fill: parent
@@ -565,12 +572,12 @@ Item {
         }
     }
 
-    // Los bordes ya no se tapizan con bandas de color: cada línea desvanece
-    // sola (ver `vfade` en el delegate). Las bandas cortaban el degradado y
+    // The edges are no longer padded with colour bands: every line fades
+    // on its own (see `vfade` in the delegate). The bands cut the fade and
     // sobre el lavado de la portada quedaban fatal.
 
-    // Botón «Seguir la canción»: aparece cuando el usuario se desplaza y deja
-    // de seguir automáticamente la línea activa (como Sonora).
+    // "Follow the song" button: it shows when the user scrolls and stops
+    // following the active line automatically (like Sonora).
     Rectangle {
         id: followBtn
         visible: !lv.following && lv.showSynced
@@ -647,7 +654,7 @@ Item {
     }
 
     // ---- empty / error ------------------------------------------------
-    // Un icono quieto, un titular y una línea de apoyo. Sin cajas.
+    // A still icon, a headline and a support line. No boxes.
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(parent.width - 40, 360)
@@ -681,9 +688,9 @@ Item {
         }
     }
 
-    // ---- sincronía fina: en el panel aparece al pasar el ratón; en el -----
-    // modo cine sube al centro del encabezado (como en el repo de referencia)
-    // y acompaña a los mandos.
+    // ---- fine sync: in the panel it appears on hover; in the cinema
+    // mode it moves to the centre of the header (like in the reference repo)
+    // and it follows the controls.
     HoverHandler { id: lyricHover }
 
     Rectangle {

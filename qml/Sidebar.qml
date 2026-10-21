@@ -2,19 +2,18 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Rail de navegación. Plegado (estado primario): una columna estrecha con las
-// tres secciones principales, icono + etiqueta corta. Al pasar el ratón se
-// expande y aparecen las entradas secundarias, las listas y "sonando ahora".
+// Navigation rail. Folded (primary state): a narrow column with the main
+// sections, icon + short label.
 //
-// Todo el rail vive sobre UNA sola isla flotante (`Panel`): el fondo de la
-// ventana asoma alrededor y el componente sólo pinta contenido transparente
-// encima. Misma API pública que antes; sólo cambia cómo se pinta.
+// The whole rail lives on ONE floating island (`Panel`): the window
+// background shows around it and the component only paints transparent
+// content on top. Same public API as before; only the painting changed.
 Item {
     id: side
 
-    // Destino activo del rail: normalmente la página actual, pero Main lo
-    // resuelve a "downloads" cuando la página Biblioteca está mostrando la
-    // fuente local (para que se ilumine "Descargas" y no "Biblioteca").
+    // Active rail destination: usually the current page, but Main resolves
+    // it to "downloads" when the Library page shows the local source (so
+    // "Downloads" lights up instead of "Library").
     property string page: "home"
     property string trackTitle: ""
     property string trackArtist: ""
@@ -29,19 +28,18 @@ Item {
     signal downloadsRequested()
     signal playlistRequested(int index)
     signal ytmlistRequested(string url, string name)
-    // Clic derecho sobre una lista: menú contextual (x/y en ventana).
+    // Right click on a list: context menu (x/y in window coordinates).
     signal ytmlistContextRequested(var item, real x, real y)
     signal playlistContextRequested(var item, real x, real y)
 
-    // ---- geometría del rail -------------------------------------------
+    // ---- rail geometry ------------------------------------------------
     readonly property int collapsedW: 76
     readonly property int expandedW: 236
-    // El rail NO se despliega al pasar el ratón: se queda siempre en la
-    // columna estrecha de iconos, sin que el contenido de la página baile
-    // de ancho al mover el ratón por encima. Las listas viven en
-    // Biblioteca.
+    // The rail does NOT expand on hover: it stays in the narrow column of
+    // icons, so the page content never changes width as the mouse moves
+    // over it. The lists live in the Library.
     property bool expanded: false
-    // La altura de esta propiedad la lee Main.qml para reservar el ancho.
+    // Main.qml reads this property to reserve the width.
     property real railWidth: expanded ? expandedW : collapsedW
     Behavior on railWidth {
         NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
@@ -56,7 +54,7 @@ Item {
             side.navigate(id)
     }
 
-    // ---- secciones -----------------------------------------------------
+    // ---- sections ------------------------------------------------------
     readonly property var navItems: [
         { id: "home",      label: "Inicio",     icon: "home" },
         { id: "search",    label: "Buscar",     icon: "search" },
@@ -65,8 +63,9 @@ Item {
         { id: "downloads", label: "Descargas",  icon: "download" }
     ]
 
-    // Plano, al estilo del repo de referencia: el rail va directo sobre el
-    // fondo (sin caja); la jerarquía la marca el resaltado de la sección activa.
+    // Flat, like the reference repo: the rail sits straight on the
+    // background (no box); the hierarchy is marked by the highlight of the
+    // active section.
     Panel {
         anchors.fill: parent
         radius: Theme.rPanel
@@ -77,29 +76,29 @@ Item {
             anchors.margins: Theme.s2
             spacing: 0
 
-            // Aire superior: sustituye a la vieja cabecera de marca.
+            // Top padding: replaces the old brand header.
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.s2
             }
 
-            // ---- navegación ----------------------------------------------
-            // Plegado: sólo las tres secciones principales (icono + etiqueta).
-            // Expandido: se añaden "Me gusta" y "Descargas" con más aire.
+            // ---- navigation ------------------------------------------------
+            // Icon + label under it, for every section.
             Repeater {
                 model: side.navItems
                 delegate: Rectangle {
                     required property var modelData
                     required property int index
                     id: navRow
-                    // `page` ya viene resuelto a un destino concreto (Main decide
-                    // si toca "library" o "downloads" según la fuente/tab activas).
+                    // `page` already comes resolved to a concrete
+                    // destination (Main decides between "library" and
+                    // "downloads" depending on the active source/tab).
                     readonly property bool on: side.page === modelData.id
                     readonly property bool primary: index < 3
 
-                    // Todas las entradas caben en la columna estrecha (icono
-                    // con su etiqueta debajo), así no hay nada escondido:
-                    // con el rail fijo no hay «desplegar» donde buscar.
+                    // Every entry fits in the narrow column (icon with its
+                    // label below), so nothing is hidden: with a fixed rail
+                    // there is no "expand" to look for.
                     visible: true
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.rowCompact
@@ -148,7 +147,7 @@ Item {
                 }
             }
 
-            // Hueco flexible: el rail queda sólo con la navegación.
+            // Flexible spacer: the rail keeps only the navigation.
             Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true

@@ -1,33 +1,33 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Arte de portada con cascada de resolución Y recorte redondeado.
+// Cover art with a resolution cascade AND rounded corners.
 //
-// La API de YouTube Music responde a menudo con miniaturas cuadradas de
-// 120 px para las canciones; en huecos grandes (la portada del cine) esos
-// píxeles se ven de sobra. Si hay ID de vídeo de por medio, este componente
-// propone además las variantes mayores del mismo arte (maxres → hq) y el
-// servidor de imágenes («rart») se queda con la primera que sirva; si no
-// hay ID o ninguna responde, la base.
+// YouTube Music's API often answers with 120 px square thumbnails for
+// songs; in big slots (the cinema artwork) those pixels are plainly
+// insufficient. When a video ID is known, this component also offers the
+// bigger variants of the same art (maxres -> hq) and the image server
+// ("rart") keeps the first one that works; without an ID, or if none of
+// them answers, the base one.
 //
-// El recorte al centro y las esquinas redondeadas los hace el C++ (así el
-// `clip` de un Rectangle no puede dejar las esquinas cuadradas y el
-// recorte nunca sale descentrado). Se pinta una vez por carga, no por
-// frame.
+// The centre crop and the rounded corners are done in C++ (so a
+// Rectangle's `clip` cannot leave the corners square and the crop can
+// never come out off-centre). It is painted once per load, not per frame.
 Item {
     id: art
 
     property string src: ""
-    // ID de YouTube explícito (el de la pista). Si viene vacío se intenta
-    // extraer del propio `src` (URLs «watch?v=…» o «/vi_webp/…»).
+    // Explicit YouTube ID (the track's). If empty it is extracted from
+    // `src` itself ("watch?v=..." or "/vi_webp/..." URLs).
     property string videoId: ""
     property string iconKind: "music"
-    // ¿Icono de respaldo cuando no hay arte alguno?
+    // Fallback icon when there is no artwork at all?
     property bool showIconWhenEmpty: true
-    // Degradado de fondo (se ve mientras carga o si no hay nada).
+    // Background gradient (visible while loading or when there is
+    // nothing).
     property color fillA: "#232a33"
     property color fillB: "#12151a"
-    // Forma del recorte: «circle» o píxeles de radio.
+    // Crop shape: "circle" or a radius in pixels.
     property var radiusSpec: 0
 
     readonly property bool ready: img.status === Image.Ready
@@ -42,8 +42,8 @@ Item {
         return m ? m[1] : ""
     }
 
-    // Las candidatas, de mayor a menor: el C++ prueba en orden y se
-    // queda con la primera que descargue bien.
+    // The candidates, largest first: the C++ side tries them in order and
+    // keeps the first one that downloads fine.
     readonly property var candidates: {
         var list = []
         if (art.vid) {
@@ -55,7 +55,7 @@ Item {
         return list
     }
 
-    // Radio en píxeles lógicos (el círculo lo resuelve el C++).
+    // Radius in logical pixels (the circle is resolved on the C++ side).
     readonly property int radius: radiusSpec === "circle" ? 10000 : radiusSpec
 
     property string artUrl: ""
@@ -102,7 +102,7 @@ Item {
         id: img
         anchors.fill: parent
         source: art.artUrl
-        // Ya viene recortada al hueco y con las esquinas redondeadas.
+        // It already comes cropped to the slot with rounded corners.
         fillMode: Image.Stretch
         asynchronous: true
         cache: true
