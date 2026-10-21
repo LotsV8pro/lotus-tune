@@ -424,10 +424,10 @@ Item {
         }
     }
 
-    // Home section: FLAT, no box and no edge - the content sits straight
-    // on the background, like the rest of the app. The blocks are
-    // separated by the gap (spacing) that marks the hierarchy; the height
-    // is set by the content.
+    // Home section: FLAT, no box and no edge - the content sits straight on
+    // the washed background, like in the reference repo. The air (pad) and the
+    // gap (spacing) mark the hierarchy; the height is set by the content.
+    component Island: Rectangle {
         id: island
 
         property real pad: Theme.s2
