@@ -15,31 +15,32 @@ class QNetworkReply;
 class Player;
 class QTimer;
 
-// Letras de canciones (YouTube Music -> LRCLIB -> NetEase, sin API key), tal
-// que así expuesta a QML como la context property `lyrics`.
+// Song lyrics (YouTube Music -> LRCLIB -> NetEase, no API key), exposed
+// to QML as the `lyrics` context property.
 //
-// El flujo es:
-//   1. YouTube Music (primera opción, letra *con tiempos* estilo karaoke):
-//      POST /youtubei/v1/search (cliente WEB_REMIX) localiza vídeos de la
-//      canción; POST /next devuelve la pestaña «Letra» con su browseId
-//      MPLYt_*; POST /browse con el cliente ANDROID_MUSIC devuelve
-//      timedLyricsModel.lyricsData con startTimeMilliseconds por línea. De
-//      ahí se genera un LRC que se parsea con el mismo código del resto de
-//      fuentes. Las canciones cuya pestaña viene `unselectable` (o sin letra)
-//      prueban el siguiente vídeo candidato y, si ninguno sirve, siguen las
-//      fuentes clásicas.
-//   2. LRCLIB /api/get y, si no trae letra sincronizada, /api/search.
-//   3. NetEase Cloud Music (búsqueda + /song/lyric).
-// Solo cuando ninguna fuente da timestamps se muestra el texto plano (o error).
+// The flow is:
+//   1. YouTube Music (first option, lyrics *with timings*, karaoke style):
+//      POST /youtubei/v1/search (WEB_REMIX client) finds the videos of the
+//      song; POST /next returns the "Lyrics" tab with its browseId
+//      MPLYt_*; POST /browse with the ANDROID_MUSIC client returns
+//      timedLyricsModel.lyricsData with startTimeMilliseconds per line.
+//      From there an LRC is generated and parsed with the same code as the
+//      other sources. Songs whose tab comes `unselectable` (or with no
+//      lyrics) try the next video candidate and, if none works, they carry
+//      on with the classic sources.
+//   2. LRCLIB /api/get and, if it brings no synced lyrics, /api/search.
+//   3. NetEase Cloud Music (search + /song/lyric).
+// The plain text (or an error) is only shown when no source gives
+// timestamps.
 //
-// YouTube Music se consulta SIEMPRE en anónimo: con las cookies de la cuenta
-// el browse devuelve «La letra no está disponible» (o 400), y sin ellas
-// funciona. No hace falta inicio de sesión para leer letras.
+// YouTube Music is ALWAYS queried anonymously: with the account cookies the
+// browse returns "Lyrics not available" (or 400), and without them it
+// works. No sign in is needed to read lyrics.
 //
-// Las respuestas se etiquetan con la trackKey vigente para descartar las de
-// peticiones antiguas (el usuario pudo cambiar de pista antes de que llegara
-// la red). El LRC se cachea ya parseado para que lineIndexAt(segundos) sea una
-// simple búsqueda binaria sobre el vector.
+// The replies are tagged with the current trackKey to drop the ones from
+// old requests (the user may have changed the song before the network
+// answered). The LRC is cached already parsed so lineIndexAt(seconds) is a
+// simple binary search over the vector.
 class Lyrics : public QObject
 {
     Q_OBJECT
@@ -51,18 +52,20 @@ class Lyrics : public QObject
     Q_PROPERTY(QVariantList lines READ lines NOTIFY changed) // [{time, text}]
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed)
-    // Ajuste de sincronía en segundos (positivo = adelantar el frente). Vive
-    // aquí y no en la vista para que viaje también en el estado publicado.
+    // Sync adjustment in seconds (positive = moves the front forward). It
+    // lives here and not in the view so it also travels in the published
+    // state.
     Q_PROPERTY(double offset READ offset WRITE setOffset NOTIFY changed)
-    // «Karaoke por palabra»: con tiempos por palabra la línea activa se enciende
-    // letra a letra. Si se apaga, la línea entera se ilumina al cantarla.
+    // "Word level karaoke": with word level timings the active line lights
+    // up letter by letter. If it is off, the whole line lights up when it
+    // is sung.
     Q_PROPERTY(bool karaoke READ karaoke WRITE setKaraoke NOTIFY changed)
 
 public:
     explicit Lyrics(QObject *parent = nullptr);
 
-    // El motor de reproducción: sólo se usa para publicar la posición en el
-    // estado de letras (los widgets del escritorio sincronizan con ella).
+    // The playback engine: it is only used to publish the position in the
+    // lyrics state (the desktop widgets sync with it).
     void setEngine(Player *player);
 
     bool loading() const { return m_loading; }
@@ -76,44 +79,47 @@ public:
     void setOffset(double v);
     bool karaoke() const { return m_karaoke; }
     void setKaraoke(bool on);
-    // Líneas ya parseadas (con sus segundos). Es la fuente única de verdad
-    // para pintar y para lineIndexAt(), así el índice y la fila resaltada
-    // nunca pueden desincronizarse.
+    // Lines already parsed (with their seconds). It is the single source
+    // of truth for painting and for lineIndexAt(), so the index and the
+    // highlighted row can never drift apart.
     QVariantList lines() const;
 
-    // Busca la letra de una pista. durationSeconds se redondea para /api/get.
-    // Si videoId trae el vídeo exacto en reproducción, YouTube Music se pide
-    // directamente para ese vídeo (los tiempos corresponden a esa grabación);
-    // si no tiene letra, la búsqueda normal actúa como respaldo.
+    // Looks for the lyrics of a track. durationSeconds is rounded for
+    // /api/get. If videoId brings the exact video being played, YouTube
+    // Music is asked directly for that video (the timings match that
+    // recording); if it has no lyrics, the normal search works as a
+    // fallback.
     Q_INVOKABLE void fetch(const QString &artist, const QString &title,
                            double durationSeconds, const QString &videoId = QString());
     Q_INVOKABLE void clear();
-    // Índice de la línea LRC activa en `seconds`, -1 si aún no empieza o no hay.
+    // Index of the active LRC line at `seconds`, -1 if it has not started
+    // yet or there is none.
     Q_INVOKABLE int lineIndexAt(double seconds);
-    // Main.qml publica aquí el ajuste de sincronía (mismo valor que la
-    // propiedad `offset`, para que no haya dos fuentes de verdad). Lo ve QML
-    // porque es Q_INVOKABLE y PUBLICO: los privados no se exponen.
+    // Main.qml publishes the sync adjustment here (same value as the
+    // `offset` property, so there is a single source of truth). QML sees
+    // it because it is Q_INVOKABLE and PUBLIC: the private ones are not
+    // exposed.
     Q_INVOKABLE void setPublishedOffset(double v) { setOffset(v); }
 
 signals:
     void changed();
 
 private:
-    // Los tests (tests/test_all.cpp) ejercen el parseo de LRC y la búsqueda de
-    // línea activa —lógica pura— sin depender de la red.
+    // The tests (tests/test_all.cpp) exercise the LRC parsing and the
+    // active line search - pure logic - without depending on the network.
     friend class TestLotusTune;
 
     struct LrcLine {
         double time;    // segundos desde el inicio
         QString text;
-        // Tiempos POR PALABRA (solo si la fuente los trae): [{t,e,text}].
-        // Vacío en las fuentes de nivel de línea (YTM/LRCLIB/NetEase).
+        // WORD level timings (only if the source brings them): [{t,e,text}].
+        // Empty in the line level sources (YTM/LRCLIB/NetEase).
         QVariantList words;
         bool instrumental = false;   // tramo sin voz (solo Sonora lo marca)
     };
 
-    // Etapa de la cascada de fuentes; viaja pegada al reply para saber qué
-    // handler debe procesar la respuesta.
+    // Stage of the sources cascade; it travels attached to the reply to
+    // know which handler has to process the answer.
     enum class Stage {
         YtmSearch,        // POST /youtubei/v1/search  (candidatos)
         YtmNext,          // POST /youtubei/v1/next    (pestaña «Letra»)
@@ -125,7 +131,7 @@ private:
     };
 
     void request(const QUrl &url, Stage stage, const QString &key);
-    // Igual que request() pero enviando un cuerpo JSON (YouTube Music).
+    // Like request() but sending a JSON body (YouTube Music).
     void postJson(const QUrl &url, const QJsonObject &body, Stage stage,
                   const QString &key);
     void onGetReply(QNetworkReply *reply, const QString &key);
@@ -133,15 +139,16 @@ private:
     void onNeteaseSearchReply(QNetworkReply *reply, const QString &key);
     void onNeteaseLyricReply(QNetworkReply *reply, const QString &key);
 
-    // ---- cascada de YouTube Music -------------------------------------
+    // ---- YouTube Music cascade -------------------------------------
     void startYtm();
-    // Plan clásico (LRCLIB -> NetEase), cuando YouTube Music no tiene letra.
+    // Classic plan (LRCLIB -> NetEase), used when YouTube Music has no
+    // lyrics for the track.
     void startLrclib();
-    // Pide /next para el vídeo candidato nº `index` de m_ytmIds.
+    // Asks for /next for the candidate video number `index` of m_ytmIds.
     void ytmNextFor(int index);
-    // Pide /browse con el browseId de la letra encontrada en /next.
+    // Asks for /browse with the browseId of the lyrics found in /next.
     void ytmBrowseFor(const QString &browseId);
-    // Ningún vídeo sirve: se continúa con LRCLIB.
+    // No video works: it carries on with LRCLIB.
     void ytmGiveUp(const QString &why);
     void onYtmSearchReply(QNetworkReply *reply, const QString &key);
     void onYtmNextReply(QNetworkReply *reply, const QString &key);
@@ -149,66 +156,71 @@ private:
 
     void startSearch();
     void startNetease();
-    // Cierra la búsqueda y emite `changed` con el resultado acumulado.
+    // Closes the search and emits `changed` with the accumulated result.
     void finish();
     void fail(const QString &message);
-    // Sin letra sincronizada en ninguna fuente: se queda el plano si lo hay.
+    // No synced lyrics in any source: it keeps the plain one if there is
     void settleOrFail();
 
-    // Vuelca un objeto JSON de LRCLIB (get o search) al estado. Un resultado
-    // con "syncedLyrics" gana siempre; el plano solo se guarda si aún no hay.
+    // Dumps a LRCLIB JSON object (get or search) into the state. A result
+    // with "syncedLyrics" always wins; the plain one is only stored if
+    // there is none yet.
     void applyPayload(const QJsonObject &obj);
     void rememberPlain(const QString &plain, const char *source);
-    // Adopta un LRC como letra sincronizada. `filterCredits` elimina las líneas
-    // de créditos (típicas en NetEase: 作词/作曲/...). Devuelve false si el LRC
-    // no es utilizable (p. ej. solo créditos), dejando el estado intacto.
+    // Adopts an LRC as synced lyrics. `filterCredits` removes the credit
+    // lines (typical in NetEase: 作词/作曲/...). It returns false if the LRC
+    // is not usable (e.g. only credits), leaving the state untouched.
     bool adoptSynced(const QString &lrc, const QString &source,
                      bool filterCredits);
-    // Puntúa los resultados de la búsqueda de NetEase y elige el mejor.
+    // Scores the NetEase search results and picks the best one.
     int scoreNetease(const QJsonObject &song) const;
 
     static QVector<LrcLine> parseLrc(const QString &text, bool filterCredits);
     static bool looksLikeCredit(const QString &line);
 
-    // ---- caché local de Sonora (letra con tiempos POR PALABRA) ------------
-    // El reproductor de escritorio Sonora cachea en
-    // ~/.cache/sonora/cache.sqlite las letras que ya bajó, indexadas por vídeo
-    // de YouTube, con los tiempos por palabra de Apple Music/Musixmatch. Es la
-    // MISMA fuente que usa el widget de escritorio, así que leerla da karaoke
-    // palabra a palabra sin pedir nada a la red. Solo se usa si la pista tiene
-    // vídeo y está en la caché; si no, sigue la cascada normal.
+    // ---- local Sonora cache (lyrics with WORD level timings) ------------
+    // The Sonora desktop player caches in ~/.cache/sonora/cache.sqlite the
+    // lyrics it already downloaded, indexed by YouTube video, with the
+    // word level timings of Apple Music/Musixmatch. It is the SAME source
+    // the desktop widget uses, so reading it gives word level karaoke
+    // without asking the network for anything. It is only used if the
+    // track has a video and it is in the cache; otherwise the normal
+    // cascade carries on.
     bool trySonoraCache();
-    // Fallback: la misma caché de Sonora buscada por TÍTULO y ARTISTA (no
-    // sólo por videoId), como hace el widget del shell. Cubre las pistas
-    // cuyo videoId no es el que Sonora cacheó: sin esto se quedaban con
-    // tiempos por línea y el karaoke palabra a palabra no aparecía.
+    // Fallback: the same Sonora cache searched by TITLE and ARTIST (not
+    // only by videoId), like the shell widget does. It covers the tracks
+    // whose videoId is not the one Sonora cached: without this they were
+    // left with line level timings and the word level karaoke did not
+    // show up.
     bool trySonoraByTitle();
-    // LRC enriquecido: además de la marca de línea, la de cada palabra
-    // ("<mm:ss.xx>palabra"). Es lo que permite el karaoke palabra a
-    // palabra.
+    // Enriched LRC: besides the line timing it has the timing of every
+    // word between angle brackets ("<mm:ss.xx>word"). That is what allows
+    // the word level karaoke.
     static QVector<LrcLine> parseLrcWords(const QString &text);
-    // ¿La letra actual trae tiempos por palabra?
+    // Does the current lyrics bring word level timings?
     bool hasWordTimings() const;
-    // Adopta líneas ya construidas (con palabras) como letra sincronizada.
+    // Adopts already built lines (with words) as synced lyrics.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source);
 
-    // ---- estado publicado para el escritorio (widgets inir) ---------------
-    // La app vuelca su estado de letras en ~/.local/state/lotus-tune/ para que
-    // los widgets de la pantalla de bloqueo y del escritorio pinten EXACTAMENTE
-    // la misma letra, con el mismo reloj y el mismo ajuste de sincronía:
-    //   lyrics.json          → líneas (con palabras), meta de la pista, offset
-    //                          y modo karaoke; se escribe al cambiar de pista,
-    //                          de letra o de ajuste.
-    //   lyrics-runtime.json  → posición/estado del motor con marca de tiempo;
-    //                          en reproducción cada ~1 s y al pausar o buscar.
-    // El reloj viaja aquí y no por MPRIS porque la posición de mpv es real
-    // (microsegundos) mientras la del bus llega redondeada para otros casos.
+    // ---- state published for the desktop (inir widgets) ---------------
+    // The app dumps its lyrics state in ~/.local/state/lotus-tune/ so the
+    // lock screen and desktop widgets paint EXACTLY the same lyrics, with
+    // the same clock and the same sync adjustment:
+    //   lyrics.json          -> lines (with words), track meta, offset and
+    //                          karaoke mode; it is written on a track, lyrics
+    //                          or adjustment change.
+    //   lyrics-runtime.json  -> engine position/state with a timestamp;
+    //                          every ~1 s while playing and on pause or
+    //                          seek.
+    // The clock travels here and not through MPRIS because mpv's position
+    // is real (microseconds) while the bus one arrives rounded for other
+    // cases.
 private:
     void publishTrack();          // pista nueva: reescribir ambos ficheros
     void publishLines();          // letra resuelta (o descartada): letras + meta
     void publishRuntime();        // posición/offset/playing al vuelo (ligero)
     void removePublished();       // sin letra o app fuera: borrar los ficheros
-    // El motor y el latido de publicación (posición cada ~1 s en reproducción).
+    // The engine and the publishing beat (position every ~1 s while playing).
     Player *m_engine = nullptr;
     QTimer *m_runtimeBeat = nullptr;
     double m_offset = 0.0;
@@ -219,18 +231,18 @@ private:
     QString m_artist;
     QString m_title;
     int m_duration = 0;         // segundos redondeados
-    // Número de fetch() en curso. Junto con m_trackKey descarta cualquier
-    // respuesta de una petición antigua aunque la clave se repita (p. ej. dos
-    // fetch() seguidos de la misma pista mientras cargaba la duración).
+    // Number of fetch() in flight. Together with m_trackKey it drops any
+    // reply from an old request even if the key repeats (e.g. two
+    // fetch() in a row for the same track while the duration loaded).
     int m_gen = 0;
     QStringList m_ytmIds;       // vídeos candidatos de YouTube Music
     int m_ytmIdx = 0;           // candidato en curso
     QString m_ytmBrowseId;      // browseId «MPLYt_*» de la letra actual
-    // Cierto cuando ya hemos probado el vídeo exacto m_videoId y no tenía
-    // letra: la búsqueda por título actúa entonces como respaldo (una vez).
+    // True when the exact video m_videoId has already been tried and had
+    // no lyrics: the title search then works as a fallback (once).
     bool m_exactTried = false;
-    // ¿Se ha pedido ya a NetEase por los tiempos por palabra? (evita el
-    // bucle: NetEase sin "klyric" vuelve a caer aquí).
+    // Has NetEase already been asked for the word level timings? (it
+    // avoids the loop: NetEase without "klyric" lands here again).
     bool m_neteaseTried = false;
     bool m_loading = false;
     bool m_hasLyrics = false;
@@ -241,7 +253,7 @@ private:
     QString m_syncSource;       // "ytmusic" | "lrclib" | "netease"
     QString m_plainSource;      // "ytmusic" | "lrclib"
     QVector<LrcLine> m_lines;   // LRC cacheado y ordenado
-    // Vídeo exacto en reproducción (si la pista vino de YouTube): se intenta
-    // primero, antes de re-buscar por título.
+    // Exact video being played (if the track came from YouTube): it is
+    // tried first, before searching again by title.
     QString m_videoId;
 };

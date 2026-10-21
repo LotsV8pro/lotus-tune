@@ -10,17 +10,17 @@
 
 class QNetworkAccessManager;
 
-// Portadas redondeadas («rart»): el recorte y las esquinas se hacen aquí,
-// en la CPU, y el resultado se sirve por un proveedor de imágenes
-// ("image://rart/<clave>") como un PNG con el alfa recortado.
+// Rounded artwork ("rart"): the crop and the corners are done here, in
+// the CPU, and the result is served by an image provider
+// ("image://rart/<key>") as a PNG with the alpha already cut.
 //
-// ¿Por qué en C++ y no en QML? Porque el `clip` de un Rectangle ignora el
-// `radius` (las esquinas salían cuadradas) y el recorte con Canvas
-// depende de la caché de imágenes por URL: si otra parte de la app pide
-// la misma foto en otro tamaño, el lienzo recorta sobre un pixmap que no
-// es el suyo y la portada sale descentrada o directamente vacía. Aquí no
-// hay sorpresas: se descarga una vez, se recorta al centro al tamaño
-// exacto que se pide y se le aplica la máscara redondeada.
+// Why in C++ and not in QML? Because a Rectangle's `clip` ignores its
+// `radius` (the corners came out square) and cropping with a Canvas
+// depends on the image cache keyed by URL: when another part of the app
+// asks for the same photo at another size, the canvas crops over a pixmap
+// that is not its own and the artwork comes out off-centre or empty.
+// Here there are no surprises: it is downloaded once, cropped to the
+// centre at the exact size that is asked for and given the rounded mask.
 class RoundedArt : public QObject
 {
     Q_OBJECT
@@ -28,25 +28,26 @@ class RoundedArt : public QObject
 public:
     explicit RoundedArt(QObject *parent = nullptr);
 
-    // URL de la portada ya procesada. Si todavía no está, devuelve la
-    // misma URL con la versión 0 (el proveedor no tiene nada que dar) y
-    // lanza el trabajo en segundo plano; cuando termina se emite
-    // ready(clave) y el QML vuelve a pedir la URL (ya con versión nueva).
+    // URL of the already processed artwork. If it is not ready yet it
+    // returns the same URL with version 0 (the provider has nothing to
+    // give) and starts the work in the background; when it finishes
+    // ready(key) is emitted and the QML asks for the URL again (now with
+    // the new version).
     //
-    //   candidates : urls candidatas (se prueban en orden)
-    //   boxW/boxH : el hueco en píxeles lógicos
-    //   radius    : radio de las esquinas en píxeles lógicos
-    //   scale     : el factor de pantalla (dpr)
+    //   candidates : candidate urls (tried in order)
+    //   boxW/boxH : the slot in logical pixels
+    //   radius    : corner radius in logical pixels
+    //   scale     : the screen factor (dpr)
     Q_INVOKABLE QString url(const QStringList &candidates, int boxW, int boxH,
                             int radius, qreal scale);
     Q_INVOKABLE QString url(const QString &src, int boxW, int boxH,
                             int radius, qreal scale);
 
-    // La clave de una combinación (para que el QML compare con la señal).
+    // The key of a combination (so the QML can compare it with the signal).
     Q_INVOKABLE QString key(const QStringList &candidates, int boxW, int boxH,
                             int radius, qreal scale) const;
 
-    // La imagen ya procesada (la pide el proveedor).
+    // The already processed image (the provider asks for it).
     QImage image(const QString &key) const;
 
 signals:
@@ -68,21 +69,21 @@ private:
 
     void start(const QString &key);
     void tryNext(const QString &key, int index);
-    // Recorta al centro al tamaño pedido y le aplica la máscara.
+    // Crops to the centre at the requested size and applies the mask.
     static QImage process(const QImage &src, int boxW, int boxH, int radius,
                            qreal scale);
 
     QNetworkAccessManager *m_net;
     mutable QMutex m_mutex;
     QHash<QString, Job> m_jobs;
-    // Las fotos ya bajadas, por URL: así la misma portada no se descarga
-    // otra vez cuando se pide en un tamaño distinto.
+    // The already downloaded photos, by URL: that way the same artwork is
+    // not downloaded again when it is asked at a different size.
     QHash<QString, QImage> m_originals;
     QStringList m_originalOrder;
 };
 
-// Proveedor síncrono: devuelve la imagen ya recortada y redondeada. La
-// clave de la URL lleva la versión, para que al repedirla se repinte.
+// Synchronous provider: returns the image already cropped and rounded. The
+// URL key carries the version, so asking for it again repaints it.
 class RoundedArtProvider : public QQuickImageProvider
 {
 public:

@@ -46,11 +46,11 @@ static void dumpErrors(const QQmlComponent &component)
 }
 
 // ---------------------------------------------------------------------------
-// Botones laterales del ratón (4 = atrás, 5 = adelante).
+// Mouse side buttons (4 = back, 5 = forward).
 //
-// Se filtran a nivel de ventana para que lleguen siempre, aunque el QML que
-// haya debajo (listas, paneles) consuma el evento. Llama a funciones QML del
-// objeto raíz ("mouseNavBack" / "mouseNavForward").
+// They are filtered at the window level so they always arrive, even if the
+// QML below (lists, panels) eats the event. It calls the root QML object's
+// functions ("mouseNavBack" / "mouseNavForward").
 // ---------------------------------------------------------------------------
 class MouseNavFilter : public QObject
 {
@@ -63,12 +63,12 @@ protected:
     {
         if (ev->type() == QEvent::MouseButtonPress) {
             const auto *me = static_cast<QMouseEvent *>(ev);
-            // Clic fuera del campo de texto activo: le quita el foco, como en
-            // la web. Sin esto la caja de «Buscar» se queda focuseada aunque
-            // se pinche en otra parte, los atajos (F, L, M, Space…) siguen
-            // filtrándose por estar «escribiendo» y mueren hasta reiniciar.
-            // Se hace aquí porque el `Item` de Qt 6.12 aún no tiene la señal
-            // containsMousePressed con la que se resolvería sólo en QML.
+            // Click outside the focused text field: it drops the focus, like
+            // on the web. Without this the "Search" box stays focused even
+            // when clicking elsewhere, the shortcuts (F, L, M, Space...) keep
+            // being filtered as if "typing" and they die until restart.
+            // It is done here because Qt 6.12's `Item` still has no
+            // containsMousePressed signal, which would solve it in QML alone.
             auto *win = qobject_cast<QQuickWindow *>(parent());
             if (win && win->activeFocusItem()) {
                 QQuickItem *focus = win->activeFocusItem();
@@ -96,14 +96,14 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Instancia única (QLocalServer + QLocalSocket)
+// Single instance (QLocalServer + QLocalSocket)
 //
-// La segunda instancia no crea ventana: conecta al socket de la primera, le
-// manda "raise" y sale con 0. Redes de seguridad:
-//  - si el socket quedó huérfano (SIGKILL/pkill sin limpieza) se borra y se
-//    sigue arrancando con normalidad;
-//  - un fichero PID permite detectar instancias vivas, y si el PID está muerto
-//    se limpia para no bloquear nunca el arranque.
+// The second instance creates no window: it connects to the first one's
+// socket, sends it "raise" and exits with 0. Safety nets:
+//  - if the socket was left orphan (SIGKILL/pkill without cleanup) it is
+//    removed and the app starts normally;
+//  - a PID file allows detecting live instances, and if the PID is dead it
+//    is cleaned so the startup is never blocked.
 // ---------------------------------------------------------------------------
 
 static QQuickWindow *g_mainWindow = nullptr;
@@ -133,8 +133,8 @@ static bool processAlive(qint64 pid)
     return ::kill(static_cast<pid_t>(pid), 0) == 0;
 }
 
-// El PID debe pertenecer de verdad a lotus-tune (evita bloquear el arranque
-// por un PID reciclado por otro proceso).
+// The PID must really belong to lotus-tune (it avoids blocking the startup
+// with a PID recycled by another process).
 static bool isLotusTunePid(qint64 pid)
 {
     if (pid <= 0)
@@ -154,8 +154,8 @@ static bool sendRaiseToServer()
     sock.write("raise\n");
     sock.flush();
     sock.waitForBytesWritten(250);
-    // No se espera respuesta: la primera instancia puede estar aún cargando
-    // QML (sin bucle de eventos); el dato queda en el buffer de su socket.
+    // No answer is awaited: the first instance may still be loading QML
+    // (no event loop); the data stays in its socket buffer.
     return true;
 }
 
@@ -170,8 +170,9 @@ static void raiseMainWindow()
 
 enum class SingleInstance { Primary, ExistingRaised };
 
-// Devuelve ExistingRaised si ya había una instancia viva y se le pidió que
-// suba la ventana (el llamante debe salir sin crear ventana).
+// It returns ExistingRaised if there was already a live instance and it was
+// asked to raise its window (the caller must exit without creating a
+// window).
 static SingleInstance setupSingleInstance(QLocalServer **outServer)
 {
     const QString sock = appSocketPath();
@@ -185,8 +186,8 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
     }
     const bool live = processAlive(pid) && isLotusTunePid(pid);
 
-    // Con una instancia viva puede existir una ventana de arranque en la que
-    // el servidor ya escucha: se reintenta brevemente antes de rendirse.
+    // With a live instance there may be a startup window where the server
+    // already listens: it retries briefly before giving up.
     const int tries = live ? 6 : 1;
     for (int i = 0; i < tries; ++i) {
         if (sendRaiseToServer())
@@ -195,7 +196,8 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
             QThread::msleep(150);
     }
 
-    // Nadie escucha: limpiar restos (socket huérfano y, si procede, PID muerto).
+    // Nobody listens: leftovers are cleaned (orphan socket and, if needed,
+    // dead PID).
     QFile::remove(sock);
     if (!live)
         QFile::remove(pidFile);
@@ -203,8 +205,9 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
     auto *server = new QLocalServer;
     server->setSocketOptions(QLocalServer::UserAccessOption);
     if (!server->listen(sock)) {
-        // Carrera: otro proceso pudo escuchar entre medias. Si responde, él
-        // manda; si no, el socket es basura y se reintenta una vez.
+        // Race: another process may have listened in between. If it
+        // answers, it rules; if not, the socket is garbage and it is
+        // retried once.
         if (sendRaiseToServer()) {
             delete server;
             return SingleInstance::ExistingRaised;
@@ -243,19 +246,20 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
 }
 
 // ---------------------------------------------------------------------------
-// Ajustes que SOLO pueden aplicarse antes de que el cargador dinámico cargue el
-// driver gráfico (libQt6Gui enlaza libGLX/libEGL). qputenv() dentro de main()
-// llega tarde: el vendor ya se ha cargado. Así que, si faltan, nos
-// re-ejecutamos UNA vez con ellos puestos. El re-exec conserva el PID, de modo
-// que es transparente para systemd (una sola unidad) y para la instancia única.
+// Settings that can ONLY be applied before the dynamic loader loads the
+// graphics driver (libQt6Gui links libGLX/libEGL). A qputenv() inside
+// main() comes too late: the vendor is already loaded. So, if they are
+// missing, we re-exec ourselves ONCE with them set. The re-exec keeps
+// the PID, so it is transparent to systemd (a single unit) and to the
+// single instance.
 //
-//   · MANGOHUD=0 — MangoHud viene activado en el entorno de sesión y añade
-//     ~23 MB de RSS a un reproductor que no dibuja overlays.
-//   · __GLX_VENDOR_LIBRARY_NAME=mesa — libGLX carga el vendor de la GPU al
-//     arrancar; con render por software no se usa GL, así que cargamos el de
-//     Mesa (~18 MB) en lugar del de NVIDIA (~47 MB).
+//   . MANGOHUD=0 - MangoHud comes enabled in the session environment and
+//     adds ~23 MB of RSS to a player that does not draw overlays.
+//   . __GLX_VENDOR_LIBRARY_NAME=mesa - libGLX loads the GPU vendor at
+//     startup; with software rendering GL is not used, so Mesa's (~18 MB)
+//     is loaded instead of NVIDIA's (~47 MB).
 //
-// Escape hatch: LOTUS_TUNE_NO_TWEAKS=1 desactiva ambos.
+// Escape hatch: LOTUS_TUNE_NO_TWEAKS=1 disables both.
 // ---------------------------------------------------------------------------
 static void ensureFrugalExecEnv(char *argv[])
 {
@@ -268,10 +272,10 @@ static void ensureFrugalExecEnv(char *argv[])
         qputenv("MANGOHUD", "0");
         changed = true;
     }
-    // Sólo cuando el render es por software (el backend por defecto): si el
-    // usuario fuerza un backend de GPU, se respeta su elección. La sesión ya
-    // trae __GLX_VENDOR_LIBRARY_NAME=nvidia, así que hay que sobrescribirlo
-    // (no basta con rellenarlo si falta).
+    // Only when the rendering is software (the default backend): if the
+    // user forces a GPU backend their choice is respected. The session
+    // already brings __GLX_VENDOR_LIBRARY_NAME=nvidia, so it has to be
+    // overwritten (filling it in if missing is not enough).
     if (qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND")
         && qgetenv("__GLX_VENDOR_LIBRARY_NAME") != "mesa") {
         qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
@@ -287,7 +291,8 @@ static void ensureFrugalExecEnv(char *argv[])
         return;
     exe[n] = '\0';
     ::execv(exe, argv);
-    // Si execv falla, seguimos con el proceso actual (sin los retoques).
+    // If execv fails, we carry on with the current process (without the
+    // tweaks).
 }
 
 int main(int argc, char *argv[])
@@ -296,34 +301,35 @@ int main(int argc, char *argv[])
 
     qInstallMessageHandler(rawMessageHandler);
 
-    // Render por software de Qt Quick: evita por completo el contexto OpenGL,
-    // el driver de GPU (Mesa/llvmpipe/NVIDIA) y sus buffers de texturas/vertex.
-    // Es la palanca que más recorta la RAM (heap de Qt Quick ~85 MB -> ~28 MB
-    // en el perfil medido). Solo se fija si el usuario no lo ha forzado ya,
-    // para poder volver a GL con QT_QUICK_BACKEND=rhi|software|... si hiciera
-    // falta. Debe correr antes de QGuiApplication.
+    // Qt Quick software rendering: it avoids the OpenGL context entirely,
+    // the GPU driver (Mesa/llvmpipe/NVIDIA) and its texture/vertex
+    // buffers. It is the lever that trims the RAM the most (Qt Quick heap
+    // ~85 MB -> ~28 MB in the measured profile). It is only set if the user
+    // has not forced it already, so GL can be brought back with
+    // QT_QUICK_BACKEND=rhi|software|... if it were ever needed. It must
+    // run before QGuiApplication.
     const bool softwareBackend = qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND");
     if (softwareBackend)
         qputenv("QT_QUICK_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "basic");
 
-    // Este reproductor nunca decodifica vídeo: los sonidos de interfaz usan
-    // QSoundEffect (solo audio). Desactivar el sondeo de aceleración por
-    // hardware de Qt Multimedia evita que su backend ffmpeg cargue VA-API,
-    // VDPAU, CUDA y el driver de vídeo de NVIDIA, y de paso que haga la
-    // primera llamada a GL que arrastra el vendor completo del driver
-    // (~40-65 MB de RSS). Debe correr antes de construir QGuiApplication.
+    // This player never decodes video: the interface sounds use
+    // QSoundEffect (audio only). Turning off Qt Multimedia's hardware
+    // probing keeps its ffmpeg backend from loading VA-API, VDPAU, CUDA
+    // and NVIDIA's video driver, and from making the first GL call that
+    // drags in the whole driver vendor (~40-65 MB of RSS). It must run
+    // before building QGuiApplication.
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "");
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", "");
 
-    // Con render por software no se usa GL nunca. Si GLVND acaba cargando un
-    // vendor (libGLX/libEGL son DT_NEEDED de libQt6Gui), que sea el de Mesa
-    // (pequeño) y no el de NVIDIA (libnvidia-glcore + libnvidia-gpucomp,
-    // ~47 MB). Sólo cuando elegimos software, para no degradar a quien fuerce
-    // QT_QUICK_BACKEND=rhi a propósito.
+    // With software rendering GL is never used. If GLVND ends up loading a
+    // vendor (libGLX/libEGL are DT_NEEDED of libQt6Gui), let it be Mesa's
+    // (small) and not NVIDIA's (libnvidia-glcore + libnvidia-gpucomp,
+    // ~47 MB). Only when we choose software, so nobody who forces
+    // QT_QUICK_BACKEND=rhi on purpose is degraded.
     if (softwareBackend) {
         if (qEnvironmentVariableIsEmpty("__GLX_VENDOR_LIBRARY_NAME"))
             qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
@@ -331,7 +337,7 @@ int main(int argc, char *argv[])
             qputenv("LIBGL_ALWAYS_SOFTWARE", "1");
     }
 
-    // Entorno frugal de Qt Quick (debe correr antes de QGuiApplication).
+    // Frugal Qt Quick environment (must run before QGuiApplication).
     applyPerfEnv();
 
     QGuiApplication app(argc, argv);
@@ -339,8 +345,8 @@ int main(int argc, char *argv[])
     app.setOrganizationName(QStringLiteral("lotus-tune"));
     app.setDesktopFileName(QStringLiteral("lotustune"));
 
-    // Instancia única: la segunda se limita a pedir a la primera que suba la
-    // ventana y sale con 0 sin crear nada.
+    // Single instance: the second one just asks the first to raise the
+    // window and exits with 0 without creating anything.
     QLocalServer *instanceServer = nullptr;
     if (setupSingleInstance(&instanceServer) == SingleInstance::ExistingRaised) {
         qInfo() << "[single] ya hay una instancia en marcha; ventana solicitada";
@@ -375,50 +381,51 @@ int main(int argc, char *argv[])
     Player player;
     engine.rootContext()->setContextProperty(QStringLiteral("player"), &player);
 
-    // Letras sincronizadas (LRCLIB) para la vista "Now Playing".
+    // Synced lyrics (LRCLIB) for the "Now Playing" view.
     Lyrics lyrics;
     engine.rootContext()->setContextProperty(QStringLiteral("lyrics"), &lyrics);
-    // El motor alimenta el estado de letras publicado para los widgets de
-    // inir (posición y play/pausa del reloj). Ver Lyrics::setEngine.
+    // The engine feeds the lyrics state published for the inir widgets
+    // (clock position and play/pause). See Lyrics::setEngine.
     lyrics.setEngine(&player);
 
     // Discord Rich Presence.
     DiscordRpc discord;
     engine.rootContext()->setContextProperty(QStringLiteral("discord"), &discord);
 
-    // Controles multimedia del sistema (MPRIS2 sobre D-Bus). Se le inyecta el
-    // motor mpv para publicar posición/duración reales.
+    // System media controls (MPRIS2 over D-Bus). The mpv engine is injected
+    // into it to publish the real position/duration.
     Mpris mpris(&player);
     engine.rootContext()->setContextProperty(QStringLiteral("mpris"), &mpris);
-    // org.mpris.MediaPlayer2.Raise -> traer la ventana al frente.
+    // org.mpris.MediaPlayer2.Raise -> bring the window to the front.
     QObject::connect(&mpris, &Mpris::raiseRequested, [] { raiseMainWindow(); });
-    // org.mpris.MediaPlayer2.Quit -> salir. Main.qml también lo maneja con
-    // Qt.quit(), pero el cierre no debe depender de que la capa QML esté en
-    // el punto exacto de su ciclo: aquí se garantiza (idempotente).
+    // org.mpris.MediaPlayer2.Quit -> quit. Main.qml also handles it with
+    // Qt.quit(), but the close must not depend on the QML layer being at
+    // the exact point of its cycle: it is guaranteed here (idempotent).
     QObject::connect(&mpris, &Mpris::quitRequested, &app, &QCoreApplication::quit);
 
-    // Descargas de YouTube (yt-dlp) + biblioteca local.
+    // YouTube downloads (yt-dlp) + local library.
     Downloads downloads;
     engine.rootContext()->setContextProperty(QStringLiteral("downloads"), &downloads);
 
     Sfx sfx;
     engine.rootContext()->setContextProperty(QStringLiteral("sfx"), &sfx);
 
-    // Lavado de fondo: desenfoque real en CPU de la miniatura de la pista,
-    // servido por proveedor de imágenes («image://wash/<serial>»). Así el
-    // fondo y el modo cine salen en vela suave, sin bloques ni pixelado.
+    // Background wash: a real CPU blur of the track's thumbnail, served by
+    // an image provider ("image://wash/<serial>"). That way the
+    // background and the cinema mode come out as a soft veil, with no
+    // blocks and no pixelation.
     Wash wash(&engine);
     engine.addImageProvider(QStringLiteral("wash"), new WashProvider(&wash));
     engine.rootContext()->setContextProperty(QStringLiteral("wash"), &wash);
 
-    // Sacacolors de portadas para las tarjetas (color dominante → cara).
+    // Colour picker of the artworks for the cards (dominant colour -> face).
     ColorPick colorpick(&engine);
     engine.rootContext()->setContextProperty(QStringLiteral("colorpick"), &colorpick);
 
-    // Portadas redondeadas: el recorte central y las esquinas se hacen en
-    // la CPU y se sirven por proveedor de imágenes («image://rart/<clave>»).
-    // Así las esquinas quedan redondeadas de verdad (el `clip` de un
-    // Rectangle ignora el radio) y el recorte nunca sale descentrado.
+    // Rounded artwork: the centre crop and the corners are done in the
+    // CPU and served by an image provider ("image://rart/<key>").
+    // That way the corners are really rounded (a Rectangle's `clip` ignores
+    // the radius) and the crop never comes out off-centre.
     RoundedArt roundedart(&engine);
     engine.addImageProvider(QStringLiteral("rart"), new RoundedArtProvider(&roundedart));
     engine.rootContext()->setContextProperty(QStringLiteral("rart"), &roundedart);

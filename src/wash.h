@@ -10,12 +10,12 @@
 
 class QNetworkAccessManager;
 
-// Lavado de fondo («wash»): descarga la miniatura de la pista y le aplica un
-// desenfoque REAL en la CPU — bajado por mitades (promedio: borra los bloques
-// JPEG), caja separable, y subida final bilineal. El resultado se sirve por
-// un proveedor de imágenes ("image://wash/<serial>") para que el fondo de la
-// app y el modo cine se vean como una vela suave, sin bloques ni pixelado,
-// sin usar shaders (la app corre con backend de software).
+// Background wash ("wash"): it downloads the track's thumbnail and applies a
+// REAL blur in the CPU - halving (averaging: it melts the JPEG blocks),
+// a separable box and a final bilinear upscale. The result is served by an
+// image provider ("image://wash/<serial>") so the app background and the
+// cinema mode look like a soft veil, without blocks or pixelation and
+// without shaders (the app runs on the software backend).
 class Wash : public QObject
 {
     Q_OBJECT
@@ -28,18 +28,18 @@ public:
     int serial() const { return m_serial; }
     bool valid() const { return !m_image.isNull(); }
 
-    // Cambia la imagen fuente (la miniatura de la pista). Vacío = sin cambio
-    // de imagen guardada; el QML decide ocultar el lavado.
+    // Changes the source image (the track's thumbnail). Empty = no change
+    // of the stored image; the QML decides to hide the wash.
     Q_INVOKABLE void setSource(const QUrl &url);
 
-    // La imagen desenfocada actual (la pide el proveedor).
+    // The current blurred image (the provider asks for it).
     QImage blurred() const { return m_image; }
 
 signals:
     void changed();
 
 private:
-    // Pipeline de desenfoque: mitades + caja separable ×2 + subida bilineal.
+    // Blur pipeline: halving + separable box ×2 + bilinear upscale.
     static QImage blurPipeline(const QImage &src);
 
     QNetworkAccessManager *m_net;
@@ -48,8 +48,8 @@ private:
     int m_serial = 0;
 };
 
-// Proveedor síncrono: devuelve el desenfoque ya calculado. La clave es el
-// número de pista (serial), que rompe la caché del Image en QML al cambiar.
+// Synchronous provider: returns the blur already computed. The key is the
+// track serial, which breaks the Image's cache in QML when it changes.
 class WashProvider : public QQuickImageProvider
 {
 public:
@@ -62,20 +62,20 @@ private:
     Wash *m_wash;
 };
 
-// Sacacolors («colorpick»): descarga una miniatura y saca su color
-// DOMINANTE a lo barato — la imagen se baja a 48 px y se cuenta en un
-// histograma RGB de 5×5×5 cubos, ponderando cada píxel por su saturación
-// (los colores vivos mandan; los grises y negritos casi no puntúan). El cubo
-// más poblado da el color de la tarjeta. Caché por URL: cada arte se
-// descarga una sola vez aunque las tarjetas se reciclen al hacer scroll.
+// Colour picker ("colorpick"): it downloads a thumbnail and extracts its
+// DOMINANT colour cheaply - the image is downloaded at 48 px and counted
+// in a 5x5x5 RGB histogram, weighting every pixel by its saturation
+// (the vivid colours win; the greys and the near blacks barely score).
+// The most populated cube gives the card's colour. Cached by URL: every
+// artwork is downloaded once even if the cards are recycled on scroll.
 class ColorPick : public QObject
 {
     Q_OBJECT
 public:
     explicit ColorPick(QObject *parent = nullptr);
 
-    // Lanza la extracción; al terminar emite found(url, color). Si ya está
-    // en caché, el emit es inmediato (mismo bucle, sin red).
+    // Starts the extraction; when it finishes it emits found(url, color).
+    // If it is already cached the emit is immediate (same loop, no network).
     Q_INVOKABLE void pick(const QUrl &url);
 
 signals:
@@ -83,7 +83,7 @@ signals:
 
 private:
     static QColor dominant(const QImage &img);
-    // Descarga (en la variante pequeña si existe) y saca el color.
+    // Downloads (the small variant if there is one) and extracts the colour.
     void fetch(const QUrl &orig, const QUrl &download, const QString &key);
 
     QNetworkAccessManager *m_net;
