@@ -151,8 +151,10 @@ void RoundedArt::tryNext(const QString &key, int index)
         radius = it->radius;
         scale = it->scale;
     }
-    if (index >= candidates.size())
+    if (index >= candidates.size()) {
+        qInfo() << "[rart] sin candidatas válidas para" << key;
         return;      // ninguna sirve: la tarjeta se queda con su degradado.
+    }
 
     const QString url = candidates.at(index);
     QNetworkRequest req{QUrl(url)};

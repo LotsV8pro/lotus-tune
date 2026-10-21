@@ -22,6 +22,13 @@ class Catalog : public QObject
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QVariantList results READ results NOTIFY changed)
     Q_PROPERTY(QString resultsQuery READ resultsQuery NOTIFY changed)
+    // Resultados de la búsqueda por TODAS las fuentes: una lista de grupos
+    // { id, name, items, locked } — uno por fuente, en el orden del
+    // registro (YouTube Music primero). Las fuentes bloqueadas aparecen
+    // con locked = true y sin resultados, para que se vea qué falta.
+    Q_PROPERTY(QVariantList resultsBySource READ resultsBySource NOTIFY changed)
+    // ¿Hay una búsqueda por todas las fuentes en marcha?
+    Q_PROPERTY(bool multiSearching READ multiSearching NOTIFY changed)
     Q_PROPERTY(QVariantList tracks READ tracks NOTIFY changed)
     Q_PROPERTY(QString tracksTitle READ tracksTitle NOTIFY changed)
     Q_PROPERTY(QVariantList playlists READ playlists NOTIFY libraryChanged)
@@ -52,6 +59,8 @@ public:
     QString error() const { return m_error; }
     QVariantList results() const { return m_results; }
     QString resultsQuery() const { return m_resultsQuery; }
+    QVariantList resultsBySource() const { return m_resultsBySource; }
+    bool multiSearching() const { return m_multiActive; }
     QVariantList tracks() const { return m_tracks; }
     QString tracksTitle() const { return m_tracksTitle; }
     QVariantList playlists() const { return m_playlists; }
@@ -67,6 +76,12 @@ public:
     QString loginUrl() const { return m_loginUrl; }
 
     Q_INVOKABLE void search(const QString &query);
+    // Búsqueda en TODAS las fuentes disponibles a la vez: se consulta una
+    // tras otra (la búsqueda de cada fuente es un proceso aparte) y los
+    // resultados van llegando por grupos, en el orden del registro. Es lo
+    // que usan el lanzador (Ctrl+Espacio) y la página Buscar: no hace
+    // falta elegir fuente antes de buscar.
+    Q_INVOKABLE void searchAll(const QString &query);
     Q_INVOKABLE void openPlaylist(int savedIndex);
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
     // Autorradio de YouTube Music para un videoId (lo que la propia app pone
@@ -186,6 +201,13 @@ private:
     // anula a la anterior (cambiar de artista con su discografía aún llegando).
     void runArtist(const QStringList &args, const QString &mode,
                    const QString &arg);
+    // Búsqueda en una fuente concreta ("ytm", "soundcloud"…): usa la vía
+    // rápida de YT Music si procede y, si no, yt-dlp con su prefijo.
+    void searchInSource(const QString &source, const QString &query);
+    // Cadena de la búsqueda por todas las fuentes: siguiente fuente a
+    // consultar y volcado de los resultados de la que acaba de terminar.
+    void nextMultiSource();
+    void absorbMultiResults();
     // Cancela una consulta de fondo en vuelo (radio/autoplay o precarga). Es
     // best-effort, así que pierde siempre frente a una acción del usuario.
     // Devuelve true si había una y se ha cancelado.
@@ -276,6 +298,13 @@ private:
     QString m_error;
     QVariantList m_results;
     QString m_resultsQuery;
+    // Búsqueda por todas las fuentes: los grupos van llenándose uno a uno
+    // (cada fuente es una consulta) y se emiten al terminar cada una.
+    QVariantList m_resultsBySource;
+    QStringList m_multiQueue;       // ids de las fuentes que faltan
+    QString m_multiCurrent;         // id de la fuente que se está consultando
+    QString m_multiQuery;
+    bool m_multiActive = false;
     QVariantList m_tracks;
     QString m_tracksTitle;
     // Caché en memoria de resultados de lista (reabrir es instantáneo). La clave

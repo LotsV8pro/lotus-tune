@@ -64,7 +64,7 @@ var topBarH = 52
 // La isla de la barra: el transporte (botones 32) + el progreso fino con su
 // aire ya no cabían en 56 px y los botones quedaban pegados al borde. Subida
 // a 68 para que respiren por arriba y por abajo.
-var playerBarH = 58
+var playerBarH = 60
 var sidePanelMin = 300
 
 function clamp(v, lo, hi) {
