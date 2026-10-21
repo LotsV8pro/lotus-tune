@@ -15,27 +15,28 @@ var medMs = 180
 var slowMs = 280
 
 // Corner radii (px). Todo redondeado, sin esquinas vivas: la escala entera
-// subió un peldaño para que portadas, filas, paneles e islas compartan la
-// misma sensación blanda (antes cada cual usaba su radio y se veía suelto).
+// went up a step so that artworks, rows, panels and islands share the same
+// soft feeling (before each one used its own radius and it looked loose).
 var rSm = 8
 var rMd = 14
 var rLg = 18
 var rXl = 22
 
-// Pills: control cápsula (radio = alto/2). Chips, toggles, pestañas y
-// botones de acción/navegación. Úsese siempre con un `height` fijo.
-var rPill = 999          // radio "píldora"
-var pillH = 30           // alto estándar de una píldora
-var pillHPad = 14        // relleno horizontal de una píldora
+// Pills: capsule control (radius = height/2). Chips, toggles, tabs and
+// action/navigation buttons. Always use it with a fixed `height`.
+var rPill = 999          // "pill" radius
+var pillH = 30           // standard pill height
+var pillHPad = 14        // pill horizontal padding
 
-// ---- superficies flotantes ------------------------------------------
-// La interfaz se compone de "islas" redondeadas que flotan sobre el fondo de
-// la ventana. Estos tokens gobiernan su radio, la separación con los bordes y
-// entre islas, y la sombra suave que las despega del fondo.
-var rPanel = 20          // radio de las islas (sidebar, barra, contenido…)
-var panelMargin = 14     // aire con el borde de la ventana (deja sitio a la sombra)
-var panelGap = 10        // aire entre islas
-var panelBorderAlpha = 0.11   // filo luminoso que separa la isla del fondo
+// ---- floating surfaces -------------------------------------------
+// The interface is made of rounded "islands" that float over the window
+// background. These tokens govern their radius, the separation with the
+// edges, the air between islands and the soft shadow that lifts them off
+// the background.
+var rPanel = 20          // island radius (sidebar, bar, content...)
+var panelMargin = 14     // air with the window edge (leaves room for the shadow)
+var panelGap = 10        // air between islands
+var panelBorderAlpha = 0.11   // bright edge that separates the island from the background
 
 // Type scale (px). One ramp for the whole app: quiet by default, one clear
 // step for the page title and the now-playing title.
@@ -62,7 +63,8 @@ var rowCompact = 46
 var rowThin = 32
 var topBarH = 52
 // La isla de la barra: el transporte (botones 32) + el progreso fino con su
-// aire ya no cabían en 56 px y los botones quedaban pegados al borde. Subida
+// the air no longer fitted in 56 px and the buttons were glued to the edge.
+// It went up
 // a 68 para que respiren por arriba y por abajo.
 var playerBarH = 60
 var sidePanelMin = 300
