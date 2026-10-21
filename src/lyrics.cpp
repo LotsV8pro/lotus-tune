@@ -76,6 +76,18 @@ static QString norm(const QString &s)
         .remove(junk);
 }
 
+// Quita las coletillas entre paréntesis o corchetes: "Not Ready to Die
+// (From "Call of the Dead")" -> "Not Ready to Die". La caché de Sonora
+// guarda el título pelado, así que para compararlo hay que pelarlo igual.
+static QString stripParenthetical(const QString &s)
+{
+    QString out = s;
+    static const QRegularExpression re(
+        QStringLiteral("\\s*[\\(\\[].*$"));
+    out.remove(re);
+    return out.trimmed();
+}
+
 void Lyrics::fetch(const QString &artist, const QString &title,
                    double durationSeconds, const QString &videoId)
 {
@@ -91,6 +103,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_duration = qMax(0, qRound(durationSeconds));
     m_videoId = videoId.trimmed();
     m_exactTried = m_videoId.isEmpty();
+    m_neteaseTried = false;
     ++m_gen;
 
     m_loading = true;
@@ -120,6 +133,12 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     // Primero la caché local de Sonora: es instantánea y trae tiempos por
     // palabra (karaoke real). Si no está, se sigue con la red.
     if (trySonoraCache()) {
+        finish();
+        return;
+    }
+    // La caché puede tener la pista bajo otro videoId (el que Sonora
+    // cacheó): se busca por título y artista, como hace el widget del shell.
+    if (trySonoraByTitle()) {
         finish();
         return;
     }
@@ -788,8 +807,37 @@ void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
 
     const QString lrc = root.value(QStringLiteral("lrc")).toObject()
                             .value(QStringLiteral("lyric")).toString();
-    if (adoptSynced(lrc, "netease", /*filterCredits=*/true)) {
+    // "klyric" es la misma letra con los tiempos POR PALABRA: si está, se
+    // usa para el karaoke (el widget del shell también va a por ella).
+    const QString klyric = root.value(QStringLiteral("klyric")).toObject()
+                                .value(QStringLiteral("lyric")).toString();
+    if (!klyric.trimmed().isEmpty()) {
+        QVector<LrcLine> worded = parseLrcWords(klyric);
+        int withWords = 0;
+        for (const LrcLine &l : worded) {
+            if (l.words.size() > 1)
+                ++withWords;
+        }
+        if (withWords > 1) {
+            qInfo() << "[lyrics] netease: karaoke con tiempos por palabra ("
+                    << withWords << "líneas)";
+            m_synced = klyric;
+            if (adoptWorded(std::move(worded),
+                            QStringLiteral("netease · karaoke"))) {
+                finish();
+                return;
+            }
+        }
+    }
+    // Sin tiempos por palabra: sólo se usa si aún no tenemos letra
+    // sincronizada (no se pisa una letra buena con otra peor).
+    if (!m_hasSynced && adoptSynced(lrc, "netease", /*filterCredits=*/true)) {
         finish();
+        return;
+    }
+    if (m_hasSynced) {
+        // Ya teníamos letra: NetEase no aporta nada mejor.
+        settleOrFail();
         return;
     }
 
@@ -998,6 +1046,176 @@ bool Lyrics::trySonoraCache()
                                                 : bestSource));
 }
 
+// Fallback de la caché de Sonora: buscar por TÍTULO y ARTISTA, no sólo por
+// el videoId. El widget del shell lo hace así (prefiltrando en SQL con
+// `instr` y comparando bien cada hit) y por eso finds word timings for
+// tracks whose videoId is not the one Sonora cached: the app fell back to
+// YTM/LRCLIB (times per line) and the karaoke por palabra disappeared.
+// Ahora la app usa la misma búsqueda y trae los tiempos por palabra.
+bool Lyrics::trySonoraByTitle()
+{
+    if (m_title.isEmpty())
+        return false;
+    const QString path = QDir::homePath()
+        + QStringLiteral("/.cache/sonora/cache.sqlite");
+    if (!QFile::exists(path))
+        return false;
+
+    QByteArray conn;
+    QVector<QByteArray> payloads;
+    {
+        // Conexión propia y efímera, en solo lectura.
+        const QString cname = QStringLiteral("sonora_lyrics_title");
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), cname);
+        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        db.setDatabaseName(path);
+        if (db.open()) {
+            QSqlQuery q(db);
+            // Prefiltro barato: sólo las filas cuyo texto menciona la
+            // pista. La comparación buena va después, con el JSON ya
+            // parseado. Se prueban varias agujas porque el título de la
+            // app suele traer coletillas ("Not Ready to Die (From "Call
+            // of the Dead")") que en la caché están peladas.
+            QStringList needles;
+            const QString bare = stripParenthetical(m_title);
+            if (!bare.isEmpty() && bare != m_title)
+                needles << bare;
+            needles << m_title;
+            // Las primeras palabras del título: un prefijo corto que
+            // aparece dentro del valor de la fila.
+            const QStringList words = m_title.split(QLatin1Char(' '),
+                                                    Qt::SkipEmptyParts);
+            if (words.size() >= 3) {
+                QString head = words.mid(0, 3).join(QLatin1Char(' '));
+                if (head.size() >= 6 && !needles.contains(head))
+                    needles << head;
+            }
+            if (!m_artist.isEmpty())
+                needles << m_artist;
+            for (const QString &needle : needles) {
+                if (needle.isEmpty())
+                    continue;
+                q.prepare(QStringLiteral("SELECT value FROM lyrics "
+                                         "WHERE instr(lower(value), lower(?)) > 0 "
+                                         "LIMIT 60"));
+                q.bindValue(0, needle);
+                if (q.exec()) {
+                    while (q.next())
+                        payloads.append(q.value(0).toString().toUtf8());
+                }
+                if (!payloads.isEmpty())
+                    break;
+            }
+            db.close();
+        }
+        QSqlDatabase::removeDatabase(cname);
+    }
+    if (payloads.isEmpty())
+        return false;
+
+    qInfo() << "[lyrics] sonora por título: filas =" << payloads.size()
+            << "pista =" << m_trackKey;
+
+    static const QHash<QString, int> rank{
+        { QStringLiteral("Apple Music"), 0 }, { QStringLiteral("Musixmatch"), 1 },
+        { QStringLiteral("NetEase"), 2 },     { QStringLiteral("Kugou"), 3 },
+        { QStringLiteral("LrcLib"), 4 } };
+
+    const QString wantTitle = norm(m_title);
+    const QString wantArtist = norm(m_artist);
+
+    QVector<LrcLine> best;
+    int bestWorded = -1;
+    int bestRank = 99;
+    int bestDiff = 1 << 30;
+    QString bestSource;
+    for (const QByteArray &raw : payloads) {
+        const QJsonObject entry =
+            QJsonDocument::fromJson(raw).object();
+        const QJsonArray hits = entry.value(QStringLiteral("hits")).toArray();
+        for (const QJsonValue &hv : hits) {
+            const QJsonObject h = hv.toObject();
+            // ¿Es esta pista? Título y artista (el artista puede venir con
+            // remitentes: "Artista - Tema").
+            const QString hTitle = norm(h.value(QStringLiteral("title")).toString());
+            const QString hArtist = norm(h.value(QStringLiteral("artist")).toString());
+            if (!wantTitle.isEmpty() && !hTitle.isEmpty()
+                && !hTitle.contains(wantTitle) && !wantTitle.contains(hTitle))
+                continue;
+            if (!wantArtist.isEmpty() && !hArtist.isEmpty()
+                && !hArtist.contains(wantArtist) && !wantArtist.contains(hArtist))
+                continue;
+
+            const QJsonArray ls = h.value(QStringLiteral("lyrics")).toObject()
+                                      .value(QStringLiteral("Synced")).toObject()
+                                      .value(QStringLiteral("lines")).toArray();
+            QVector<LrcLine> parsed;
+            int worded = 0;
+            for (const QJsonValue &lv : ls) {
+                const QJsonObject lo = lv.toObject();
+                const QString text =
+                    lo.value(QStringLiteral("text")).toString().trimmed();
+                if (text.isEmpty())
+                    continue;
+                LrcLine line;
+                line.time = secsOf(lo.value(QStringLiteral("start")));
+                line.text = text;
+                const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
+                if (ws.size() > 1) {
+                    ++worded;
+                    for (const QJsonValue &wv : ws) {
+                        const QJsonObject wo = wv.toObject();
+                        const QString wt = wo.value(QStringLiteral("text")).toString();
+                        if (wt.isEmpty())
+                            continue;
+                        QVariantMap wm;
+                        wm.insert(QStringLiteral("t"),
+                                  secsOf(wo.value(QStringLiteral("start"))));
+                        wm.insert(QStringLiteral("e"),
+                                  secsOf(wo.value(QStringLiteral("end"))));
+                        wm.insert(QStringLiteral("text"), wt);
+                        line.words.append(wm);
+                    }
+                    if (line.words.size() < 2)
+                        line.words.clear();
+                }
+                parsed.append(line);
+            }
+            if (parsed.size() < 2)
+                continue;
+            const QString src = h.value(QStringLiteral("source")).toString();
+            const int rk = rank.value(src, 9);
+            // Duración de la pista en la caché, para desempatar.
+            int diff = 0;
+            const QJsonObject dur = h.value(QStringLiteral("duration")).toObject();
+            if (m_duration > 0 && dur.contains(QStringLiteral("secs"))) {
+                const int ds = dur.value(QStringLiteral("secs")).toInt();
+                diff = qAbs(ds - m_duration);
+            }
+            // Orden: primero el que tiene tiempos por palabra, luego la
+            // fuente más fiable y luego el que encaja en la duración.
+            const bool better = (worded > bestWorded)
+                || (worded == bestWorded && rk < bestRank)
+                || (worded == bestWorded && rk == bestRank && diff < bestDiff);
+            if (better) {
+                bestWorded = worded;
+                bestRank = rk;
+                bestDiff = diff;
+                best = parsed;
+                bestSource = src;
+            }
+        }
+    }
+
+    if (best.size() < 2 || bestWorded <= 0)
+        return false;
+
+    return adoptWorded(std::move(best),
+                       QStringLiteral("sonora · %1").arg(
+                           bestSource.isEmpty() ? QStringLiteral("cache")
+                                                : bestSource));
+}
+
 void Lyrics::settleOrFail()
 {
     if (m_hasLyrics || !m_plain.trimmed().isEmpty())
@@ -1012,6 +1230,15 @@ void Lyrics::finish()
     m_hasLyrics = m_hasSynced || !m_plain.trimmed().isEmpty();
     if (m_hasLyrics)
         m_error.clear();
+
+    // La letra que tenemos no trae tiempos por palabra: se pide a NetEase
+    // su "klyric" (que sí los trae) para tener el karaoke palabra a
+    // palabra, como el widget del shell. Si arrives, se sustituye.
+    if (m_hasSynced && !hasWordTimings() && !m_neteaseTried
+        && !m_title.trimmed().isEmpty()) {
+        m_neteaseTried = true;
+        startNetease();
+    }
 
     const QString source = m_hasSynced
         ? (m_syncSource.isEmpty() ? QStringLiteral("?") : m_syncSource)
@@ -1110,6 +1337,86 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredit
     std::sort(out.begin(), out.end(),
               [](const LrcLine &a, const LrcLine &b) { return a.time < b.time; });
     return out;
+}
+
+// LRC "enriquecido": además de la marca de línea trae la marca de cada
+// palabra entre ángulos: [00:12.34]<00:12.34>Hola <00:12.80>mundo. Es lo
+// que NetEase llama "klyric" y lo que permite el karaoke palabra a
+// palabra.
+QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
+{
+    static const QRegularExpression lineRe(
+        QStringLiteral("\\[(\\d{1,3}):(\\d{1,2}(?:[.:]\\d{1,3})?)\\]"));
+    static const QRegularExpression wordRe(
+        QStringLiteral("<(\\d{1,3}):(\\d{1,2}(?:[.:]\\d{1,3})?)>"));
+
+    QVector<LrcLine> out;
+    const QStringList raw = text.split(QLatin1Char('\n'));
+    for (const QString &rawLine : raw) {
+        const QRegularExpressionMatch lm = lineRe.match(rawLine);
+        if (!lm.hasMatch())
+            continue;
+        const double lineTime = lm.captured(1).toInt() * 60.0
+                              + lm.captured(2).replace(QLatin1Char(':'),
+                                                      QLatin1Char('.')).toDouble();
+        // Texto y marcas de palabra: se corta por las marcas.
+        const QString body = rawLine.mid(lm.capturedEnd(0));
+        LrcLine line;
+        line.time = lineTime;
+        double prev = lineTime;
+        int pos = 0;
+        QRegularExpressionMatchIterator it = wordRe.globalMatch(body);
+        while (it.hasNext()) {
+            const QRegularExpressionMatch m = it.next();
+            const double t = m.captured(1).toInt() * 60.0
+                           + m.captured(2).replace(QLatin1Char(':'),
+                                                   QLatin1Char('.')).toDouble();
+            // El texto de la palabra va hasta la siguiente marca (o al fin).
+            const int start = m.capturedEnd(0);
+            int end = body.size();
+            const QRegularExpressionMatch nx = wordRe.match(body, start);
+            if (nx.hasMatch())
+                end = nx.capturedStart(0);
+            const QString w = body.mid(start, end - start).trimmed();
+            if (!w.isEmpty()) {
+                QVariantMap wm;
+                wm.insert(QStringLiteral("t"), t);
+                wm.insert(QStringLiteral("e"), qMax(t + 0.05, prev > t ? prev : t + 0.05));
+                wm.insert(QStringLiteral("text"), w);
+                line.words.append(wm);
+                prev = t;
+            }
+            pos = end;
+        }
+        // El texto de la línea: todo sin las marcas.
+        QString plain = body;
+        plain.remove(wordRe);
+        plain = plain.simplified();
+        if (plain.isEmpty() && !line.words.isEmpty()) {
+            QStringList parts;
+            for (const QVariant &wv : line.words)
+                parts << wv.toMap().value(QStringLiteral("text")).toString();
+            plain = parts.join(QLatin1Char(' '));
+        }
+        if (plain.isEmpty())
+            continue;
+        line.text = plain;
+        if (line.words.size() < 2)
+            line.words.clear();
+        out.append(line);
+    }
+    std::sort(out.begin(), out.end(),
+              [](const LrcLine &a, const LrcLine &b) { return a.time < b.time; });
+    return out;
+}
+
+bool Lyrics::hasWordTimings() const
+{
+    for (const LrcLine &l : m_lines) {
+        if (l.words.size() > 1)
+            return true;
+    }
+    return false;
 }
 
 // Detecta las líneas de créditos que NetEase (y alguna otra fuente) intercala

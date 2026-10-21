@@ -178,6 +178,17 @@ private:
     // palabra a palabra sin pedir nada a la red. Solo se usa si la pista tiene
     // vídeo y está en la caché; si no, sigue la cascada normal.
     bool trySonoraCache();
+    // Fallback: la misma caché de Sonora buscada por TÍTULO y ARTISTA (no
+    // sólo por videoId), como hace el widget del shell. Cubre las pistas
+    // cuyo videoId no es el que Sonora cacheó: sin esto se quedaban con
+    // tiempos por línea y el karaoke palabra a palabra no aparecía.
+    bool trySonoraByTitle();
+    // LRC enriquecido: además de la marca de línea, la de cada palabra
+    // ("<mm:ss.xx>palabra"). Es lo que permite el karaoke palabra a
+    // palabra.
+    static QVector<LrcLine> parseLrcWords(const QString &text);
+    // ¿La letra actual trae tiempos por palabra?
+    bool hasWordTimings() const;
     // Adopta líneas ya construidas (con palabras) como letra sincronizada.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source);
 
@@ -218,6 +229,9 @@ private:
     // Cierto cuando ya hemos probado el vídeo exacto m_videoId y no tenía
     // letra: la búsqueda por título actúa entonces como respaldo (una vez).
     bool m_exactTried = false;
+    // ¿Se ha pedido ya a NetEase por los tiempos por palabra? (evita el
+    // bucle: NetEase sin "klyric" vuelve a caer aquí).
+    bool m_neteaseTried = false;
     bool m_loading = false;
     bool m_hasLyrics = false;
     bool m_hasSynced = false;
