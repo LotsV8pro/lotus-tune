@@ -355,6 +355,10 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     lmTracks.append(normalize(o.toVariantMap()));
                 }
                 m_likedIds = ids;
+                // The same answer brings the metadata of the tracks, so the
+                // home can seed its recommended radios with the artists the
+                // user actually likes.
+                m_likedTracks = lmTracks;
                 m_likedReady = true;
                 m_likedTs = QDateTime::currentSecsSinceEpoch();
                 saveLikedToDisk();
@@ -1428,6 +1432,9 @@ bool Catalog::loadLikedFromDisk()
     if (set.isEmpty())
         return false;
     m_likedIds = set;
+    // The metadata is not stored on disk: until the next sync the home
+    // falls back to the recently played tracks for its recommendations.
+    m_likedTracks.clear();
     m_likedTs = qint64(o.value(QStringLiteral("ts")).toDouble());
     return true;
 }

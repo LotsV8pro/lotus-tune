@@ -172,10 +172,10 @@ void RoundedArt::tryNext(const QString &key, int index)
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
-    // Red de seguridad: si esta candidata no contesta en 10 s (una URL que
+    // Red de seguridad: si esta candidata no contesta en 6 s (una URL que
     // se queda colgada, un CDN que no responde) se aborta y se prueba la
     // siguiente. Sin esto la portada se queda vacía para siempre.
-    QTimer::singleShot(10000, reply, [this, reply, key, index]() {
+    QTimer::singleShot(6000, reply, [this, reply, key, index]() {
         if (reply->isRunning()) {
             reply->abort();
             tryNext(key, index + 1);

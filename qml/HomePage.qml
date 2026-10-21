@@ -270,9 +270,22 @@ Item {
                        sub: "Tu música que te gusta", icon: "heart" })
         }
         const seen = {}
+        // First the artists the user LIKES (their radios are the ones that
+        // make sense); then the recently played ones for the rest.
+        const liked = catalog.likedTracks || []
+        for (var i = 0; i < liked.length && out.length < 10; i++) {
+            const t = liked[i]
+            const artist = t.artist || ""
+            if (!artist || seen[artist])
+                continue
+            seen[artist] = true
+            out.push({ kind: "radio", title: "Radio de " + artist,
+                       sub: t.title || "Tus favoritos", icon: "radio",
+                       trackId: page.videoId(t.url), thumb: t.thumb || "" })
+        }
         const rec = catalog.recent
-        for (var i = 0; i < rec.length && out.length < 10; i++) {
-            const t = rec[i]
+        for (var j = 0; j < rec.length && out.length < 10; j++) {
+            const t = rec[j]
             const artist = t.artist || ""
             if (!artist || seen[artist])
                 continue
