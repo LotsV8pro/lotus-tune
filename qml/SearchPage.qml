@@ -210,19 +210,28 @@ Item {
             visible: !page.locked
             spacing: Theme.s3
 
-            // ---- campo de búsqueda (píldora flotante) ---------------------
-            // Una cápsula que flota sobre la página, con borde sutil (acento
-            // al enfocar) y relleno interior holgado. Radio `rPill`: la barra
-            // de búsqueda es la píldora principal de la vista.
+            // ---- campo de búsqueda (línea fina) -------------------------
+            // Minimalista: sin cápsula gris ni borde cerrado, sólo una línea
+            // debajo que se enciende con el foco. El resto de la vista
+            // manda: aquí lo que importa es la lista.
             Panel {
                 id: field
                 Layout.fillWidth: true
-                Layout.preferredHeight: 52
+                Layout.preferredHeight: 44
                 radius: Theme.rPill
-                color: Sys.surfaceAlt
-                borderColor: input.activeFocus ? Sys.accent
-                                               : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
-                Behavior on borderColor { ColorAnimation { duration: Theme.fastMs } }
+                color: "transparent"
+                borderWidth: 0
+
+                // La línea del campo.
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: input.activeFocus ? Sys.accent
+                                            : Theme.alpha(Sys.text, 0.14)
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                }
 
                 Glyph {
                     id: searchIcon

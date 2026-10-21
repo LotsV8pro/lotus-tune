@@ -515,24 +515,21 @@ Item {
                     }
                 }
 
-                // ---- buscador (abre el lanzador) — píldora -----------------
+                // ---- buscador (abre el lanzador) — línea fina ----------
+                // Minimalista: sin recuadro gris, sólo una línea debajo que
+                // se enciende al pasar el ratón. El botón de «Descargas»
+                // de al lado sí lleva fondo (es un botón).
                 Rectangle {
+                    id: searchSpot
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 46
-                    radius: Theme.rPill
-                    color: spotMouse.containsMouse ? Theme.hover(Sys.surfaceAlt) : Sys.surfaceAlt
-                    border.width: 1
-                    border.color: spotMouse.containsMouse
-                                  ? Theme.alpha(Sys.accent, 0.45)
-                                  : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
-                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                    Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
+                    Layout.preferredHeight: 40
+                    color: "transparent"
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.s4
-                        anchors.rightMargin: Theme.s4
-                        spacing: Theme.s3
+                        anchors.leftMargin: Theme.s1
+                        anchors.rightMargin: Theme.s1
+                        spacing: Theme.s2
                         Glyph {
                             width: 16; height: 16
                             kind: "search"
@@ -554,6 +551,18 @@ Item {
                             opacity: 0.7
                         }
                     }
+
+                    // La línea: se ilumina al pasar el ratón.
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: 1
+                        color: spotMouse.containsMouse ? Theme.alpha(Sys.accent, 0.55)
+                                                      : Theme.alpha(Sys.text, 0.14)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    }
+
                     MouseArea {
                         id: spotMouse
                         anchors.fill: parent
