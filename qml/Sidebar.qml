@@ -45,7 +45,23 @@ Item {
 
     HoverHandler {
         id: railHover
-        onHoveredChanged: side.expanded = railHover.hovered
+        onHoveredChanged: {
+            if (railHover.hovered) {
+                side.expanded = true
+                collapseTimer.stop()
+            } else {
+                // Margen de gracia: al salir el ratón el rail no se pliega
+                // de golpe, así las listas (y «sonando ahora») siguen a mano
+                // un momento y no hay que volver a apuntar el ratón.
+                collapseTimer.restart()
+            }
+        }
+    }
+
+    Timer {
+        id: collapseTimer
+        interval: 2600
+        onTriggered: side.expanded = false
     }
 
     function activate(id) {
