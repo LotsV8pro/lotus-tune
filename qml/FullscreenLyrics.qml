@@ -157,7 +157,7 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             Layout.preferredWidth: leftCol.width
             Layout.preferredHeight: leftCol.width
-            radius: Theme.rMd
+            radius: Theme.rXl
             color: Sys.surfaceAlt
             clip: true
 
@@ -165,7 +165,9 @@ Rectangle {
                 anchors.fill: parent
                 src: fl.thumb
                 videoId: fl.videoId
-                radiusSpec: Theme.rMd
+                // La portada del cine va con las esquinas redondeadas como
+                // las tarjetas de Inicio.
+                radiusSpec: Theme.rXl
                 showIconWhenEmpty: false
             }
             Rectangle {
