@@ -577,6 +577,7 @@ Item {
                     readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
 
 
+
                     // Desvanecido de borde (como en el repo de referencia): la
                     // line fades itself out when it gets near the top or
                     // suelo de la vista. Nada de bandas negras por encima:
@@ -591,10 +592,12 @@ Item {
 
                     width: lv.colW
                     // En un panel estrecho las frases largas no caben: que
-                    // envuelvan en vez de cortarse a media palabra.
+                    // envuelvan en vez de cortarse a media palabra. SIN
+                    // maximumLineCount ni elide: con texto enriquecido
+                    // (el karaoke pinta la línea con <span> de color) esos
+                    // dos hacen que Qt se coma el formato y la línea sale
+                    // entera encendida, sin barrido.
                     wrapMode: Text.WordWrap
-                    maximumLineCount: 3
-                    elide: Text.ElideRight
                     text: lv.karaoke ? lv._wordHtml(_w) : modelData.text
                     textFormat: lv.karaoke ? Text.RichText : Text.PlainText
                     color: active ? Theme.mix(Sys.text, Sys.accent, 0.14)
