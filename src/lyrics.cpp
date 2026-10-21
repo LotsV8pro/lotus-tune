@@ -1050,18 +1050,44 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
     // marked by the sources: without a line for them the previous phrase
     // would be sung until the next one (it looked too long).
     {
+        // A gap is only an instrumental stretch when it is much longer than
+        // the phrases of the song: the short pauses between the phrases
+        // are not marked.
+        QVector<double> durations;
+        for (int i = 0; i + 1 < lines.size(); ++i) {
+            const double d = lines.at(i + 1).time - lines.at(i).time;
+            if (d > 0.0 && d < 12.0)
+                durations.append(d);
+        }
+        std::sort(durations.begin(), durations.end());
+        const double typical = durations.isEmpty()
+            ? 4.0 : durations.at(durations.size() / 2);
+        const double threshold = qMax(10.0, typical * 2.5);
+
         QVector<LrcLine> withGaps;
         for (int i = 0; i < lines.size(); ++i) {
             withGaps.append(lines.at(i));
             if (i + 1 >= lines.size())
                 break;
-            if (lines.at(i + 1).time - lines.at(i).time >= 6.0) {
-                LrcLine m;
-                m.time = lines.at(i).time + 0.5;
-                m.text = QStringLiteral("♪");
-                m.instrumental = true;
-                withGaps.append(m);
+            const double gap = lines.at(i + 1).time - lines.at(i).time;
+            if (gap < threshold)
+                continue;
+            // There is no marker already for that stretch.
+            bool marked = false;
+            for (const LrcLine &o : lines) {
+                if (o.instrumental && o.time >= lines.at(i).time
+                    && o.time <= lines.at(i + 1).time) {
+                    marked = true;
+                    break;
+                }
             }
+            if (marked)
+                continue;
+            LrcLine m;
+            m.time = lines.at(i).time + 0.5;
+            m.text = QStringLiteral("♪");
+            m.instrumental = true;
+            withGaps.append(m);
         }
         lines = withGaps;
     }
