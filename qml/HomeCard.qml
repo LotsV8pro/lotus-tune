@@ -51,7 +51,7 @@ Item {
         }
     }
 
-    readonly property bool hovered: hoverHandler.hovered
+    readonly property bool hovered: hoverHandler.hovered || playHit.containsMouse
 
     // Colour that tints the card background: the artwork's dominant colour
     // once known; for cards without artwork (Liked, the shortcuts) the
@@ -77,7 +77,9 @@ Item {
     // never did anything.
     MouseArea {
         anchors.fill: parent
-        hoverEnabled: true
+        // Sin `hoverEnabled`: un MouseArea con el hover activado se queda con
+        // los eventos de hover y el HoverHandler de la tarjeta se quedaría sin
+        // ellos (y el zoom y el botón de play no aparecerían nunca).
         cursorShape: Qt.PointingHandCursor
         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); card.clicked() }
     }
