@@ -12,16 +12,18 @@
 
 class QDirIterator;
 
-// Descargas a disco + biblioteca local, expuesta a QML como `downloads`.
+// Downloads to disk + local library, exposed to QML as `downloads`.
 //
-// Es la capa "Sonora": lanza `yt-dlp` para bajar playlists o pistas sueltas
-// como audio, un proceso a la vez (para no saturar red/RAM), y luego publica
-// los archivos encontrados en la carpeta raíz como una biblioteca local.
+// It is the "Sonora" layer: it runs `yt-dlp` to download playlists or
+// loose tracks as audio, one process at a time (so it does not saturate the
+// network/RAM), and then publishes the files found in the root folder as a
+// local library.
 //
-// Sólo audio y sin re-codificar: se elige la mejor pista de audio ya
-// comprimida (m4a/opus) y se descartan vídeo, miniatura embebida y
-// `.info.json`, para que cada descarga ocupe lo mínimo. Es reanudable
-// (`--continue`) y no vuelve a bajar lo ya descargado.
+// Audio only and without re-encoding: the best already compressed audio
+// track is chosen (m4a/opus) and the video, the embedded thumbnail and
+// `.info.json` are dropped, so each download takes the least possible
+// space. It is resumable (`--continue`) and does not download again what
+// is already there.
 //
 // Job map:   { name, url, playlist, folder, progress (0..100), state:
 //              "queued|downloading|done|error", error }
@@ -38,8 +40,8 @@ class Downloads : public QObject
     // ({ name, folder, count, thumb, url }).
     Q_PROPERTY(QVariantList folders READ folders NOTIFY libraryChanged)
     Q_PROPERTY(bool localBusy READ localBusy NOTIFY libraryChanged)
-    // Progreso 0-100 AGREGADO de la descarga en curso (toda la lista, no sólo
-    // la pista actual); -1 si no hay ninguna.
+    // AGGREGATED 0-100 progress of the running download (the whole list,
+    // not just the current track); -1 if there is none.
     Q_PROPERTY(int activeProgress READ activeProgress NOTIFY activeProgressChanged)
 
 public:
@@ -54,7 +56,7 @@ public:
     bool localBusy() const { return m_localBusy; }
     int activeProgress() const;
 
-    // Carpeta raíz de descargas (configurable y persistida en QSettings).
+    // Root downloads folder (configurable and persisted in QSettings).
     Q_INVOKABLE void setFolder(const QString &dir);
     // ~/.local/share/lotus-tune/descargas
     Q_INVOKABLE QString defaultFolder() const;
@@ -65,17 +67,17 @@ public:
     Q_INVOKABLE void cancelAll();
     // Escanea recursivamente la carpeta buscando audio (no bloqueante).
     Q_INVOKABLE void refreshLocal();
-    // xdg-open sobre la carpeta raíz.
+    // xdg-open on the root folder.
     Q_INVOKABLE void openFolder();
     // Desinstala una lista descargada: borra su carpeta de primer nivel
     // (recursivo y con guardas de seguridad) y reescanea la biblioteca.
     Q_INVOKABLE void removeList(const QString &folder);
-    // Nombre de carpeta que se usaría para una lista con ese nombre
-    // (misma sanitización que al descargar); para emparejar listas antiguas
-    // que no tienen fichero de metadatos.
+    // Folder name that would be used for a list with that name (same
+     // sanitising as when downloading); to match old lists that have no
+     // metadata file.
     Q_INVOKABLE QString listFolderName(const QString &name) const;
 
-    // Métodos utilitarios públicos / testeables:
+    // Public / testable utility methods:
     static QString safeSegment(const QString &text);
     static QString friendlyError(const QString &raw);
     static void removePartials(const QString &dir);
@@ -86,13 +88,16 @@ signals:
     void changed();
     void jobsChanged();
     void libraryChanged();
-    // Cambió el progreso 0-100 AGREGADO de la descarga `name` (toda la lista).
+    // The AGGREGATED 0-100 progress of the download `name` changed (the
+     // whole list).
     void progressChanged(const QString &name, int percent);
-    // La descarga `name` falló; `message` es un motivo legible para la UI.
+    // The download `name` failed; `message` is a readable reason for the
+     // UI.
     void downloadError(const QString &name, const QString &message);
-    // La descarga `name` terminó bien; `folder` es su carpeta ("" en pistas).
+    // The download `name` finished fine; `folder` is its folder ("" for
+     // loose tracks).
     void downloadCompleted(const QString &name, const QString &folder);
-    // Cambió el progreso agregado de la descarga en curso (property).
+    // The aggregated progress of the running download changed (property).
     void activeProgressChanged();
 
 private:
@@ -114,20 +119,22 @@ private:
     // Marca el job como fallido con un mensaje legible, avisa a la UI y sigue
     // con la cola (si era el job en curso).
     void failJob(int index, const QString &message);
-    // Actualiza el progreso agregado del job en curso a partir de la fracción
-    // (0..1) de la pista actual y lo publica (jobsChanged + progressChanged).
+    // Updates the aggregated progress of the running job from the fraction
+     // (0..1) of the current track and publishes it (jobsChanged +
+     // progressChanged).
     void updateProgress(double frac);
 
     void startScan();
     void scanChunk();
     void stopScan();
-    // Sincroniza los directorios vigilados con la carpeta raíz + subcarpetas
-    // descubiertas en el último escaneo (auto-sync al cambiar ficheros).
+    // Syncs the watched directories with the root folder + the
+     // subfolders discovered in the last scan (auto sync when files
+     // change).
     void updateWatchDirs();
     QVariantMap makeLocalTrack(const QString &path) const;
     QString artistForPath(const QString &dir) const;
 
-    // Barrido, al arrancar, de restos huérfanos más viejos que `ageSecs`.
+    // Sweep, on startup, of orphan leftovers older than `ageSecs`.
     void sweepOrphans(qint64 ageSecs);
 
     QProcess m_proc;
@@ -137,9 +144,9 @@ private:
     bool m_cancelling = false;
     QString m_lastError;     // último "ERROR:" visto en la salida
     QByteArray m_buf;
-    // Progreso global de una lista: yt-dlp emite "Downloading item X of Y" y
-    // luego el % de cada pista. Se combinan para mostrar UN 0-100 % del total
-    // en vez de reiniciar a 0 en cada canción.
+    // Global progress of a list: yt-dlp emits "Downloading item X of Y" and
+     // then the % of each track. They are combined to show ONE 0-100 %
+     // of the total instead of restarting at 0 on every song.
     int m_plItem = 0;
     int m_plTotal = 0;
 
@@ -151,8 +158,8 @@ private:
     QTimer m_scanTimer;
     QSet<QString> m_scanDirs;      // carpetas vistas en el escaneo en curso
 
-    // Auto-sync: vigila la carpeta de descargas (y subcarpetas) y reescanea
-    // con un pequeño debounce cuando algo cambia en disco.
+    // Auto sync: it watches the downloads folder (and its subfolders) and
+     // rescans with a small debounce when something changes on disk.
     QFileSystemWatcher m_watcher;
     QTimer m_watchDebounce;
 };

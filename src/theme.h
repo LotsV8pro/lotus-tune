@@ -34,9 +34,9 @@ class AppTheme : public QObject
     Q_PROPERTY(QColor danger READ danger NOTIFY paletteChanged)
     Q_PROPERTY(bool followingSystem READ followingSystem NOTIFY paletteChanged)
     Q_PROPERTY(QString source READ source NOTIFY paletteChanged)
-    // "Fondo dinámico" (estilo Liner): la portada de la pista actual tiñe el
-    // escritorio y las islas se vuelven translúcidas. Lo decide la UI (se
-    // recuerda en appcfg); aquí sólo vive para que todos los QML reaccionen.
+    // "Dynamic background" (Liner style): the current track's artwork tints
+    // the desktop and the islands become translucent. The UI decides it (it
+    // is remembered in appcfg); it only lives here so every QML reacts.
     Q_PROPERTY(bool dynamicBg READ dynamicBg WRITE setDynamicBg NOTIFY washChanged)
 
 public:

@@ -36,8 +36,8 @@ Sfx::Sfx(QObject *parent)
 
 void Sfx::preloadAll()
 {
-    // Carga por adelantado los sonidos (QSoundEffect carga en diferido; sin
-    // esto el primer play() no sonaba mientras seguía en estado Loading).
+    // Loads the sounds ahead of time (QSoundEffect loads lazily; without
+    // this the first play() did not sound while it was still Loading).
     effectFor(QStringLiteral("qrc:/sounds/click.wav"));
     effectFor(QStringLiteral("qrc:/sounds/click_toggle.wav"));
     effectFor(QStringLiteral("qrc:/sounds/click_play.wav"));
@@ -48,7 +48,7 @@ void Sfx::startKeepAlive()
 {
     // Un bucle de silencio digital (samples a 0, por eso es inaudible a
     // cualquier volumen) mantiene activo el motor de audio. Sin esto, el
-    // primer sonido tras un rato de silencio podía perderse porque el sink se
+    // first sound after a while of silence could be lost because the sink
     // suspende y el motor tarda en despertar.
     m_keepAlive = new QSoundEffect(this);
     m_keepAlive->setSource(QUrl(QStringLiteral("qrc:/sounds/silence.wav")));
@@ -64,8 +64,8 @@ QSoundEffect *Sfx::effectFor(const QString &path)
         e->setSource(QUrl(path));
         e->setVolume(m_volume);
         m_effects.insert(path, e);
-        // Si se pidió sonar mientras aún cargaba, lo reproducimos al quedar
-        // listo: así el PRIMER clic nunca queda mudo.
+        // If it was asked to play while it was still loading, it is played
+        // once ready: that way the FIRST click is never mute.
         connect(e, &QSoundEffect::statusChanged, this, [this, e]() {
             if (e->status() == QSoundEffect::Ready && m_pending.remove(e)) {
                 e->setVolume(m_volume);
@@ -128,7 +128,7 @@ void Sfx::tryPlayWithSoundEffect(const QString &path)
         e->play();
         break;
     case QSoundEffect::Loading:
-        // Aún cargando: reproducir en cuanto quede listo (ver effectFor).
+        // Still loading: play it as soon as it is ready (see effectFor).
         m_pending.insert(e);
         break;
     default: // QSoundEffect::Error
@@ -142,7 +142,7 @@ void Sfx::playWithPw(const QString &path)
     if (path.isEmpty()) return;
     QString file = path;
     // Los recursos (qrc:/…) no son ficheros: buscar la copia en disco junto al
-    // binario o en el árbol de fuentes para el fallback con pw-play.
+    // binary or in the source tree for the pw-play fallback.
     if (file.startsWith(QLatin1String("qrc:/"))) {
         const QString base = QFileInfo(file).fileName();
         const QStringList cands{

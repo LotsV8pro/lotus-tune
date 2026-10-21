@@ -16,8 +16,8 @@ static constexpr const char *kObjectPath = "/org/mpris/MediaPlayer2";
 static constexpr const char *kTrackIdPrefix = "/lotustune/track/";
 static constexpr const char *kPlayerInterface = "org.mpris.MediaPlayer2.Player";
 
-// ms que se esperan a que mpv aplique un seek antes de anunciar la posición
-// REAL en el bus (ver Mpris::confirmSeek).
+// ms waited for mpv to apply a seek before announcing the REAL position on
+// the bus (see Mpris::confirmSeek).
 static constexpr int kSeekConfirmMs = 250;
 
 Mpris::Mpris(Player *player, QObject *parent)
@@ -27,9 +27,10 @@ Mpris::Mpris(Player *player, QObject *parent)
     m_trackId = QDBusObjectPath(QString::fromLatin1(kTrackIdPrefix) + QStringLiteral("0"));
     m_canSeek = canSeekNow();
 
-    // Confirmación asíncrona del seek: SOLO se usa cuando no hay motor mpv
-    // (sin Player::seeked no hay forma de saber la posición real). Con motor,
-    // Player::seeked anuncia él mismo una única vez.
+    // Asynchronous seek confirmation: it is ONLY used when there is no mpv
+    // engine (without Player::seeked there is no way to know the real
+    // position). With an engine, Player::seeked announces it once by
+    // itself.
     m_seekConfirm.setSingleShot(true);
     m_seekConfirm.setInterval(kSeekConfirmMs);
     connect(&m_seekConfirm, &QTimer::timeout, this, [this] {
@@ -38,17 +39,19 @@ Mpris::Mpris(Player *player, QObject *parent)
             announceSeek(us);
     });
 
-    // CanSeek refleja si hay pista cargada: sin ella no hay nada que mover.
-    // Player::seeked es el punto único por el que pasan TODOS los seeks (los
-    // de la app y los pedidos por MPRIS): se traduce a la señal Seeked del bus.
+    // CanSeek reflects whether a track is loaded: without it there is
+    // nothing to move. Player::seeked is the single point EVERY seek goes
+    // through (the app's and the ones asked by MPRIS): it is translated
+    // into the bus' Seeked signal.
     if (m_player) {
         connect(m_player, &Player::stateChanged, this, &Mpris::refreshCanSeek);
         connect(m_player, &Player::seeked, this, &Mpris::onPlayerSeeked);
         connect(m_player, &Player::positionChanged, this, &Mpris::onPlayerPositionChanged);
     }
 
-    // Los adaptadores se crean como hijos de este objeto; registerObject() con
-    // ExportAdaptors los publica automáticamente. Un adaptador por interfaz.
+    // The adaptors are created as children of this object; registerObject()
+    // with ExportAdaptors publishes them automatically. One adaptor per
+    // interface.
     m_rootAdaptor = new MprisRootAdaptor(this);
     m_playerAdaptor = new MprisPlayerAdaptor(this);
 
@@ -59,7 +62,7 @@ Mpris::Mpris(Player *player, QObject *parent)
         return;
     }
 
-    // Primero el objeto y luego el nombre, para que al tomarlo ya esté listo.
+    // The object first and the name after, so it is ready when taken.
     if (!bus.registerObject(QString::fromLatin1(kObjectPath), this,
                             QDBusConnection::ExportAdaptors)) {
         qWarning() << "[mpris] no se pudo registrar" << kObjectPath
@@ -87,16 +90,16 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
                            const QString &album, double durationSeconds,
                            const QString &artUrl)
 {
-    // Transición sin datos (fin de cola, carga de pista, puerto todavía
-    // resolviendo...): publicar esto VACIARÍA el metadato en el bus y rompe
-    // los widgets del escritorio (título -> "Unknown Title", longitud -> 0 y
-    // el widget se colapsa o pierde la barra de progreso). MPRIS permite
-    // mantener el último metadato real mientras se está "Stopped".
+    // Transition without data (end of the queue, track load, port still
+    // resolving...): publishing that would EMPTY the metadata on the bus
+    // and break the desktop widgets (title -> "Unknown Title", length -> 0
+    // and the widget collapses or loses the progress bar). MPRIS allows
+    // keeping the last real metadata while it is "Stopped".
     if (title.isEmpty() && artist.isEmpty() && album.isEmpty()
         && artUrl.isEmpty() && durationSeconds <= 0.0) {
         if (!m_hasTrack)
             return;                    // aún no ha habido ninguna pista real
-        // Sólo se refresca la duración si el motor ya la conoce.
+        // The duration is only refreshed if the engine already knows it.
         if (m_player && m_player->duration() > 0.0 && m_lengthUs <= 0)
             m_lengthUs = qRound64(m_player->duration() * 1e6);
         if (m_playerAdaptor)
@@ -106,13 +109,13 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
         return;
     }
 
-    // El trackid sólo cambia cuando cambia la IDENTIDAD de la pista. Antes se
-    // regeneraba con cualquier diferencia (incluidos campos vacíos), con lo
-    // que un SetPosition del widget se ignoraba (trackid != trackid) y la UI
-    // trataba la misma pista como una nueva. Reglas:
-    //  - título distinto y no vacío  -> pista nueva;
-    //  - artista distinto de un artista ya conocido -> pista nueva;
-    //  - un campo que llega vacío es "todavía desconocido", no un cambio.
+    // The trackid only changes when the IDENTITY of the track changes.
+    // Before it was regenerated with any difference (including empty
+    // fields), so a SetPosition from the widget was ignored (trackid !=
+    // trackid) and the UI treated the same track as a new one. Rules:
+    //  - different and non empty title  -> new track;
+    //  - artist different from a known one -> new track;
+    //  - a field that arrives empty is "still unknown", not a change.
     const bool trackChanged = !m_hasTrack
                               || (!title.isEmpty() && title != m_title)
                               || (!artist.isEmpty() && !m_artist.isEmpty()
@@ -131,8 +134,9 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
         m_lengthUs = qRound64(durationSeconds * 1e6);
     else if (trackChanged)
         m_lengthUs = 0;                 // pista nueva: la duración aún se ignora
-    // Misma pista con duración momentáneamente 0: se conserva la conocida para
-    // no publicar "mpris:length = 0" (los widgets penalizan esa metadata).
+    // Same track with a momentarily 0 duration: the known one is kept so
+     // "mpris:length = 0" is not published (the widgets penalise that
+     // metadata).
     m_hasTrack = true;
 
     if (m_playerAdaptor)
@@ -154,15 +158,15 @@ void Mpris::updateMetadata(const QString &title, const QString &artist,
 
 void Mpris::updatePlayback(bool playing, double positionSeconds, bool stopped)
 {
-    // La posición se guarda siempre (para Seek/SetPosition), pero sólo el
-    // cambio de estado dispara PropertiesChanged.
+    // The position is always stored (for Seek/SetPosition), but only a
+     // state change triggers PropertiesChanged.
     m_position = qMax(0.0, positionSeconds);
 
-    // Reglas de verdad:
-    //  - sin pista cargada sólo puede ser "Stopped" (nunca un "Playing"
-    //    fantasma ni un "Paused" heredado de la transición);
-    //  - "Stopped" explícito manda;
-    //  - con pista, Playing/Paused según lo que pida la app.
+    // The real rules:
+    //  - with no track loaded it can only be "Stopped" (never a phantom
+    //    "Playing" nor a "Paused" inherited from the transition);
+    //  - an explicit "Stopped" rules;
+    //  - with a track, Playing/Paused as the app asks.
     QString status;
     if (m_player && !m_player->hasFile())
         status = QStringLiteral("Stopped");
@@ -245,8 +249,8 @@ qint64 Mpris::effectiveLengthUs() const
 {
     if (m_lengthUs > 0)
         return m_lengthUs;
-    // La capa QML puede no haber reenviado la duración todavía (o haberla
-    // perdido en una transición): se pregunta al motor, que es la verdad.
+    // The QML layer may not have forwarded the duration yet (or may have
+    // lost it in a transition): the engine is asked, and it is the truth.
     if (m_player && m_player->duration() > 0.0)
         return qRound64(m_player->duration() * 1e6);
     return 0;
@@ -264,8 +268,8 @@ qint64 Mpris::clampToTrack(qint64 us) const
 
 qint64 Mpris::positionUs() const
 {
-    // Preferir el motor: refleja time-pos de mpv en tiempo real (también con
-    // la reproducción en pausa), no el latido de 1 s de QML.
+    // Prefer the engine: it reflects mpv's time-pos in real time (also
+    // while paused), not QML's 1 s beat.
     if (m_player)
         return qMax<qint64>(0, qRound64(m_player->position() * 1000000.0));
     return qMax<qint64>(0, qRound64(m_position * 1000000.0));
@@ -290,25 +294,26 @@ void Mpris::refreshCanSeek()
 
 void Mpris::requestSeek(qint64 targetUs, bool absolute)
 {
-    // Sin pista cargada no hay nada que mover: ignorar la orden es mejor que
-    // publicar una posición inventada.
+    // Without a loaded track there is nothing to move: ignoring the
+    // command is better than publishing a made up position.
     if (m_player && !m_player->hasFile())
         return;
 
-    // Clampear a [0, duración]: un destino superior a la duración hace que
-    // mpv salte a eof y rompe el cálculo position/length de los widgets.
+    // Clamp to [0, duration]: a target over the duration makes mpv jump
+    // to eof and breaks the position/length maths of the widgets.
     targetUs = clampToTrack(targetUs);
     m_position = double(targetUs) / 1000000.0;
 
-    // QML conecta estas señales al reproductor (player.seek(seconds)).
+    // QML connects these signals to the player (player.seek(seconds)).
     if (absolute)
         emit setPositionRequested(m_position);
     else
         emit seekRequested(m_position);
 
-    // Con motor, Player::seek() -> Player::seeked() anunciará Seeked una sola
-    // vez (cubre también los seeks que hace la propia app). Sin motor no habrá
-    // confirmación posible: se anuncia aquí con el objetivo ya clampeado.
+    // With an engine, Player::seek() -> Player::seeked() will announce
+    // Seeked just once (it also covers the seeks the app itself makes).
+    // Without an engine there is no confirmation possible: it is
+    // announced here with the already clamped target.
     if (!m_player) {
         announceSeek(targetUs);
         m_seekConfirm.start();
@@ -319,12 +324,13 @@ void Mpris::onPlayerSeeked(double seconds)
 {
     const qint64 us = clampToTrack(qRound64(seconds * 1000000.0));
     m_position = double(us) / 1000000.0;
-    // Señal MPRIS estándar de seek: una única emisión por seek (la manda el
-    // motor, tanto si el seek nació en la app como si llegó por el bus).
+    // Standard MPRIS seek signal: a single emission per seek (the engine
+    // sends it, whether the seek came from the app or from the bus).
     announceSeek(us);
-    // La spec no obliga a reenviar Position, pero los widgets de escritorio
-    // (Quickshell y similares) se resincronizan con él tras un seek. Se emite
-    // SOLO en el seek, no en cada tick de reproducción, para no inundar el bus.
+    // The spec does not force resending Position, but the desktop widgets
+    // (Quickshell and alike) resync with it after a seek. It is emitted
+    // ONLY on the seek, not on every playback tick, so the bus is not
+    // flooded.
     emitPropertiesChanged(QString::fromLatin1(kPlayerInterface),
                           {{QStringLiteral("Position"), us}});
 }
@@ -335,10 +341,11 @@ void Mpris::onPlayerPositionChanged()
         return;
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 us = clampToTrack(positionUs());
-    // La pista cambia (o hay un seek hacia atrás): el motor resetea la posición
-    // y suele coincidir con el arranque de una pista nueva. Se publica SIN
-    // throttle para que los clientes no extrapolen la posición de la pista
-    // anterior (el widget se quedaba adelantado mientras la nueva bufferiza).
+    // The track changes (or there is a seek backwards): the engine resets
+    // the position and it usually matches the start of a new track. It is
+    // published WITHOUT the throttle so the clients do not extrapolate
+    // the previous track's position (the widget stayed ahead while the new
+    // one buffered).
     const bool positionReset = m_lastPosPublishedUs >= 0
                                && us + 200000 < m_lastPosPublishedUs;
     if (!positionReset && now - m_lastPosPublishMs < 500)
@@ -359,11 +366,11 @@ void Mpris::announceSeek(qint64 us)
 void Mpris::emitPropertiesChanged(const QString &interface, const QVariantMap &changed,
                                   const QStringList &invalidated)
 {
-    // Qt's QDBusAbstractAdaptor relays declared signals, pero NO emite
-    // org.freedesktop.DBus.Properties.PropertiesChanged por sí mismo (ni
-    // siquiera con Q_PROPERTY + NOTIFY). Lo mandamos nosotros: send() es
-    // asíncrono y no bloquea el bus. Los clientes MPRIS (barras, teclas
-    // multimedia) sí dependen de esta señal para refrescar sus controles.
+    // Qt's QDBusAbstractAdaptor relays declared signals, but it does NOT emit
+    // org.freedesktop.DBus.Properties.PropertiesChanged by itself (not even
+    // with Q_PROPERTY + NOTIFY). We send it ourselves: send() is
+    // asynchronous and does not block the bus. The MPRIS clients (bars,
+    // media keys) do depend on this signal to refresh their controls.
     QDBusMessage sig = QDBusMessage::createSignal(
         QString::fromLatin1(kObjectPath),
         QStringLiteral("org.freedesktop.DBus.Properties"),
@@ -384,14 +391,15 @@ MprisRootAdaptor::MprisRootAdaptor(Mpris *parent)
 
 void MprisRootAdaptor::Quit()
 {
-    // La app decide si cierra; aquí solo se reenvía la intención.
+    // The app decides whether to close; here the intent is only
+    // forwarded.
     emit m_mpris->quitRequested();
 }
 
 void MprisRootAdaptor::Raise()
 {
-    // CanRaise = true: main.cpp conecta esta señal a raise()/showNormal()/
-    // requestActivate() de la ventana principal.
+    // CanRaise = true: main.cpp connects this signal to raise()/
+    // showNormal()/requestActivate() of the main window.
     emit m_mpris->raiseRequested();
 }
 
@@ -444,7 +452,8 @@ void MprisPlayerAdaptor::Seek(qint64 offsetUs)
 
 void MprisPlayerAdaptor::SetPosition(const QDBusObjectPath &trackId, qint64 positionUs)
 {
-    // Ignorar peticiones para un track que ya no suena (según la especificación).
+    // Ignore requests for a track that is not playing any more (as the
+    // specification says).
     if (trackId.path() != m_mpris->m_trackId.path())
         return;
 

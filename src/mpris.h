@@ -8,22 +8,22 @@
 #include <QTimer>
 #include <QVariantMap>
 
-// Integración con MPRIS2 (org.mpris.MediaPlayer2) sobre la sesión de D-Bus.
+// MPRIS2 integration (org.mpris.MediaPlayer2) over the D-Bus session.
 //
-// Publica el servicio "org.mpris.MediaPlayer2.lotustune" y el objeto
-// "/org/mpris/MediaPlayer2", de modo que Lotus Tune aparece en el centro
-// multimedia del escritorio (barra, panel, GNOME/KDE, etc.) y responde a las
-// teclas multimedia y a los botones de auriculares/Bluetooth.
+// It publishes the service "org.mpris.MediaPlayer2.lotustune" and the
+// object "/org/mpris/MediaPlayer2", so Lotus Tune shows up in the
+// desktop's media centre (bar, panel, GNOME/KDE...) and answers to the
+// media keys and to the headphone/Bluetooth buttons.
 //
-// El bus se usa siempre en el hilo principal (el de la UI), sin bucle de
-// eventos propio y sin llamadas bloqueantes: nunca se congela el bus.
+// The bus is always used in the main thread (the UI's), with no event
+// loop of its own and no blocking calls: the bus never freezes.
 //
-// Nota sobre los adaptadores: Qt exige un QObject con Q_OBJECT por cada
-// interfaz D-Bus, pero moc no admite Q_OBJECT en clases anidadas ("Meta object
-// features not supported for nested classes"). Por eso MprisRootAdaptor y
-// MprisPlayerAdaptor se declaran aquí al mismo nivel que Mpris (son las
-// "inner classes" a efectos prácticos). Mpris les concede amistad para no
-// exponer getters internos.
+// Note about the adaptors: Qt demands a QObject with Q_OBJECT for each
+// D-Bus interface, but moc does not accept Q_OBJECT in nested classes
+// ("Meta object features not supported for nested classes"). That is
+// why MprisRootAdaptor and MprisPlayerAdaptor are declared here at the
+// same level as Mpris (they are the "inner classes" in practice). Mpris
+// befriends them so their internal getters are not exposed.
 class Player;
 class Mpris;
 class MprisRootAdaptor;
@@ -36,50 +36,50 @@ class Mpris : public QObject
     friend class MprisPlayerAdaptor;
 
 public:
-    // `player` (opcional) es el motor mpv de la app: con él MPRIS consulta la
-    // posición y la duración REALES en lugar de reflejar lo que la capa QML
-    // cree que pasa. main.cpp lo inyecta.
+    // `player` (optional) is the app's mpv engine: with it MPRIS asks for
+    // the REAL position and duration instead of reflecting what the QML
+    // layer thinks is happening. main.cpp injects it.
     explicit Mpris(Player *player = nullptr, QObject *parent = nullptr);
     ~Mpris() override;
 
     // --- API hacia la app (context property "mpris" en QML) -------------
 
-    // Nuevo track en reproducción. durationSeconds <= 0 se traduce a 0.
-    // Una llamada sin ningún dato (título/artista/álbum/portada vacíos y
-    // duración <= 0) se descarta: nunca se publican metadatos "fantasma"
-    // (eso vacía el track y rompe los widgets del escritorio).
+    // New track playing. durationSeconds <= 0 becomes 0. A call with no
+    // data at all (empty title/artist/album/cover and duration <= 0) is
+    // dropped: "phantom" metadata is never published (it empties the
+    // track and breaks the desktop widgets).
     Q_INVOKABLE void updateMetadata(const QString &title, const QString &artist,
                                     const QString &album, double durationSeconds,
                                     const QString &artUrl);
-    // Estado de reproducción y posición actual. stopped=true fuerza
-    // PlaybackStatus="Stopped" aunque playing llegue a true.
+    // Playback state and current position. stopped=true forces
+    // PlaybackStatus="Stopped" even if playing arrives as true.
     Q_INVOKABLE void updatePlayback(bool playing, double positionSeconds,
                                     bool stopped = false);
     Q_INVOKABLE void setShuffle(bool shuffle);
-    // Estado de repetición del botón de la app ("None" | "Playlist" |
-    // "Track"), para que los controles del sistema lo pinten igual.
+    // Repeat state of the app's button ("None" | "Playlist" |
+    // "Track"), so the system controls paint it the same way.
     Q_INVOKABLE void setLoopStatus(const QString &status);
     // Refleja en el bus el volumen fijado por la app (0..150 %).
     Q_INVOKABLE void updateVolume(int percent);
 
-    // ¿Hay (o se está cargando) un fichero en el motor? Se usa para no
-    // mentir con PlaybackStatus/CanSeek cuando mpv está en idle.
+    // Is there (or is there loading) a file in the engine? It is used to
+    // avoid lying with PlaybackStatus/CanSeek when mpv is idle.
     bool canSeekNow() const;
 
 signals:
-    // Órdenes que llegan desde el bus / teclado multimedia. Main.qml las
-    // conecta al reproductor (player.playPause(), player.seek(...), etc.).
+    // Commands coming from the bus / media keys. Main.qml connects them
+    // to the player (player.playPause(), player.seek(...), etc.).
     void playRequested();
     void pauseRequested();
     void playPauseRequested();
     void nextRequested();
     void previousRequested();
     void stopRequested();
-    // Posición destino en segundos absolutos.
+    // Target position in absolute seconds.
     void seekRequested(double seconds);
     void setPositionRequested(double seconds);
 
-    // Extras útiles para completar la interfaz MPRIS.
+    // Extras useful to complete the MPRIS interface.
     void volumeRequested(double volume);          // Volume (0..1) fijado por el cliente
     void openUriRequested(const QString &uri);    // OpenUri()
     void quitRequested();                         // Quit()
@@ -88,30 +88,33 @@ signals:
 private:
     QVariantMap metadata() const;
     qint64 positionUs() const;
-    // Duración real del track en curso en µs (0 si aún no se conoce).
+    // Real duration of the current track in µs (0 if not known yet).
     qint64 effectiveLengthUs() const;
-    // Limita una posición a [0, duración] para no publicar posiciones
-    // imposibles (rompen el cálculo position/length de los widgets).
+    // Clamps a position to [0, duration] so impossible positions are
+     // not published (they break the position/length maths of the
+     // widgets).
     qint64 clampToTrack(qint64 us) const;
-    // Orden de seek compartida por Seek()/SetPosition(): aplica, delega en
-    // Player::seek() y deja que Player::seeked() anuncie Seeked una sola vez
-    // con la posición realmente aplicada por el motor.
+    // Seek order shared by Seek()/SetPosition(): it applies, delegates in
+     // Player::seek() and lets Player::seeked() announce Seeked just once
+     // with the position the engine really applied.
     void requestSeek(qint64 targetUs, bool absolute);
     void announceSeek(qint64 us);
     // Player::seeked -> anuncia Seeked + PropertiesChanged(Position) en el bus.
     void onPlayerSeeked(double seconds);
-    // Player::positionChanged (timer ~240ms del motor) -> publica Position en el
-    // bus con throttle (~500ms). MPRIS permite leer Position, pero clientes como
-    // Quickshell NO hacen GET: extrapolan la última muestra recibida. Sin estos
-    // push periódicos el widget sigue avanzando desde la posición de la pista
-    // anterior tras un Next (adelantado mientras la nueva pista bufferiza).
+    // Player::positionChanged (the engine's ~240 ms timer) -> publishes
+     // Position on the bus with a throttle (~500 ms). MPRIS allows reading
+     // Position, but clients like Quickshell do NOT do a GET: they
+     // extrapolate from the last sample received. Without these periodic
+     // pushes the widget keeps moving from the previous track's position
+     // after a Next (running ahead while the new track buffers).
     void onPlayerPositionChanged();
     // Recalcula CanSeek cuando cambia el estado del motor.
     void refreshCanSeek();
 
-    // Envía org.freedesktop.DBus.Properties.PropertiesChanged de forma
-    // asíncrona (no bloquea el bus). Ver nota en mpris.cpp: Qt no lo emite
-    // automáticamente al cambiar una Q_PROPERTY.
+    // Sends org.freedesktop.DBus.Properties.PropertiesChanged in an
+     // asynchronous way (it does not block the bus). See the note in
+     // mpris.cpp: Qt does not emit it automatically when a Q_PROPERTY
+     // changes.
     void emitPropertiesChanged(const QString &interface, const QVariantMap &changed,
                                const QStringList &invalidated = QStringList());
 
@@ -184,10 +187,10 @@ private:
     Mpris *m_mpris;
 };
 
-// Adaptador de org.mpris.MediaPlayer2.Player (transporte, estado y metadatos).
-// Las propiedades mutables usan Q_PROPERTY + NOTIFY, pero el
-// PropertiesChanged real lo manda Mpris (ver emitPropertiesChanged): Qt no lo
-// genera automáticamente.
+// Adaptor of org.mpris.MediaPlayer2.Player (transport, state and metadata).
+// The mutable properties use Q_PROPERTY + NOTIFY, but the real
+// PropertiesChanged is sent by Mpris (see emitPropertiesChanged): Qt does
+// not generate it automatically.
 class MprisPlayerAdaptor : public QDBusAbstractAdaptor
 {
     Q_OBJECT
@@ -239,17 +242,19 @@ public slots:
     void OpenUri(const QString &uri);
 
 public:
-    // WRITE de Q_PROPERTY. No se declaran como slots para no exportarlos como
-    // métodos D-Bus adicionales; Qt llama al setter vía QMetaProperty.
+    // WRITE of the Q_PROPERTY. They are not declared as slots so they are
+     // not exported as extra D-Bus methods; Qt calls the setter through
+     // QMetaProperty.
     void setLoopStatus(const QString &status);
     void setShuffle(bool shuffle);
     void setVolume(double volume);
 
 signals:
-    // Señales NOTIFY de las propiedades. Ojo: QDBusAbstractAdaptor sólo
-    // reenvía las señales declaradas al bus; NO emite
-    // org.freedesktop.DBus.Properties.PropertiesChanged por sí mismo. Por eso
-    // Mpris envía ese PropertiesChanged manualmente (emitPropertiesChanged).
+    // NOTIFY signals of the properties. Careful: QDBusAbstractAdaptor only
+     // forwards the declared signals to the bus; it does NOT emit
+     // org.freedesktop.DBus.Properties.PropertiesChanged by itself. That
+     // is why Mpris sends that PropertiesChanged by hand
+     // (emitPropertiesChanged).
     void playbackStatusChanged();
     void loopStatusChanged();
     void rateChanged();
@@ -257,7 +262,7 @@ signals:
     void metadataChanged();
     void volumeChanged();
     void canSeekChanged();
-    // Señal MPRIS estándar: cambio de posición tras un seek.
+    // Standard MPRIS signal: position change after a seek.
     void Seeked(qint64 position);
 
 private:

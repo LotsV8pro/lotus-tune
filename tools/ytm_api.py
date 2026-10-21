@@ -60,13 +60,13 @@ API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
 BASE_URL = "https://music.youtube.com/youtubei/v1/"
 ORIGIN = "https://music.youtube.com"
 CLIENT_VERSION = "1.20240101.01.00"
-# User-Agent de navegador para las llamadas anónimas (sin cookies): el cliente
-# WEB_REMIX público responde igual, pero un UA de navegador evita filtros.
+# Browser User-Agent for the anonymous calls (no cookies): the public
+# WEB_REMIX client answers the same, but a browser UA avoids filters.
 ANON_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
-# Puntos de entrada: el primero es la página "mis listas"; los demás son
-# alternativas por si la API cambia el browseId o devuelve vacío.
+# Entry points: the first is the "my lists" page; the others are
+# alternatives in case the API changes the browseId or returns empty.
 LIBRARY_IDS = (
     "FEmusic_liked_playlists",
     "FEmusic_library_landing",
@@ -210,7 +210,8 @@ def _best_thumb(node):
                 renderer.get("thumbnail", {}).get("thumbnails", []) or []
             )
     if thumbs:
-        # La API ordena de menor a mayor resolución: la última es la mejor.
+        # The API sorts from lower to higher resolution: the last one is the
+        # best.
         return thumbs[-1].get("url", "")
     return ""
 
@@ -358,7 +359,7 @@ def _find_key(node, wanted):
 
 def _video_id_of(renderer):
     """videoId de un track de playlist (music o playlistVideo renderer)."""
-    # playlistItemData.videoId es el campo canónico del shelf de música.
+    # playlistItemData.videoId is the canonical field of the music shelf.
     pid = renderer.get("playlistItemData") or {}
     if pid.get("videoId"):
         return pid["videoId"]
@@ -512,7 +513,8 @@ def playlist(list_id):
     resp = browse("VL" + list_id)
     shelf = _find_key(resp, "musicPlaylistShelfRenderer")
     if not isinstance(shelf, dict):
-        # Listas sin shelf (p. ej. algunas automáticas): se recoge del árbol.
+        # Lists without a shelf (e.g. some automatic ones): it is taken from
+        # the tree.
         found = []
         _collect_tracks(resp, found, seen)
         return found
@@ -550,7 +552,7 @@ def search(query, limit=40):
     return tracks[:limit]
 
 
-# -------------------------------------------------- artistas y discografía ----
+# ------------------------------------------------------ artists and discography ----
 
 def _norm(s):
     """Minúsculas sin acentos ni espacios de sobra: para comparar nombres."""
@@ -637,7 +639,7 @@ def _artist_from_card(card, found, seen):
     sruns = sub.get("runs") or []
     subtitle = "".join(r.get("text", "") for r in sruns) if sruns \
         else (sub.get("simpleText") or "")
-    # Va delante de todo: es el mejor acierto de la búsqueda.
+    # It goes first: it is the best match of the search.
     found.insert(0, {
         "name": name,
         "browseId": bid,
@@ -654,8 +656,8 @@ def search_artists(query, limit=12):
     return found[:limit]
 
 
-# Prefijos de browseId que en una página de artista NO son un disco propio:
-# playlists (VL), canales (UC), la propia página (MPC), radios (RD/LP/VP/SE),
+# browseId prefixes that in an artist page are NOT an album of their own:
+# playlists (VL), channels (UC), the page itself (MPC), radios (RD/LP/VP/SE),
 # secciones (LA/FE/SP/MPU).
 _NOT_AN_ALBUM = ("VL", "UC", "MPC", "RD", "LA", "FE", "SP", "MPU", "LP",
                  "VP", "SE")
@@ -713,7 +715,8 @@ def artist_discography(browse_id, artist_name=""):
     resp = browse(target, anon=True)
     albums, seen = [], set()
     _collect_albums(resp, albums, seen, "")
-    # Los sin fecha van al final, y entre los de un mismo año alfabéticamente.
+    # The ones without a date go last, and within the same year
+    # alphabetically.
     albums.sort(key=lambda a: (-a["year"], str(a["title"]).lower()))
     return albums[:80]
 
@@ -810,7 +813,7 @@ def album_tracks(browse_id, limit=200):
     if not tracks:   # estructura inesperada: recoger del árbol entero
         _collect_album_tracks(resp, tracks, seen)
 
-    # Sin enlace por fila (álbumes sin columna de artista): el de la cabecera.
+    # Without a link per row (albums with no artist column): the header's.
     hdr_artist = _header_artist(resp)
     if hdr_artist:
         for t in tracks:
@@ -932,7 +935,7 @@ def playlist_info(list_id):
     }
 
 
-# ------------------------------------------------------------- gestión -----
+# -------------------------------------------------------------- management -----
 
 PRIVACY_STATUSES = ("PUBLIC", "PRIVATE", "UNLISTED")
 
@@ -980,7 +983,7 @@ def delete_playlist(playlist_id):
     return post_json("playlist/delete", {"playlistId": playlist_id})
 
 
-# ----------------------------------------------------------- interacción ----
+# ----------------------------------------------------------- interaction ----
 
 def rate(video_id, rating):
     """Vota una canción (LIKE/DISLIKE/INDIFFERENT)."""
@@ -1072,11 +1075,11 @@ def cmd_playlist(list_id):
 
 def cmd_search(query):
     tracks = search(query)
-    # La API cruda mezcla versiones, podcasts y vídeos raros en un orden
-    # arbitrario. Reordenamos: canción por delante de vídeo y de cualquier
-    # otro tipo, y dentro de cada tipo gana quien tenga el título más pegado
-    # a la consulta — así «creep» devuelve primero la de Radiohead y no la
-    # cover del primo que subió un directo. Empates: el orden de la API.
+    # The raw API mixes versions, podcasts and odd videos in an arbitrary
+    # order. We reorder: song first, then video and anything else, and
+    # within each type the one whose title is closest to the query wins -
+    # that way "creep" returns Radiohead's first and not the cover of the
+    # cousin who uploaded a live one. Ties: the API's order.
     tracks.sort(key=lambda e: _search_rank(e, query))
     json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
@@ -1093,10 +1096,10 @@ def _search_rank(e, query):
     nq = _norm(query)
     nt = _norm(title)
     nt_clean = _norm(_strip_parens(title))
-    # Escalaños: 0 título idéntico tal cual; 1 el mismo título tras quitarle
-    # los adornos (el paréntesis del «(Acoustic)» de la cover); 2 lo contiene;
-    # 3 lo demás. Así una portada limpia de la consulta va por delante de
-    # cualquier versión con sufijo, y todas por delante de vídeos y podcasts.
+    # Rungs: 0 identical title as it is; 1 the same title after dropping the
+    # decorations (the "(Acoustic)" of the cover); 2 it contains it; 3 the
+    # rest. That way a clean match of the query goes before any version with
+    # a suffix, and all of them before videos and podcasts.
     exact = 0 if nt == nq else 1 if nt_clean == nq else \
         2 if nq and nq in nt else 3
     in_ch = 0 if nq and nq in _norm(ch) else 1
@@ -1163,9 +1166,9 @@ def alternate_track(artist, title, exclude_id="", duration=0.0):
         ca = _norm(c.get("channel", ""))
         if not ct or not want_t:
             continue
-        # El título es lo que más pesa; si no comparte ni prefijo, se descarta.
+        # The title weighs the most; if it shares no prefix it is dropped.
         if not (ct == want_t or ct.startswith(want_t) or want_t.startswith(ct)):
-            # Oportunidad para que un título muy largo coincida por palabras.
+            # A chance for a very long title to match by words.
             wt, wc = set(want_t.split()), set(ct.split())
             inter = len(wt & wc)
             if not inter or inter / max(1, len(wt)) < 0.6:
@@ -1187,8 +1190,8 @@ def alternate_track(artist, title, exclude_id="", duration=0.0):
 
 
 def cmd_alternate(spec, duration=0.0):
-    # spec llega como "artista\ttítulo\tid-a-excluir" (el id va aparte del
-    # título para no perder el separador en nombres con espacios).
+    # spec arrives as "artist\ttitle\tid-to-exclude" (the id travels apart
+    # from the title so the separator is not lost in names with spaces).
     parts = spec.split("\t")
     artist = parts[0] if parts else ""
     title = parts[1] if len(parts) > 1 else ""

@@ -11,8 +11,8 @@
 
 namespace {
 
-// La clave identifica la combinación (candidatas + hueco + radio + dpr).
-// Va en la URL del proveedor, así que se resume con un hash.
+// The key identifies the combination (candidates + slot + radius + dpr).
+// It travels in the provider's URL, so it is summarised with a hash.
 QString makeKey(const QStringList &candidates, int boxW, int boxH, int radius,
                 qreal scale)
 {
@@ -26,7 +26,7 @@ QString makeKey(const QStringList &candidates, int boxW, int boxH, int radius,
     return h.result().toHex().left(16);
 }
 
-// Sólo las candidatas que se pueden descargar (http/https).
+// Only the candidates that can be downloaded (http/https).
 QStringList usable(const QStringList &candidates)
 {
     QStringList real;
@@ -88,9 +88,9 @@ QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
     if (needStart)
         start(key);
 
-    // Mientras la foto no esté procesada NO se devuelve URL: el QML deja el
-    // hueco vacío (sin pedir una imagen que todavía no existe) y la pinta
-    // cuando llega la señal «ready».
+    // While the photo is not processed NO url is returned: the QML leaves
+    // the slot empty (without asking for an image that does not exist yet)
+    // and paints it when the "ready" signal arrives.
     {
         QMutexLocker lock(&m_mutex);
         auto it = m_jobs.constFind(key);
@@ -195,7 +195,7 @@ void RoundedArt::tryNext(const QString &key, int index)
         {
             QMutexLocker lock(&m_mutex);
             // La foto original se guarda para no volver a bajarla si
-            // otra parte de la app la pide en otro tamaño.
+            // another part of the app asks for it at another size.
             m_originals.insert(url, src);
             m_originalOrder.removeAll(url);
             m_originalOrder << url;
@@ -230,7 +230,7 @@ QImage RoundedArt::process(const QImage &src, int boxW, int boxH, int radius,
     const int r = qBound(0, qRound(radius * s), qMin(w, h) / 2);
 
     // Recorte central (KeepAspectRatioByExpanding + corte del centro =
-    // PreserveAspectCrop) y máscara de esquinas.
+    // PreserveAspectCrop) and the corner mask.
     QImage scaled = src.scaled(w, h, Qt::KeepAspectRatioByExpanding,
                                Qt::SmoothTransformation);
     const int x = (scaled.width() - w) / 2;
