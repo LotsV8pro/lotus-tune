@@ -537,6 +537,10 @@ Window {
             // typing.
             if (launchInput)
                 launchInput.forceActiveFocus()
+            if (root.qaLauncherSearch.length > 0) {
+                launchInput.text = root.qaLauncherSearch
+                root.qaLauncherSearch = ""
+            }
             if (launchInput.text.trim().length >= 3)
                 launcherSearch.restart()
         } else {
@@ -979,12 +983,14 @@ Window {
                 const songs = []
                 for (let i = 0; i < items.length && songs.length < 5; i++) {
                     const e = items[i]
-                    const parts = String(e.channel || "").split(" • ")
-                    const kind = (parts[0] || "").toLowerCase()
-                    if (kind !== "canción" && kind !== "cancion"
-                        && kind !== "song" && kind !== "vídeo" && kind !== "video")
+                    // The multi source search returns the NORMALISED tracks
+                    // (title/artist/thumb), not the old "channel" format: the
+                    // launcher used to filter by channel and it dropped
+                    // EVERY result, so it always said "no results".
+                    const title = String(e.title || "")
+                    if (title.length === 0)
                         continue
-                    songs.push({ title: e.title || "", artist: parts[1] || "",
+                    songs.push({ title: title, artist: String(e.artist || ""),
                                  thumb: e.thumbnail || e.thumb || "",
                                  url: e.url || "" })
                 }
@@ -1039,6 +1045,10 @@ Window {
             } else if (a.startsWith("--panel=")) {
                 const t = a.substring(8)
                 root.openPanel(t === "letras" || t === "lyrics" ? 1 : 0)
+            } else if (a.startsWith("--launchersearch=")) {
+                // QA: opens the launcher with a query already typed (the
+                // launcher search is a different path from the page one).
+                root.qaLauncherSearch = a.substring(17)
             } else if (a === "--fslyrics" || a === "--nowplaying") {
                 // QA: opens the fullscreen lyrics directly.
                 // (--nowplaying is the old name of the same mode.)
@@ -1059,6 +1069,9 @@ Window {
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
+        // The QA launcher query: the launcher is opened with it typed in.
+        if (root.qaLauncherSearch.length > 0)
+            Qt.callLater(root.toggleLauncher)
         // The QA query is fired once the page is already mounted.
         if (cliSearch.length > 0)
             Qt.callLater(function() { catalog.searchAll(cliSearch) })
@@ -1164,6 +1177,8 @@ Window {
     property bool fsLyricsOpen: false
     // QA: open the cinema mode as soon as there is a track playing.
     property bool qaFsLyrics: false
+    // QA: open the launcher with a query already in the field.
+    property string qaLauncherSearch: ""
 
     Timer {
         running: root.qaFsLyrics && root.currentTitle.length > 0
@@ -3981,6 +3996,10 @@ Window {
             border.width: 0
             scale: root.launcherOpen ? 1 : 0.97
             Behavior on scale { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
+
+            // The wheel that is left over (over the field) stays in the
+            // panel: it does not drag the list below or the window.
+            WheelHandler { onWheel: (event) => { event.accepted = true } }
 
             ColumnLayout {
                 id: launcherCol
