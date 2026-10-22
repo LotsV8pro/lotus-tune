@@ -157,6 +157,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_exactTried = m_videoId.isEmpty();
     m_neteaseTried = false;
     m_mxmTried = false;
+    m_mxmVariant = 0;
     ++m_gen;
 
     m_loading = true;
@@ -204,12 +205,11 @@ void Lyrics::fetch(const QString &artist, const QString &title,
         return;
     }
 
-    // YouTube Music and Musixmatch go in parallel: the first one brings
-    // the lyrics of the video that is playing (the reference for the word
-    // timings) and the second one the timing of every word. Whichever
-    // answers first is used and the other one completes it.
+    // YouTube Music first: its lyrics are the ones of the video that is
+    // playing (and the reference the word timings are aligned with).
+    // Musixmatch comes after: it matches another version of the song
+    // sometimes, and when the two go together the wrong one can win.
     startYtm();
-    startMusixmatch();
 }
 
 // Classic plan (LRCLIB -> NetEase), used when YouTube Music has no lyrics
@@ -1958,9 +1958,38 @@ static QString mxmTokenPath()
 // The titles that come from YouTube Music carry the uploader and the
 // marketing noise ("xi - Topic - Freedom Dive", "Savior (Official Music
 // Video)"). Musixmatch knows the song without them.
-static QString cleanTrackTitle(const QString &in)
+// Helpers used by the title/artist cleaning (defined below).
+static QString spaceCamel(const QString &s);
+static QString normMatch(const QString &s);
+
+static QString cleanTrackTitle(const QString &in, const QString &artist = QString())
 {
     QString t = in;
+    // Some catalogues put the artist in front of the title ("Rise Against -
+    // Savior"): the search needs the title alone.
+    if (!artist.isEmpty()) {
+        // The prefix can be repeated ("Rise Against - Rise Against -
+        // Savior") and the artist is written in any way (with or without
+        // spaces), so it is removed until there is none left.
+        for (int guard = 0; guard < 3; ++guard) {
+            const QString raw = artist.simplified();
+            bool cut = false;
+            for (const QString &a : {raw, spaceCamel(raw)}) {
+                const QString an = normMatch(a);
+                const QString tn = normMatch(t);
+                if (an.isEmpty() || !tn.startsWith(an + QLatin1Char(' ')))
+                    continue;
+                const int pos = t.indexOf(QLatin1Char('-'), a.size());
+                if (pos > 0) {
+                    t = t.mid(pos + 1).trimmed();
+                    cut = true;
+                    break;
+                }
+            }
+            if (!cut)
+                break;
+        }
+    }
     const QStringList junk = {
         QStringLiteral("official music video"), QStringLiteral("official video"),
         QStringLiteral("official audio"), QStringLiteral("official lyric video"),
@@ -1970,8 +1999,9 @@ static QString cleanTrackTitle(const QString &in)
         QStringLiteral("hq"), QStringLiteral("4k"), QStringLiteral("remastered"),
         QStringLiteral("topic")
     };
-    t.remove(QRegularExpression(QStringLiteral("\\s*\\[[^\\]]*\\]")));
-    t.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)")));
+    // Only the marketing noise is removed: a real suffix ("(Nowhere
+    // Sessions)", "(Live)") is kept, because it tells the songs apart and
+    // the match is checked against it later.
     t.remove(QRegularExpression(QStringLiteral("\\s*-\\s*Topic\\s*$"),
                                 QRegularExpression::CaseInsensitiveOption));
     for (const QString &j : junk) {
@@ -1980,8 +2010,36 @@ static QString cleanTrackTitle(const QString &in)
             QRegularExpression::CaseInsensitiveOption);
         t.remove(re);
     }
+    t.remove(QRegularExpression(QStringLiteral("\\s*\\[[^\\]]*\\]")));
+    t.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)")));
     t = t.simplified();
     return t;
+}
+
+// Normalises a title or an artist to compare two of them: lower case,
+// without accents and with single spaces. The parentheses are kept.
+static QString normMatch(const QString &s)
+{
+    QString t = s.toLower();
+    t.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}()'\\- ]")));
+    return t.simplified();
+}
+
+// "RiseAgainst" -> "Rise Against": some catalogues drop the spaces of
+// the artist, and with them the search matches another version of the
+// song.
+static QString spaceCamel(const QString &s)
+{
+    QString out;
+    for (int i = 0; i < s.size(); ++i) {
+        const QChar c = s.at(i);
+        if (i > 0 && c.isUpper() && !s.at(i - 1).isUpper()
+            && (i + 1 >= s.size() || !s.at(i + 1).isUpper())) {
+            out += QLatin1Char(' ');
+        }
+        out += c;
+    }
+    return out;
 }
 
 static QString cleanTrackArtist(const QString &in)
@@ -1990,7 +2048,7 @@ static QString cleanTrackArtist(const QString &in)
     a.remove(QRegularExpression(QStringLiteral("\\s*-\\s*Topic\\s*$"),
                                 QRegularExpression::CaseInsensitiveOption));
     a.remove(QRegularExpression(QStringLiteral("\\s*\\(.*\\)\\s*$")));
-    a = a.simplified();
+    a = spaceCamel(a.simplified());
     return a;
 }
 
@@ -2034,10 +2092,15 @@ void Lyrics::requestMusixmatchRichsync()
 {
     if (m_mxmToken.isEmpty() || m_title.trimmed().isEmpty())
         return;
-    const QString title = cleanTrackTitle(m_title);
-    const QString artist = cleanTrackArtist(m_artist);
+    const QString title = cleanTrackTitle(m_title, m_artist);
+    QString artist = cleanTrackArtist(m_artist);
     if (title.isEmpty())
         return;
+    // The second try writes the artist in lower case and without the
+    // duration: with the first form Musixmatch sometimes answers with
+    // another version of the song.
+    if (m_mxmVariant > 0)
+        artist = artist.toLower();
 
     QUrl url(QStringLiteral("https://apic.musixmatch.com/ws/1.1/macro.subtitles.get"));
     QUrlQuery q;
@@ -2050,9 +2113,9 @@ void Lyrics::requestMusixmatchRichsync()
     q.addQueryItem(QStringLiteral("usertoken"), m_mxmToken);
     q.addQueryItem(QStringLiteral("q_track"), title);
     q.addQueryItem(QStringLiteral("q_artist"), artist);
-    if (m_duration > 0)
-        q.addQueryItem(QStringLiteral("q_duration"),
-                       QString::number(m_duration));
+    // The duration is NOT sent: with it Musixmatch matches a different
+    // song (the same title of another artist), without it the match is
+    // the right one.
     // The word timings come as an extra sub call of the same request.
     q.addQueryItem(QStringLiteral("optional_calls"),
                    QStringLiteral("track.richsync"));
@@ -2198,6 +2261,63 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         out.append(line);
     }
 
+    // Musixmatch spreads the words of a line in a strange way (the gap
+    // before the next word is counted as part of it), so a word that is
+    // sung fast comes out with a very long segment and the karaoke front
+    // goes slower and slower. When the words do not fill the line, they
+    // share it by the length of their text.
+    for (int i = 0; i < out.size(); ++i) {
+        LrcLine &line = out[i];
+        if (line.words.size() < 2)
+            continue;
+        const double lineEnd = (i + 1 < out.size()) ? out.at(i + 1).time
+                                                    : line.time + 6.0;
+        const double lineDur = lineEnd - line.time;
+        if (lineDur <= 0.0)
+            continue;
+        double used = 0.0;
+        int chars = 0;
+        for (const QVariant &wv : line.words) {
+            const QVariantMap w = wv.toMap();
+            used += qMax(0.0, w.value(QStringLiteral("e")).toDouble()
+                             - w.value(QStringLiteral("t")).toDouble());
+            chars += w.value(QStringLiteral("text")).toString().size();
+        }
+        if (chars <= 0 || used <= 0.0)
+            continue;
+        // Each word should take about the time its length needs. When one
+        // of them takes much more (or much less) the timings are strange
+        // (Musixmatch counts the silence in front of a word as part of
+        // it) and the karaoke front goes slower and slower. Then the line
+        // is shared by the length of the words.
+        bool strange = false;
+        for (const QVariant &wv : line.words) {
+            const QVariantMap w = wv.toMap();
+            const double d = w.value(QStringLiteral("e")).toDouble()
+                           - w.value(QStringLiteral("t")).toDouble();
+            const int len = qMax(1, w.value(QStringLiteral("text")).toString().size());
+            const double expected = lineDur * (double(len) / double(chars));
+            if (expected > 0.0 && (d > expected * 2.0 || d < expected * 0.4)) {
+                strange = true;
+                break;
+            }
+        }
+        if (!strange)
+            continue;   // the timings are coherent: they are kept
+
+        double acc = 0.0;
+        for (int k = 0; k < line.words.size(); ++k) {
+            QVariantMap w = line.words.at(k).toMap();
+            const int len = qMax(1, w.value(QStringLiteral("text")).toString().size());
+            const double share = lineDur * (double(len) / double(chars));
+            const double t0 = line.time + acc;
+            acc += share;
+            w.insert(QStringLiteral("t"), t0);
+            w.insert(QStringLiteral("e"), t0 + share);
+            line.words[k] = w;
+        }
+    }
+
     return out;
 }
 
@@ -2222,6 +2342,51 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         root.value(QStringLiteral("message")).toObject()
             .value(QStringLiteral("body")).toObject()
             .value(QStringLiteral("macro_calls")).toObject();
+
+    // The match has to be checked before using the lyrics: Musixmatch
+    // answers with a song that is close enough (the same title of another
+    // version, like "Savior" -> "Savior (Nowhere Sessions)") and its
+    // lyrics belong to a different recording.
+    const QJsonObject mt =
+        calls.value(QStringLiteral("matcher.track.get")).toObject()
+            .value(QStringLiteral("message")).toObject();
+    const bool matched = mt.value(QStringLiteral("header")).toObject()
+                             .value(QStringLiteral("status_code")).toInt() == 200;
+    const QJsonObject track = mt.value(QStringLiteral("body")).toObject()
+                                  .value(QStringLiteral("track")).toObject();
+    const QString foundTitle = track.value(QStringLiteral("track_name")).toString();
+    const QString foundArtist = track.value(QStringLiteral("artist_name")).toString();
+    const int foundLength = track.value(QStringLiteral("track_length")).toInt();
+    const QString wantTitle = normMatch(cleanTrackTitle(m_title, m_artist));
+    const QString wantArtist = normMatch(cleanTrackArtist(m_artist));
+    const bool titleOk = !foundTitle.isEmpty()
+        && (normMatch(foundTitle) == wantTitle
+            || normMatch(foundTitle).startsWith(wantTitle + QLatin1Char(' '))
+            || wantTitle.startsWith(normMatch(foundTitle) + QLatin1Char(' ')));
+    const bool artistOk = wantArtist.isEmpty() || foundArtist.isEmpty()
+        || normMatch(foundArtist) == wantArtist;
+    const bool lengthOk = foundLength <= 0 || m_duration <= 0
+        || qAbs(foundLength - m_duration) <= 10;
+    if (!matched || !titleOk || !artistOk || !lengthOk) {
+        qInfo().noquote()
+            << QString("[lyrics] musixmatch: la letra es de otra canción (\"%1\" / \"%2\"), se descarta")
+                   .arg(foundTitle, foundArtist);
+        if (m_mxmVariant == 0) {
+            // The same song with the artist written in lower case: with
+            // the first form Musixmatch sometimes answers with another
+            // version of it.
+            ++m_mxmVariant;
+            requestMusixmatchRichsync();
+            return;
+        }
+        if (m_neteaseTried)
+            fail(QStringLiteral("Sin letra disponible"));
+        else {
+            m_neteaseTried = true;
+            startNetease();
+        }
+        return;
+    }
 
     // The word level timings.
     const QJsonObject rs =
@@ -2262,6 +2427,36 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
             const QString lrc = list.at(0).toObject()
                     .value(QStringLiteral("subtitle")).toObject()
                     .value(QStringLiteral("subtitle_body")).toString();
+            // Sometimes the body is not an LRC text but a JSON array with
+            // the line and its time: [{"text":…,"time":{"total":…}}].
+            if (lrc.trimmed().startsWith(QLatin1Char('['))) {
+                QVector<LrcLine> lines;
+                const QJsonArray arr =
+                    QJsonDocument::fromJson(lrc.toUtf8()).array();
+                for (const QJsonValue &v : arr) {
+                    const QJsonObject o = v.toObject();
+                    const QString text =
+                        o.value(QStringLiteral("text")).toString().trimmed();
+                    if (text.isEmpty())
+                        continue;
+                    LrcLine line;
+                    line.time = o.value(QStringLiteral("time")).toObject()
+                                    .value(QStringLiteral("total")).toDouble();
+                    line.text = text;
+                    lines.append(line);
+                }
+                if (lines.size() >= 2) {
+                    qInfo() << "[lyrics] musixmatch: letra con tiempos por línea ("
+                            << lines.size() << " líneas)";
+                    m_synced = lrc;
+                    m_lines = lines;
+                    m_refLines = m_lines;
+                    m_hasSynced = true;
+                    m_syncSource = QStringLiteral("musixmatch");
+                    finish();
+                    return;
+                }
+            }
             if (!lrc.trimmed().isEmpty()) {
                 QVector<LrcLine> worded = parseLrcWords(lrc);
                 if (worded.size() >= 2) {

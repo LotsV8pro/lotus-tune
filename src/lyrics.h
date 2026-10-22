@@ -268,6 +268,9 @@ private:
     bool m_neteaseTried = false;
     // Musixmatch: the token lasts ten minutes and it is kept on disk.
     bool m_mxmTried = false;
+    // Which variant of the query is being tried: Musixmatch matches a
+    // different song depending on how the artist is written.
+    int m_mxmVariant = 0;
     QString m_mxmToken;
     QDateTime m_mxmTokenAt;
     bool m_loading = false;
