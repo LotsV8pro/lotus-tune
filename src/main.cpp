@@ -1,6 +1,7 @@
 #include "appconfig.h"
 #include "catalog.h"
 #include "discordrpc.h"
+#include "stubs.h"
 #include "downloads.h"
 #include "sfx.h"
 #include "lyrics.h"
@@ -27,7 +28,9 @@
 #include <QThread>
 
 #include <csignal>
+#ifndef Q_OS_ANDROID
 #include <unistd.h>
+#endif
 
 static void rawMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
 {
@@ -388,13 +391,19 @@ int main(int argc, char *argv[])
     // (clock position and play/pause). See Lyrics::setEngine.
     lyrics.setEngine(&player);
 
-    // Discord Rich Presence.
+    // Discord Rich Presence. On a phone there is no local socket for it:
+    // a do-nothing object with the same API is exposed instead.
     DiscordRpc discord;
     engine.rootContext()->setContextProperty(QStringLiteral("discord"), &discord);
 
     // System media controls (MPRIS2 over D-Bus). The mpv engine is injected
-    // into it to publish the real position/duration.
+    // into it to publish the real position/duration. On a phone there is no
+    // D-Bus: the stub keeps the QML unchanged.
+#ifdef Q_OS_ANDROID
+    MprisStub mpris;
+#else
     Mpris mpris(&player);
+#endif
     engine.rootContext()->setContextProperty(QStringLiteral("mpris"), &mpris);
     // org.mpris.MediaPlayer2.Raise -> bring the window to the front.
     QObject::connect(&mpris, &Mpris::raiseRequested, [] { raiseMainWindow(); });

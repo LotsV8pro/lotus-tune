@@ -14,7 +14,9 @@
 #include <QDebug>
 
 #ifdef Q_OS_UNIX
+#ifndef Q_OS_ANDROID
 #include <unistd.h>
+#endif
 #endif
 
 namespace {
@@ -133,6 +135,16 @@ QStringList DiscordRpc::socketPaths()
     for (const QString &dir : dirs)
         for (int i = 0; i < 10; ++i)
             paths << dir + QStringLiteral("/discord-ipc-%1").arg(i);
+#ifdef Q_OS_ANDROID
+    // On Android the Discord app publishes the socket in the ABSTRACT
+    // namespace (there is no /tmp for the apps), so the name is the
+    // socket name with a leading NUL.
+    for (int i = 0; i < 10; ++i) {
+        QString abstract = QString(QChar(0));
+        abstract += QStringLiteral("discord-ipc-%1").arg(i);
+        paths << abstract;
+    }
+#endif
     return paths;
 }
 
