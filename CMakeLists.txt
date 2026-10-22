@@ -35,6 +35,7 @@ endif()
 
 qt_standard_project_setup()
 
+
 set(LOTUS_SOURCES
     src/main.cpp
     src/roundedart.cpp
@@ -59,9 +60,16 @@ set(LOTUS_SOURCES
     src/perf.h
     src/wash.h
     src/wash.cpp
+    src/updates.h
+    src/updates.cpp
 )
 
 qt_add_executable(lotus-tune ${LOTUS_SOURCES})
+
+# The version of the app (it is shown in the settings and it is compared
+# with the one published in the repository).
+set_target_properties(lotus-tune PROPERTIES
+    VERSION "${PROJECT_VERSION}")
 
 qt_add_qml_module(lotus-tune
     URI LotusTune
@@ -128,6 +136,11 @@ if(LOTUS_DESKTOP)
         src/mpris.cpp
     )
 endif()
+
+# The version is compiled in so the app can compare it with the one
+# published in the repository.
+target_compile_definitions(lotus-tune PRIVATE
+    LOTUS_TUNE_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(lotus-tune PRIVATE
     Qt6::Quick
