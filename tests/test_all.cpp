@@ -25,6 +25,13 @@ class TestLotusTune : public QObject
     // runs with the HOME pointing here to avoid touching the user's library.
     QTemporaryDir *m_homeDir = nullptr;
 
+    // A line with the timing of every word. The times are the ones the
+    // sources give: the last word of a line inherits the end of the line.
+    static Lyrics::LrcLine wordLine(double time, const QString &text,
+                                    const QVector<double> &starts,
+                                    double lastEnd);
+    static double durationOf(const QVariantMap &word);
+
 private slots:
     void initTestCase();
     void cleanupTestCase();
@@ -42,6 +49,7 @@ private slots:
     void testParseLrc();
     void testLooksLikeCredit();
     void testLineIndexAt();
+    void testWordTimings();
 };
 
 void TestLotusTune::initTestCase()
@@ -482,6 +490,82 @@ void TestLotusTune::testLineIndexAt()
     QVERIFY(!lyrics.hasSynced());
     QCOMPARE(lyrics.lines().size(), 0);
     QCOMPARE(lyrics.lineIndexAt(1.0), -1);
+}
+
+// A line with the timing of every word. The times are the ones the
+// sources give: the last word of a line inherits the end of the line.
+Lyrics::LrcLine TestLotusTune::wordLine(double time, const QString &text,
+                                         const QVector<double> &starts,
+                                         double lastEnd)
+{
+    Lyrics::LrcLine line;
+    line.time = time;
+    line.text = text;
+    for (int i = 0; i < starts.size(); ++i) {
+        const double begin = starts.at(i);
+        const double end = (i + 1 < starts.size()) ? starts.at(i + 1) : lastEnd;
+        QVariantMap word;
+        word.insert(QStringLiteral("t"), begin);
+        word.insert(QStringLiteral("e"), end);
+        word.insert(QStringLiteral("text"), QStringLiteral("w"));
+        line.words.append(word);
+    }
+    return line;
+}
+
+double TestLotusTune::durationOf(const QVariantMap &word)
+{
+    return word.value(QStringLiteral("e")).toDouble()
+         - word.value(QStringLiteral("t")).toDouble();
+}
+
+void TestLotusTune::testWordTimings()
+{
+    // The last word of a line inherits the end of the line: when the line
+    // is long the karaoke front stays on it for seconds. It is cut to
+    // what the other words of the line take.
+    QVector<Lyrics::LrcLine> lines;
+    lines.append(wordLine(10.0, QStringLiteral("For me to take what's mine"),
+                           {10.0, 10.3, 10.6, 10.9}, 14.0));
+    Lyrics::clampStretchedWords(lines);
+    QCOMPARE(lines.size(), 1);
+    const QVariantMap last = lines.at(0).words.last().toMap();
+    // The other words last 0.3 s: the last one may not last more than
+    // twice that.
+    QVERIFY(durationOf(last) <= 0.61);
+    // The word still lasts something and it is not before the others.
+    QVERIFY(durationOf(last) > 0.0);
+    QCOMPARE(last.value(QStringLiteral("t")).toDouble(), 10.9);
+
+    // A line whose words are in order is not touched.
+    QVector<Lyrics::LrcLine> ok;
+    ok.append(wordLine(20.0, QStringLiteral("Is it such a sin"),
+                       {20.0, 20.2, 20.4}, 20.6));
+    Lyrics::clampStretchedWords(ok);
+    QCOMPARE(durationOf(ok.at(0).words.last().toMap()), 0.2);
+
+    // The header of the lyrics (the title with the artist) is not a line
+    // of the song: it is removed.
+    QVector<Lyrics::LrcLine> junk;
+    junk.append(wordLine(5.0, QStringLiteral("A Little Piece Of Heaven-Avenged"),
+                          {5.0, 6.0}, 20.0));
+    junk.append(wordLine(30.0, QStringLiteral("Before the story begins"),
+                          {30.0, 30.4}, 32.0));
+    Lyrics::dropJunkLines(junk, QStringLiteral("A Little Piece of Heaven"),
+                          QStringLiteral("Avenged Sevenfold"));
+    QCOMPARE(junk.size(), 1);
+    QCOMPARE(junk.at(0).text, QStringLiteral("Before the story begins"));
+
+    // A line whose words cover half of the song keeps its text but loses
+    // the timings: they are not real.
+    QVector<Lyrics::LrcLine> wide;
+    wide.append(wordLine(100.0, QStringLiteral("Do you take this man to death"),
+                          {100.0, 110.0}, 130.0));
+    Lyrics::dropJunkLines(wide, QStringLiteral("Nothing"),
+                          QStringLiteral("Nobody"));
+    QCOMPARE(wide.size(), 1);
+    QVERIFY(wide.at(0).words.isEmpty());
+    QCOMPARE(wide.at(0).text, QStringLiteral("Do you take this man to death"));
 }
 
 QTEST_MAIN(TestLotusTune)

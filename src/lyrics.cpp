@@ -167,6 +167,14 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_synced.clear();
     m_cacheLines.clear();
     m_cacheSource.clear();
+    // The word level sources of this track: they are compared with each
+    // other and the best aligned one is the one on screen.
+    m_candidates.clear();
+    m_current = -1;
+    m_wordedRaw.clear();
+    m_wordedSource.clear();
+    m_localWorded = false;
+    m_wordedScore = WordedScore();
     // The word level flag belongs to the track that was playing: without
     // this reset the lyrics of the previous song (with its word timings)
     // were kept and the new ones were never shown.
@@ -191,24 +199,16 @@ void Lyrics::fetch(const QString &artist, const QString &title,
                              .arg(m_trackKey)
                              .arg(m_duration);
 
-    // First the local Sonora cache: it is instant and it brings word level
-    // timings (real karaoke). If it is not there, the network carries on.
-    if (trySonoraCache()) {
+    // The local Sonora cache: it is instant and it brings word level
+    // timings (real karaoke). It is shown at once, but the network is
+    // asked too: the timings of the cache are the ALBUM's and they only
+    // fit the video when the video's own lyrics arrive, so the two
+    // sources are compared and the best aligned one wins.
+    if (trySonoraCache() || trySonoraByTitle()) {
         finish();
+        startYtm();
         return;
     }
-    // The cache may have the track under another videoId (the one Sonora
-    // cached): it is looked up by title and artist, like the shell widget
-    // does.
-    if (trySonoraByTitle()) {
-        finish();
-        return;
-    }
-
-    // YouTube Music first: its lyrics are the ones of the video that is
-    // playing (and the reference the word timings are aligned with).
-    // Musixmatch comes after: it matches another version of the song
-    // sometimes, and when the two go together the wrong one can win.
     startYtm();
 }
 
@@ -1008,23 +1008,26 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
         m_lines = std::move(parsed);
     } else {
         // The lines of the video arrived after the karaoke: the words are
-        // aligned with them now.
-        alignWords(m_lines, m_refLines);
+        // aligned with them now. The alignment is done from the raw lines,
+        // so the shift is never applied twice, and the sources are
+        // compared again now that the timeline of the video is here.
+        if (!m_wordedRaw.isEmpty()) {
+            QVector<LrcLine> aligned = m_wordedRaw;
+            if (alignWords(aligned, m_refLines, &m_wordedScore))
+                m_lines = std::move(aligned);
+        }
+        pickWorded();
     }
     m_hasSynced = true;
     m_syncSource = source;
     return true;
 }
 
-bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
+// Prepares the lines that are going to be shown: the instrumental markers
+// of the video are added, the long gaps are marked, the stretched words are
+// cut and the lines that are not sung are removed.
+void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
 {
-    if (lines.size() < 2)
-        return false;
-    // The words come from the album: they are aligned with the video and
-    // the text of the video wins. If the lines do not match at all it is
-    // another version of the song and it is not used.
-    if (!alignWords(lines, m_refLines))
-        return false;
     // The instrumental markers of the video are added (the album may not
     // have them) and every one of them is marked with as many "♪" as the
     // stretch lasts.
@@ -1093,11 +1096,80 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source)
         lines = withGaps;
     }
     expandInstrumentals(lines);
-    m_lines = std::move(lines);
+    // The last word of a line inherits the end of the line: cut it and
+    // drop the lines that are not sung.
+    clampStretchedWords(lines);
+    dropJunkLines(lines, m_title, m_artist);
+}
+
+// Picks the word level source that fits the song best and shows it. The
+// sources are compared with the timeline of the video being played: the
+// one that matches more lines is the same take of the song, and the one
+// with more word level timings has the richer karaoke.
+void Lyrics::pickWorded()
+{
+    if (m_candidates.isEmpty())
+        return;
+    const bool canCompare = m_refLines.size() >= 2;
+    int best = -1;
+    WordedScore bestScore;
+    QVector<LrcLine> bestLines;
+    for (int i = 0; i < m_candidates.size(); ++i) {
+        const WordedCandidate &c = m_candidates.at(i);
+        QVector<LrcLine> lines = c.lines;
+        WordedScore score;
+        if (canCompare) {
+            // The alignment moves the lines, and it refuses a source that
+            // is another take of the song.
+            if (!alignWords(lines, m_refLines, &score)) {
+                qInfo() << "[lyrics] la fuente" << c.source
+                        << "no es la misma version: se descarta";
+                continue;
+            }
+        }
+        if (best < 0 || score.betterThan(bestScore)) {
+            best = i;
+            bestScore = score;
+            bestLines = std::move(lines);
+        }
+    }
+    if (best < 0) {
+        if (!canCompare) {
+            // Without the timeline of the video the sources cannot be
+            // compared: the first one is used (the local cache, which is
+            // instant).
+            best = 0;
+            bestLines = m_candidates.at(0).lines;
+        } else {
+            return;   // none of them is this take of the song
+        }
+    }
+    prepareWordedLines(bestLines);
+    m_lines = std::move(bestLines);
+    m_wordedRaw = m_candidates.at(best).lines;
+    m_wordedSource = m_candidates.at(best).source;
+    m_localWorded = m_candidates.at(best).local;
+    m_wordedScore = bestScore;
+    m_current = best;
     m_hasSynced = true;
-    m_syncSource = source;
+    m_syncSource = m_wordedSource;
     m_worded = true;
-    return true;
+}
+
+// A word level source is kept as a candidate: the ones that arrive later
+// are compared with it and the best aligned one is the one on screen.
+bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
+                         bool local)
+{
+    if (lines.size() < 2)
+        return false;
+    WordedCandidate candidate;
+    candidate.lines = std::move(lines);
+    candidate.source = source;
+    candidate.local = local;
+    m_candidates.append(candidate);
+    pickWorded();
+    return m_worded;
 }
 
 // Aligns the word timings with a reference timeline (the timed lyrics of the
@@ -1232,7 +1304,7 @@ bool Lyrics::trySonoraCache()
         return false;
     }
 
-    return adoptWorded(std::move(best), source);
+    return adoptWorded(std::move(best), source, /*local=*/true);
 }
 
 // Fallback of the Sonora cache: look it up by TITLE and ARTIST, not only
@@ -1419,7 +1491,7 @@ bool Lyrics::trySonoraByTitle()
         return false;
     }
 
-    return adoptWorded(std::move(best), source);
+    return adoptWorded(std::move(best), source, /*local=*/true);
 }
 
 void Lyrics::settleOrFail()
@@ -1432,6 +1504,13 @@ void Lyrics::settleOrFail()
     // network had nothing better for this track).
     if (m_cacheLines.size() >= 2) {
         m_lines = m_cacheLines;
+        // The timeline of the video may be here already: the lines are
+        // aligned with it, and the stretched words and the lines that are
+        // not sung are cleaned.
+        if (m_refLines.size() >= 2)
+            alignWords(m_lines, m_refLines);
+        clampStretchedWords(m_lines);
+        dropJunkLines(m_lines, m_title, m_artist);
         m_hasSynced = true;
         m_syncSource = m_cacheSource;
         qInfo().noquote()
@@ -1457,11 +1536,15 @@ void Lyrics::finish()
     if (m_hasLyrics)
         m_error.clear();
 
-    // The lyrics we have bring no word level timings: NetEase is asked for
+    // The lyrics we have bring no word level timings: Musixmatch is asked for
     // its "klyric" (which does bring them) to get the word level karaoke,
     // like the shell widget. If it arrives, it replaces the lyrics.
-    if (m_hasSynced && !hasWordTimings() && !m_mxmTried
-        && !m_title.trimmed().isEmpty()) {
+    // It is also asked when the local cache brought the karaoke: the two
+    // are compared with the timeline of the video and the best aligned
+    // one wins.
+    if (m_hasSynced && !m_mxmTried
+        && !m_title.trimmed().isEmpty()
+        && (!hasWordTimings() || m_localWorded)) {
         // The lyrics have no word level timings: Musixmatch is asked for
         // them (it is the catalogue YouTube Music uses) and, if it does not
         // have them either, NetEase.
@@ -2209,6 +2292,80 @@ static bool isInstrumental(const QString &norm)
         || norm == QStringLiteral("instrumental");
 }
 
+// The last word of a line usually inherits the end of the line: the
+// sources mark the end of the phrase, not the end of the word. When the
+// line is long the karaoke front stays on that last word for seconds and
+// the phrase looks like it is still being sung (the user noticed it: "las
+// frases se alargan más de lo que deberían"). The word is cut to what the
+// other words of the line take.
+void Lyrics::clampStretchedWords(QVector<LrcLine> &lines)
+{
+    for (LrcLine &line : lines) {
+        if (line.words.size() < 2)
+            continue;
+        // The typical word of the line: the median of the words BEFORE
+        // the last one (the last one is the suspect, so it must not be
+        // part of the reference).
+        QVector<double> durations;
+        durations.reserve(line.words.size() - 1);
+        for (int i = 0; i + 1 < line.words.size(); ++i) {
+            const QVariantMap w = line.words.at(i).toMap();
+            durations.append(qMax(0.0, w.value(QStringLiteral("e")).toDouble()
+                                        - w.value(QStringLiteral("t")).toDouble()));
+        }
+        if (durations.isEmpty())
+            continue;
+        std::sort(durations.begin(), durations.end());
+        const double typical = durations.at(durations.size() / 2);
+        if (typical <= 0.0)
+            continue;
+        QVariantMap last = line.words.last().toMap();
+        const double t0 = last.value(QStringLiteral("t")).toDouble();
+        const double e0 = last.value(QStringLiteral("e")).toDouble();
+        const double cap = t0 + typical * 2.0;
+        if (e0 <= cap)
+            continue;   // the word is not stretched
+        last.insert(QStringLiteral("e"), cap);
+        line.words.last() = last;
+    }
+}
+
+// The lines that are not sung (the title of the song with the artist, a
+// line of credits...) are removed: their words are not real timings (they
+// cover half of the song) and they spoil the karaoke.
+void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
+                           const QString &artist)
+{
+    const QString t = norm(title);
+    const QString a = norm(artist);
+    QVector<LrcLine> out;
+    out.reserve(lines.size());
+    for (LrcLine &line : lines) {
+        const QString key = norm(line.text);
+        if (key.isEmpty())
+            continue;
+        // The header of the lyrics: the title (with the artist) is not a
+        // line of the song.
+        if (!t.isEmpty() && key.contains(t) && key.size() <= t.size() + 40)
+            continue;
+        if (!a.isEmpty() && key.contains(a) && key.size() <= a.size() + 40)
+            continue;
+        // The words of the line cover a stretch that is not sung: the text
+        // is real, but the timings are not, so the line is kept without
+        // them (it falls back to the line level karaoke).
+        if (line.words.size() > 1) {
+            const QVariantMap first = line.words.first().toMap();
+            const QVariantMap last = line.words.last().toMap();
+            const double span = last.value(QStringLiteral("e")).toDouble()
+                              - first.value(QStringLiteral("t")).toDouble();
+            if (span > 20.0)
+                line.words.clear();
+        }
+        out.append(line);
+    }
+    lines = out;
+}
+
 QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
 {
     QVector<LrcLine> out;
@@ -2252,6 +2409,9 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         }
         if (line.words.size() < 2)
             continue;
+        // The stretched words are cut later, in prepareWordedLines(): the
+        // same cut has to be applied to every source and this is not the
+        // only one.
         line.text = text.trimmed();
         if (line.text.isEmpty())
             continue;
@@ -2512,8 +2672,16 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
 // It returns false when the reference and the words do not match at all:
 // the lyrics are not used then.
 bool Lyrics::alignWords(QVector<LrcLine> &lines,
-                        const QVector<LrcLine> &reference)
+                        const QVector<LrcLine> &reference,
+                        WordedScore *score)
 {
+    if (score) {
+        *score = WordedScore();
+        score->total = lines.size();
+        for (const LrcLine &l : lines)
+            if (l.words.size() > 1)
+                ++score->worded;
+    }
     if (lines.size() < 2)
         return false;
     if (reference.size() < 2)
@@ -2588,8 +2756,13 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
         return false;
     qInfo() << "[lyrics] alineacion: " << matched << " de " << lines.size()
             << " lineas emparejadas con el video";
-    if (matched * 10 < lines.size() * 3)
+    if (matched * 10 < lines.size() * 3) {
+        if (score) {
+            score->matched = matched;
+            score->usable = false;
+        }
         return false;  // it is another version of the song
+    }
 
     std::sort(deltas.begin(), deltas.end());
     double shift = deltas.at(deltas.size() / 2);
@@ -2608,6 +2781,11 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
         qInfo() << "[lyrics] karaoke sin alinear: los tiempos no coinciden"
                 << deltas.size() << "muestras";
         lines = out;
+        if (score) {
+            score->matched = matched;
+            score->shift = shift;
+            score->usable = true;
+        }
         return true;
     }
     std::sort(agree.begin(), agree.end());
@@ -2629,5 +2807,10 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
                 << "(" << deltas.size() << " lineas)";
     }
     lines = out;
+    if (score) {
+        score->matched = matched;
+        score->shift = shift;
+        score->usable = true;
+    }
     return true;
 }
