@@ -186,10 +186,9 @@ Item {
                 height: 38
                 radius: Theme.rPill
                 color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                // Thin dark border: readable over any artwork, light or
-                // dark.
-                border.width: 1
-                border.color: Theme.alpha(Sys.bg, 0.28)
+                // No border: on a round shape the outline is traced inside
+                // and it comes out uneven (a halo around the button). The
+                // accent colour is enough contrast on its own.
                 anchors.right: parent.right
                 anchors.rightMargin: Theme.s2
                 anchors.bottom: parent.bottom
