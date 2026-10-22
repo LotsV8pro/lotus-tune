@@ -2321,6 +2321,16 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
     return out;
 }
 
+// The status code of the matcher sub call (0 when there is none).
+static int mxmMatcherStatus(const QJsonObject &calls)
+{
+    const QJsonObject mt =
+        calls.value(QStringLiteral("matcher.track.get")).toObject()
+            .value(QStringLiteral("message")).toObject();
+    return mt.value(QStringLiteral("header")).toObject()
+        .value(QStringLiteral("status_code")).toInt();
+}
+
 void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
@@ -2342,6 +2352,17 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         root.value(QStringLiteral("message")).toObject()
             .value(QStringLiteral("body")).toObject()
             .value(QStringLiteral("macro_calls")).toObject();
+
+    // The token can be rejected (Musixmatch answers 401 with a captcha
+    // when it has been used too much): it is thrown away and asked again.
+    if (mxmMatcherStatus(calls) == 401) {
+        qInfo() << "[lyrics] musixmatch: el token ha caducado, se pide otro";
+        m_mxmToken.clear();
+        QFile::remove(AppPaths::cacheDir() + QStringLiteral("/mxm_token.json"));
+        m_mxmTried = false;
+        requestMusixmatchRichsync();
+        return;
+    }
 
     // The match has to be checked before using the lyrics: Musixmatch
     // answers with a song that is close enough (the same title of another
