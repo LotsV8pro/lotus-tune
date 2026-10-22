@@ -2127,3 +2127,78 @@ void Catalog::saveLibrary() const
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         f.write(QJsonDocument(o).toJson(QJsonDocument::Indented));
 }
+
+// ---- the session of YouTube Music -----------------------------------------
+
+bool Catalog::exportSession(const QString &path)
+{
+    QFile f(AppPaths::cookiesFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    QJsonArray cookies;
+    const QList<QByteArray> lines = f.readAll().split('\n');
+    for (const QByteArray &lb : lines) {
+        const QString line = QString::fromUtf8(lb).trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+            continue;
+        const QStringList f2 = line.split(QLatin1Char('\t'));
+        if (f2.size() < 7)
+            continue;
+        QJsonObject c;
+        c[QStringLiteral("domain")] = f2.at(0);
+        c[QStringLiteral("path")] = f2.at(2);
+        c[QStringLiteral("secure")] = f2.at(3);
+        c[QStringLiteral("expires")] = f2.at(4);
+        c[QStringLiteral("name")] = f2.at(5);
+        c[QStringLiteral("value")] = f2.at(6);
+        cookies.append(c);
+    }
+    f.close();
+    if (cookies.isEmpty())
+        return false;
+
+    QJsonObject root;
+    root[QStringLiteral("app")] = QStringLiteral("lotus-tune");
+    root[QStringLiteral("version")] = QStringLiteral("1");
+    root[QStringLiteral("cookies")] = cookies;
+
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly))
+        return false;
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    out.close();
+    return true;
+}
+
+bool Catalog::importSession(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+    const QJsonArray cookies = root.value(QStringLiteral("cookies")).toArray();
+    if (cookies.isEmpty())
+        return false;
+
+    const QString target = AppPaths::cookiesFile();
+    QDir().mkpath(QFileInfo(target).absolutePath());
+    QFile out(target);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    out.write("# Netscape HTTP Cookie File\n");
+    out.write("# Exported by LotusTune\n\n");
+    for (const QJsonValue &v : cookies) {
+        const QJsonObject c = v.toObject();
+        out.write(QStringLiteral("%1\tFALSE\t%2\t%3\t%4\t%5\t%6\n")
+                     .arg(c.value(QStringLiteral("domain")).toString(),
+                          c.value(QStringLiteral("path")).toString(),
+                          c.value(QStringLiteral("secure")).toString(),
+                          c.value(QStringLiteral("expires")).toString(),
+                          c.value(QStringLiteral("name")).toString(),
+                          c.value(QStringLiteral("value")).toString())
+                     .toUtf8());
+    }
+    out.close();
+    return true;
+}

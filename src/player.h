@@ -8,6 +8,10 @@
 #include <QHash>
 #include <QVector>
 
+#ifdef Q_OS_ANDROID
+#include <QNetworkReply>
+#endif
+
 // Playback engine: mpv running headless (no video) with a JSON IPC socket.
 //
 // The app hands mpv watch/permalink URLs; mpv's ytdl hook resolves them
@@ -111,6 +115,20 @@ private:
     void saveStreamCache();
 
     QProcess m_proc;
+#ifdef Q_OS_ANDROID
+    // On a phone there is no mpv: the audio is played by Qt itself and the
+    // stream URL is asked to YouTube Music's internal API (the same one the
+    // app already uses for the lyrics).
+    class QMediaPlayer *m_androidPlayer = nullptr;
+    class QAudioOutput *m_androidAudio = nullptr;
+    class QNetworkAccessManager *m_apiNet = nullptr;
+    // Asks the API for the direct stream of a YouTube video.
+    void resolveWithApi(const QString &url);
+    void onApiReply(QNetworkReply *reply, const QString &url);
+    // The session of the user (the SAPISID of the cookies): without it
+    // the API does not serve the stream.
+    QString sessionCookie() const;
+#endif
     class QLocalSocket *m_sock = nullptr;
     QByteArray m_buf;
     QTimer m_connectTimer;

@@ -140,7 +140,10 @@ jobs:
             -DQT_HOST_PATH=$QT_HOST_PATH \
             -DCMAKE_FIND_ROOT_PATH=$QT_PREFIX \
             -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
-          cmake --build build-android
+          # The library with CMake and the package with Gradle: the target
+          # that Qt adds for the APK fails on a missing dep file.
+          cmake --build build-android --target lotus-tune
+          ( cd build-android/android-build && ./gradlew assembleDebug --no-daemon )
           find build-android -name "*.apk" -exec cp {} $GITHUB_WORKSPACE/lotus-tune-android.apk \;
 
       - uses: actions/upload-artifact@v4

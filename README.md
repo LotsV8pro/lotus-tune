@@ -76,6 +76,21 @@ Deja en `dist/` el `.deb`, el `.rpm`, el `AppImage` y el `tar.gz`. El `.deb`
 se construye sin `dpkg-deb` (a mano); el `AppImage` necesita
 `appimagetool` y `patchelf` instalados.
 
+## Android
+
+La APK (ARM64) está en las
+[releases](https://github.com/LotsV8pro/lotus-tune/releases): funciona el
+catálogo, las portadas en alta resolución, la letra con karaoke palabra a
+palabra y el fondo que sigue la portada.
+
+**Para que suene el audio** hace falta la sesión de YouTube Music (las
+cookies de la cuenta): en *Ajustes → Sesión de YouTube Music* se exporta
+a un fichero y se lleva al móvil (*Importar la sesión*). Sin sesión la
+app busca, muestra y canta la letra, pero no reproduce.
+
+En Android el motor es `QtMultimedia` (no hay `mpv`) y el stream se pide a
+la API interna de YouTube Music.
+
 ## Compilar para Windows y Android
 
 Los dos builds se hacen en la CI (`.github/workflows/build.yml`): en
