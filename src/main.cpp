@@ -155,15 +155,15 @@ static bool isLotusTunePid(qint64 pid)
     return QString::fromUtf8(f.readAll()).trimmed() == QLatin1String("lotus-tune");
 }
 
-static bool sendRaiseToServer()
+static bool sendRaiseToServer(int connectMs = 200)
 {
     QLocalSocket sock;
     sock.connectToServer(appSocketPath());
-    if (!sock.waitForConnected(250))
+    if (!sock.waitForConnected(connectMs))
         return false;
     sock.write("raise\n");
     sock.flush();
-    sock.waitForBytesWritten(250);
+    sock.waitForBytesWritten(150);
     // No answer is awaited: the first instance may still be loading QML
     // (no event loop); the data stays in its socket buffer.
     return true;
@@ -197,13 +197,14 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
     const bool live = processAlive(pid) && isLotusTunePid(pid);
 
     // With a live instance there may be a startup window where the server
-    // already listens: it retries briefly before giving up.
-    const int tries = live ? 6 : 1;
+    // already listens: it retries briefly before giving up. The wait is
+    // short on purpose: it blocks the window from appearing.
+    const int tries = live ? 3 : 1;
     for (int i = 0; i < tries; ++i) {
-        if (sendRaiseToServer())
+        if (sendRaiseToServer(150))
             return SingleInstance::ExistingRaised;
         if (i + 1 < tries)
-            QThread::msleep(150);
+            QThread::msleep(80);
     }
 
     // Nobody listens: leftovers are cleaned (orphan socket and, if needed,

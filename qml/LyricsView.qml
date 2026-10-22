@@ -438,7 +438,10 @@ Item {
     // line level timings it feeds the sweep of the active phrase. The engine
     // of the engine arrives at 240 ms; at 50 ms the front moves smoothly.
     Timer {
-        interval: 50
+        // 30 fps is enough for the front of the karaoke (the engine
+        // reports the position four times a second and the front is
+        // interpolated): a faster timer only wakes the CPU up.
+        interval: 33
         repeat: true
         running: lv.showSynced && !!lv.ply && lv.ply.playing
         onTriggered: {

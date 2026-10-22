@@ -16,6 +16,8 @@ Item {
     property int queueIndex: -1
 
     signal closeRequested()
+    // The app owns the state of the tab.
+    signal tabRequested(int t)
     signal trackActivated(int index)
     signal trackContextRequested(var track, real x, real y)
     // Ask for the fullscreen lyrics (cinema mode) from the LYRICS tab.
@@ -76,7 +78,15 @@ Item {
                             }
                         }
 
-                        TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.tab = tabItem.modelData.t } }
+                        // The panel asks for the tab: assigning it here
+                        // would break the binding with the app (the two
+                        // values would end up being different).
+                        TapHandler {
+                            onTapped: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                panel.tabRequested(tabItem.modelData.t)
+                            }
+                        }
                     }
                 }
 

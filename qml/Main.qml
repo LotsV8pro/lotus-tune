@@ -2646,6 +2646,7 @@ Window {
                 Layout.preferredWidth: 360
                 Layout.fillHeight: true
                 tab: root.panelTab
+                onTabRequested: (t) => root.panelTab = t
                 queueModel: queue
                 queueIndex: root.queueIndex
                 onCloseRequested: root.panelOpen = false

@@ -613,8 +613,8 @@ void Downloads::sweepOrphans(qint64 ageSecs)
     while (it.hasNext()) {
         const QString path = it.next();
         const QFileInfo fi(path);
-        // Only "old" orphans: the recent ones can be a resumable
-         // session.
+        // Only the OLD orphans are removed: the recent ones can be a
+        // resumable session.
         if (fi.lastModified().toUTC().secsTo(now) >= ageSecs)
             QFile::remove(path);
     }
