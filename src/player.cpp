@@ -1,4 +1,12 @@
 #include "player.h"
+
+#ifdef Q_OS_ANDROID
+#include <QAudioOutput>
+#include <QMediaPlayer>
+#include <QCryptographicHash>
+#include <QNetworkAccessManager>
+#include <QNetworkRequest>
+#endif
 #include "paths.h"
 
 #include <QDateTime>
@@ -164,6 +172,40 @@ void Player::saveStreamCache()
 
 void Player::startMpv()
 {
+#ifdef Q_OS_ANDROID
+    // On a phone the audio is played by Qt itself.
+    if (!m_androidPlayer) {
+        m_androidPlayer = new QMediaPlayer(this);
+        m_androidAudio = new QAudioOutput(this);
+        m_androidPlayer->setAudioOutput(m_androidAudio);
+        m_androidAudio->setVolume(m_volume / 100.0);
+        connect(m_androidPlayer, &QMediaPlayer::positionChanged, this,
+                [this](qint64 pos) {
+                    m_position = pos / 1000.0;
+                    emit positionChanged();
+                });
+        connect(m_androidPlayer, &QMediaPlayer::durationChanged, this,
+                [this](qint64 dur) {
+                    m_duration = dur / 1000.0;
+                    emit stateChanged();
+                });
+        connect(m_androidPlayer, &QMediaPlayer::playbackStateChanged, this,
+                [this](QMediaPlayer::PlaybackState st) {
+                    m_playing = st == QMediaPlayer::PlayingState;
+                    m_hasFile = st != QMediaPlayer::StoppedState;
+                    emit stateChanged();
+                });
+        connect(m_androidPlayer, &QMediaPlayer::errorOccurred, this,
+                [this](QMediaPlayer::Error, const QString &err) {
+                    qWarning() << "[player] error de reproducción:" << err;
+                    m_loading = false;
+                    emit stateChanged();
+                });
+    }
+    m_ready = true;
+    emit stateChanged();
+    return;
+#endif
 #ifdef Q_OS_ANDROID
     // There is no mpv on a phone: the playback engine of the Android
     // flavour is not there yet, so the app says it instead of failing
@@ -451,6 +493,30 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
         return;
     }
     const bool network = url.startsWith(QLatin1String("http"));
+#ifdef Q_OS_ANDROID
+    // On a phone there is no mpv and no yt-dlp: the stream is asked to
+    // YouTube Music's API and played by Qt.
+    if (m_androidPlayer) {
+        m_pendingLoadUrl.clear();
+        m_position = 0;
+        m_duration = 0;
+        m_currentUrl = url;
+        m_hasFile = true;
+        m_loading = true;
+        m_playing = true;
+        emit positionChanged();
+        emit stateChanged();
+        if (network) {
+            resolveWithApi(url);
+        } else {
+            m_androidPlayer->setSource(QUrl::fromLocalFile(url));
+            m_androidPlayer->play();
+            m_loading = false;
+            emit stateChanged();
+        }
+        return;
+    }
+#endif
     const bool cached = m_resolved.contains(url);
     // "Already playing" case: we have the direct URL cached, it is a
     // local file that mpv opens as it is, or it can no longer be resolved
@@ -498,6 +564,15 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
 
 void Player::playPause()
 {
+#ifdef Q_OS_ANDROID
+    if (m_androidPlayer) {
+        if (m_androidPlayer->playbackState() == QMediaPlayer::PlayingState)
+            m_androidPlayer->pause();
+        else
+            m_androidPlayer->play();
+        return;
+    }
+#endif
     send({{QStringLiteral("command"), QJsonArray{QStringLiteral("cycle"), QStringLiteral("pause")}}});
 }
 
@@ -782,6 +857,18 @@ void Player::onResolveTimeout(ResolveJob *job)
 void Player::stopPlayback()
 {
     m_pendingLoadUrl.clear();
+#ifdef Q_OS_ANDROID
+    if (m_androidPlayer) {
+        m_androidPlayer->stop();
+        m_playing = false;
+        m_hasFile = false;
+        m_loading = false;
+        m_position = 0;
+        emit stateChanged();
+        emit positionChanged();
+        return;
+    }
+#endif
     send({{QStringLiteral("command"), QJsonArray{QStringLiteral("stop")}}});
     m_playing = false;
     m_hasFile = false;
@@ -798,6 +885,19 @@ void Player::seek(double seconds)
     // idle.
     if (!m_hasFile)
         return;
+#ifdef Q_OS_ANDROID
+    if (m_androidPlayer) {
+        if (seconds < 0.0)
+            seconds = 0.0;
+        else if (m_duration > 0.0 && seconds > m_duration)
+            seconds = m_duration;
+        m_androidPlayer->setPosition(static_cast<qint64>(seconds * 1000.0));
+        m_position = seconds;
+        emit positionChanged();
+        emit seeked(seconds);
+        return;
+    }
+#endif
     // Clamp to [0, duration] when it is known: a target out of range
     // makes mpv jump to eof and leaves the widgets with an invalid
     // position/length.
@@ -842,6 +942,12 @@ void Player::setVolume(int v)
     v = qBound(0, v, 150);
     m_volume = v;
     emit volumeChanged();
+#ifdef Q_OS_ANDROID
+    if (m_androidAudio) {
+        m_androidAudio->setVolume(v / 100.0);
+        return;
+    }
+#endif
     send({{QStringLiteral("command"),
            QJsonArray{QStringLiteral("set"), QStringLiteral("volume"),
                       QString::number(v)}}});
@@ -879,3 +985,150 @@ void Player::setQuality(const QString &q)
            QJsonArray{QStringLiteral("set"), QStringLiteral("ytdl-format"),
                       ytdlFormat()}}});
 }
+
+
+#ifdef Q_OS_ANDROID
+// The session of the user: the cookies file of the app. The API needs the
+// SAPISID to sign the request, and with it it serves the stream.
+QString Player::sessionCookie() const
+{
+    QFile f(AppPaths::cookiesFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return QString();
+    QHash<QString, QString> jar;
+    const QList<QByteArray> lines = f.readAll().split('\n');
+    for (const QByteArray &lb : lines) {
+        const QString line = QString::fromUtf8(lb).trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#')))
+            continue;
+        const QStringList f2 = line.split(QLatin1Char('\t'));
+        if (f2.size() >= 7)
+            jar.insert(f2.at(5), f2.at(6));
+    }
+    if (jar.isEmpty())
+        return QString();
+    QString sapisid;
+    for (const QString &name : { QStringLiteral("__Secure-3PAPISID"),
+                                QStringLiteral("__Secure-1PAPISID"),
+                                QStringLiteral("SAPISID") }) {
+        if (jar.contains(name) && !jar.value(name).isEmpty()) {
+            sapisid = jar.value(name);
+            break;
+        }
+    }
+    if (sapisid.isEmpty())
+        return QString();
+    // The signature of the request (the same one ytm_api.py uses).
+    const QString ts = QString::number(QDateTime::currentSecsSinceEpoch());
+    const QByteArray digest = QCryptographicHash::hash(
+        QStringLiteral("%1 %2 %3").arg(ts, sapisid,
+                                      QStringLiteral("https://music.youtube.com"))
+            .toUtf8(), QCryptographicHash::Sha1).toHex();
+    QString cookie;
+    for (auto it = jar.constBegin(); it != jar.constEnd(); ++it)
+        cookie += QStringLiteral("%1=%2; ").arg(it.key(), it.value());
+    cookie.chop(2);
+    return QStringLiteral("SAPISIDHASH %1_%2|%3").arg(ts, QString::fromLatin1(digest),
+                                                  cookie);
+}
+
+void Player::resolveWithApi(const QString &url)
+{
+    // The id of the video: the watch URL or the permalink.
+    QString id = url;
+    const int q = id.indexOf(QLatin1Char('?'));
+    if (q >= 0)
+        id = id.left(q);
+    const int v = id.lastIndexOf(QLatin1Char('='));
+    if (v >= 0)
+        id = id.mid(v + 1);
+    if (id.size() < 11)
+        return;
+
+    const QString session = sessionCookie();
+    if (session.isEmpty()) {
+        qWarning() << "[player] sin sesión de YouTube Music: no se puede"
+                      " resolver el stream";
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    const int bar = session.indexOf(QLatin1Char('|'));
+    const QString auth = session.left(bar);
+    const QString cookie = session.mid(bar + 1);
+
+    QJsonObject cli;
+    cli[QStringLiteral("clientName")] = QStringLiteral("ANDROID_MUSIC");
+    cli[QStringLiteral("clientVersion")] = QStringLiteral("7.27.52");
+    cli[QStringLiteral("hl")] = QStringLiteral("es");
+    cli[QStringLiteral("gl")] = QStringLiteral("ES");
+    cli[QStringLiteral("androidSdkVersion")] = 34;
+    cli[QStringLiteral("userAgent")] = QStringLiteral(
+        "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip");
+    QJsonObject ctx;
+    ctx[QStringLiteral("client")] = cli;
+    ctx[QStringLiteral("user")] = QJsonObject();
+    QJsonObject body;
+    body[QStringLiteral("videoId")] = id;
+    body[QStringLiteral("context")] = ctx;
+    body[QStringLiteral("contentCheckOk")] = true;
+    body[QStringLiteral("racyCheckOk")] = true;
+
+    QNetworkRequest req(QUrl(QStringLiteral("https://music.youtube.com/youtubei/v1/player"
+                                           "?alt=json&key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30")));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    req.setRawHeader("User-Agent", "com.google.android.apps.youtube.music/7.27.52");
+    req.setRawHeader("Authorization", auth.toUtf8());
+    req.setRawHeader("Cookie", cookie.toUtf8());
+    req.setRawHeader("Origin", "https://music.youtube.com");
+    req.setRawHeader("X-Goog-Api-Format-Version", "2");
+    req.setTransferTimeout(15000);
+
+    if (!m_apiNet)
+        m_apiNet = new QNetworkAccessManager(this);
+    QNetworkReply *reply = m_apiNet->post(req, QJsonDocument(body).toJson());
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, url]() { onApiReply(reply, url); });
+}
+
+void Player::onApiReply(QNetworkReply *reply, const QString &url)
+{
+    reply->deleteLater();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
+        qWarning() << "[player] la API no devolvió el stream:" << reply->errorString();
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(raw).object();
+    const QJsonObject streaming =
+        root.value(QStringLiteral("streamingData")).toObject();
+    const QJsonArray formats = streaming.value(QStringLiteral("adaptiveFormats")).toArray();
+    QString best;
+    int bestBitrate = -1;
+    for (const QJsonValue &v : formats) {
+        const QJsonObject f = v.toObject();
+        const QString direct = f.value(QStringLiteral("url")).toString();
+        if (direct.isEmpty())
+            continue;
+        const int bitrate = f.value(QStringLiteral("bitrate")).toInt();
+        if (bitrate > bestBitrate) {
+            bestBitrate = bitrate;
+            best = direct;
+        }
+    }
+    if (best.isEmpty()) {
+        qWarning() << "[player] la API no devolvió ninguna URL de audio";
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    if (!m_androidPlayer)
+        return;
+    m_androidPlayer->setSource(QUrl(best));
+    m_androidPlayer->play();
+    m_loading = false;
+    emit stateChanged();
+}
+#endif

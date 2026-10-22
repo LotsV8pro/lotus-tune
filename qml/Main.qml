@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import QtQuick.Window
+import QtQuick.Dialogs
 import QtCore
 import "theme.js" as Theme
 
@@ -2129,6 +2130,22 @@ Window {
         function onQuitRequested() { Qt.quit() }
     }
 
+    // The session of YouTube Music can be imported from the file that was
+    // exported in the other device.
+    property string sessionPath: (downloads.folder || "") + "/lotus-tune-sesion.json"
+    property bool sessionExported: false
+    FileDialog {
+        id: sessionDialog
+        title: "Importar la sesión de YouTube Music"
+        nameFilters: ["Sesión de LotusTune (*.json)"]
+        onAccepted: {
+            if (catalog.importSession(selectedFile.toString().replace("file://", "")))
+                root.toast("Sesión importada")
+            else
+                root.toast("No se pudo importar la sesión")
+        }
+    }
+
     // ---- toast -----------------------------------------------------------
     property string toastText: ""
 
@@ -3711,6 +3728,24 @@ Window {
                             GhostButton {
                                 text: "Abrir carpeta"
                                 onClicked: downloads.openFolder()
+                            }
+                        }
+
+                        SettingBlock {
+                            label: "Sesión de YouTube Music"
+                            desc: "Las cookies de la cuenta: hacen falta para las listas privadas y, en Android, para que suene el audio. Se puede exportar aquí y llevarla a otro dispositivo"
+                            GhostButton {
+                                text: "Exportar la sesión"
+                                onClicked: {
+                                    root.sessionExported = catalog.exportSession(root.sessionPath)
+                                    root.toast(root.sessionExported
+                                               ? "Sesión exportada a " + root.sessionPath
+                                               : "No se pudo exportar la sesión")
+                                }
+                            }
+                            GhostButton {
+                                text: "Importar la sesión"
+                                onClicked: sessionDialog.open()
                             }
                         }
                     }

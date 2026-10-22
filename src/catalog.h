@@ -138,6 +138,11 @@ public:
     Q_INVOKABLE void removeOpenPlaylistTrack(const QString &videoId,
                                              const QString &setVideoId);
     // Is the track in "liked" (library) according to the loaded set?
+    // The session of YouTube Music (the cookies) is what lets the app
+    // read the private lists and, on a phone, play the audio. It can be
+    // exported to a file and imported in another device.
+    Q_INVOKABLE bool exportSession(const QString &path);
+    Q_INVOKABLE bool importSession(const QString &path);
     Q_INVOKABLE bool isLiked(const QString &videoId) const;
     // Updates the local set after a vote (without waiting for the server).
     Q_INVOKABLE void setLiked(const QString &videoId, bool liked);
