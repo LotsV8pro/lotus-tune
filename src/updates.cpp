@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QDesktopServices>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QNetworkAccessManager>
@@ -13,7 +14,9 @@ namespace {
 
 // Where the releases are published.
 const char *kRepo = "LotsV8pro/lotus-tune";
-const char *kApi = "https://api.github.com/repos/LotsV8pro/lotus-tune/releases/latest";
+// The list of releases (not "latest"): the pre-releases do not come in
+// "latest" and they are published too.
+const char *kApi = "https://api.github.com/repos/LotsV8pro/lotus-tune/releases";
 
 // The version of the release, without the "v" and the pre-release part
 // ("1.2.0-beta.3" -> "1.2.0").
@@ -28,7 +31,8 @@ QString versionOf(const QString &raw)
     return v;
 }
 
-// Compares two versions ("1.10.0" is newer than "1.9.0").
+// Compares two versions ("1.10.0" is newer than "1.9.0"). A version
+// without a suffix is newer than the same one with one (1.0.0 > 1.0.0-rc1).
 bool isNewer(const QString &candidate, const QString &current)
 {
     const QStringList a = versionOf(candidate).split(QLatin1Char('.'));
@@ -39,6 +43,10 @@ bool isNewer(const QString &candidate, const QString &current)
         if (x != y)
             return x > y;
     }
+    const bool candRc = candidate.contains(QLatin1Char('-'));
+    const bool currRc = current.contains(QLatin1Char('-'));
+    if (candRc != currRc)
+        return !candRc;
     return false;
 }
 
@@ -64,17 +72,34 @@ void Updates::check()
     QNetworkRequest req(QUrl(QString::fromLatin1(kApi)));
     req.setRawHeader("Accept", "application/vnd.github+json");
     req.setRawHeader("User-Agent", "LotusTune");
+    // A private repository needs a token; a public one does not.
+    const QString token = qEnvironmentVariable("LOTUS_TUNE_GITHUB_TOKEN");
+    if (!token.isEmpty())
+        req.setRawHeader("Authorization", QByteArray("Bearer ") + token.toUtf8());
     QNetworkReply *reply = net->get(req);
     connect(reply, &QNetworkReply::finished, this, [this, reply, net]() {
         reply->deleteLater();
         net->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             m_error = reply->errorString();
+            qInfo().noquote() << QString("[updates] no se pudo consultar: %1")
+                                    .arg(m_error);
             emit changed();
             return;
         }
-        const QJsonObject root =
-            QJsonDocument::fromJson(reply->readAll()).object();
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        QJsonObject root;
+        if (doc.isArray()) {
+            const QJsonArray list = doc.array();
+            if (list.isEmpty()) {
+                m_error = QStringLiteral("No hay ninguna versión publicada");
+                emit changed();
+                return;
+            }
+            root = list.at(0).toObject();
+        } else {
+            root = doc.object();
+        }
         const QString tag = root.value(QStringLiteral("tag_name")).toString();
         if (tag.isEmpty()) {
             m_error = QStringLiteral("No se ha podido leer la versión");
