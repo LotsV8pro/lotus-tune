@@ -14,9 +14,9 @@ on:
 env:
   # Qt is installed with aqt directly (the wrapper action is fragile with
   # the Python of the runners). The base module is called "qt_base" (and
-  # not "qtbase") in every repository.
-  QT_VERSION: '6.8.3'
-  QT_ANDROID_VERSION: '6.6.3'
+  # not "qtbase") and that name only exists from 6.6 onwards, so every
+  # flavour is built with the same version.
+  QT_VERSION: '6.6.3'
 
 jobs:
   linux:
@@ -28,8 +28,7 @@ jobs:
       - name: Qt
         run: |
           python3 -m pip install --break-system-packages "aqtinstall==3.3.0"
-          python3 -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 \
-            -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt"
+          python3 -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt"
           echo "QT_PREFIX=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
           echo "CMAKE_PREFIX_PATH=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
           echo "$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64/lib" >> $GITHUB_LD_LIBRARY_PATH
@@ -69,12 +68,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Qt
-        run: |
-          python -m pip install "aqtinstall==3.3.0"
-          python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc \
-            -m qt_base qtmultimedia -O "$env:RUNNER_TEMP\qt"
-          "QT_PREFIX=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV
-          "CMAKE_PREFIX_PATH=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV
+        # The command is in ONE line: the backslash continuation is not
+        # understood by the shell of the runner.
+        run: python -m pip install "aqtinstall==3.3.0" && python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc -m qt_base qtmultimedia -O "$env:RUNNER_TEMP\qt" && "QT_PREFIX=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV && "CMAKE_PREFIX_PATH=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV
 
       - name: Compilar
         run: |
@@ -104,31 +100,39 @@ jobs:
         run: |
           python3 -m pip install --break-system-packages "aqtinstall==3.3.0"
           # The host Qt brings the tools (moc, rcc, androiddeployqt).
-          python3 -m aqt install-qt linux desktop ${{ env.QT_ANDROID_VERSION }} gcc_64 \
-            -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt-host"
+          python3 -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt-host"
           # The target Qt brings the libraries for the phone.
-          python3 -m aqt install-qt linux android ${{ env.QT_ANDROID_VERSION }} android_arm64_v8a \
-            -m qt_base qtmultimedia qtnetworkauth qtshadertools -O "$RUNNER_TEMP/qt-android"
-          echo "QT_PREFIX=$RUNNER_TEMP/qt-android/${{ env.QT_ANDROID_VERSION }}/android_arm64_v8a" >> $GITHUB_ENV
-          echo "QT_HOST_PATH=$RUNNER_TEMP/qt-host/${{ env.QT_ANDROID_VERSION }}/gcc_64" >> $GITHUB_ENV
+          python3 -m aqt install-qt linux android ${{ env.QT_VERSION }} android_arm64_v8a -m qt_base qtmultimedia qtnetworkauth qtshadertools -O "$RUNNER_TEMP/qt-android"
+          echo "QT_PREFIX=$RUNNER_TEMP/qt-android/${{ env.QT_VERSION }}/android_arm64_v8a" >> $GITHUB_ENV
+          echo "QT_HOST_PATH=$RUNNER_TEMP/qt-host/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
+      - name: JDK 17
+        # Gradle 8 does not work with the JDK 27 of the runners.
+        run: |
+          mkdir -p "$RUNNER_TEMP/jdk"
+          curl -sL "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jdk/hotspot/normal/eclipse" -o "$RUNNER_TEMP/jdk.tar.gz"
+          tar xzf "$RUNNER_TEMP/jdk.tar.gz" -C "$RUNNER_TEMP/jdk" --strip-components=1
+          echo "JAVA_HOME=$RUNNER_TEMP/jdk" >> $GITHUB_ENV
+          echo "$RUNNER_TEMP/jdk/bin" >> $GITHUB_PATH
 
       - name: SDK de Android
+        # The command line tools are installed by hand: the action that does
+        # it fails with the SDK of the runner.
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" \
-                   "ndk;27.0.12077973" "cmake;3.22.1"
-          yes | sdkmanager --licenses > /dev/null
+          mkdir -p "$RUNNER_TEMP/android-sdk/cmdline-tools"
+          curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o "$RUNNER_TEMP/cmdline-tools.zip"
+          unzip -q "$RUNNER_TEMP/cmdline-tools.zip" -d "$RUNNER_TEMP/android-sdk/cmdline-tools"
+          mv "$RUNNER_TEMP/android-sdk/cmdline-tools/cmdline-tools" "$RUNNER_TEMP/android-sdk/cmdline-tools/latest"
+          echo "ANDROID_SDK_ROOT=$RUNNER_TEMP/android-sdk" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$RUNNER_TEMP/android-sdk" >> $GITHUB_ENV
+          SDKMAN="$RUNNER_TEMP/android-sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMAN" --licenses > /dev/null 2>&1 || true
+          "$SDKMAN" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
 
       - name: Compilar el APK
         run: |
           cmake -S . -B build-android -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_SDK_ROOT/ndk/27.0.12077973/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-34 \
             -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
