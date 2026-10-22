@@ -1,4 +1,5 @@
 #include "catalog.h"
+#include "paths.h"
 #include "sources.h"
 
 #include <QCoreApplication>
@@ -64,7 +65,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 setLoginState(code == 0 ? QStringLiteral("ok") : QString());
             });
     if (QFile::exists(helperPath())) {
-        m_statusProc.setProgram(QStringLiteral("python3"));
+        m_statusProc.setProgram(AppPaths::pythonProgram());
         m_statusProc.setArguments({helperPath(), QStringLiteral("status")});
         m_statusProc.start();
     } else if (m_loginState == QLatin1String("ok")) {
@@ -275,7 +276,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                         // Chained: it creates the list and adds the track in
                          // the same batch (same QProcess, already free).
                         m_plMode = QStringLiteral("createadd");
-                        m_plProc.setProgram(QStringLiteral("python3"));
+                        m_plProc.setProgram(AppPaths::pythonProgram());
                         m_plProc.setArguments({ytmApiPath(), QStringLiteral("addpl"),
                                                id, m_plAddVideo});
                         m_plAddVideo.clear();
@@ -472,7 +473,7 @@ Catalog::~Catalog()
 
 QString Catalog::stateFile()
 {
-    const QString dir = QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
+    const QString dir = AppPaths::stateDir();
     QDir().mkpath(dir);
     return dir + QStringLiteral("/library.json");
 }
@@ -495,7 +496,7 @@ QString Catalog::helperPath()
 // Netscape cookies.txt written by the embedded WebKit login window.
 QString Catalog::cookieFile()
 {
-    return QDir::homePath() + QStringLiteral("/.config/lotus-tune/cookies.txt");
+    return AppPaths::cookiesFile();
 }
 
 // The "my lists" helper: next to the binary (post-build) or in the source
@@ -669,7 +670,7 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
             m_fastFallback = target;
             m_fastFallbackTitle = title;
             m_openPlaylistId = m.captured(1);
-            startFetch(QStringLiteral("python3"),
+            startFetch(AppPaths::pythonProgram(),
                        {ytmApiPath(), QStringLiteral("playlist"),
                         m.captured(1)},
                        purpose, title);
@@ -748,7 +749,7 @@ void Catalog::searchInSource(const QString &source, const QString &query)
     if (source == QLatin1String("ytm") && ytmLoggedIn()) {
         m_fastFallback = m_sources->searchPrefix(source) + query;
         m_fastFallbackTitle = query;
-        startFetch(QStringLiteral("python3"),
+        startFetch(AppPaths::pythonProgram(),
                    {ytmApiPath(), QStringLiteral("search"), query},
                    QStringLiteral("search"), query);
         return;
@@ -765,6 +766,15 @@ void Catalog::searchAll(const QString &query)
     const QString q = query.trimmed();
     if (q.isEmpty())
         return;
+
+    // If the catalogue is busy the request is rejected: the multi state
+    // must not be left switched on (the next search would end up in the
+    // wrong group).
+    if (m_busy) {
+        fail(QStringLiteral("Espera a que termine la operación actual"));
+        m_multiActive = false;
+        return;
+    }
 
     m_multiQuery = q;
     m_multiActive = true;
@@ -917,7 +927,7 @@ void Catalog::runArtist(const QStringList &args, const QString &mode,
     m_artistArg = arg;
     // normalize() tags the tracks with the active source.
     m_currentSource = m_sources->activeId();
-    m_artistProc.setProgram(QStringLiteral("python3"));
+    m_artistProc.setProgram(AppPaths::pythonProgram());
     m_artistProc.setArguments(args);
     m_artistProc.start();
 }
@@ -996,7 +1006,7 @@ void Catalog::resolveAlternate(const QString &artist, const QString &title,
     args << ytmApiPath() << QStringLiteral("alternate") << spec;
     if (duration > 0.0)
         args << QString::number(duration);
-    m_altProc.setProgram(QStringLiteral("python3"));
+    m_altProc.setProgram(AppPaths::pythonProgram());
     m_altProc.setArguments(args);
     m_altProc.start();
 }
@@ -1036,7 +1046,7 @@ void Catalog::refreshYtmLibrary()
 
     m_libraryBusy = true;
     emit libraryChanged();
-    m_libraryProc.setProgram(QStringLiteral("python3"));
+    m_libraryProc.setProgram(AppPaths::pythonProgram());
     m_libraryProc.setArguments({ytmApiPath(), QStringLiteral("library")});
     m_libraryProc.start();
 }
@@ -1061,7 +1071,7 @@ void Catalog::runYtmAction(const QStringList &args, const QString &okMessage)
         return;
     }
     m_ytmOkMessage = okMessage;
-    m_ytmProc.setProgram(QStringLiteral("python3"));
+    m_ytmProc.setProgram(AppPaths::pythonProgram());
     m_ytmProc.setArguments(args);
     m_ytmProc.start();
 }
@@ -1188,7 +1198,7 @@ void Catalog::runPlaylistAction(const QStringList &args, const QString &mode)
         return;
     }
     m_plMode = mode;
-    m_plProc.setProgram(QStringLiteral("python3"));
+    m_plProc.setProgram(AppPaths::pythonProgram());
     m_plProc.setArguments(args);
     m_plProc.start();
 }
@@ -1317,13 +1327,16 @@ QString Catalog::videoIdOf(const QString &urlOrId) const
 
 void Catalog::setLiked(const QString &videoId, bool liked)
 {
-    if (videoId.isEmpty())
+    // The id is normalised as in isLiked(): with an URL (or a local
+    // file) the heart would never be marked.
+    const QString id = videoIdOf(videoId);
+    if (id.isEmpty())
         return;
-    const bool had = m_likedIds.contains(videoId);
+    const bool had = m_likedIds.contains(id);
     if (liked && !had)
-        m_likedIds.insert(videoId);
+        m_likedIds.insert(id);
     else if (!liked && had)
-        m_likedIds.remove(videoId);
+        m_likedIds.remove(id);
     // The revision goes up even if nothing changed: the vote has already
     // been sent and the rows/heart must repaint with the locally decided
     // state.
@@ -1399,7 +1412,7 @@ void Catalog::launchLikedFetch()
         return;
     if (!QFile::exists(ytmApiPath()))
         return;
-    m_likedProc.setProgram(QStringLiteral("python3"));
+    m_likedProc.setProgram(AppPaths::pythonProgram());
     m_likedProc.setArguments({ytmApiPath(), QStringLiteral("playlist"),
                               QStringLiteral("LM")});
     m_likedProc.start();
@@ -1410,7 +1423,7 @@ void Catalog::launchLikedFetch()
 // JSON file next to the library state (library.json).
 QString Catalog::likedFile()
 {
-    const QString dir = QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
+    const QString dir = AppPaths::stateDir();
     QDir().mkpath(dir);
     return dir + QStringLiteral("/liked.json");
 }
@@ -1777,7 +1790,7 @@ void Catalog::loginYTM()
     m_loginCancel = false;
     setLoginState(QStringLiteral("waiting"));
 
-    m_loginProc.setProgram(QStringLiteral("python3"));
+    m_loginProc.setProgram(AppPaths::pythonProgram());
     m_loginProc.setArguments({helperPath(), QStringLiteral("login")});
     m_loginProc.start();
     if (!m_loginProc.waitForStarted(3000)) {
@@ -1793,8 +1806,8 @@ void Catalog::logoutYTM()
         m_loginProc.kill();
     }
     QFile::remove(cookieFile());
-    QFile::remove(QDir::homePath()
-                  + QStringLiteral("/.config/lotus-tune/ytm_session.json"));
+    QFile::remove(AppPaths::configDir()
+                  + QStringLiteral("/ytm_session.json"));
     // The session is gone: forget the cached lists and the persisted
     // "liked" set.
     invalidatePlaylistCache();

@@ -10,6 +10,9 @@
 
     <application
         android:label="LotusTune"
+        android:icon="@drawable/ic_launcher"
+        android:versionCode="1"
+        android:versionName="1.0.0"
         android:allowBackup="true"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"

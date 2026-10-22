@@ -5,7 +5,9 @@
 #include "downloads.h"
 #include "sfx.h"
 #include "lyrics.h"
+#ifndef Q_OS_ANDROID
 #include "mpris.h"
+#endif
 #include "perf.h"
 #include "player.h"
 #include "roundedart.h"
@@ -131,9 +133,14 @@ static QString appPidPath()
 
 static bool processAlive(qint64 pid)
 {
+#ifdef Q_OS_ANDROID
+    Q_UNUSED(pid)
+    return false;   // there is no single instance on a phone
+#else
     if (pid <= 0)
         return false;
     return ::kill(static_cast<pid_t>(pid), 0) == 0;
+#endif
 }
 
 // The PID must really belong to lotus-tune (it avoids blocking the startup
@@ -287,6 +294,11 @@ static void ensureFrugalExecEnv(char *argv[])
     if (!changed)
         return;
 
+#ifdef Q_OS_ANDROID
+    // There is no /proc/self/exe to re-exec on a phone.
+    Q_UNUSED(argv)
+    return;
+#else
     qputenv("_LOTUS_TUNE_ENV_READY", "1");
     char exe[4096];
     const qint64 n = ::readlink("/proc/self/exe", exe, sizeof(exe) - 1);
@@ -296,6 +308,7 @@ static void ensureFrugalExecEnv(char *argv[])
     ::execv(exe, argv);
     // If execv fails, we carry on with the current process (without the
     // tweaks).
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -311,11 +324,15 @@ int main(int argc, char *argv[])
     // has not forced it already, so GL can be brought back with
     // QT_QUICK_BACKEND=rhi|software|... if it were ever needed. It must
     // run before QGuiApplication.
+    // The software backend does not exist on a phone (the scenegraph uses
+    // RHI/OpenGL ES there), so the values are only forced on the desktop.
     const bool softwareBackend = qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND");
+#ifndef Q_OS_ANDROID
     if (softwareBackend)
         qputenv("QT_QUICK_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "basic");
+#endif
 
     // This player never decodes video: the interface sounds use
     // QSoundEffect (audio only). Turning off Qt Multimedia's hardware
@@ -405,12 +422,16 @@ int main(int argc, char *argv[])
     Mpris mpris(&player);
 #endif
     engine.rootContext()->setContextProperty(QStringLiteral("mpris"), &mpris);
+#ifdef Q_OS_ANDROID
+    // There is no MPRIS on a phone (no D-Bus): the stub is inert.
+#else
     // org.mpris.MediaPlayer2.Raise -> bring the window to the front.
     QObject::connect(&mpris, &Mpris::raiseRequested, [] { raiseMainWindow(); });
     // org.mpris.MediaPlayer2.Quit -> quit. Main.qml also handles it with
     // Qt.quit(), but the close must not depend on the QML layer being at
     // the exact point of its cycle: it is guaranteed here (idempotent).
     QObject::connect(&mpris, &Mpris::quitRequested, &app, &QCoreApplication::quit);
+#endif
 
     // YouTube downloads (yt-dlp) + local library.
     Downloads downloads;

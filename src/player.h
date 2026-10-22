@@ -50,7 +50,9 @@ public:
     bool hasFile() const { return m_hasFile; }
     // A track was asked for but does not sound yet (resolving/loading)?
     bool loading() const { return m_loading; }
-    // URL/page of the current track (for MPRIS' xesam:url).
+    // URL/page of the current track (for MPRIS' xesam:url). It is a
+    // property (not only a method): the QML reads it and it was undefined.
+    Q_PROPERTY(QString currentUrl READ currentUrl NOTIFY stateChanged)
     QString currentUrl() const { return m_currentUrl; }
 
     Q_INVOKABLE void load(const QString &url);

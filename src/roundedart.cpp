@@ -77,6 +77,17 @@ QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
             job.radius = radius;
             job.scale = scale > 0 ? scale : 1.0;
             m_jobs.insert(key, job);
+            // Every size (and every radius) is a different job with its own
+            // image: without a limit the map grows with every resize of
+            // the window.
+            while (m_jobs.size() > 64) {
+                auto oldest = m_jobs.begin();
+                for (auto it = m_jobs.begin(); it != m_jobs.end(); ++it) {
+                    if (it->done && !oldest->done)
+                        oldest = it;
+                }
+                m_jobs.erase(oldest);
+            }
             needStart = true;
         } else {
             version = it->version;

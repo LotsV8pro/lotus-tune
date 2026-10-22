@@ -26,10 +26,10 @@ endif()
 
 if(ANDROID)
     # The Android NDK build: no D-Bus and no desktop integrations.
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network Sql Multimedia)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Quick Network Sql Multimedia)
     set(LOTUS_DESKTOP OFF)
 else()
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia Test)
+    find_package(Qt6 6.5 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia Test)
     set(LOTUS_DESKTOP ON)
 endif()
 
@@ -151,11 +151,16 @@ endif()
 # ---------------------------------------------------------------------------
 # Install (Linux / Windows)
 # ---------------------------------------------------------------------------
-install(TARGETS lotus-tune RUNTIME DESTINATION bin)
-install(PROGRAMS
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_login.py"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_api.py"
-    DESTINATION bin)
+if(NOT ANDROID)
+    # On Android the executable is packaged by Gradle (it is a library
+    # there, so the install rules do not apply).
+    install(TARGETS lotus-tune RUNTIME DESTINATION bin)
+    install(PROGRAMS
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_login.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_api.py"
+        DESTINATION bin)
+endif()
+if(NOT ANDROID)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/lotus-tune.desktop"
     DESTINATION share/applications)
@@ -169,11 +174,14 @@ install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
     DESTINATION share/doc/lotus-tune
     OPTIONAL)
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
 enable_testing()
+if(NOT ANDROID)
+# The test module does not exist for Android.
 add_executable(lotus-tune-tests
     tests/test_all.cpp
     src/downloads.cpp
@@ -186,11 +194,13 @@ add_executable(lotus-tune-tests
 target_include_directories(lotus-tune-tests PRIVATE src)
 target_link_libraries(lotus-tune-tests PRIVATE
     Qt6::Core
+    Qt6::Gui
     Qt6::Network
     Qt6::Sql
     Qt6::Test
 )
 add_test(NAME AllTests COMMAND lotus-tune-tests)
+endif()
 
 # ---------------------------------------------------------------------------
 # Packaging (CPack): .deb, .rpm, .AppImage, .exe (NSIS) and .zip

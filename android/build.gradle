@@ -46,6 +46,15 @@ android {
         }
     }
 
+    // The native libraries (the app and the Qt ones) are copied by
+    // androiddeployqt into libs/<abi>/: they have to be declared as the
+    // jniLibs of the flavour or the APK is built without them.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['libs']
+        }
+    }
+
     packagingOptions {
         jniLibs {
             useLegacyPackaging true

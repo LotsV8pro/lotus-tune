@@ -156,5 +156,11 @@ void Sfx::playWithPw(const QString &path)
     }
     if (!QFile::exists(file))
         return;
+#ifdef Q_OS_LINUX
     QProcess::startDetached(QStringLiteral("pw-play"), {file});
+#else
+    // There is no PipeWire player on Windows or Android: the sound of
+    // the interface is played by Qt itself.
+    Q_UNUSED(file)
+#endif
 }

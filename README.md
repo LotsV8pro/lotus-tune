@@ -83,13 +83,41 @@ Windows con el compilador de MSVC y en Android con el NDK y el SDK de
 Android (todo instalado por el propio workflow). En local:
 
 ```sh
-# Android (necesita el Qt para Android y el SDK de Android)
+# 1) el toolchain completo (Qt host, Qt para Android, SDK, NDK y JDK 17)
+tools/setup-android-toolchain.sh
+source ~/lotus-android-toolchain/env.sh
+
+# 2) el APK
+tools/build-android.sh
+```
+
+El APK sale en
+`build-android/android-build/build/outputs/apk/debug/lotus-tune-debug.apk`
+y se instala con `adb install -r <apk>`.
+
+Detalles que no son evidentes:
+- el módulo base de Qt se llama **`qt_base`** (no `qtbase`) y la
+  arquitectura de Android es **`android_arm64_v8a`**;
+- hacen falta **dos** Qt: el de escritorio (las herramientas: `moc`,
+  `rcc`, `androiddeployqt`) y el de Android (las librerías);
+- **Gradle 8 no funciona con el JDK 27** ⇒ el script baja un JDK 17;
+- el toolchain de Android limita la búsqueda de paquetes al SDK ⇒ hay que
+  pasar `-DCMAKE_FIND_ROOT_PATH=$QT_PREFIX` y
+  `-DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH` para que aparezcan los
+  componentes de Qt;
+- el APK sólo lleva las librerías nativas si el `build.gradle` declara
+  `jniLibs.srcDirs = ['libs']` (ahí las copia `androiddeployqt`).
+
+Para compilar sin el script (con el toolchain ya instalado):
+
+```sh
 cmake -S . -B build-android -G Ninja \
-  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
+  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34 \
-  -DCMAKE_PREFIX_PATH=$Qt6_DIR
+  -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
+  -DQt6_DIR=$QT_PREFIX/lib/cmake/Qt6 -DQT_HOST_PATH=$QT_HOST_PATH \
+  -DCMAKE_FIND_ROOT_PATH=$QT_PREFIX -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
 cmake --build build-android
-cd build-android && ./gradlew assembleRelease
 ```
 
 El proyecto Gradle de Android está en `android/` (manifiesto, actividad y

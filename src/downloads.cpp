@@ -1,6 +1,8 @@
 #include "downloads.h"
+#include "paths.h"
 
 #include <QDateTime>
+#include <QtGui/QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -115,7 +117,7 @@ Downloads::~Downloads()
 
 QString Downloads::defaultFolder() const
 {
-    return QDir::homePath() + QStringLiteral("/.local/share/lotus-tune/descargas");
+    return AppPaths::downloadDir();
 }
 
 void Downloads::setFolder(const QString &dir)
@@ -436,7 +438,7 @@ void Downloads::startNext()
     // so the cookies.txt of the integrated login is attached, just like the
     // catalogue does to search/open lists.
     const QString cookies = QDir::homePath()
-        + QStringLiteral("/.config/lotus-tune/cookies.txt");
+        + QStringLiteral("/cookies.txt");
     if (QFile::exists(cookies)
         && (j.url.contains(QLatin1String("youtube.com"))
             || j.url.contains(QLatin1String("youtu.be"))
@@ -913,7 +915,9 @@ void Downloads::openFolder()
     if (m_folder.isEmpty())
         return;
     QDir().mkpath(m_folder);
-    QProcess::startDetached(QStringLiteral("xdg-open"), {m_folder});
+    // QDesktopServices opens the folder with the file manager of the
+    // system (xdg-open does not exist on Windows or Android).
+    QDesktopServices::openUrl(QUrl::fromLocalFile(m_folder));
 }
 
 QString Downloads::listFolderName(const QString &name) const

@@ -1,0 +1,72 @@
+2026-10-22 02:32:42,867 - aqt.main - INFO - installer 140498194066368 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:32:42,868 - aqt.main - WARNING - installer 140498194066368 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:32:42,868 - aqt.helper - DEBUG - helper 140498194066368 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:32:43,164 - aqt.helper - DEBUG - helper 140498194066368 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:32:43,459 - aqt.helper - DEBUG - helper 140498194066368 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:32:43,759 - aqt.helper - DEBUG - helper 140498194066368 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:32:44,075 - aqt.helper - DEBUG - helper 140498194066368 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:32:44,399 - aqt.archives - WARNING - archives 140498194066368 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:32:44,693 - aqt.main - ERROR - installer 140498194066368 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
+2026-10-22 02:33:04,830 - aqt.main - INFO - installer 140429436328896 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:33:04,830 - aqt.main - WARNING - installer 140429436328896 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:33:04,831 - aqt.helper - DEBUG - helper 140429436328896 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:05,142 - aqt.helper - DEBUG - helper 140429436328896 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:05,438 - aqt.helper - DEBUG - helper 140429436328896 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:05,733 - aqt.helper - DEBUG - helper 140429436328896 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:06,029 - aqt.helper - DEBUG - helper 140429436328896 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:06,448 - aqt.archives - WARNING - archives 140429436328896 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:33:06,758 - aqt.main - ERROR - installer 140429436328896 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
+2026-10-22 02:33:26,897 - aqt.main - INFO - installer 139778140859328 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:33:26,897 - aqt.main - WARNING - installer 139778140859328 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:33:26,897 - aqt.helper - DEBUG - helper 139778140859328 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:27,197 - aqt.helper - DEBUG - helper 139778140859328 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:27,494 - aqt.helper - DEBUG - helper 139778140859328 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:27,807 - aqt.helper - DEBUG - helper 139778140859328 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:28,117 - aqt.helper - DEBUG - helper 139778140859328 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:28,426 - aqt.archives - WARNING - archives 139778140859328 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:33:28,735 - aqt.main - ERROR - installer 139778140859328 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
+2026-10-22 02:33:48,871 - aqt.main - INFO - installer 140007047293888 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:33:48,871 - aqt.main - WARNING - installer 140007047293888 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:33:48,871 - aqt.helper - DEBUG - helper 140007047293888 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:49,182 - aqt.helper - DEBUG - helper 140007047293888 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:49,478 - aqt.helper - DEBUG - helper 140007047293888 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:49,775 - aqt.helper - DEBUG - helper 140007047293888 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:50,073 - aqt.helper - DEBUG - helper 140007047293888 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:33:50,369 - aqt.archives - WARNING - archives 140007047293888 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:33:50,677 - aqt.main - ERROR - installer 140007047293888 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
+2026-10-22 02:34:10,823 - aqt.main - INFO - installer 139977661868992 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:34:10,823 - aqt.main - WARNING - installer 139977661868992 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:34:10,824 - aqt.helper - DEBUG - helper 139977661868992 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:11,132 - aqt.helper - DEBUG - helper 139977661868992 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:11,446 - aqt.helper - DEBUG - helper 139977661868992 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:11,761 - aqt.helper - DEBUG - helper 139977661868992 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:12,177 - aqt.helper - DEBUG - helper 139977661868992 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:12,473 - aqt.archives - WARNING - archives 139977661868992 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:34:12,769 - aqt.main - ERROR - installer 139977661868992 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
+2026-10-22 02:34:32,901 - aqt.main - INFO - installer 139819899767744 aqtinstall(aqt) v3.3.0 on Python 3.14.8 [CPython GCC 16.2.1 20260810]
+2026-10-22 02:34:32,901 - aqt.main - WARNING - installer 139819899767744 You are installing the android version of Qt, which requires that the desktop version of Qt is also installed. You can install it with the following command:
+          `aqt install-qt linux desktop 6.7.3 linux_gcc_64`
+2026-10-22 02:34:32,901 - aqt.helper - DEBUG - helper 139819899767744 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:33,212 - aqt.helper - DEBUG - helper 139819899767744 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:33,568 - aqt.helper - DEBUG - helper 139819899767744 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:33,876 - aqt.helper - DEBUG - helper 139819899767744 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:34,173 - aqt.helper - DEBUG - helper 139819899767744 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/all_os/android/qt6_673/Updates.xml.sha256
+2026-10-22 02:34:34,465 - aqt.archives - WARNING - archives 139819899767744 Failed to download checksum for the file 'online/qtsdkrepository/all_os/android/qt6_673/Updates.xml'. This may happen on unofficial mirrors.
+2026-10-22 02:34:34,759 - aqt.main - ERROR - installer 139819899767744 Failed to locate XML data for Qt version '6.7.3'.
+==============================Suggested follow-up:==============================
+* Please use 'aqt list-qt linux android' to show versions available.
