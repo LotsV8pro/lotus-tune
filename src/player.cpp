@@ -163,6 +163,15 @@ void Player::saveStreamCache()
 
 void Player::startMpv()
 {
+#ifdef Q_OS_ANDROID
+    // There is no mpv on a phone: the playback engine of the Android
+    // flavour is not there yet, so the app says it instead of failing
+    // silently.
+    m_status = QStringLiteral("sin motor de reproducción en Android");
+    m_ready = true;
+    emit stateChanged();
+    return;
+#endif
     QString sock = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (sock.isEmpty())
         sock = QDir::tempPath();
@@ -634,6 +643,12 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
              << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
     }
     args << url;
+#ifdef Q_OS_ANDROID
+    // No yt-dlp on a phone: the stream cannot be resolved from a shell
+    // script, the job simply finishes as failed.
+    onResolveFinished(job, 1);
+    return;
+#endif
     job->proc.setProgram(QStringLiteral("yt-dlp"));
     job->proc.setArguments(args);
     // If the app dies (even with SIGKILL) the slot's yt-dlp gets SIGTERM

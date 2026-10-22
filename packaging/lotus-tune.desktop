@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=LotusTune
+GenericName=Reproductor de música
+Comment=Reproduce YouTube Music con karaoke palabra a palabra
+Exec=lotus-tune %u
+Icon=lotus-tune
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;youtube;karaoke;lyrics;
+StartupWMClass=lotus-tune
+StartupNotify=true

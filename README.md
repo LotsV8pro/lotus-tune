@@ -46,6 +46,58 @@ cmake --build build
 ./build/lotus-tune
 ```
 
+## Descargas
+
+Cada versión publicada en
+[Releases](https://github.com/LotsV8pro/lotus-tune/releases) trae los tres
+formatos:
+
+| Sistema | Fichero | Notas |
+|---|---|---|
+| Linux | `lotus-tune_<versión>_amd64.deb` | Debian/Ubuntu y derivadas. `sudo apt install ./lotus-tune_<versión>_amd64.deb` |
+| Linux | `lotus-tune-<versión>-x86_64.AppImage` | No necesita instalar nada: se marca como ejecutable y se abre |
+| Linux | `lotus-tune-<versión>-linux-x86_64.tar.gz` | Binario + ficheros, para los que no usan paquetes |
+| Linux | `lotus-tune-<versión>.x86_64.rpm` | Fedora/openSUSE |
+| Windows | `lotus-tune-windows.zip` | El `.exe` con las bibliotecas de Qt al lado |
+| Android | `lotus-tune-android.apk` | ARM64. Se instala activating «unknown sources» |
+
+En Linux hacen falta `mpv`, `yt-dlp` y `python3` (los resolves el
+reproductor). En Windows, `mpv.exe` y `yt-dlp.exe` en el `PATH`.
+
+## Empaquetar (local)
+
+```sh
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./tools/package-linux.sh
+```
+
+Deja en `dist/` el `.deb`, el `.rpm`, el `AppImage` y el `tar.gz`. El `.deb`
+se construye sin `dpkg-deb` (a mano); el `AppImage` necesita
+`appimagetool` y `patchelf` instalados.
+
+## Compilar para Windows y Android
+
+Los dos builds se hacen en la CI (`.github/workflows/build.yml`): en
+Windows con el compilador de MSVC y en Android con el NDK y el SDK de
+Android (todo instalado por el propio workflow). En local:
+
+```sh
+# Android (necesita el Qt para Android y el SDK de Android)
+cmake -S . -B build-android -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-34 \
+  -DCMAKE_PREFIX_PATH=$Qt6_DIR
+cmake --build build-android
+cd build-android && ./gradlew assembleRelease
+```
+
+El proyecto Gradle de Android está en `android/` (manifiesto, actividad y
+recursos). En Android la app funciona como catálogo y letras con karaoke
+(sin D-Bus, así que el MPRIS no está; el Discord Rich Presence sí, por
+socket abstracto), pero **todavía no reproduce audio**: el motor `mpv` no
+existe en Android y falta el equivalente con `QtMultimedia`.
+
 ## Configuración
 
 Hay **dos** archivos de configuración en `~/.config/lotus-tune/`:

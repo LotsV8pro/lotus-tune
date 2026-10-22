@@ -1,0 +1,139 @@
+name: Build
+
+# Builds the three flavours of the app and uploads them as artefacts:
+#   Linux   -> .deb, .rpm and a tarball
+#   Windows -> the .exe with the Qt libraries next to it
+#   Android -> the .apk
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          host: linux
+          target: desktop
+          arch: gcc_64
+          cache: true
+
+      - name: Dependencias de ejecución
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libmpv2 yt-dlp python3 libgl1-mesa-dri
+
+      - name: Compilar
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr
+          cmake --build build
+
+      - name: Empaquetar
+        run: |
+          sudo apt-get install -y --no-install-recommends dpkg-dev fakeroot
+          cd build
+          cpack -G DEB
+          cpack -G RPM
+          cpack -G TGZ
+        env:
+          CPACK_GENERATOR: DEB;RPM;TGZ
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lotus-tune-linux
+          path: |
+            build/*.deb
+            build/*.rpm
+            build/*.tar.gz
+
+  windows:
+    name: Windows
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          host: windows
+          target: desktop
+          arch: win64_msvc
+          modules: ''
+          cache: true
+
+      - name: Compilar
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
+
+      - name: Empaquetar (windeployqt)
+        shell: pwsh
+        run: |
+          & "$env:Qt6_DIR\bin\windeployqt.exe" --release --no-translations --no-opengl-sw `
+             "build\lotus-tune.exe"
+          Copy-Item tools\ytm_login.py, tools\ytm_api.py build\ -ErrorAction SilentlyContinue
+          Compress-Archive -Path build\* -DestinationPath lotus-tune-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lotus-tune-windows
+          path: lotus-tune-windows.zip
+
+  android:
+    name: Android (APK)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt para Android
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.8.3
+          host: linux
+          target: android
+          android: true
+          architectures: arm64-v8a
+          cache: true
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: SDK de Android
+        run: |
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          yes | sdkmanager --licenses > /dev/null
+
+      - name: Compilar el APK
+        run: |
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-34 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH=$Qt6_DIR
+          cmake --build build-android --config Release
+          cd build-android
+          ./gradlew assembleRelease --no-daemon
+          find . -name "*.apk" -exec cp {} $GITHUB_WORKSPACE/lotus-tune-android.apk \;
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lotus-tune-android
+          path: lotus-tune-android.apk

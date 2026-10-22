@@ -1,16 +1,41 @@
 cmake_minimum_required(VERSION 3.19)
 
-project(lotus-tune VERSION 1.0.0 LANGUAGES CXX)
+project(lotus-tune
+    VERSION 1.0.0
+    DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
+    HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
+    LANGUAGES CXX
+)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia Test)
+# ---------------------------------------------------------------------------
+# Platform
+#
+# The app is a desktop application (Linux, Windows) and the same sources are
+# built for Android. The pieces that need the desktop are guarded with
+# Q_OS_ANDROID in the code: mpv (the playback engine), yt-dlp (the stream
+# resolver), the D-Bus service (MPRIS) and the Discord rich presence.
+# ---------------------------------------------------------------------------
+option(LOTUS_ANDROID "Build the Android (APK) flavour" OFF)
+if(LOTUS_ANDROID)
+    set(ANDROID TRUE)
+endif()
+
+if(ANDROID)
+    # The Android NDK build: no D-Bus and no desktop integrations.
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network Sql Multimedia)
+    set(LOTUS_DESKTOP OFF)
+else()
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Quick Network DBus Sql Multimedia Test)
+    set(LOTUS_DESKTOP ON)
+endif()
 
 qt_standard_project_setup()
 
-qt_add_executable(lotus-tune
+set(LOTUS_SOURCES
     src/main.cpp
     src/roundedart.cpp
     src/roundedart.h
@@ -26,10 +51,7 @@ qt_add_executable(lotus-tune
     src/appconfig.cpp
     src/lyrics.h
     src/lyrics.cpp
-    src/discordrpc.h
-    src/discordrpc.cpp
-    src/mpris.h
-    src/mpris.cpp
+    src/stubs.h
     src/downloads.h
     src/downloads.cpp
     src/sfx.h
@@ -38,6 +60,8 @@ qt_add_executable(lotus-tune
     src/wash.h
     src/wash.cpp
 )
+
+qt_add_executable(lotus-tune ${LOTUS_SOURCES})
 
 qt_add_qml_module(lotus-tune
     URI LotusTune
@@ -91,14 +115,64 @@ add_custom_command(TARGET lotus-tune POST_BUILD
         "$<TARGET_FILE_DIR:lotus-tune>/ytm_api.py"
 )
 
+# The Discord rich presence works on Android too (the socket is in the
+# abstract namespace there), so it is always built. MPRIS needs D-Bus and
+# stays for the desktop only.
+target_sources(lotus-tune PRIVATE
+    src/discordrpc.h
+    src/discordrpc.cpp
+)
+if(LOTUS_DESKTOP)
+    target_sources(lotus-tune PRIVATE
+        src/mpris.h
+        src/mpris.cpp
+    )
+endif()
+
 target_link_libraries(lotus-tune PRIVATE
     Qt6::Quick
     Qt6::Network
-    Qt6::DBus
     Qt6::Sql
     Qt6::Multimedia
 )
 
+# On Android the executable is packaged as an APK: the Gradle project of
+# the app (manifest, activity, resources) lives in android/ and Qt plugs
+# the QML module and the libraries into it.
+if(ANDROID)
+    set_property(TARGET lotus-tune PROPERTY
+        QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
+    qt_finalize_executable(lotus-tune)
+endif()
+if(LOTUS_DESKTOP)
+    target_link_libraries(lotus-tune PRIVATE Qt6::DBus)
+endif()
+
+# ---------------------------------------------------------------------------
+# Install (Linux / Windows)
+# ---------------------------------------------------------------------------
+install(TARGETS lotus-tune RUNTIME DESTINATION bin)
+install(PROGRAMS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_login.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/ytm_api.py"
+    DESTINATION bin)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/lotus-tune.desktop"
+    DESTINATION share/applications)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/lotus-tune.svg"
+    DESTINATION share/icons/hicolor/scalable/apps)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/lotus-tune.metainfo.xml"
+    DESTINATION share/metainfo)
+install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
+    DESTINATION share/doc/lotus-tune
+    OPTIONAL)
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
 enable_testing()
 add_executable(lotus-tune-tests
     tests/test_all.cpp
@@ -118,4 +192,26 @@ target_link_libraries(lotus-tune-tests PRIVATE
 )
 add_test(NAME AllTests COMMAND lotus-tune-tests)
 
-install(TARGETS lotus-tune RUNTIME DESTINATION bin)
+# ---------------------------------------------------------------------------
+# Packaging (CPack): .deb, .rpm, .AppImage, .exe (NSIS) and .zip
+# ---------------------------------------------------------------------------
+set(CPACK_PACKAGE_NAME "lotus-tune")
+set(CPACK_PACKAGE_VENDOR "LotsV8pro")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
+set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "LotusTune")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_DEBIAN_PACKAGE_SECTION "audio")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6quick6, libqt6network6, libqt6sql6, libqt6multimedia6, qt6-qpa-plugins, mpv, yt-dlp, python3")
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_RPM_PACKAGE_GROUP "Applications/Multimedia")
+set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+set(CPACK_RPM_FILE_NAME RPM-DEFAULT)
+set(CPACK_RPM_PACKAGE_SUGGESTS "mpv yt-dlp python3")
+set(CPACK_GENERATOR "TGZ")
+if(NOT ANDROID)
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
+endif()
+include(CPack)
