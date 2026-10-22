@@ -8,6 +8,12 @@
 // soft tints) and the small layout rhythm used across the interface.
 // ------------------------------------------------------------------
 
+// Is it a touch screen? There is no hover and no right button there, so
+// the controls that only show up with the mouse have to be always on and
+// the context menus are opened with a long press.
+var touch = (typeof Qt !== "undefined")
+    && (Qt.platform.os === "android" || Qt.platform.os === "ios")
+
 // Animation durations (ms). Short and cheap on purpose: the app is meant to
 // stay light in RAM, so no per-row shaders or MultiEffects. Hard cap: 280 ms.
 var fastMs = 120
