@@ -66,10 +66,6 @@ set(LOTUS_SOURCES
 
 qt_add_executable(lotus-tune ${LOTUS_SOURCES})
 
-# The version of the app (it is shown in the settings and it is compared
-# with the one published in the repository).
-set_target_properties(lotus-tune PROPERTIES
-    VERSION "${PROJECT_VERSION}")
 
 qt_add_qml_module(lotus-tune
     URI LotusTune
