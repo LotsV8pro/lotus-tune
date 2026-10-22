@@ -216,6 +216,8 @@ endif()
 # ---------------------------------------------------------------------------
 set(CPACK_PACKAGE_NAME "lotus-tune")
 set(CPACK_PACKAGE_VENDOR "LotsV8pro")
+set(CPACK_PACKAGE_CONTACT "LotsV8pro <lotsv8pro@users.noreply.github.com>")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "LotsV8pro")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PROJECT_DESCRIPTION}")
 set(CPACK_PACKAGE_HOMEPAGE_URL "${PROJECT_HOMEPAGE_URL}")

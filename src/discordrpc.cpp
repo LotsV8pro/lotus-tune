@@ -14,7 +14,7 @@
 #include <QDebug>
 
 #ifdef Q_OS_UNIX
-#ifndef Q_OS_ANDROID
+#if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
 #include <unistd.h>
 #endif
 #endif
