@@ -27,9 +27,13 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
 
 # The APK is built in two steps: the shared library with CMake and the
-# package with Gradle. The target that Qt adds for the APK fails on a
-# missing dep file (a bug of Qt 6.6), but Gradle does the job.
+# package with Gradle. The "apk" target of Qt writes the Gradle project
+# (it fails afterwards on a missing dep file, a bug of Qt 6.6, but Gradle
+# does the job).
+cmake --build "$BUILD" --target apk || true
 cmake --build "$BUILD" --target lotus-tune
+mkdir -p "$BUILD/android-build/libs/arm64-v8a"
+cp "$BUILD"/liblotus-tune_*.so "$BUILD/android-build/libs/arm64-v8a/" 2>/dev/null || true
 ( cd "$BUILD/android-build" && ./gradlew assembleDebug --no-daemon )
 
 APK=$(find "$BUILD" -name "*.apk" | head -1)
