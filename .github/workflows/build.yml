@@ -38,7 +38,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libmpv2 yt-dlp python3 libgl1-mesa-dri dpkg-dev fakeroot
+            libmpv2 yt-dlp python3 libgl1-mesa-dri libgl1-mesa-dev \
+            libglx-dev libegl1-mesa-dev dpkg-dev fakeroot
 
       - name: Compilar
         run: |
