@@ -1021,6 +1021,9 @@ Window {
     // QA: `--page=home|search|library`, `--src=ytm|soundcloud|spotify|tidal`,
     //     `--settings`, `--launcher`, `--accent=#rrggbb` ('' clears the override)
     Component.onCompleted: {
+        // The new versions of the app are looked up in the repository.
+        if (typeof updates !== "undefined")
+            updateTimer.start()
         const args = Qt.application.arguments
         let cliOpen = false
         for (let i = 1; i < args.length; i++) {
@@ -2143,6 +2146,26 @@ Window {
                 root.toast("Sesión importada")
             else
                 root.toast("No se pudo importar la sesión")
+        }
+    }
+
+    // The new versions of the app are looked up in the repository when it
+    // starts (and when the user asks for it in the settings).
+    Timer {
+        id: updateTimer
+        interval: 4000
+        onTriggered: {
+            if (typeof updates === "undefined")
+                return
+            updates.check()
+        }
+    }
+    Connections {
+        target: typeof updates !== "undefined" ? updates : null
+        function onChanged() {
+            if (typeof updates === "undefined" || !updates.available)
+                return
+            root.toast("Hay una versión nueva: " + updates.latestVersion)
         }
     }
 
@@ -3728,6 +3751,31 @@ Window {
                             GhostButton {
                                 text: "Abrir carpeta"
                                 onClicked: downloads.openFolder()
+                            }
+                        }
+
+                        SettingBlock {
+                            label: "Actualizaciones"
+                            desc: "Se busca la última versión publicada en el repositorio"
+                            Text {
+                                Layout.fillWidth: true
+                                text: updates.available
+                                      ? "Hay una versión nueva: " + updates.latestVersion
+                                      : "Versión actual: " + updates.currentVersion
+                                color: updates.available ? Sys.accent : Sys.textDim
+                                font.pixelSize: Theme.tSm
+                                elide: Text.ElideRight
+                            }
+                            GhostButton {
+                                text: "Buscar actualizaciones"
+                                onClicked: {
+                                    updates.check()
+                                }
+                            }
+                            GhostButton {
+                                text: "Ver la versión publicada"
+                                visible: updates.url !== ""
+                                onClicked: updates.openDownload()
                             }
                         }
 

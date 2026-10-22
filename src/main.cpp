@@ -1,6 +1,7 @@
 #include "appconfig.h"
 #include "catalog.h"
 #include "discordrpc.h"
+#include "updates.h"
 #include "stubs.h"
 #include "downloads.h"
 #include "sfx.h"
@@ -316,6 +317,10 @@ int main(int argc, char *argv[])
 {
     ensureFrugalExecEnv(argv);
 
+    // The version of the app: the settings compare it with the one
+    // published in the repository.
+    QCoreApplication::setApplicationVersion(QStringLiteral(LOTUS_TUNE_VERSION));
+
     qInstallMessageHandler(rawMessageHandler);
 
     // Qt Quick software rendering: it avoids the OpenGL context entirely,
@@ -437,6 +442,11 @@ int main(int argc, char *argv[])
     // YouTube downloads (yt-dlp) + local library.
     Downloads downloads;
     engine.rootContext()->setContextProperty(QStringLiteral("downloads"), &downloads);
+
+    // The new versions of the app are published in the repository: the
+    // settings ask it for the last release.
+    Updates updates;
+    engine.rootContext()->setContextProperty(QStringLiteral("updates"), &updates);
 
     Sfx sfx;
     engine.rootContext()->setContextProperty(QStringLiteral("sfx"), &sfx);
