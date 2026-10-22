@@ -134,9 +134,9 @@ static QString appPidPath()
 
 static bool processAlive(qint64 pid)
 {
-#ifdef Q_OS_ANDROID
+#if defined(Q_OS_ANDROID) || defined(Q_OS_WIN)
     Q_UNUSED(pid)
-    return false;   // there is no single instance on a phone
+    return false;   // there is no single instance on a phone or on Windows
 #else
     if (pid <= 0)
         return false;
@@ -296,8 +296,8 @@ static void ensureFrugalExecEnv(char *argv[])
     if (!changed)
         return;
 
-#ifdef Q_OS_ANDROID
-    // There is no /proc/self/exe to re-exec on a phone.
+#if defined(Q_OS_ANDROID) || defined(Q_OS_WIN)
+    // There is no /proc/self/exe to re-exec on a phone or on Windows.
     Q_UNUSED(argv)
     return;
 #else
