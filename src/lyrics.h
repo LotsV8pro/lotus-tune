@@ -119,6 +119,44 @@ private:
         bool instrumental = false;   // stretch without voice (only Sonora marks it)
     };
 
+    // How well a word level source fits the song, once it is aligned with
+    // the timeline of the video being played. The sources are compared
+    // with this: the one that matches more lines is the same take of the
+    // song, and the one with more word level timings has the richer
+    // karaoke.
+    struct WordedScore {
+        int matched = 0;      // lines that matched the timeline of the video
+        int total = 0;        // lines of the source
+        int worded = 0;       // lines with word level timings
+        double shift = 0.0;   // how much the source had to be moved
+        bool usable = false;  // it is the same take of the song
+
+        // True when this source fits the song better than `o`.
+        bool betterThan(const WordedScore &o) const {
+            if (!usable)
+                return false;
+            if (!o.usable)
+                return true;
+            // The ratio of matched lines (the sources have different
+            // amounts of lines, so the counts are not comparable).
+            const int lhs = matched * o.total;
+            const int rhs = o.matched * total;
+            if (lhs != rhs)
+                return lhs > rhs;
+            if (worded != o.worded)
+                return worded > o.worded;
+            return qAbs(shift) < qAbs(o.shift);
+        }
+    };
+
+    // A word level source that can be shown: the lines as they came (not
+    // moved yet) and where they came from.
+    struct WordedCandidate {
+        QVector<LrcLine> lines;
+        QString source;
+        bool local = false;   // it comes from the local Sonora cache
+    };
+
     // Stage of the sources cascade; it travels attached to the reply to
     // know which handler has to process the answer.
     enum class Stage {
@@ -139,7 +177,29 @@ private:
     // (it is the version that is being sung) and the offset is the median
     // of the difference between the lines that match by text.
     bool alignWords(QVector<LrcLine> &lines,
-                    const QVector<LrcLine> &reference);
+                    const QVector<LrcLine> &reference,
+                    WordedScore *score = nullptr);
+    // The last word of a line usually inherits the end of the line: the
+    // sources mark the end of the phrase, not the end of the word. When
+    // the line is long the karaoke front stays on that word for seconds
+    // and the phrase looks like it is still being sung. The word is cut
+    // to what the other words of the line take.
+    static void clampStretchedWords(QVector<LrcLine> &lines);
+    // The lines that are not sung (the title of the song with the artist,
+    // a line of credits...) are removed: their words are not real timings
+    // (they cover half of the song) and they spoil the karaoke.
+    static void dropJunkLines(QVector<LrcLine> &lines, const QString &title,
+                              const QString &artist);
+    // Prepares the lines that are going to be shown: the instrumental
+    // markers of the video are added, the long gaps are marked, the
+    // stretched words are cut and the lines that are not sung are
+    // removed.
+    void prepareWordedLines(QVector<LrcLine> &lines) const;
+    // Picks the word level source that fits the song best and shows it.
+    // The sources are compared with the timeline of the video being
+    // played; without it they cannot be compared and the first one (the
+    // local cache, which is instant) is used.
+    void pickWorded();
     // An instrumental stretch is marked with as many "♪" as it lasts.
     static void expandInstrumentals(QVector<LrcLine> &lines);
     // Musixmatch: the word level timings ("richsync") of the very same
@@ -219,10 +279,23 @@ private:
     static QVector<LrcLine> parseLrcWords(const QString &text);
     // Does the current lyrics bring word level timings?
     bool hasWordTimings() const;
-    // Adopts already built lines (with words) as synced lyrics.
-    bool adoptWorded(QVector<LrcLine> lines, const QString &source);
+    // Adopts already built lines (with words) as synced lyrics. The
+    // source is kept as a candidate: the ones that arrive later are
+    // compared with it and the best aligned one is shown.
+    bool adoptWorded(QVector<LrcLine> lines, const QString &source,
+                     bool local = false);
     // True when the current lyrics carry word level timings.
     bool m_worded = false;
+    // The word level sources that are on the table (the local cache, the
+    // network...) and the one that is being shown.
+    QVector<WordedCandidate> m_candidates;
+    int m_current = -1;
+    // The source that is on screen, as it came (before the alignment
+    // moved it) and where it came from.
+    QVector<LrcLine> m_wordedRaw;
+    QString m_wordedSource;
+    bool m_localWorded = false;   // the one on screen is the local cache
+    WordedScore m_wordedScore;
 
     // ---- state published for the desktop (inir widgets) ---------------
     // The app dumps its lyrics state in ~/.local/state/lotus-tune/ so the

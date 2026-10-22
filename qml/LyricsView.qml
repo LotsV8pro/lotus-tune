@@ -629,6 +629,9 @@ Item {
                     // entirely lit, without any sweep.
                     wrapMode: Text.WordWrap
                     text: rrow.instrumental
+                          // An instrumental stretch is not sung: it is
+                          // shown whole (filling it little by little looked
+                          // like the text was running on its own).
                           ? modelData.text
                           : (lv.karaoke ? lv._wordHtml(_w)
                                         : (active ? lv._fillHtml(modelData.text, _lineFrac)
