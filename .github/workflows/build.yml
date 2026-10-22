@@ -11,6 +11,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  # Qt is installed with aqt directly (the wrapper action is fragile with
+  # the Python of the runners). The base module is called "qt_base" (and
+  # not "qtbase") in every repository.
+  QT_VERSION: '6.8.3'
+  QT_ANDROID_VERSION: '6.6.3'
+
 jobs:
   linux:
     name: Linux
@@ -19,19 +26,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: 6.8.3
-          host: linux
-          target: desktop
-          arch: gcc_64
-          cache: true
+        run: |
+          python3 -m pip install --break-system-packages "aqtinstall==3.3.0"
+          python3 -m aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 \
+            -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt"
+          echo "QT_PREFIX=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
+          echo "$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64/lib" >> $GITHUB_LD_LIBRARY_PATH
 
       - name: Dependencias de ejecución
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libmpv2 yt-dlp python3 libgl1-mesa-dri
+            libmpv2 yt-dlp python3 libgl1-mesa-dri dpkg-dev fakeroot
 
       - name: Compilar
         run: |
@@ -42,13 +49,10 @@ jobs:
 
       - name: Empaquetar
         run: |
-          sudo apt-get install -y --no-install-recommends dpkg-dev fakeroot
           cd build
           cpack -G DEB
           cpack -G RPM
           cpack -G TGZ
-        env:
-          CPACK_GENERATOR: DEB;RPM;TGZ
 
       - uses: actions/upload-artifact@v4
         with:
@@ -65,14 +69,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: 6.8.3
-          host: windows
-          target: desktop
-          arch: win64_msvc
-          modules: ''
-          cache: true
+        run: |
+          python -m pip install "aqtinstall==3.3.0"
+          python -m aqt install-qt windows desktop ${{ env.QT_VERSION }} win64_msvc \
+            -m qt_base qtmultimedia -O "$env:RUNNER_TEMP\qt"
+          "QT_PREFIX=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV
+          "CMAKE_PREFIX_PATH=$env:RUNNER_TEMP\qt\${{ env.QT_VERSION }}\msvc2019_64" >> $env:GITHUB_ENV
 
       - name: Compilar
         run: |
@@ -82,7 +84,7 @@ jobs:
       - name: Empaquetar (windeployqt)
         shell: pwsh
         run: |
-          & "$env:Qt6_DIR\bin\windeployqt.exe" --release --no-translations --no-opengl-sw `
+          & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw `
              "build\lotus-tune.exe"
           Copy-Item tools\ytm_login.py, tools\ytm_api.py build\ -ErrorAction SilentlyContinue
           Compress-Archive -Path build\* -DestinationPath lotus-tune-windows.zip
@@ -98,15 +100,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Qt para Android
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: 6.8.3
-          host: linux
-          target: android
-          android: true
-          architectures: arm64-v8a
-          cache: true
+      - name: Qt (host y target)
+        run: |
+          python3 -m pip install --break-system-packages "aqtinstall==3.3.0"
+          # The host Qt brings the tools (moc, rcc, androiddeployqt).
+          python3 -m aqt install-qt linux desktop ${{ env.QT_ANDROID_VERSION }} gcc_64 \
+            -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt-host"
+          # The target Qt brings the libraries for the phone.
+          python3 -m aqt install-qt linux android ${{ env.QT_ANDROID_VERSION }} android_arm64_v8a \
+            -m qt_base qtmultimedia qtnetworkauth qtshadertools -O "$RUNNER_TEMP/qt-android"
+          echo "QT_PREFIX=$RUNNER_TEMP/qt-android/${{ env.QT_ANDROID_VERSION }}/android_arm64_v8a" >> $GITHUB_ENV
+          echo "QT_HOST_PATH=$RUNNER_TEMP/qt-host/${{ env.QT_ANDROID_VERSION }}/gcc_64" >> $GITHUB_ENV
 
       - uses: actions/setup-java@v4
         with:
@@ -117,21 +121,23 @@ jobs:
 
       - name: SDK de Android
         run: |
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" \
+                   "ndk;27.0.12077973" "cmake;3.22.1"
           yes | sdkmanager --licenses > /dev/null
 
       - name: Compilar el APK
         run: |
           cmake -S . -B build-android -G Ninja \
-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
             -DANDROID_ABI=arm64-v8a \
             -DANDROID_PLATFORM=android-34 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH=$Qt6_DIR
-          cmake --build build-android --config Release
-          cd build-android
-          ./gradlew assembleRelease --no-daemon
-          find . -name "*.apk" -exec cp {} $GITHUB_WORKSPACE/lotus-tune-android.apk \;
+            -DANDROID_SDK_ROOT=$ANDROID_SDK_ROOT \
+            -DQt6_DIR=$QT_PREFIX/lib/cmake/Qt6 \
+            -DQT_HOST_PATH=$QT_HOST_PATH \
+            -DCMAKE_FIND_ROOT_PATH=$QT_PREFIX \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
+          cmake --build build-android
+          find build-android -name "*.apk" -exec cp {} $GITHUB_WORKSPACE/lotus-tune-android.apk \;
 
       - uses: actions/upload-artifact@v4
         with:

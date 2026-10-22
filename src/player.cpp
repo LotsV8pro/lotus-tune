@@ -1,4 +1,5 @@
 #include "player.h"
+#include "paths.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -219,7 +220,7 @@ void Player::startMpv()
     // that way restricted tracks, "Liked Music" and private playlists
     // resolve.
     const QString cookies =
-        QDir::homePath() + QStringLiteral("/.config/lotus-tune/cookies.txt");
+        AppPaths::cookiesFile();
     if (QFile::exists(cookies))
         args << QStringLiteral("--ytdl-raw-options=cookies=") + cookies
              << QStringLiteral("--ytdl-raw-options-append=no-warnings=")
@@ -633,7 +634,7 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
         ytdlFormat(),
     };
     const QString cookies =
-        QDir::homePath() + QStringLiteral("/.config/lotus-tune/cookies.txt");
+        AppPaths::cookiesFile();
     if (QFile::exists(cookies)) {
         args << QStringLiteral("--cookies") << cookies
              << QStringLiteral("--extractor-args")

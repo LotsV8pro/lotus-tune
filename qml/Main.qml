@@ -1102,11 +1102,8 @@ Window {
         // desktop widgets match the audio from the first second.
         {
             const lo = parseFloat(cfgGet("lyricsOffset"))
-            if (!isNaN(lo)) {
-                root.lyricsOffset = Math.round(lo * 20) / 20
-                if (typeof lyrics !== "undefined")
-                    lyrics.setPublishedOffset(root.lyricsOffset)
-            }
+            if (!isNaN(lo) && typeof lyrics !== "undefined")
+                lyrics.setPublishedOffset(Math.round(lo * 4) / 4)
         }
         player.setQuality(cfgGet("audioQuality") || "max")
         // The app's Client ID is already embedded in the backend; the user
@@ -1192,7 +1189,10 @@ Window {
     property bool karaokeWords: true
     // Lyrics compensation in seconds (+ advances, - delays). The backend
     // publishes it for the widgets; the views share it that way.
-    property real lyricsOffset: 0
+    // The compensation that is applied: the backend is the one that holds
+    // it (the view of the lyrics and the settings write there).
+    readonly property real lyricsOffset: (typeof lyrics !== "undefined")
+        ? Number(lyrics.offset || 0) : 0
     // Original order of the loaded list (to restore it when the shuffle is
     // turned off).
     property var originalOrder: []
@@ -1727,11 +1727,15 @@ Window {
     // the backend - which publishes it for the desktop widgets - and the
     // on screen views pick it up when the notice arrives.
     function setLyricsOffset(v) {
-        const x = Math.round(Theme.clamp(v, -10, 10) * 20) / 20   // 50 ms steps
-        root.lyricsOffset = x
+        // The same range as the view of the lyrics.
+        const x = Math.round(Theme.clamp(v, -180, 180) * 4) / 4    // 250 ms steps
         cfgSet("lyricsOffset", x.toFixed(2))
-        if (typeof lyrics !== "undefined")
+        if (typeof lyrics !== "undefined") {
+            // The backend is the one that holds the value: the panel and
+            // the view of the lyrics read it from there (so they never
+            // show a stale one).
             lyrics.setPublishedOffset(x)
+        }
     }
 
     // ---- integrations (lyrics / Discord / MPRIS) ------------------------
@@ -1931,7 +1935,8 @@ Window {
         // ~1.4 s with prefetchRadio). While it arrives, the last song
         // stays on screen; the radioWaitTimer silences it if the network
         // does not answer.
-        const vid = root.autoplayEnabled && queue.count > 0
+        const inRange = queueIndex >= 0 && queueIndex < queue.count
+        const vid = (root.autoplayEnabled && queue.count > 0 && inRange)
                     ? videoIdOf(queue.get(queueIndex).url) : ""
         if (vid && typeof catalog.prefetchRadio === "function") {
             root.autoplayRadioPending = true

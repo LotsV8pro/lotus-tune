@@ -373,7 +373,11 @@ Rectangle {
                     }
                     BarButton {
                         kind: "lyrics"
-                        onTapped: bar.lyricsRequested()
+                        onTapped: {
+                            if (typeof sfx !== 'undefined') sfx.play('tap')
+                            bar.lyricsRequested()
+                            bar.lyricsPanelRequested()
+                        }
                     }
 
                     // ---- volume: glyph + thin line ----------------------

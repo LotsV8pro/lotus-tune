@@ -1,4 +1,5 @@
 #include "appconfig.h"
+#include "paths.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -56,7 +57,7 @@ static QString canonicalAppKey(const QString &key)
 
 AppConfig::AppConfig(QObject *parent)
     : QObject(parent)
-    , m_themeFile(QDir::homePath() + QStringLiteral("/.config/lotus-tune/config.ini"))
+    , m_themeFile(AppPaths::configFile())
 {
     loadThemeFile();
     loadAppSettings();

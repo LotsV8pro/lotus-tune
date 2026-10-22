@@ -34,9 +34,20 @@ public:
 
 signals:
     void changed();
-    // Kept so the connections in main.cpp do not need to be guarded.
+    // The same signals the real Mpris has: the QML connects to all of
+    // them and without them it would print a warning for each one.
     void raiseRequested();
     void quitRequested();
+    void playRequested();
+    void pauseRequested();
+    void playPauseRequested();
+    void nextRequested();
+    void previousRequested();
+    void stopRequested();
+    void seekRequested(double seconds);
+    void setPositionRequested(double seconds);
+    void volumeRequested(double volume);
+    void openUriRequested(const QString &uri);
 };
 
 // ---- Discord rich presence ----------------------------------------------

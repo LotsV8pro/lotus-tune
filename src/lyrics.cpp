@@ -1,4 +1,5 @@
 #include "lyrics.h"
+#include "paths.h"
 
 #include "player.h"
 
@@ -1746,7 +1747,7 @@ namespace {
 
 QString stateDir()
 {
-    return QDir::homePath() + QStringLiteral("/.local/state/lotus-tune");
+    return AppPaths::stateDir();
 }
 
 bool writeJsonFile(const QString &path, const QJsonObject &obj)
@@ -1796,7 +1797,9 @@ void Lyrics::setEngine(Player *player)
 
 void Lyrics::setOffset(double v)
 {
-    const double x = qBound(-10.0, v, 10.0);
+    // The same range as the view: a video may have a much longer intro
+    // than the album (and the other way round).
+    const double x = qBound(-180.0, v, 180.0);
     if (qAbs(x - m_offset) < 1e-9)
         return;
     m_offset = x;
@@ -1949,7 +1952,7 @@ void Lyrics::removePublished()
 // ---------------------------------------------------------------------------
 static QString mxmTokenPath()
 {
-    return QDir::homePath() + QStringLiteral("/.cache/lotus-tune/mxm_token.json");
+    return AppPaths::cacheDir() + QStringLiteral("/mxm_token.json");
 }
 
 // The titles that come from YouTube Music carry the uploader and the
@@ -2109,7 +2112,7 @@ void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
     m_mxmToken = tok;
     m_mxmTokenAt = QDateTime::currentDateTimeUtc();
     // It is kept on disk: a new token is not asked for on every track.
-    QDir().mkpath(QDir::homePath() + QStringLiteral("/.cache/lotus-tune"));
+    QDir().mkpath(AppPaths::cacheDir());
     QFile f(mxmTokenPath());
     if (f.open(QIODevice::WriteOnly)) {
         QJsonObject o;

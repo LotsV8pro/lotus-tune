@@ -1,4 +1,5 @@
 #include "theme.h"
+#include "paths.h"
 
 #include <QDir>
 #include <QFile>
@@ -29,7 +30,7 @@ AppTheme::AppTheme(QObject *parent) : QObject(parent)
     m_watchFiles = {
         QDir::homePath() + "/.local/state/quickshell/user/generated/app-palette.json",
         QDir::homePath() + "/.local/state/quickshell/user/generated/colors.json",
-        QDir::homePath() + "/.config/lotus-tune/config.ini",
+        AppPaths::configFile(),
     };
 
     // Coalesce the burst of file/directory events a palette regeneration
@@ -146,7 +147,7 @@ void AppTheme::loadOverrides()
     m_over.clear();
     m_followSystem = true;
 
-    QFile f(QDir::homePath() + "/.config/lotus-tune/config.ini");
+    QFile f(AppPaths::configFile());
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
         return;
 

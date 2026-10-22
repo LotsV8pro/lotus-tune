@@ -112,6 +112,10 @@ void Wash::setSource(const QUrl &url)
     QObject::connect(reply, &QNetworkReply::finished, this,
                      [this, reply, url]() {
         reply->deleteLater();
+        // The track changed while this one was downloading: its picture is
+        // not wanted any more (it would paint the wrong artwork).
+        if (url != m_wanted)
+            return;
         if (reply->error() != QNetworkReply::NoError) {
             return;
         }
