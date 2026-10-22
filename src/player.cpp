@@ -290,11 +290,13 @@ void Player::startMpv()
             });
     // If the app dies (even with SIGKILL) mpv gets SIGTERM and is not
     // left as an orphan process blocking the IPC socket.
-    m_proc.setChildProcessModifier([] {
 #ifdef Q_OS_LINUX
+    // Only Linux has it (it is a QProcess API that arrived with 6.0 and it
+    // is not there on Windows).
+    m_proc.setChildProcessModifier([] {
         ::prctl(PR_SET_PDEATHSIG, SIGTERM);
-#endif
     });
+#endif
     // Cleans a leftover socket from a previous run before starting.
     QFile::remove(m_socketPath);
     m_proc.start();
@@ -731,11 +733,11 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     // and is not left orphaned eating CPU/network. It is set before EVERY
     // start because the same QProcess is reused for several
     // resolutions.
-    job->proc.setChildProcessModifier([] {
 #ifdef Q_OS_LINUX
+    job->proc.setChildProcessModifier([] {
         ::prctl(PR_SET_PDEATHSIG, SIGTERM);
-#endif
     });
+#endif
     job->proc.start();
     job->timer.start();
     if (!job->proc.waitForStarted(3000)) {

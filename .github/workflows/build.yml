@@ -32,7 +32,7 @@ jobs:
           aqt install-qt linux desktop ${{ env.QT_VERSION }} gcc_64 -m qt_base qtmultimedia -O "$RUNNER_TEMP/qt"
           echo "QT_PREFIX=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
           echo "CMAKE_PREFIX_PATH=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64" >> $GITHUB_ENV
-          echo "$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64/lib" >> $GITHUB_LD_LIBRARY_PATH
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/qt/${{ env.QT_VERSION }}/gcc_64/lib" >> $GITHUB_ENV
 
       - name: Dependencias de ejecución
         run: |
@@ -148,8 +148,10 @@ jobs:
             -DQT_HOST_PATH=$QT_HOST_PATH \
             -DCMAKE_FIND_ROOT_PATH=$QT_PREFIX \
             -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
-          # The library with CMake and the package with Gradle: the target
-          # that Qt adds for the APK fails on a missing dep file.
+          # The target that Qt adds for the APK writes the Gradle project
+          # (it fails afterwards on a missing dep file, that is why the
+          # package is built with Gradle directly).
+          cmake --build build-android --target lotus-tune.apk || true
           cmake --build build-android --target lotus-tune
           ( cd build-android/android-build && ./gradlew assembleDebug --no-daemon )
           find build-android -name "*.apk" -exec cp {} $GITHUB_WORKSPACE/lotus-tune-android.apk \;
