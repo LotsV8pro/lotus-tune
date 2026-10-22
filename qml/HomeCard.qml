@@ -52,6 +52,7 @@ Item {
     }
 
     readonly property bool hovered: hoverHandler.hovered || playHit.containsMouse
+        || Theme.touch
 
     // Colour that tints the card background: the artwork's dominant colour
     // once known; for cards without artwork (Liked, the shortcuts) the

@@ -18,7 +18,8 @@ Item {
     property bool revealed: false      // the mouse is over the row
     property bool interactive: true    // there is a YouTube Music session
 
-    readonly property bool shown: btn.interactive && (btn.liked || btn.revealed)
+    readonly property bool shown: btn.interactive
+        && (btn.liked || btn.revealed || Theme.touch)
 
     signal toggled()
 

@@ -158,7 +158,8 @@ Rectangle {
         y: Theme.s1
         z: 2
         spacing: Theme.s1
-        visible: tileMa.containsMouse && (tile.downloadable || tile.removable)
+        visible: (tileMa.containsMouse || Theme.touch)
+            && (tile.downloadable || tile.removable)
 
         Rectangle {
             visible: tile.downloadable

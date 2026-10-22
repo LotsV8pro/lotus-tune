@@ -795,7 +795,7 @@ Item {
     HoverHandler { id: lyricHover }
 
     Rectangle {
-        visible: lv.showSynced && (lv.pillShown || lyricHover.hovered)
+        visible: lv.showSynced && (lv.pillShown || lyricHover.hovered || Theme.touch)
         anchors.horizontalCenter: lv.pillTop ? parent.horizontalCenter : undefined
         anchors.top: lv.pillTop ? parent.top : undefined
         anchors.topMargin: Theme.s4
