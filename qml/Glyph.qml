@@ -5,6 +5,11 @@ import QtQuick
 Canvas {
     id: g
 
+    // Immediate and not the default (cooperative): the cooperative one
+    // paints the canvas in tiles and an icon that falls on the border of
+    // a tile comes out cut in half.
+    renderStrategy: Canvas.Immediate
+
     property string kind: "home"
     property color color: "#ffffff"
     property real weight: 1.7
@@ -24,6 +29,14 @@ Canvas {
         const oy = (height - 18 * u) / 2
         const X = (v) => ox + v * u
         const Y = (v) => oy + v * u
+        // An arc continues the current path from where the last one
+        // ended: without this move the canvas joins the two shapes with a
+        // straight line and the icon comes out with a piece of another
+        // colour. Every arc starts at its own point.
+        const arc = (cx, cy, r, a0, a1) => {
+            ctx.moveTo(cx + r * Math.cos(a0), cy + r * Math.sin(a0))
+            ctx.arc(cx, cy, r, a0, a1)
+        }
 
         ctx.strokeStyle = String(color)
         ctx.fillStyle = String(color)
@@ -47,7 +60,7 @@ Canvas {
             break
         case "search":
             ctx.beginPath()
-            ctx.arc(X(8), Y(8), 4.6 * u, 0, Math.PI * 2)
+            arc(X(8), Y(8), 4.6 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
             ctx.moveTo(X(11.6), Y(11.6))
@@ -146,13 +159,13 @@ Canvas {
             ctx.beginPath()
             ctx.moveTo(X(6.8), Y(6.5))
             ctx.lineTo(X(6.8), Y(4.6))
-            ctx.arc(X(9), Y(4.6), 2.2 * u, Math.PI, 0)
+            arc(X(9), Y(4.6), 2.2 * u, Math.PI, 0)
             ctx.lineTo(X(11.2), Y(10))
-            ctx.arc(X(9), Y(10), 2.2 * u, 0, Math.PI)
+            arc(X(9), Y(10), 2.2 * u, 0, Math.PI)
             ctx.closePath()
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(10), 4.6 * u, 0, Math.PI)
+            arc(X(9), Y(10), 4.6 * u, 0, Math.PI)
             ctx.stroke()
             ctx.beginPath()
             ctx.moveTo(X(9), Y(14.6))
@@ -163,13 +176,13 @@ Canvas {
             break
         case "disc":
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 7 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 7 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 2.2 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 2.2 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 4.7 * u, -Math.PI * 0.95, -Math.PI * 0.4)
+            arc(X(9), Y(9), 4.7 * u, -Math.PI * 0.95, -Math.PI * 0.4)
             ctx.stroke()
             break
         case "chevron-down":
@@ -255,10 +268,10 @@ Canvas {
             ctx.closePath()
             ctx.fill()
             ctx.beginPath()
-            ctx.arc(X(9.5), Y(9), 3 * u, -Math.PI / 3, Math.PI / 3)
+            arc(X(9.5), Y(9), 3 * u, -Math.PI / 3, Math.PI / 3)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9.5), Y(9), 5.4 * u, -Math.PI / 3, Math.PI / 3)
+            arc(X(9.5), Y(9), 5.4 * u, -Math.PI / 3, Math.PI / 3)
             ctx.stroke()
             break
         case "plus":
@@ -289,20 +302,20 @@ Canvas {
             ctx.rect(X(4), Y(8), 10 * u, 7 * u)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(8), 3 * u, Math.PI, 0)
+            arc(X(9), Y(8), 3 * u, Math.PI, 0)
             ctx.stroke()
             break
         case "heart":
+            // One single outline (the same curves as the outlined one):
+            // with two circles and a triangle the fill rule cancels the
+            // middle of the heart and it comes out with a piece of another
+            // colour.
             ctx.beginPath()
-            ctx.arc(X(6.2), Y(7), 3.2 * u, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.beginPath()
-            ctx.arc(X(11.8), Y(7), 3.2 * u, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.beginPath()
-            ctx.moveTo(X(4.4), Y(7.6))
-            ctx.lineTo(X(13.6), Y(7.6))
-            ctx.lineTo(X(9), Y(15.2))
+            ctx.moveTo(X(9), Y(14.6))
+            ctx.bezierCurveTo(X(3.2), Y(10.6), X(2.4), Y(7.6), X(4.0), Y(5.6))
+            ctx.bezierCurveTo(X(5.2), Y(4.1), X(7.4), Y(4.1), X(9), Y(6.2))
+            ctx.bezierCurveTo(X(10.6), Y(4.1), X(12.8), Y(4.1), X(14.0), Y(5.6))
+            ctx.bezierCurveTo(X(15.6), Y(7.6), X(14.8), Y(10.6), X(9), Y(14.6))
             ctx.closePath()
             ctx.fill()
             break
@@ -333,27 +346,27 @@ Canvas {
                 ctx.stroke()
             }
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 4.6 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 4.6 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 1.7 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 1.7 * u, 0, Math.PI * 2)
             ctx.stroke()
             break
         case "radio":
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 1.9 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 1.9 * u, 0, Math.PI * 2)
             ctx.fill()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 4.6 * u, -Math.PI / 4, Math.PI / 4)
+            arc(X(9), Y(9), 4.6 * u, -Math.PI / 4, Math.PI / 4)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 4.6 * u, Math.PI * 3 / 4, Math.PI * 5 / 4)
+            arc(X(9), Y(9), 4.6 * u, Math.PI * 3 / 4, Math.PI * 5 / 4)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 7.2 * u, -Math.PI / 4, Math.PI / 4)
+            arc(X(9), Y(9), 7.2 * u, -Math.PI / 4, Math.PI / 4)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 7.2 * u, Math.PI * 3 / 4, Math.PI * 5 / 4)
+            arc(X(9), Y(9), 7.2 * u, Math.PI * 3 / 4, Math.PI * 5 / 4)
             ctx.stroke()
             break
         case "shuffle":
@@ -396,17 +409,17 @@ Canvas {
             break
         case "ellipsis":
             ctx.beginPath()
-            ctx.arc(X(4.5), Y(9), 1.5 * u, 0, Math.PI * 2)
-            ctx.arc(X(9), Y(9), 1.5 * u, 0, Math.PI * 2)
-            ctx.arc(X(13.5), Y(9), 1.5 * u, 0, Math.PI * 2)
+            arc(X(4.5), Y(9), 1.5 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 1.5 * u, 0, Math.PI * 2)
+            arc(X(13.5), Y(9), 1.5 * u, 0, Math.PI * 2)
             ctx.fill()
             break
         case "music":
             ctx.beginPath()
-            ctx.arc(X(5.5), Y(13), 2.9 * u, 0, Math.PI * 2)
+            arc(X(5.5), Y(13), 2.9 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(13.5), Y(11.7), 2.9 * u, 0, Math.PI * 2)
+            arc(X(13.5), Y(11.7), 2.9 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
             ctx.moveTo(X(8.4), Y(13))
@@ -417,9 +430,9 @@ Canvas {
             break
         case "list":
             ctx.beginPath()
-            ctx.arc(X(4), Y(5), 1 * u, 0, Math.PI * 2)
-            ctx.arc(X(4), Y(9), 1 * u, 0, Math.PI * 2)
-            ctx.arc(X(4), Y(13), 1 * u, 0, Math.PI * 2)
+            arc(X(4), Y(5), 1 * u, 0, Math.PI * 2)
+            arc(X(4), Y(9), 1 * u, 0, Math.PI * 2)
+            arc(X(4), Y(13), 1 * u, 0, Math.PI * 2)
             ctx.fill()
             ctx.beginPath()
             ctx.moveTo(X(7.5), Y(5)); ctx.lineTo(X(15), Y(5))
@@ -429,7 +442,7 @@ Canvas {
             break
         case "clock":
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 6 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 6 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
             ctx.moveTo(X(9), Y(5.4))
@@ -439,7 +452,7 @@ Canvas {
             break
         case "refresh":
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 5.4 * u, -Math.PI * 0.75, Math.PI * 0.75)
+            arc(X(9), Y(9), 5.4 * u, -Math.PI * 0.75, Math.PI * 0.75)
             ctx.stroke()
             ctx.beginPath()
             ctx.moveTo(X(13.6), Y(4.7))
@@ -483,7 +496,7 @@ Canvas {
             ctx.closePath()
             ctx.fill()
             ctx.beginPath()
-            ctx.arc(X(9.5), Y(9), 3 * u, -Math.PI / 3, Math.PI / 3)
+            arc(X(9.5), Y(9), 3 * u, -Math.PI / 3, Math.PI / 3)
             ctx.stroke()
             break
         case "volume-x":
@@ -567,15 +580,15 @@ Canvas {
             break
         case "user":
             ctx.beginPath()
-            ctx.arc(X(9), Y(6.4), 3.0 * u, 0, Math.PI * 2)
+            arc(X(9), Y(6.4), 3.0 * u, 0, Math.PI * 2)
             ctx.stroke()
             ctx.beginPath()
-            ctx.arc(X(9), Y(16.2), 6.0 * u, Math.PI * 1.16, Math.PI * 1.84)
+            arc(X(9), Y(16.2), 6.0 * u, Math.PI * 1.16, Math.PI * 1.84)
             ctx.stroke()
             break
         default:
             ctx.beginPath()
-            ctx.arc(X(9), Y(9), 5 * u, 0, Math.PI * 2)
+            arc(X(9), Y(9), 5 * u, 0, Math.PI * 2)
             ctx.stroke()
         }
     }
