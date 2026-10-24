@@ -74,12 +74,13 @@ Rectangle {
     Image {
         id: washImg
         anchors.fill: parent
-        // EXACTLY the same wash as the main menu background:
-        // "image://wash/<serial>", empty when the backend has no art.
-        // It follows the track live (the serial changes) and respects the
-        // "dynamic background" setting, just like the main view.
-        source: fl.open && Sys.dynamicBg && root.currentThumb && wash.valid
-                ? "image://wash/" + wash.serial : ""
+        // Same wash the app menu uses: "image://wash/<serial>" tracks the
+        // current artwork. Here it follows the cinema's OWN thumb property
+        // (bound from Main.qml): referencing ids of another file (`root`)
+        // does not resolve reliably in QML. The wash content is refreshed
+        // by the backend on every track change, whatever the "dynamic
+        // background" setting of the main view is.
+        source: fl.open && fl.thumb ? "image://wash/" + wash.serial : ""
         // STRETCHED, not cropped: the veil adapts to the window so the
         // artwork covers the 100 % of it (cropped, a tall window only showed
         // the middle of the art with dark edges on the sides).
@@ -194,23 +195,13 @@ Rectangle {
                 radiusSpec: Theme.rXl
                 showIconWhenEmpty: false
 
-                // A transparent overlay that fades between track changes:
-                // when the thumb changes, this overlay briefly covers
-                // the old art and fades out while the new one loads.
-                Connections {
-                    target: fl
-                    function onThumbChanged() {
-                        // Fade out the old art while the new one loads
-                        overlay.opacity = 1
-                        Qt.callLater(function() { overlay.opacity = 0 })
-                    }
-                }
-                Rectangle {
-                    id: overlay
-                    anchors.fill: parent
-                    color: "transparent"
-                    Behavior on opacity { NumberAnimation { duration: 200 } }
-                }
+                // Crossfade on track change: the slot fades to the
+                // gradient while the new artwork resolves and fades back
+                // in when it is ready. Without this the Image kept the old
+                // pixmap until the load finished and the cover looked
+                // frozen on the previous song.
+                opacity: ready ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
             }
             Rectangle {
                 anchors.left: parent.left

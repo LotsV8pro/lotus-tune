@@ -1088,8 +1088,10 @@ Window {
         Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
         // First wash computation: if the restored session already brings a
         // track, its thumbnail is blurred now (if not, the track change will
-        // do it).
-        if (Sys.dynamicBg && root.currentThumb)
+        // do it). ALWAYS, not only when the dynamic background is on: the
+        // cinema mode (fullscreen lyrics) paints this wash regardless of
+        // that setting, so the backend must keep it fresh.
+        if (root.currentThumb)
             wash.setSource(root.currentThumb)
         // Repeat mode (0/1/2) and word level karaoke. They are pushed to
         // the backend so the published state starts with the right value.
@@ -1156,7 +1158,7 @@ Window {
     // thumbnail: the backend downloads it, blurs it in the CPU and
     // publishes it through its provider ("image://wash"). Without the
     // dynamic background no network is used.
-    onCurrentThumbChanged: if (Sys.dynamicBg) wash.setSource(root.currentThumb)
+    onCurrentThumbChanged: wash.setSource(root.currentThumb)
     // YouTube videoId of the playing track ("" if it does not apply).
     property string currentVideoId: ""
     // Local "liked" state of the current track (refreshed on change).
