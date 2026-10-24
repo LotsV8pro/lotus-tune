@@ -15,3 +15,21 @@ __pycache__/
 # Local/editor
 *.swp
 .DS_Store
+
+# In-tree CMake/Qt build artefacts
+CMakeCache.txt
+CMakeFiles/
+CPackConfig.cmake
+CPackSourceConfig.cmake
+CTestTestfile.cmake
+cmake_install.cmake
+Makefile
+.qt/
+.rcc/
+.lotus/
+meta_types/
+qmltypes/
+lotus-tune_qmltyperegistrations.cpp
+lotus-tune-tests_autogen/
+/lotus-tune
+/lotus-tune-tests
