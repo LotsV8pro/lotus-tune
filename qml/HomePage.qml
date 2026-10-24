@@ -122,12 +122,14 @@ Item {
     function openQuickPick(item, play) {
         if (!item)
             return
+        console.log("[HomePage] openQuickPick called with item.kind:", item.kind || "");
         if (item.kind === "liked") {
             if (!page.ytmOk) {
                 page.openSettingsRequested()
                 return
             }
             page.openListRequested(!!play)
+            console.log("[HomePage] Calling catalog.openUrl for liked music");
             catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                             "Música que me gusta")
             return
@@ -147,6 +149,7 @@ Item {
         }
         if (item.url) {
             page.openListRequested(!!play)
+            console.log("[HomePage] Calling catalog.openUrl for playlist:", item.title || "", item.url || "");
             catalog.openUrl(item.url, item.title)
         }
     }

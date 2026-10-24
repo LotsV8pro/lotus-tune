@@ -20,6 +20,7 @@
 #include <QSqlQuery>
 #include <QUrlQuery>
 #include <QVariantMap>
+#include <QXmlStreamReader>
 
 #include <algorithm>
 
@@ -66,6 +67,12 @@ static const char *kYtmSearchParams = "EgWKAQIIAWoKEAoQAxAEEAkQBQ==";
 static const int kYtmMaxCandidates = 3;
 // Enough for home networks; it avoids staying "loading" forever.
 static const int kTimeoutMs = 10000;
+// lrc.red: a public catalogue of lyrics in the TTML format of Apple Music
+// (the timing of every word and the voice that sings every line). It is
+// the one the desktop player uses and it needs no key and no account.
+static const char *kLrcRedSearch = "https://lyrics-api.binimum.org/";
+static const char *kLrcRedAgent =
+    "LotusTune/1.0 (https://github.com/LotsV8pro/lotus-tune)";
 
 Lyrics::Lyrics(QObject *parent)
     : QObject(parent)
@@ -206,9 +213,15 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     // sources are compared and the best aligned one wins.
     if (trySonoraCache() || trySonoraByTitle()) {
         finish();
+        startLrcRed();
         startYtm();
         return;
     }
+    // lrc.red: the TTML of Apple Music with the timing of every word and
+    // the voice that sings every line. It is the most musical timing
+    // there is (the note that is held is long and the rest are short),
+    // so it is asked first.
+    startLrcRed();
     startYtm();
 }
 
@@ -226,12 +239,13 @@ void Lyrics::startLrclib()
     request(url, Stage::LrclibGet, m_trackKey);
 }
 
-void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
+void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
+                     const char *agent, const char *accept)
 {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader,
-                  QString::fromLatin1(kUserAgent));
-    req.setRawHeader("Accept", "application/json");
+                  QString::fromLatin1(agent ? agent : kUserAgent));
+    req.setRawHeader("Accept", accept ? accept : "application/json");
     // Qt6 follows redirects safely by default; it is set explicitly so a
     // 301/302 from the CDN does not cut the fetch.
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -257,6 +271,8 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key)
         case Stage::NeteaseLyric:  onNeteaseLyricReply(reply, key); break;
         case Stage::MxmToken:      onMxmTokenReply(reply, key); break;
         case Stage::MxmRichsync:   onMxmRichsyncReply(reply, key); break;
+        case Stage::LrcRedSearch:  onLrcRedSearchReply(reply, key); break;
+        case Stage::LrcRedSheet:   onLrcRedSheetReply(reply, key); break;
         }
     });
 }
@@ -1096,9 +1112,11 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
         lines = withGaps;
     }
     expandInstrumentals(lines);
-    // The last word of a line inherits the end of the line: cut it and
-    // drop the lines that are not sung.
-    clampStretchedWords(lines);
+    // The lines that are not sung are removed. The stretched words are
+    // NOT cut here: that is an artefact of some sources (the last word of
+    // the line inherits the end of it) and it is cut where it is born,
+    // in the parser of each source. The musical timings keep the note
+    // that is held.
     dropJunkLines(lines, m_title, m_artist);
 }
 
@@ -1126,7 +1144,17 @@ void Lyrics::pickWorded()
                         << "no es la misma version: se descarta";
                 continue;
             }
+            // The musical timings are only trusted when the source is
+            // clearly the same song: the video does not have the lines
+            // that are only spoken (the dialogue of a duet), so the
+            // match is never complete.
+            if (c.musical && score.matched * 20 < score.total * 7) {
+                qInfo() << "[lyrics] la fuente" << c.source
+                        << "no coincide con el video: se descarta";
+                continue;
+            }
         }
+        score.musical = c.musical;
         if (best < 0 || score.betterThan(bestScore)) {
             best = i;
             bestScore = score;
@@ -1159,7 +1187,7 @@ void Lyrics::pickWorded()
 // A word level source is kept as a candidate: the ones that arrive later
 // are compared with it and the best aligned one is the one on screen.
 bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
-                         bool local)
+                         bool local, bool musical)
 {
     if (lines.size() < 2)
         return false;
@@ -1167,6 +1195,7 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
     candidate.lines = std::move(lines);
     candidate.source = source;
     candidate.local = local;
+    candidate.musical = musical;
     m_candidates.append(candidate);
     pickWorded();
     return m_worded;
@@ -1304,6 +1333,8 @@ bool Lyrics::trySonoraCache()
         return false;
     }
 
+    // The cache stretches the last word of the line too: it is cut.
+    clampStretchedWords(best);
     return adoptWorded(std::move(best), source, /*local=*/true);
 }
 
@@ -1491,6 +1522,8 @@ bool Lyrics::trySonoraByTitle()
         return false;
     }
 
+    // The cache stretches the last word of the line too: it is cut.
+    clampStretchedWords(best);
     return adoptWorded(std::move(best), source, /*local=*/true);
 }
 
@@ -1622,6 +1655,8 @@ QVariantList Lyrics::lines() const
             m.insert(QStringLiteral("end"), end);
         }
         m.insert(QStringLiteral("text"), l.text);
+        if (l.secondary)
+            m.insert(QStringLiteral("secondary"), true);
         if (!l.words.isEmpty())
             m.insert(QStringLiteral("words"), l.words);
         if (l.instrumental)
@@ -1945,6 +1980,8 @@ void Lyrics::publishLines()
             e = qMin(e, l.time + 45.0);
             lo.insert(QStringLiteral("e"), e);
             lo.insert(QStringLiteral("text"), l.text);
+            if (l.secondary)
+                lo.insert(QStringLiteral("voice"), QStringLiteral("counter"));
             if (!l.words.isEmpty()) {
                 // LrcLine::words are QVariantMap {t,e,text}: they pass as
                 // they are to the widget's contract, but as real JSON.
@@ -2298,36 +2335,40 @@ static bool isInstrumental(const QString &norm)
 // the phrase looks like it is still being sung (the user noticed it: "las
 // frases se alargan más de lo que deberían"). The word is cut to what the
 // other words of the line take.
+void Lyrics::clampStretchedWord(LrcLine &line)
+{
+    if (line.words.size() < 2)
+        return;
+    // The typical word of the line: the median of the words BEFORE the
+    // last one (the last one is the suspect, so it must not be part of
+    // the reference).
+    QVector<double> durations;
+    durations.reserve(line.words.size() - 1);
+    for (int i = 0; i + 1 < line.words.size(); ++i) {
+        const QVariantMap w = line.words.at(i).toMap();
+        durations.append(qMax(0.0, w.value(QStringLiteral("e")).toDouble()
+                                    - w.value(QStringLiteral("t")).toDouble()));
+    }
+    if (durations.isEmpty())
+        return;
+    std::sort(durations.begin(), durations.end());
+    const double typical = durations.at(durations.size() / 2);
+    if (typical <= 0.0)
+        return;
+    QVariantMap last = line.words.last().toMap();
+    const double t0 = last.value(QStringLiteral("t")).toDouble();
+    const double e0 = last.value(QStringLiteral("e")).toDouble();
+    const double cap = t0 + typical * 2.0;
+    if (e0 <= cap)
+        return;   // the word is not stretched
+    last.insert(QStringLiteral("e"), cap);
+    line.words.last() = last;
+}
+
 void Lyrics::clampStretchedWords(QVector<LrcLine> &lines)
 {
-    for (LrcLine &line : lines) {
-        if (line.words.size() < 2)
-            continue;
-        // The typical word of the line: the median of the words BEFORE
-        // the last one (the last one is the suspect, so it must not be
-        // part of the reference).
-        QVector<double> durations;
-        durations.reserve(line.words.size() - 1);
-        for (int i = 0; i + 1 < line.words.size(); ++i) {
-            const QVariantMap w = line.words.at(i).toMap();
-            durations.append(qMax(0.0, w.value(QStringLiteral("e")).toDouble()
-                                        - w.value(QStringLiteral("t")).toDouble()));
-        }
-        if (durations.isEmpty())
-            continue;
-        std::sort(durations.begin(), durations.end());
-        const double typical = durations.at(durations.size() / 2);
-        if (typical <= 0.0)
-            continue;
-        QVariantMap last = line.words.last().toMap();
-        const double t0 = last.value(QStringLiteral("t")).toDouble();
-        const double e0 = last.value(QStringLiteral("e")).toDouble();
-        const double cap = t0 + typical * 2.0;
-        if (e0 <= cap)
-            continue;   // the word is not stretched
-        last.insert(QStringLiteral("e"), cap);
-        line.words.last() = last;
-    }
+    for (LrcLine &line : lines)
+        clampStretchedWord(line);
 }
 
 // The lines that are not sung (the title of the song with the artist, a
@@ -2364,6 +2405,258 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
         out.append(line);
     }
     lines = out;
+}
+
+// ---- lrc.red (the TTML of Apple Music) -----------------------------------
+
+// The catalogue answers with the candidates of the song. The one with the
+// word level timings is the one that serves the karaoke: the timings of
+// the other ones are per line.
+void Lyrics::startLrcRed()
+{
+    if (m_title.trimmed().isEmpty())
+        return;
+    QUrl url(QString::fromLatin1(kLrcRedSearch));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("track"), m_title);
+    q.addQueryItem(QStringLiteral("artist"), m_artist);
+    if (m_duration > 0)
+        q.addQueryItem(QStringLiteral("duration"), QString::number(m_duration));
+    url.setQuery(q);
+    qInfo().noquote() << QString("[lyrics] lrc.red: buscar \"%1\"").arg(m_trackKey);
+    request(url, Stage::LrcRedSearch, m_trackKey, kLrcRedAgent);
+}
+
+void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (isStale(reply, key, m_trackKey, m_gen))
+        return;
+    if (reply->error() != QNetworkReply::NoError) {
+        qInfo() << "[lyrics] lrc.red: no contestó:" << reply->errorString();
+        return;
+    }
+    const QJsonObject root =
+        QJsonDocument::fromJson(reply->readAll()).object();
+    const QJsonArray results = root.value(QStringLiteral("results")).toArray();
+    if (results.isEmpty()) {
+        qInfo() << "[lyrics] lrc.red: sin resultado para esta canción";
+        return;
+    }
+    // The candidate with the word level timings wins; between two of them
+    // the one whose length fits the track is the one.
+    QJsonObject best;
+    bool bestWorded = false;
+    int bestDiff = 1 << 30;
+    for (const QJsonValue &rv : results) {
+        const QJsonObject r = rv.toObject();
+        const QString timing = r.value(QStringLiteral("timing_type")).toString();
+        const bool worded = (timing == QLatin1String("word")
+                             || timing == QLatin1String("syllable"));
+        int diff = 0;
+        const int dur = r.value(QStringLiteral("duration")).toInt();
+        if (m_duration > 0 && dur > 0)
+            diff = qAbs(dur - m_duration);
+        if (best.isEmpty() || (worded && !bestWorded)
+            || (worded == bestWorded && diff < bestDiff)) {
+            if (bestWorded && !worded)
+                continue;   // a worded one is never replaced by a plain one
+            best = r;
+            bestWorded = worded;
+            bestDiff = diff;
+        }
+    }
+    const QString sheet = best.value(QStringLiteral("lyricsUrl")).toString();
+    if (sheet.isEmpty() || !sheet.startsWith(QLatin1String("https://"))) {
+        qInfo() << "[lyrics] lrc.red: sin hoja para esta canción";
+        return;
+    }
+    qInfo().noquote()
+        << QString("[lyrics] lrc.red: \"%1\" (%2)")
+               .arg(best.value(QStringLiteral("track_name")).toString(),
+                    best.value(QStringLiteral("timing_type")).toString());
+    request(QUrl(sheet), Stage::LrcRedSheet, m_trackKey, kLrcRedAgent,
+            "text/xml");
+}
+
+void Lyrics::onLrcRedSheetReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (isStale(reply, key, m_trackKey, m_gen))
+        return;
+    if (reply->error() != QNetworkReply::NoError) {
+        qInfo() << "[lyrics] lrc.red: la hoja no llegó:" << reply->errorString();
+        return;
+    }
+    const QString xml = QString::fromUtf8(reply->readAll());
+    QVector<LrcLine> lines = parseTtml(xml);
+    if (lines.size() < 2) {
+        qInfo() << "[lyrics] lrc.red: la hoja no tiene letra";
+        return;
+    }
+    int worded = 0;
+    int secondary = 0;
+    for (const LrcLine &l : lines) {
+        if (l.words.size() > 1)
+            ++worded;
+        if (l.secondary)
+            ++secondary;
+    }
+    qInfo().noquote()
+        << QString("[lyrics] lrc.red: %1 líneas, %2 con letra a letra, %3 de la otra voz")
+               .arg(lines.size()).arg(worded).arg(secondary);
+    if (worded < 1)
+        return;   // without word timings it is not a karaoke
+    if (adoptWorded(std::move(lines), QStringLiteral("lrc.red · apple music"),
+                    /*local=*/false, /*musical=*/true))
+        finish();
+}
+
+// A stamp of the TTML: "26.090" (seconds) or "2:42.007" (minutes).
+static double ttmlStamp(const QString &raw)
+{
+    const QString stamp = raw.trimmed();
+    if (stamp.isEmpty())
+        return 0.0;
+    double seconds = 0.0;
+    const QStringList parts = stamp.split(QLatin1Char(':'));
+    for (const QString &part : parts) {
+        bool ok = false;
+        const double value = part.toDouble(&ok);
+        if (!ok)
+            return 0.0;
+        seconds = seconds * 60.0 + value;
+    }
+    return seconds;
+}
+
+// The TTML of Apple Music: one <p> per line (with the voice that sings
+// it) and one <span> per word (with its own begin and end). The voice
+// comes from the agent of the line: the first agent that sings is the
+// main one and the rest are the second voice of the song.
+QVector<Lyrics::LrcLine> Lyrics::parseTtml(const QString &xml)
+{
+    QVector<LrcLine> out;
+    QStringList agents;               // the agent of every line
+    QHash<QString, bool> sings;       // agent id -> it sings (type="person")
+
+    QXmlStreamReader reader(xml);
+    while (!reader.atEnd()) {
+        reader.readNext();
+        if (!reader.isStartElement())
+            continue;
+        if (reader.name() == QLatin1String("agent")) {
+            const QString id = reader.attributes().value(
+                QLatin1String("http://www.w3.org/XML/1998/namespace"),
+                QLatin1String("id")).toString();
+            const bool person = reader.attributes().value(
+                QLatin1String("type")).toString() == QLatin1String("person");
+            if (!id.isEmpty())
+                sings.insert(id, person);
+            continue;
+        }
+        if (reader.name() != QLatin1String("p"))
+            continue;
+
+        // A line: its own instant and the voice that sings it.
+        LrcLine line;
+        line.time = ttmlStamp(reader.attributes().value(
+            QLatin1String("begin")).toString());
+        const QString agent = reader.attributes().value(
+            QLatin1String("http://www.w3.org/ns/ttml#metadata"),
+            QLatin1String("agent")).toString();
+        QStringList wordTexts;
+        QVector<double> starts;
+        QVector<double> ends;
+        QString plain;
+        // The words of the line: each one is a <span> with its own instant.
+        while (!reader.atEnd()) {
+            reader.readNext();
+            if (reader.isStartElement()
+                && reader.name() == QLatin1String("span")) {
+                const QString role = reader.attributes().value(
+                    QLatin1String("http://www.w3.org/ns/ttml#metadata"),
+                    QLatin1String("role")).toString();
+                // The background text ("x-bg"), the translation
+                // ("x-translation") and the romanization ("x-roman") are not
+                // words: they are skipped whole (they carry words of their
+                // own inside, so they cannot be read as a text).
+                if (!role.isEmpty()
+                    || !reader.attributes().hasAttribute(
+                        QLatin1String("begin"))) {
+                    reader.skipCurrentElement();
+                    continue;
+                }
+                const double begin = ttmlStamp(reader.attributes().value(
+                    QLatin1String("begin")).toString());
+                double end = ttmlStamp(reader.attributes().value(
+                    QLatin1String("end")).toString());
+                if (end < begin)
+                    end = begin;
+                const QString text = reader.readElementText();
+                if (!text.trimmed().isEmpty()) {
+                    wordTexts.append(text);
+                    starts.append(begin);
+                    ends.append(end);
+                }
+                continue;
+            }
+            if (reader.isCharacters()) {
+                if (!wordTexts.isEmpty()) {
+                    // The spaces between the words belong to the word
+                    // before.
+                    wordTexts.last() += reader.text().toString();
+                } else {
+                    // A line without word timings: the text is all there is.
+                    plain += reader.text().toString();
+                }
+                continue;
+            }
+            if (reader.isEndElement() && reader.name() == QLatin1String("p"))
+                break;
+        }
+        QString text;
+        for (int i = 0; i < wordTexts.size(); ++i) {
+            text += wordTexts.at(i);
+            QVariantMap word;
+            word.insert(QStringLiteral("t"), starts.at(i));
+            word.insert(QStringLiteral("e"), ends.at(i));
+            word.insert(QStringLiteral("text"), wordTexts.at(i));
+            line.words.append(word);
+        }
+        line.text = text.trimmed();
+        if (line.text.isEmpty())
+            line.text = plain.trimmed();
+        if (line.text.isEmpty())
+            continue;
+        if (line.words.size() < 2)
+            line.words.clear();
+        agents.append(agent);
+        out.append(line);
+    }
+
+    // The main voice: the agent of the first line that somebody sings.
+    QString lead;
+    for (int i = 0; i < agents.size() && i < out.size(); ++i) {
+        const QString agent = agents.at(i);
+        if (agent.isEmpty())
+            continue;
+        if (sings.value(agent, false)) {
+            lead = agent;
+            break;
+        }
+    }
+    // The other voices are the second one of the song.
+    if (!lead.isEmpty()) {
+        for (int i = 0; i < agents.size() && i < out.size(); ++i) {
+            const QString agent = agents.at(i);
+            if (agent.isEmpty() || agent == lead)
+                continue;
+            if (sings.value(agent, false))
+                out[i].secondary = true;
+        }
+    }
+    return out;
 }
 
 QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
@@ -2409,10 +2702,12 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         }
         if (line.words.size() < 2)
             continue;
-        // The stretched words are cut later, in prepareWordedLines(): the
-        // same cut has to be applied to every source and this is not the
-        // only one.
+        // The last word of the line inherits the end of the line: it is
+        // cut to what the other words of the line take.
+        clampStretchedWord(line);
         line.text = text.trimmed();
+        if (line.text.isEmpty())
+            continue;
         if (line.text.isEmpty())
             continue;
         // The instrumental markers ("♪") are kept: they are shown as they

@@ -39,12 +39,15 @@ Item {
     // extracts it from the image and reports it through the "found" signal).
     onThumbChanged: {
         artColor = "transparent"
-        if (thumb && thumb.length > 0 && typeof colorpick !== "undefined")
-            colorpick.pick(thumb)
+        // Use WASH to extract the dominant color from the image
+        if (thumb && thumb.length > 0) {
+            wash.setSource(thumb)
+        }
     }
-
+    
+    // Listen for color extraction from WASH
     Connections {
-        target: colorpick
+        target: wash
         function onFound(url, color) {
             if (String(url) === card.thumb)
                 card.artColor = color

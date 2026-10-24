@@ -117,6 +117,9 @@ private:
         // Empty in the line level sources (YTM/LRCLIB/NetEase).
         QVariantList words;
         bool instrumental = false;   // stretch without voice (only Sonora marks it)
+        // True when the line is sung by the SECOND voice: the song has two
+        // (a dialogue, a duet) and this one is not the main singer.
+        bool secondary = false;
     };
 
     // How well a word level source fits the song, once it is aligned with
@@ -130,6 +133,11 @@ private:
         int worded = 0;       // lines with word level timings
         double shift = 0.0;   // how much the source had to be moved
         bool usable = false;  // it is the same take of the song
+        // The timings are the musical ones: the note that is held is
+        // long and the rest of the words are short (the other sources
+        // spread the held note over the other words and the front goes
+        // half speed).
+        bool musical = false;
 
         // True when this source fits the song better than `o`.
         bool betterThan(const WordedScore &o) const {
@@ -137,6 +145,10 @@ private:
                 return false;
             if (!o.usable)
                 return true;
+            // The musical timings first: with the other ones the front
+            // goes half speed and the lyrics fall behind the voice.
+            if (musical != o.musical)
+                return musical;
             // The ratio of matched lines (the sources have different
             // amounts of lines, so the counts are not comparable).
             const int lhs = matched * o.total;
@@ -155,6 +167,7 @@ private:
         QVector<LrcLine> lines;
         QString source;
         bool local = false;   // it comes from the local Sonora cache
+        bool musical = false; // the timings are the musical ones
     };
 
     // Stage of the sources cascade; it travels attached to the reply to
@@ -168,10 +181,14 @@ private:
         NeteaseSearch,    // GET music.163.com/api/search/get
         NeteaseLyric,     // GET music.163.com/api/song/lyric
         MxmToken,         // GET apic.musixmatch.com/ws/1.1/token.get
-        MxmRichsync       // GET apic.musixmatch.com/ws/1.1/macro.subtitles.get
+        MxmRichsync,      // GET apic.musixmatch.com/ws/1.1/macro.subtitles.get
+        LrcRedSearch,     // GET lyrics-api.binimum.org
+        LrcRedSheet       // GET the TTML of the sheet
     };
 
-    void request(const QUrl &url, Stage stage, const QString &key);
+    void request(const QUrl &url, Stage stage, const QString &key,
+                 const char *agent = nullptr,
+                 const char *accept = nullptr);
     // The word level timings come from the ALBUM while the reference
     // timeline is the video being played: the text of the reference wins
     // (it is the version that is being sung) and the offset is the median
@@ -184,6 +201,7 @@ private:
     // the line is long the karaoke front stays on that word for seconds
     // and the phrase looks like it is still being sung. The word is cut
     // to what the other words of the line take.
+    static void clampStretchedWord(LrcLine &line);
     static void clampStretchedWords(QVector<LrcLine> &lines);
     // The lines that are not sung (the title of the song with the artist,
     // a line of credits...) are removed: their words are not real timings
@@ -211,6 +229,17 @@ private:
     // The richsync body: one entry per line, with the words and their
     // offsets inside the line.
     static QVector<LrcLine> parseRichsync(const QJsonArray &arr);
+    // lrc.red: a public catalogue that answers with the TTML of Apple
+    // Music: the timing of every word (the musical one: the note that is
+    // held is long and the rest are short) and the agent of every line
+    // (the voice). It is what the desktop player uses and it needs no key
+    // and no account.
+    void startLrcRed();
+    void onLrcRedSearchReply(QNetworkReply *reply, const QString &key);
+    void onLrcRedSheetReply(QNetworkReply *reply, const QString &key);
+    // The TTML: one <p> per line (with the voice that sings it) and one
+    // <span> per word (with its own begin and end).
+    static QVector<LrcLine> parseTtml(const QString &xml);
     // Like request() but sending a JSON body (YouTube Music).
     void postJson(const QUrl &url, const QJsonObject &body, Stage stage,
                   const QString &key);
@@ -283,7 +312,7 @@ private:
     // source is kept as a candidate: the ones that arrive later are
     // compared with it and the best aligned one is shown.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source,
-                     bool local = false);
+                     bool local = false, bool musical = false);
     // True when the current lyrics carry word level timings.
     bool m_worded = false;
     // The word level sources that are on the table (the local cache, the

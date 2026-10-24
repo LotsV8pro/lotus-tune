@@ -629,7 +629,9 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
                 m_tracks = cached;
                 m_tracksTitle = cachedTitle;
                 m_busy = false;   // serving as a cache never leaves the UI blocked
+                qInfo() << "[catalog] Fast path: emitting tracksReady with " << cached.size() << " tracks, title: " << cachedTitle;
                 emit tracksReady(cached, cachedTitle);
+                qInfo() << "[catalog] Fast path: Emitted tracksReady signal";
                 emit changed();
             });
             return;
@@ -1889,7 +1891,9 @@ bool Catalog::handleOutput(const QByteArray &json)
          // instant.
         cachePlaylist(m_pendingKey, list, title);
         rememberPlaylistForDisk(m_pendingKey);
+        qInfo() << "[catalog] About to emit tracksReady with " << list.size() << " tracks, title: " << title;
         emit tracksReady(list, title);
+        qInfo() << "[catalog] Emitted tracksReady with " << list.size() << " tracks";
     }
     emit changed();
     return true;

@@ -1,11 +1,9 @@
 [Desktop Entry]
-Type=Application
 Name=Lotus Tune
-GenericName=Reproductor de música
-Comment=Busca y reproduce música de YouTube Music y SoundCloud sin anuncios
-Exec=/home/lots/lotus-tune/build/lotus-tune
+Comment=Music player with YouTube Music support
+Exec=/home/lots/lotus-tune/lotus-tune-launch.sh
 Icon=lotustune
 Terminal=false
-Categories=AudioVideo;Audio;Music;
-StartupNotify=true
-StartupWMClass=lotustune
+Type=Application
+Categories=Audio;Music;
+Keywords=Music;Player;YouTube;
