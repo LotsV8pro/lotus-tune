@@ -29,6 +29,10 @@ Item {
     property color fillB: "#12151a"
     // Crop shape: "circle" or a radius in pixels.
     property var radiusSpec: 0
+    // Big views (the cinema) want the sharpest variant first: with this on,
+    // "maxresdefault" (1280 px) tops the cascade. The small cards keep the
+    // fast order (they are tiny, they don't need the big download).
+    property bool preferMaxRes: false
 
     readonly property bool ready: img.status === Image.Ready
 
@@ -60,6 +64,8 @@ Item {
     // looks broken). The base thumbnail is the fallback.
     readonly property var candidates: {
         var list = []
+        if (art.preferMaxRes && art.vid)
+            list.push("https://i.ytimg.com/vi/" + art.vid + "/maxresdefault.jpg")
         if (art.vid) {
             // "hqdefault" is the canonical one (480x360): "hq2" only exists
             // for recent videos and answers 404 on the older ones.

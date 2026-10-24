@@ -50,18 +50,10 @@ Rectangle {
     signal trackMenuRequested(real x, real y)
     signal artistRequested(string name)
 
-    // When opening (open becomes true), update all the track properties
-    // from root to ensure they are fresh. This is needed because bindings
-    // are only evaluated once when the property is first set.
-    Component.onCompleted: {
-        if (typeof root !== "undefined" && root.currentThumb) {
-            thumb = root.currentThumb
-            videoId = root.currentVideoId
-            title = root.currentTitle
-            artist = root.currentArtist
-        }
-    }
-    // Update when the component becomes visible (when open changes to true)
+    // The properties (title/artist/thumb/videoId/…) are bound from
+    // Main.qml to the current values, so the cinema keeps them fresh
+    // while it is open: bindings update themselves (an imperative copy
+    // here would kill the binding and freeze the cover and the title).
     Behavior on opacity {
         NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic }
     }
@@ -82,11 +74,12 @@ Rectangle {
     Image {
         id: washImg
         anchors.fill: parent
-        // Use the wash provider for the cinema artwork. This is the same
-        // as the app background wash - it downloads and blurs the image.
-        // The URL changes when the track changes.
-        source: fl.open && fl.thumb && root.washImage ? root.washImage : ""
-        onSourceChanged: console.log("[CINEMA] washImg source changed to:", source)
+        // EXACTLY the same wash as the main menu background:
+        // "image://wash/<serial>", empty when the backend has no art.
+        // It follows the track live (the serial changes) and respects the
+        // "dynamic background" setting, just like the main view.
+        source: fl.open && Sys.dynamicBg && root.currentThumb && wash.valid
+                ? "image://wash/" + wash.serial : ""
         // STRETCHED, not cropped: the veil adapts to the window so the
         // artwork covers the 100 % of it (cropped, a tall window only showed
         // the middle of the art with dark edges on the sides).
@@ -96,24 +89,6 @@ Rectangle {
         cache: false
         opacity: status === Image.Ready ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
-        // Apply semi-transparent overlay for dimming
-        opacity: status === Image.Ready ? 0.7 : 0
-    }
-    // Force refresh of the wash when thumb or videoId changes: the user
-    // may change to another song before the wash is ready; we need to
-    // detect the change and reload the image.
-    Connections {
-        target: fl
-        function onThumbChanged() {
-            // Force the wash to reload by toggling opacity
-            washImg.opacity = 0
-            Qt.callLater(function() { washImg.opacity = 1 })
-        }
-        function onVideoIdChanged() {
-            // Same for videoId: it may change while the cinema is open
-            washImg.opacity = 0
-            Qt.callLater(function() { washImg.opacity = 1 })
-        }
     }
     // Veil: the app background mixed with a deep blue so the cinema mode is
     // colder and crisper than the other windows. Under the lyrics, the veil
@@ -213,9 +188,29 @@ Rectangle {
                 src: fl.thumb
                 videoId: fl.videoId
                 // The cinema artwork has rounded corners like the home
-                // cards.
+                // cards and it is HUGE: ask for the sharpest variant
+                // first (maxres) instead of the 480 px one.
+                preferMaxRes: true
                 radiusSpec: Theme.rXl
                 showIconWhenEmpty: false
+
+                // A transparent overlay that fades between track changes:
+                // when the thumb changes, this overlay briefly covers
+                // the old art and fades out while the new one loads.
+                Connections {
+                    target: fl
+                    function onThumbChanged() {
+                        // Fade out the old art while the new one loads
+                        overlay.opacity = 1
+                        Qt.callLater(function() { overlay.opacity = 0 })
+                    }
+                }
+                Rectangle {
+                    id: overlay
+                    anchors.fill: parent
+                    color: "transparent"
+                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                }
             }
             Rectangle {
                 anchors.left: parent.left
