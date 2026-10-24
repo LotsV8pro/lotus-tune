@@ -496,6 +496,7 @@ Item {
         interval: 100
         onTriggered: lv.scrollToActive(false)
     }
+
     // Re-centre on resize (window <-> fullscreen change).
     onHeightChanged: Qt.callLater(function () { lv.scrollToActive(true) })
     onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
@@ -585,27 +586,6 @@ Item {
                     // front of the karaoke.
                     readonly property bool instrumental: modelData.instrumental === true
 
-                    // Without word level timings the line still fills in
-                    // little by little: it goes from the start of the line to
-                    // the start of the next one while it is sung, instead of
-                    // lighting up all at once (which looked broken).
-                    readonly property real _lineFrac: {
-                        if (!active)
-                            return 0
-                        const start = Number(modelData.time || 0)
-                        if (lv.karaokePos <= start)
-                            return 0
-                        // The end of the line is the moment the next one
-                        // starts (the backend publishes it): with it the
-                        // phrase is not sung past its own length, and an
-                        // instrumental stretch in the middle does not make
-                        // the previous phrase longer.
-                        let end = Number(modelData.end || 0)
-                        if (!(end > start))
-                            end = start + 4
-                        return Math.max(0, Math.min(1, (lv.karaokePos - start) / (end - start)))
-                    }
-
 
 
                     // Edge fade (like in the reference repo): the
@@ -622,19 +602,13 @@ Item {
 
                     width: lv.colW
                     // In a narrow panel the long phrases do not fit: let
-                    // them wrap instead of being cut at half a word. WITHOUT
-                    // maximumLineCount nor elide: with rich text
-                    // (the karaoke paints the line with <span> of colour) those
-                    // two make Qt swallow the format and the line comes out
-                    // entirely lit, without any sweep.
                     wrapMode: Text.WordWrap
                     text: rrow.instrumental
                           // An instrumental stretch is not sung: it is
-                          // shown whole (filling it little by little looked
-                          // like the text was running on its own).
+                           // shown whole.
                           ? modelData.text
                           : (lv.karaoke ? lv._wordHtml(_w)
-                                        : (active ? lv._fillHtml(modelData.text, _lineFrac)
+                                        : (active ? modelData.text
                                                    : modelData.text))
                     textFormat: (lv.karaoke || active) && !rrow.instrumental
                                 ? Text.RichText : Text.PlainText

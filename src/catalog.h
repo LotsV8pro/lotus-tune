@@ -364,6 +364,7 @@ private:
     QString m_plAddVideo;      // track to add after creating a list (or "")
     QString m_plSetId;         // pending setVideoId (remove from a list)
     QProcess m_likedProc;      // one-shot "liked" (LM) for the state of the rows
+    QTimer m_likedTimer;       // timeout for liked fetch
     QSet<QString> m_likedIds;  // videoIds in "liked"
     QVariantList m_likedTracks;  // "liked" with its artist and title
     // Local path (downloaded file) -> YouTube videoId, resolved once by

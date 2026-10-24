@@ -50,6 +50,7 @@ private slots:
     void testLooksLikeCredit();
     void testLineIndexAt();
     void testWordTimings();
+    void testParseTtml();
 };
 
 void TestLotusTune::initTestCase()
@@ -568,5 +569,58 @@ void TestLotusTune::testWordTimings()
     QCOMPARE(wide.at(0).text, QStringLiteral("Do you take this man to death"));
 }
 
+// The TTML of Apple Music: one <p> per line (with the voice that sings
+// it) and one <span> per word (with its own instant).
+void TestLotusTune::testParseTtml()
+{
+    const QString xml = QStringLiteral(
+        "<tt xmlns=\"http://www.w3.org/ns/ttml\" "
+        "xmlns:ttm=\"http://www.w3.org/ns/ttml#metadata\">"
+        "<head><metadata>"
+        "<ttm:agent type=\"person\" xml:id=\"v1\">"
+        "<ttm:name type=\"full\">Avenged Sevenfold</ttm:name></ttm:agent>"
+        "<ttm:agent type=\"person\" xml:id=\"v2\"/>"
+        "</metadata></head><body>"
+        "<p begin=\"1:01.008\" end=\"1:05.645\" ttm:agent=\"v1\">"
+        "<span begin=\"1:01.008\" end=\"1:01.382\">I</span> "
+        "<span begin=\"1:01.382\" end=\"1:01.782\">took</span> "
+        "<span begin=\"1:01.782\" end=\"1:02.233\">all</span></p>"
+        "<p begin=\"1:05.600\" end=\"1:07.000\" ttm:agent=\"v2\">"
+        "<span begin=\"1:05.600\" end=\"1:06.000\">What</span> "
+        "<span begin=\"1:06.000\" end=\"1:07.000\">will you do</span></p>"
+        "<p begin=\"1:08.000\" end=\"1:09.000\" ttm:agent=\"v1\">"
+        "without words</p>"
+        "</body></tt>");
+
+    const QVector<Lyrics::LrcLine> lines = Lyrics::parseTtml(xml);
+    QCOMPARE(lines.size(), 3);
+
+    // The first line: the words with their own instants and the text
+    // rebuilt with the spaces that go with them.
+    QCOMPARE(lines.at(0).time, 61.008);
+    QCOMPARE(lines.at(0).text, QStringLiteral("I took all"));
+    QCOMPARE(lines.at(0).words.size(), 3);
+    QCOMPARE(lines.at(0).words.at(0).toMap().value(QStringLiteral("t")).toDouble(),
+             61.008);
+    QCOMPARE(lines.at(0).words.at(0).toMap().value(QStringLiteral("e")).toDouble(),
+             61.382);
+    QCOMPARE(lines.at(0).words.at(1).toMap().value(QStringLiteral("t")).toDouble(),
+             61.382);
+    // The main voice is not the second one.
+    QVERIFY(!lines.at(0).secondary);
+
+    // The second line is the other voice: it is the one that goes to the
+    // other side.
+    QCOMPARE(lines.at(1).time, 65.6);
+    QCOMPARE(lines.at(1).text, QStringLiteral("What will you do"));
+    QVERIFY(lines.at(1).secondary);
+
+    // A line without word timings keeps its text and has no words.
+    QCOMPARE(lines.at(2).text, QStringLiteral("without words"));
+    QVERIFY(lines.at(2).words.isEmpty());
+    QVERIFY(!lines.at(2).secondary);
+}
+
 QTEST_MAIN(TestLotusTune)
 #include "test_all.moc"
+

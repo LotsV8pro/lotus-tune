@@ -62,7 +62,7 @@ Player::Player(QObject *parent)
          // load() is still waiting for this track, it is not abandoned to
          // mpv: a single extra margin is granted before killing it.
         job->timer.setSingleShot(true);
-        job->timer.setInterval(12000);
+        job->timer.setInterval(20000);  // 20 segundos para resolver pistas
         connect(&job->timer, &QTimer::timeout, this, [this, job] { onResolveTimeout(job); });
         connect(&job->proc, &QProcess::finished, this,
                 [this, job](int code, QProcess::ExitStatus) { onResolveFinished(job, code); });
@@ -300,7 +300,7 @@ void Player::startMpv()
     // Cleans a leftover socket from a previous run before starting.
     QFile::remove(m_socketPath);
     m_proc.start();
-    if (!m_proc.waitForStarted(3000))
+    if (!m_proc.waitForStarted(10000))
         qWarning() << "[player] failed to start mpv";
 }
 
@@ -740,7 +740,7 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
 #endif
     job->proc.start();
     job->timer.start();
-    if (!job->proc.waitForStarted(3000)) {
+    if (!job->proc.waitForStarted(10000)) {
         qWarning() << "[player] failed to start yt-dlp resolver";
         // Without a process there will be no finished(): the slot is
          // freed and, if a load() was waiting for this track, mpv is
