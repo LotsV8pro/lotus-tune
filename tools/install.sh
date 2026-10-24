@@ -128,6 +128,16 @@ fi
 # ── Comprobación y aviso final ──────────────────────────────────────────────
 BIN="$PREFIX/bin/lotus-tune"
 [ -x "$BIN" ] || die "la instalación no dejó el binario en $BIN"
+
+# qt.conf junto al binario: direccciona las rutas de importación de QML del
+# módulo embebido LotusTune. Sin él el launcher fallaría con
+# «Module LotusTune contains no type named Main» (el binario de cmake
+# --install no las lleva integradas).
+QTCONF_SRC="$SRC/qt.conf"
+if [ -f "$QTCONF_SRC" ] && [ ! -f "$(dirname "$BIN")/qt.conf" ]; then
+    cp "$QTCONF_SRC" "$(dirname "$BIN")/qt.conf"
+    msg "qt.conf instalado junto al binario"
+fi
 msg "instalado: $BIN"
 case ":$PATH:" in
     *":$PREFIX/bin:"*) ;;
