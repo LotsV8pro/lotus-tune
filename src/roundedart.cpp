@@ -186,9 +186,10 @@ void RoundedArt::tryNext(const QString &key, int index)
     }
     if (index >= candidates.size()) {
         // Every candidate failed. If a small picture was downloaded it is
-        // used now; otherwise the slot keeps its gradient and the job is
-        // marked as failed so the next request tries it again.
-        if (fallback.isNull()) {
+        // used now — never a black-and-white placeholder though (for
+        // those the slot keeps its gradient). The job is marked as
+        // failed so the next request tries it again.
+        if (fallback.isNull() || fallback.allGray()) {
             {
                 QMutexLocker lock(&m_mutex);
                 auto it = m_jobs.find(key);
@@ -239,9 +240,10 @@ void RoundedArt::tryNext(const QString &key, int index)
             return;
         }
         // The YouTube cascade sometimes answers with a 120x90 grey frame
-        // instead of the real cover: it is kept as a fallback (better than
-        // an empty slot) and the next candidate is tried first.
-        if (src.width() < 100 || src.height() < 100) {
+        // or a black-and-white placeholder instead of the real cover:
+        // they are kept as a fallback (better than an empty slot) and the
+        // next candidate is tried first.
+        if (src.allGray() || src.width() < 100 || src.height() < 100) {
             {
                 QMutexLocker lock(&m_mutex);
                 auto it = m_jobs.find(key);

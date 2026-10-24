@@ -124,6 +124,13 @@ void Wash::setSource(const QUrl &url)
         if (src.isNull()) {
             return;
         }
+        // YouTube serves a GRAY placeholder frame (120x90, film-strip
+        // icon) for tracks without real thumbnails. As a wash it reads
+        // as a black and white cover: discard it and keep the previous
+        // wash (or a theme-clean background at startup).
+        if (src.allGray()) {
+            return;
+        }
         const QImage blurred = blurPipeline(src);
         if (blurred.isNull())
             return;
