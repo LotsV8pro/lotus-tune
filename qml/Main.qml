@@ -3512,6 +3512,9 @@ Window {
                         // (Liner style): pseudo blur with no GPU +
                         // frosted islands.
                         SettingRow {
+                            // ⦿ CINEMA MODE: The wash background is enabled by default.
+                            //   If you see a static background in cinema mode, make
+                            //   sure this toggle is ON (see below).
                             label: "Fondo dinámico"
                             desc: "La portada de la pista tiñe el fondo y esmerila los paneles"
                             Toggle {
@@ -3519,9 +3522,6 @@ Window {
                                 onToggled: {
                                     Sys.dynamicBg = !Sys.dynamicBg
                                     root.cfgSet("dynamicBg", Sys.dynamicBg)
-                                    // When it is switched on mid session,
-                                    // the wash is computed with the current
-                                    // track right away.
                                     if (Sys.dynamicBg && root.currentThumb)
                                         wash.setSource(root.currentThumb)
                                     root.toast("Guardado en la configuración")
