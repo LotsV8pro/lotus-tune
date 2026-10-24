@@ -4,10 +4,28 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Five-petal lotus, same geometry as qml/LotusMark.qml: petals
+         fanned at -70/-35/0/35/70 degrees around the base point, with the
+         alpha rising toward the center petal. Purple petals on a
+         transparent background (no plate: the wallpaper shows through,
+         like an adaptive icon without a solid base). -->
     <path
-        android:fillColor="#12151A"
-        android:pathData="M0,0h108v108h-108z" />
+        android:fillColor="#A78BFA"
+        android:fillAlpha="0.48"
+        android:pathData="M54,64 C42.79,71.41 31.33,64.9 29.57,55.11 C37.21,48.74 50.18,51.12 54,64 Z" />
     <path
-        android:fillColor="#7FD6A4"
-        android:pathData="M44,38 L74,54 L44,70 Z" />
+        android:fillColor="#A78BFA"
+        android:fillAlpha="0.48"
+        android:pathData="M54,64 C57.82,51.12 70.79,48.74 78.43,55.11 C76.67,64.9 65.21,71.41 54,64 Z" />
+    <path
+        android:fillColor="#A78BFA"
+        android:fillAlpha="0.72"
+        android:pathData="M54,64 C40.56,63.64 34.91,51.73 39.09,42.7 C49,41.87 58.26,51.25 54,64 Z" />
+    <path
+        android:fillColor="#A78BFA"
+        android:fillAlpha="0.72"
+        android:pathData="M54,64 C49.74,51.25 59,41.87 68.91,42.7 C73.09,51.73 67.44,63.64 54,64 Z" />
+    <path
+        android:fillColor="#A78BFA"
+        android:pathData="M54,64 C43.2,56 45.4,43 54,38 C62.6,43 64.8,56 54,64 Z" />
 </vector>

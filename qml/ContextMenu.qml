@@ -106,6 +106,12 @@ Item {
                             readonly property bool can: modelData.enabled !== false
                             readonly property bool on: hov.hovered && row.can
                             color: row.on ? Theme.alpha(Sys.accent, 0.12) : "transparent"
+                            // The accent marks hover/checked rows; in the
+                            // current palette it is dark (#983e45) and it
+                            // disappears over the dark surface, so the
+                            // accent-tinted glyphs take the lightened copy
+                            // (theme.js) and stay readable on any palette.
+                            readonly property color hi: Theme.accentText(Sys.accent)
 
                             HoverHandler {
                                 id: hov
@@ -128,7 +134,7 @@ Item {
                                     color: !row.can ? Sys.textDim
                                            : (modelData.danger === true ? Sys.danger
                                               : (modelData.checked === true || row.on
-                                                 ? Sys.accent : Sys.text))
+                                                 ? row.hi : Sys.text))
                                 }
 
                                 Text {
@@ -137,7 +143,7 @@ Item {
                                     text: modelData.label || ""
                                     color: !row.can ? Sys.textDim
                                            : (modelData.danger === true ? Sys.danger
-                                              : (row.on ? Sys.accent : Sys.text))
+                                              : (row.on ? row.hi : Sys.text))
                                     font.pixelSize: Theme.tBase
                                     elide: Text.ElideRight
                                     maximumLineCount: 1
@@ -150,7 +156,7 @@ Item {
                                     Layout.alignment: Qt.AlignVCenter
                                     visible: modelData.checked === true
                                     kind: "check"
-                                    color: Sys.accent
+                                    color: row.hi
                                 }
                             }
 

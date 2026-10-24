@@ -18,6 +18,10 @@
 #include <QTimer>
 #include <QUrl>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 #include <algorithm>
 
 #include <QDebug>
@@ -58,6 +62,39 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     connect(&m_loginProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) { finishLogin(code); });
 
+#ifdef Q_OS_ANDROID
+    // No python on the phone: the cookies.txt SAPISID check done above
+    // is the whole truth; a helper run would clear the session on every
+    // start (the bug: login did not survive restarts).
+    Q_UNUSED(helperPath());
+
+    // Self-test of the native helper (libytmcli.so): it launches "search"
+    // (anonymous) ~2.5 s after igniting and it is shown in logcat only
+    // — it validates exec + TLS + API without user interaction.
+    QTimer::singleShot(2500, this, []() {
+        QProcess *probe = new QProcess();
+        probe->setProcessChannelMode(QProcess::MergedChannels);
+        probe->setProgram(AppPaths::pythonProgram());
+        probe->setArguments({QStringLiteral("search"),
+                             QStringLiteral("lotus tune probe")});
+        QObject::connect(probe,
+                         QOverload<int, QProcess::ExitStatus>::of(
+                             &QProcess::finished),
+                         probe,
+                         [probe](int code, QProcess::ExitStatus st) {
+                             if (code == 0)
+                                 qInfo() << "[cli-probe] ok";
+                             else
+                                 qWarning() << "[cli-probe] FAIL exit" << code
+                                            << st
+                                            << probe->readAllStandardOutput()
+                                               .size()
+                                            << probe->readAllStandardError();
+                             probe->deleteLater();
+                         });
+        probe->start();
+    });
+#else
     // Confirm (async) that a stored session is still usable without blocking UI.
     m_statusProc.setProcessChannelMode(QProcess::MergedChannels);
     connect(&m_statusProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -71,6 +108,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     } else if (m_loginState == QLatin1String("ok")) {
         m_loginState.clear();
     }
+#endif
 
     // "My lists": one-off query to the YT Music API with ytm_api.py. It uses
     // its own QProcess so it does not interfere with m_proc nor with the login.
@@ -561,6 +599,23 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
 
     m_proc.setProgram(program);
     m_proc.setArguments(args);
+#ifdef Q_OS_ANDROID
+    // The spawned helper cannot resolve DNS (unbound child: netd answers
+    // NODATA): the parent resolves through Java and passes the numeric
+    // addresses along. The helper still dials music.youtube.com with the
+    // real SNI + hostname verification.
+    if (program.endsWith(QStringLiteral("libytmcli.so"))) {
+        const QJniObject ips = QJniObject::callStaticObjectMethod(
+            QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+                .toUtf8().constData(),
+            "lookupDns",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            QJniObject::fromString(QStringLiteral("music.youtube.com"))
+                .object());
+        if (ips.isValid())
+            qputenv("LTM_DNS_IPS", ips.toString().toUtf8());
+    }
+#endif
     m_proc.start();
     if (!m_proc.waitForStarted(3000)) {
         fail(QStringLiteral("No se pudo ejecutar %1").arg(program));
@@ -721,7 +776,13 @@ void Catalog::runYtdlp(const QString &target, const QString &purpose,
     }
     args << target;
 
+    // Android has no yt-dlp: the native helper answers the same flags
+    // (src/ytmcli_main.cpp emulates "-J --flat-playlist ...").
+#ifdef Q_OS_ANDROID
+    startFetch(AppPaths::pythonProgram(), args, purpose, title);
+#else
     startFetch(QStringLiteral("yt-dlp"), args, purpose, title);
+#endif
 }
 
 void Catalog::search(const QString &query)
@@ -1780,6 +1841,53 @@ void Catalog::loginYTM()
     }
     if (m_loginProc.state() != QProcess::NotRunning)
         return;  // already waiting for the user
+#ifdef Q_OS_ANDROID
+    // Real login, like any modern app: an in-app Google tab (WebView)
+    // opens, the session is captured when the sign-in lands on
+    // YouTube Music, and a light poll turns the state over to "ok".
+    m_loginError.clear();
+    m_loginUrl.clear();
+    m_loginBuf.clear();
+    m_loginCancel = false;
+    setLoginState(QStringLiteral("waiting"));
+    const bool started = QJniObject::callStaticMethod<jboolean>(
+        QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+            .toUtf8().constData(),
+        "startYtmLogin",
+        "(Ljava/lang/String;)Z",
+        QJniObject::fromString(cookieFile()).object());
+    if (!started) {
+        m_loginError = QStringLiteral(
+            "No se pudo abrir la pesta\u00f1a de Google.");
+        setLoginState(QStringLiteral("error"));
+        return;
+    }
+    QTimer *poll = new QTimer(this);
+    poll->setInterval(700);
+    connect(poll, &QTimer::timeout, this, [poll, this]() {
+        if (m_loginState == QLatin1String("ok")) {
+            poll->stop();
+            poll->deleteLater();
+            return;
+        }
+        if (m_loginCancel) {
+            poll->stop();
+            poll->deleteLater();
+            m_loginCancel = false;
+            setLoginState(QString());
+            m_loginError.clear();
+            return;
+        }
+        if (ytmLoggedIn()) {
+            poll->stop();
+            poll->deleteLater();
+            m_loginError.clear();
+            setLoginState(QStringLiteral("ok"));
+        }
+    });
+    poll->start();
+    return;
+#endif
     if (!QFile::exists(helperPath())) {
         m_loginError = QStringLiteral("Falta el asistente de login (ytm_login.py).");
         setLoginState(QStringLiteral("error"));
@@ -2176,7 +2284,25 @@ bool Catalog::exportSession(const QString &path)
 
 bool Catalog::importSession(const QString &path)
 {
-    QFile f(path);
+    QString at = path;
+#ifdef Q_OS_ANDROID
+    if (path.startsWith(QLatin1String("content:"))) {
+        // The system picker hands out content:// URIs QFile cannot open:
+        // stage the picked file into our private cache first (Java).
+        const QJniObject j = QJniObject::callStaticObjectMethod(
+            QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+                .toUtf8().constData(),
+            "copyUriToCache",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            QJniObject::fromString(path).object());
+        if (!j.isValid())
+            return false;
+        at = j.toString();
+        if (at.isEmpty())
+            return false;
+    }
+#endif
+    QFile f(at);
     if (!f.open(QIODevice::ReadOnly))
         return false;
     const QJsonObject root = QJsonDocument::fromJson(f.readAll()).object();
@@ -2204,5 +2330,8 @@ bool Catalog::importSession(const QString &path)
                      .toUtf8());
     }
     out.close();
+    // The session file is in place: flip the login state without needing
+    // to restart the app.
+    setLoginState(ytmLoggedIn() ? QStringLiteral("ok") : QString());
     return true;
 }

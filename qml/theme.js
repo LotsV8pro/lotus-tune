@@ -40,8 +40,8 @@ var pillHPad = 14        // pill horizontal padding
 // edges, the air between islands and the soft shadow that lifts them off
 // the background.
 var rPanel = 20          // island radius (sidebar, bar, content...)
-var panelMargin = 14     // air with the window edge (leaves room for the shadow)
-var panelGap = 10        // air between islands
+var panelMargin = touch ? 6 : 14   // air with the window edge (room for shadow)
+var panelGap = touch ? 6 : 10      // air between islands
 var panelBorderAlpha = 0.11   // bright edge that separates the island from the background
 
 // Type scale (px). One ramp for the whole app: quiet by default, one clear
@@ -63,17 +63,20 @@ var s4 = 16
 var s5 = 24
 var s6 = 32
 
-// Layout rhythm (px). Slim, air-first chrome.
+// ---- Layout rhythm (px). Slim, air-first chrome. ------------------
+// On the phone everything compresses: the margins of the floating
+// islands and the rows shrink so the 1320-px-wide desktop layout
+// holds together in a 4xx-px-wide screen without cutting content.
 var rowH = 52
-var rowCompact = 46
+var rowCompact = touch ? 44 : 46
 var rowThin = 32
-var topBarH = 52
+var topBarH = touch ? 46 : 52
 // La isla de la barra: el transporte (botones 32) + el progreso fino con su
 // the air no longer fitted in 56 px and the buttons were glued to the edge.
 // It went up
 // a 68 para que respiren por arriba y por abajo.
-var playerBarH = 60
-var sidePanelMin = 300
+var playerBarH = touch ? 62 : 60
+var sidePanelMin = touch ? 252 : 300
 
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v))
@@ -118,6 +121,39 @@ function mix(a, b, t) {
 // Derive the hover / active surfaces from a base surface (+6% / +12%).
 function hover(c) { return Qt.lighter(c, 1.10) }
 function active(c) { return Qt.lighter(c, 1.20) }
+
+// ---- readable tokens on top of the accent -------------------------------
+// The accent is dark in the current palette (#983e45) and - on Android it
+// also comes straight from the wallpaper - it can be dark, light or
+// anything in between. On a dark surface a dark accent "eats" the text
+// sitting on it, so menus and dialogs that accent-tint their glyphs take
+// this lightened copy instead of the raw token: same hue, readable weight.
+function accentText(c) {
+    var C = _rgba(c)
+    if (!C)
+        return c
+    var lum = 0.299 * C[0] + 0.587 * C[1] + 0.114 * C[2]
+    var min = 0.45
+    if (lum >= min)
+        return c
+    return Qt.lighter(c, Math.min(3.0, min / Math.max(0.05, lum)))
+}
+
+// Text —or icon— ON an accent surface (Crear/Guardar buttons, the like
+// pill, chips...): keep the theme's `onAccent` when it actually contrasts
+// with the accent, else pick the obvious one. Never touches the accent
+// itself, only what is drawn on top of it.
+function onAccentOf(bg, base) {
+    var B = _rgba(bg)
+    if (!B)
+        return "#f4f4f6"
+    var lum = 0.299 * B[0] + 0.587 * B[1] + 0.114 * B[2]
+    var F = _rgba(base)
+    var lF = F ? (0.299 * F[0] + 0.587 * F[1] + 0.114 * F[2]) : 0.0
+    if (Math.abs(lum - lF) > 0.20)
+        return base
+    return lum > 0.5 ? "#0a0a0d" : "#f4f4f6"
+}
 
 // Soft tint of `c` laid over `base` (used to wash the player bar with the
 // current accent without any image sampling).

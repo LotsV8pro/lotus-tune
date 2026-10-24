@@ -76,7 +76,18 @@ Item {
             anchors.margins: Theme.s2
             spacing: 0
 
-            // Top padding: replaces the old brand header.
+            // Brand: the five-petal lotus marks the app at the top of the
+            // rail (it came back: the old header used to carry it).
+            LotusMark {
+                Layout.preferredWidth: 30
+                Layout.preferredHeight: 30
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: Theme.s1
+                petalColor: Sys.accent
+                active: side.playing
+            }
+
+            // Small spacer under the brand, and the navigation follows.
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Theme.s2

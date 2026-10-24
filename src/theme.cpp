@@ -12,6 +12,10 @@
 
 #include <QDebug>
 
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
+
 static const char *kDefaults[][2] = {
     { "bg", "#0a0a0d" },
     { "surface", "#101014" },
@@ -24,6 +28,26 @@ static const char *kDefaults[][2] = {
     { "textDim", "#8e8e99" },
     { "danger", "#e81123" },
 };
+
+#ifdef Q_OS_ANDROID
+// Android has no quickshell or CDE palette to mirror: the system accent
+// (Material You, tinted from the wallpaper) is read from Java. Returns
+// "#rrggbb" or an empty string when the system does not offer one.
+static QString androidSystemAccent()
+{
+    const QJniObject jName = QJniObject::callStaticObjectMethod(
+        QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+            .toUtf8().constData(),
+        "systemAccentColor",
+        "()Ljava/lang/String;");
+    if (!jName.isValid())
+        return {};
+    const QString hex = jName.toString();
+    if (hex.size() != 7 || !hex.startsWith('#') || !QColor(hex).isValid())
+        return {};
+    return hex;
+}
+#endif
 
 AppTheme::AppTheme(QObject *parent) : QObject(parent)
 {
@@ -138,6 +162,17 @@ void AppTheme::loadSystemPalette()
         loadJsonFile(matPal, m_sys);
         m_source = matPal;
     }
+#ifdef Q_OS_ANDROID
+    if (m_sys.isEmpty()) {
+        // No generated palette on the phone: take the system accent
+        // (wallpaper / theme color) from Java so "follow system" is real.
+        const QString hex = androidSystemAccent();
+        if (!hex.isEmpty()) {
+            m_sys.insert(QStringLiteral("app_accent"), hex);
+            m_source = QStringLiteral("android system");
+        }
+    }
+#endif
     if (m_sys.isEmpty())
         m_source = QStringLiteral("built-in defaults");
 }

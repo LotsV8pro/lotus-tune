@@ -1,5 +1,6 @@
 #include "appconfig.h"
 #include "catalog.h"
+#include "paths.h"
 #include "discordrpc.h"
 #include "updates.h"
 #include "stubs.h"
@@ -19,6 +20,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QMouseEvent>
@@ -34,7 +36,17 @@
 #if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
 #include <unistd.h>
 #endif
+#ifdef Q_OS_ANDROID
+#include <android/log.h>
+#define ANDROID_LOG(prio, msg) \
+    __android_log_print(prio, "LotusTune", "%s", qPrintable(msg))
+#else
+#define ANDROID_LOG(prio, msg) ((void) 0)
+#endif
 
+// The desktop prints to stderr (good for journalctl); on Android stderr is
+// a black hole, so every level also goes to logcat: without it a failure
+// of the QML loader is a silent instant crash, invisible.
 static void rawMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg)
 {
     const char *tag = (type == QtFatalMsg) ? "FATAL" :
@@ -42,12 +54,22 @@ static void rawMessageHandler(QtMsgType type, const QMessageLogContext &, const 
                       (type == QtWarningMsg) ? "WARN" : "INFO";
     fprintf(stderr, "[%s] %s\n", tag, qPrintable(msg));
     fflush(stderr);
+#ifdef Q_OS_ANDROID
+    ANDROID_LOG((type == QtFatalMsg) ? ANDROID_LOG_FATAL :
+                (type == QtCriticalMsg) ? ANDROID_LOG_ERROR :
+                (type == QtWarningMsg) ? ANDROID_LOG_WARN : ANDROID_LOG_INFO, msg);
+#endif
 }
 
 static void dumpErrors(const QQmlComponent &component)
 {
-    for (const QQmlError &e : component.errors())
+    for (const QQmlError &e : component.errors()) {
         fprintf(stderr, "QML ERROR: %s\n", qPrintable(e.toString()));
+#ifdef Q_OS_ANDROID
+        __android_log_print(ANDROID_LOG_ERROR, "LotusTune", "QML ERROR: %s",
+                            qPrintable(e.toString()));
+#endif
+    }
     fflush(stderr);
 }
 
@@ -351,6 +373,27 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES", "");
 
+#ifdef Q_OS_ANDROID
+    // The native helper (libytmcli.so) finds the cookies through this
+    // variable: the process hangs on to the environment of this one at
+    // the moment of igniting.
+    qputenv("LOTUS_COOKIES",
+            QStandardPaths::writableLocation(
+                QStandardPaths::AppConfigLocation).toUtf8()
+            + QByteArrayLiteral("/cookies.txt"));
+    // Its own process: the child linker does not search the packaged
+    // native lib dir by itself (its dependent Qt libs travel there).
+    {
+        const QString libDir = AppPaths::cliLibDir();
+        if (!libDir.isEmpty()) {
+            const QString old = qEnvironmentVariable("LD_LIBRARY_PATH");
+            qputenv("LD_LIBRARY_PATH",
+                    (libDir + (old.isEmpty() ? QString()
+                                             : ":" + old)).toUtf8());
+        }
+    }
+#endif
+
     // With software rendering GL is never used. If GLVND ends up loading a
     // vendor (libGLX/libEGL are DT_NEEDED of libQt6Gui), let it be Mesa's
     // (small) and not NVIDIA's (libnvidia-glcore + libnvidia-gpucomp,
@@ -370,6 +413,13 @@ int main(int argc, char *argv[])
     app.setApplicationName(QStringLiteral("lotus-tune"));
     app.setOrganizationName(QStringLiteral("lotus-tune"));
     app.setDesktopFileName(QStringLiteral("lotustune"));
+    // Window/taskbar icon: the installed hicolor icon; fall back to the
+    // source tree icon so local runs show it too.
+    QIcon appIcon = QIcon::fromTheme(QStringLiteral("lotus-tune"));
+    if (appIcon.isNull())
+        appIcon = QIcon(QStringLiteral(":/LotusTune/packaging/icons/lotus-tune.svg"));
+    if (!appIcon.isNull())
+        app.setWindowIcon(appIcon);
 
     // Single instance: the second one just asks the first to raise the
     // window and exits with 0 without creating anything.
@@ -473,11 +523,28 @@ int main(int argc, char *argv[])
 
     QQmlComponent component(&engine);
     component.loadFromModule("LotusTune", "Main");
+    QObject *root = nullptr;
     if (component.isError()) {
+        // Android: the in-binary QML plugin registration can stay
+        // dormant on this Qt 6.6 runtime, so the module lookup fails
+        // even with the module baked into the shared library. Fall
+        // back to loading Main.qml straight by its resource URL; the
+        // sibling components resolve through the implicit directory
+        // import, exactly as they do on the file system.
         dumpErrors(component);
-        return 1;
+        qWarning() << "[fallback] qrc file exists:"
+                   << QFile::exists(QStringLiteral(":/LotusTune/qml/Main.qml"));
+        QQmlComponent direct(&engine,
+                             QUrl(QStringLiteral("qrc:/LotusTune/qml/Main.qml")),
+                             QQmlComponent::PreferSynchronous);
+        if (direct.isError()) {
+            dumpErrors(direct);
+            return 1;
+        }
+        root = direct.create();
+    } else {
+        root = component.create();
     }
-    QObject *root = component.create();
     if (!root) {
         dumpErrors(component);
         return 1;
