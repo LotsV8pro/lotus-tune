@@ -35,19 +35,19 @@ Item {
     signal clicked()
     signal playClicked()
 
-    // When the artwork changes, ask for its dominant colour (the C++ side
-    // extracts it from the image and reports it through the "found" signal).
+    // When the artwork changes, ask for its dominant colour (the
+    // colorpick C++ object extracts it from the image and reports it
+    // through its "found" signal). It must NOT be the wash: setSource
+    // would hijack the global background with this card's artwork.
     onThumbChanged: {
         artColor = "transparent"
-        // Use WASH to extract the dominant color from the image
-        if (thumb && thumb.length > 0) {
-            wash.setSource(thumb)
-        }
+        if (thumb && thumb.length > 0)
+            colorpick.pick(thumb)
     }
-    
-    // Listen for color extraction from WASH
+
+    // Listen for colour extraction from the color picker
     Connections {
-        target: wash
+        target: colorpick
         function onFound(url, color) {
             if (String(url) === card.thumb)
                 card.artColor = color
