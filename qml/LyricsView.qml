@@ -57,26 +57,10 @@ Item {
     readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
 
-    // Karaoke: with WORD level timings (Sonora/Apple Music) the active line
-    // is filled word by word. When the source only gives line level timings
-    // (YTM/LRCLIB/NetEase) the phrase is NOT swept halfway: the whole line
-    // lights up when it is sung (less confusing, and it matches the desktop
-    // widget). The `karaoke` switch turns the word fill off and always
-    // leaves the whole line.
-    readonly property bool hasWordSync: {
-        for (var i = 0; i < lines.length; i++) {
-            var w = lines[i].words
-            if (w && w.length > 1)
-                return true
-        }
-        return false
-    }
-    // Is word level karaoke on? It is turned off from Settings (or by the
-    // backend).
-    // Kept by `rebuild()` (the binding over the `var lyr` does not track changes).
-    property bool karaokeOn: true
-
-    // ---- geometry of the reading column --------------------------------
+    // Line-only lyrics by design: the sources only give line timings
+// (YTM/LRCLIB/NetEase), so the ACTIVE LINE lights up whole. The
+// word-by-word fill was dropped: half sweeps looked broken.
+// ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
     readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
@@ -199,8 +183,6 @@ Item {
     function rebuild() {
         var src = (lyr && lyr.lines) ? lyr.lines : []
         lines = (src && src.length) ? src : []
-        if (lyr)
-            karaokeOn = lyr.karaoke !== false
         // Every track has its own offset (the video may have a longer intro
         // than the album): the one saved for it is applied here.
         applyStoredOffset()
@@ -252,9 +234,12 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Fade by distance to the active line: the active one at 100 % and the
-    // ones around it dimming in soft steps. Symmetric: it does not matter if
-    // the line was already sung (above) or is still to come (below).
+    // Fade by distance to the active line + symmetric window: only the
+    // active line, the two above and the two below (softly the third) are
+    // visible; everything else hides completely. The invisible rows keep
+    // their height so the auto-scroll never jumps. Symmetric: it does not
+    // matter if the line was already sung (above) or is still to come
+    // (below).
     function lineOpacity(i) {
         if (activeIndex < 0)
             return 0.78
@@ -264,139 +249,10 @@ Item {
         if (d === 1)
             return 0.62
         if (d === 2)
-            return 0.44
+            return 0.40
         if (d === 3)
-            return 0.30
-        return 0.20
-    }
-
-    // ---- progressive fill ---------------------------------------------------
-    function _rgbaStr(c) {
-        var col = (typeof c === "string") ? Qt.color(c) : c
-        return "rgba(" + Math.round(col.r * 255) + "," + Math.round(col.g * 255)
-            + "," + Math.round(col.b * 255) + ","
-            + (Math.round(col.a * 100) / 100) + ")"
-    }
-
-    // Colour half way between dimmed and lit. The text right at the front
-    // is painted halfway, and that is why you see it eating the line
-    // continuously instead of lighting up all at once.
-    function _mixCss(a, b, f) {
-        var t = Math.max(0, Math.min(1, f))
-        var A = (typeof a === "string") ? Qt.color(a) : a
-        var B = (typeof b === "string") ? Qt.color(b) : b
-        if (t <= 0) return _rgbaStr(A)
-        if (t >= 1) return _rgbaStr(B)
-        var r = A.r + (B.r - A.r) * t
-        var g = A.g + (B.g - A.g) * t
-        var bl = A.b + (B.b - A.b) * t
-        var al = A.a + (B.a - A.a) * t
-        return "rgba(" + Math.round(r * 255) + "," + Math.round(g * 255) + ","
-            + Math.round(bl * 255) + "," + (Math.round(al * 100) / 100) + ")"
-    }
-
-    // The part of the active line not sung yet: the SAME ink as the line
-    // but dimmed (low alpha), like the shell widget does. With a separate
-    // grey the line looked split in two and the karaoke looked ugly.
-    readonly property real _unsungAlpha: 0.34
-    readonly property color _sungColor: Sys.text
-    readonly property color _unsungColor: Theme.alpha(_sungColor, _unsungAlpha)
-
-    // Paints a line letter by letter: `fill` goes from 0 (just came in,
-    // dimmed) to 1 (sung, in full text). Contiguous characters of the same
-    // colour are grouped in a single tag: one tag per letter would break
-    // the kerning and it would show in the line break.
-    function _fillHtml(str, fill) {
-        var s = String(str || "")
-        if (s.length === 0)
-            return ""
-        var vis = 0
-        for (var i = 0; i < s.length; i++) {
-            var ch = s.charAt(i)
-            if (ch !== " " && ch !== "\t")
-                vis++
-        }
-        var front = Math.max(0, Math.min(1, fill)) * vis
-        var out = ""
-        var run = ""
-        var runCss = null
-        var k = 0
-        for (var j = 0; j < s.length; j++) {
-            var c = s.charAt(j)
-            var isVis = (c !== " " && c !== "\t")
-            var css = _mixCss(_unsungColor, _sungColor, isVis ? front - k : 0)
-            if (isVis)
-                k++
-            if (css !== runCss) {
-                if (run.length > 0)
-                    out += '<span style="color:' + runCss + '">' + run + "</span>"
-                run = ""
-                runCss = css
-            }
-            run += (c === "&") ? "&amp;" : (c === "<") ? "&lt;" : (c === ">") ? "&gt;" : c
-        }
-        if (run.length > 0)
-            out += '<span style="color:' + runCss + '">' + run + "</span>"
-        return out
-    }
-
-    // Fills a line WITH word level timings: every word lights up on its
-    // own segment, so the front follows the voice instead of spreading
-    // evenly over the whole phrase (which is what the desktop widget
-    // does). It reuses `_fillHtml` word by word.
-    //
-    // Careful with the segments: Apple Music rounds the timings to the
-    // second, so several words of the same line share THE SAME instant
-    // (and their "end" too). Using each word's time as it comes would
-    // light them all at once and the line would appear complete all of a
-    // sudden. That is why the segments are CHAINED: word N starts where
-    // word N-1 ended, so the front advances word by word (which is what
-    // the shell widget does).
-    function _wordHtml(words) {
-        if (!words || words.length === 0)
-            return ""
-        // Chained segments, EXACTLY as the desktop
-        // widget computes them: word N starts where N-1 ends and occupies
-        // its real segment (no minimums that delay the front). The first
-        // word enters 100 ms after the line and with a minimum
-        // fill, so it does not light up all at once at the start.
-        var tramos = []
-        var prevFin = -1
-        for (var i = 0; i < words.length; i++) {
-            var w = words[i]
-            var t0 = Number(w.t || 0)
-            var e = Number(w.e || 0)
-            var propio = (e > t0) ? (e - t0) : 0.3
-            var ini = (i === 0) ? t0 + 0.10 : t0
-            var dur = Math.max(propio, (i === 0) ? 0.34 : 0)
-            if (prevFin > ini)
-                ini = prevFin
-            var fin = ini + dur
-            tramos.push({ ini: ini, fin: fin })
-            prevFin = fin
-        }
-        // The word that is eating the front right now.
-        var actual = -1
-        for (var j = 0; j < tramos.length; j++) {
-            if (karaokePos >= tramos[j].ini)
-                actual = j
-            else
-                break
-        }
-        var out = ""
-        for (var k = 0; k < words.length; k++) {
-            var f = 0
-            if (k < actual) {
-                f = 1
-            } else if (k === actual) {
-                var tr = tramos[k]
-                f = (tr.fin > tr.ini)
-                    ? Math.max(0, Math.min(1, (karaokePos - tr.ini) / (tr.fin - tr.ini)))
-                    : 0
-            }
-            out += _fillHtml(String(words[k].text || ""), f)
-        }
-        return out
+            return 0.20
+        return 0
     }
 
     // Re-anchors the interpolated position to the engine's last value.
@@ -576,21 +432,14 @@ Item {
                     required property int index
                     readonly property bool active: index === lv.activeIndex
 
-                    // With word level timings (and karaoke enabled): the front
-                    // goes word by word. Without them: the whole line
-                    // lights up when it becomes active (no half sweep).
-                    readonly property var _w: modelData.words ? modelData.words : []
-                    readonly property bool karaoke: active && lv.karaokeOn && _w.length > 1
-                    // The instrumental markers ("♪") are shown, but they are
-                    // not sung: they are not filled and they do not move the
-                    // front of the karaoke.
+                    // Line mode: the whole line lights up when it becomes
+                    // active (no half sweep - word sync is not wired).
+                    // The instrumental markers ("♪") are shown, but they
+                    // are not sung and they keep their dim colour.
                     readonly property bool instrumental: modelData.instrumental === true
 
-
-
-                    // Edge fade (like in the reference repo): the
-                    // line fades itself out when it gets near the top or
-                    // the bottom of the view. No black bands above:
+                    // Edge fade: each line fades itself out near the top
+                    // or the bottom of the view. No black bands above:
                     // over the artwork wash they looked horrible.
                     readonly property real vfade: {
                         var zone = Math.max(28, lv.height * 0.14)
@@ -601,17 +450,9 @@ Item {
                     }
 
                     width: lv.colW
-                    // In a narrow panel the long phrases do not fit: let
                     wrapMode: Text.WordWrap
-                    text: rrow.instrumental
-                          // An instrumental stretch is not sung: it is
-                           // shown whole.
-                          ? modelData.text
-                          : (lv.karaoke ? lv._wordHtml(_w)
-                                        : (active ? modelData.text
-                                                   : modelData.text))
-                    textFormat: (lv.karaoke || active) && !rrow.instrumental
-                                ? Text.RichText : Text.PlainText
+                    text: modelData.text || ""
+                    textFormat: Text.PlainText
                     color: rrow.instrumental
                            ? Theme.alpha(Sys.textDim, 0.75)
                            : (active ? Theme.mix(Sys.text, Sys.accent, 0.14)

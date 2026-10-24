@@ -1617,7 +1617,10 @@ Window {
                 if (t) {
                     currentTitle = t.title
                     currentArtist = t.artist
-                    currentThumb = t.thumb || ""
+                    // Prefer thumb, but if it's empty derive it from the video ID
+                    // (YouTube tracks always have a videoId; this avoids a frozen
+                    // background when the song has no explicit thumbnail).
+                    currentThumb = t.thumb || (videoIdOf(t.url) ? "https://i.ytimg.com/vi/" + videoIdOf(t.url) + "/mqdefault.jpg" : "")
                     root.currentVideoId = videoIdOf(t.url)
                     root.currentSetId = t.setId || ""
                     root.currentLiked = catalog.likedReady
@@ -1854,7 +1857,7 @@ Window {
             return
         currentTitle = t.title
         currentArtist = t.artist
-        currentThumb = t.thumb || ""
+        currentThumb = t.thumb || (videoIdOf(t.url) ? "https://i.ytimg.com/vi/" + videoIdOf(t.url) + "/mqdefault.jpg" : "")
         root.currentVideoId = videoIdOf(t.url)
         root.currentSetId = t.setId || ""
         root.currentLiked = catalog.likedReady
