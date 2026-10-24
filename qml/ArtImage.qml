@@ -84,9 +84,24 @@ Item {
 
     property string artUrl: ""
 
+    // One refresh per event-loop turn: `src` and `videoId` change in
+    // separate property updates (the track changes them in neighbouring
+    // statements), and refreshing in between reads binding values from
+    // the middle of the update — the candidates got evaluated with the
+    // new thumb and the OLD id, which painted the previous track's
+    // artwork. Qt.callLater runs the work AFTER the batch, with both
+    // values consistent.
+    property bool _refreshScheduled: false
 
-
-
+    function scheduleRefresh() {
+        if (art._refreshScheduled)
+            return
+        art._refreshScheduled = true
+        Qt.callLater(function () {
+            art._refreshScheduled = false
+            art.refresh()
+        })
+    }
 
     function refresh() {
         const w = Math.round(art.width)
@@ -99,11 +114,14 @@ Item {
                               Screen.devicePixelRatio)
     }
 
-    onSrcChanged: refresh()
-    onVideoIdChanged: refresh()
-    onWidthChanged: refresh()
-    onHeightChanged: refresh()
-    onRadiusChanged: refresh()
+    // Track data changes through the scheduler; geometry ones also do it
+    // (they arrive in bursts too: anchoring, resizing, DPR switches).
+    onSrcChanged: scheduleRefresh()
+    onVideoIdChanged: scheduleRefresh()
+    onWidthChanged: scheduleRefresh()
+    onHeightChanged: scheduleRefresh()
+    onRadiusChanged: scheduleRefresh()
+    onPreferMaxResChanged: scheduleRefresh()
 
     Component.onCompleted: refresh()
 
@@ -114,7 +132,7 @@ Item {
                                   Math.round(art.height), art.radius,
                                   Screen.devicePixelRatio)
             if (key === mine)
-                art.refresh()
+                scheduleRefresh()
         }
     }
 
