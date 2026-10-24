@@ -8,10 +8,15 @@ import "theme.js" as Theme
 Window {
     id: root
 
-    width: 1320
-    height: 860
-    minimumWidth: 880
-    minimumHeight: 560
+    // Phone vs desktop: on Android the window fills the screen (the
+    // desktop 1320x860 does not fit) and the navigation moves to a
+    // bottom bar.
+    readonly property bool isPhone: Qt.platform.os === "android"
+
+    width: isPhone ? Screen.width : 1320
+    height: isPhone ? Screen.height : 860
+    minimumWidth: isPhone ? 360 : 880
+    minimumHeight: isPhone ? 480 : 560
     visible: true
     title: "Lotus Tune"
     color: Sys.bg
@@ -693,6 +698,61 @@ Window {
         }
     }
 
+    // ---- Android back gesture --------------------------------------------
+    // Mirror of Esc: overlays first, then straight back to Inicio; from
+    // Inicio the first press warns with the exit prompt and the second
+    // one (within the arm window) minimises. Only reached on the phone,
+    // the window-level "Back" Shortcut is desktop-disabled.
+    function handleAndroidBack() {
+        if (root.ctxOpen || root.fsLyricsOpen || root.confirmOpen
+                || root.editorOpen || root.playlistPickerOpen
+                || root.launcherOpen || root.settingsOpen || root.artistOpen
+                || root.panelOpen) {
+            root.goBack()
+            return
+        }
+        if (page !== "home") {
+            // Leave the library in a clean state so the next visit does
+            // not land inside a forgotten list.
+            if (page === "library" && libPage.showingTracks)
+                libPage.showPlaylists()
+            pushPage("home")
+            return
+        }
+        if (root.exitArmed) {
+            // Second press inside the arm window: minimise "to the
+            // background" instead of quitting, like any Android app.
+            root.exitArmed = false
+            root.exitPrompt = false
+            // TODO(Android): replace with MainActivity.minimizeApp() via
+            // JNI once a context property is exposed (no C++ edits were
+            // allowed for this change; Qt.quit() is the fallback).
+            Qt.quit()
+        } else {
+            root.exitPrompt = true
+            root.exitArmed = true
+            exitPromptTimer.restart()
+            exitArmTimer.restart()
+        }
+    }
+
+    // ---- Android back: exit prompt state -----------------------------------
+    // `exitPrompt` shows the small popup (auto-hides after ~2 s);
+    // `exitArmed` is the second-press window (~3 s), a touch wider than
+    // the popup so the "press again" message reads first.
+    property bool exitPrompt: false
+    property bool exitArmed: false
+    Timer {
+        id: exitPromptTimer
+        interval: 2000
+        onTriggered: root.exitPrompt = false
+    }
+    Timer {
+        id: exitArmTimer
+        interval: 3000
+        onTriggered: root.exitArmed = false
+    }
+
     // When asking for a list: it marks the load as running and decides
     // whether, once the tracks arrive, they have to be played (play
     // button) or only opened (click on the cover / the list). Opening does
@@ -1126,6 +1186,18 @@ Window {
     Shortcut {
         sequence: "Escape"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.goBack() }
+    }
+
+    // Android back gesture (phone only). Window-level "Back" shortcut,
+    // the way the Qt Android platform notes recommend: it fires no
+    // matter which item has active focus, and accepting the press stops
+    // Qt from minimising the app behind our back. NOT enabled on the
+    // desktop: there "Back" also binds Backspace/Alt+Left and back is
+    // not a quit key anyway.
+    Shortcut {
+        sequence: "Back"
+        enabled: root.isPhone
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.handleAndroidBack() }
     }
 
     // ---- mouse side buttons (4 = back, 5 = forward) --------------------
@@ -1793,7 +1865,10 @@ Window {
         }
         discord.setActivity(root.currentTitle, root.currentArtist, "", root.currentThumb,
                             player.position, dur, player.playing)
-        mpris.updatePlayback(player.playing, player.position)
+        // stopped=false SIEMPRE en la llamada: los parámetros por defecto
+        // no se rellenan en la invocación desde QML (Qt exige todos los
+        // argumentos) y sin esto caía "Insufficient arguments" en el log.
+        mpris.updatePlayback(player.playing, player.position, false)
         mpris.updateVolume(player.volume)
         root.fetchLyrics()
     }
@@ -2530,7 +2605,11 @@ Window {
 
             Item {
                 id: sideCol
-                Layout.preferredWidth: sidebar.railWidth
+                // Phone: the rail moves to a bottom bar (BottomNav); the
+                // desktop keeps the side column. The instance stays alive
+                // so its handlers keep working.
+                visible: !root.isPhone
+                Layout.preferredWidth: root.isPhone ? 0 : sidebar.railWidth
                 Layout.fillHeight: true
 
                 Sidebar {
@@ -2688,7 +2767,7 @@ Window {
             RightPanel {
                 id: rightPanel
                 visible: root.panelOpen
-                Layout.preferredWidth: 360
+                Layout.preferredWidth: root.isPhone ? 290 : 360
                 Layout.fillHeight: true
                 tab: root.panelTab
                 onTabRequested: (t) => root.panelTab = t
@@ -2705,6 +2784,12 @@ Window {
         }
 
         PlayerBar {
+            id: playBar
+            // Floating on the phone: it only appears when there is
+            // really something playing or resolving; the desktop keeps
+            // the always-standing dock.
+            visible: !root.isPhone || player.playing || player.loading
+                     || root.currentVideoId !== ""
             Layout.fillWidth: true
             playing: player.playing
             loading: player.loading
@@ -2733,6 +2818,33 @@ Window {
             onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
             onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
             onArtistRequested: (name) => root.openArtistByName(name)
+        }
+
+        // ---- phone-only bottom navigation --------------------------------
+        // The desktop rail moves to a bottom tab bar for thumb reach; the
+        // playback bar stays above it (mini-player over tab bar, like any
+        // mobile music app). Same signals the rail exposes.
+        BottomNav {
+            id: bottomNav
+            visible: root.isPhone
+            Layout.fillWidth: true
+            page: root.activeNavId()
+            onNavigate: (p) => {
+                if (p === "library") {
+                    if (libPage.libraryTab === 4)
+                        libPage.libraryTab = 0
+                }
+                root.navTo(p)
+            }
+            onLikedRequested: {
+                root.beginOpenList(false)
+                catalog.openUrl("https://music.youtube.com/playlist?list=LM",
+                                "Me gusta")
+            }
+            onDownloadsRequested: {
+                libPage.libraryTab = 4
+                root.navTo("library")
+            }
         }
     }
 
@@ -2763,6 +2875,15 @@ Window {
             root.closeFullscreenLyrics()
             root.openArtistByName(name)
         }
+        // The cinema sits INSIDE the window (no Window.FullScreen): it just
+        // stops above the playback bar, which remains visible and caught
+        // below the lyrics (task: floating controls without "fullscreen"
+        // chrome). Phone: the bar floats over the tab bar, so the tab bar,
+        // the air and the outer margin join the inset.
+        bottomInset: root.isPhone
+                     ? Theme.panelMargin + bottomNav.implicitHeight
+                       + Theme.panelGap + Theme.playerBarH
+                     : Theme.panelMargin + Theme.playerBarH
     }
 
     // ---- list picker (add to playlist) ---------------------------
@@ -2929,7 +3050,7 @@ Window {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         kind: "x"
-                        color: closePick.hovered ? Sys.accent : Sys.textDim
+                        color: (closePick.hovered || Theme.touch) ? Sys.text : Sys.textDim
                     }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.playlistPickerOpen = false } }
                 }
@@ -3072,6 +3193,37 @@ Window {
             horizontalAlignment: Text.AlignHCenter
             maximumLineCount: 3
             elide: Text.ElideMiddle
+        }
+    }
+
+    // ---- Android back: exit prompt -------------------------------------
+    // Small centered popup ("Pulsa otra vez para salir"): same surface
+    // language as the toast above (Sys.surfaceAlt island, mid-size text)
+    // but in the middle of the screen so the thumb that just went back
+    // can see it. Sized with safe-area margins on both sides so it
+    // cannot touch the gesture edges on any phone.
+    Rectangle {
+        id: backPromptBubble
+        visible: root.exitPrompt
+        anchors.centerIn: parent
+        z: 70
+        width: Math.min(backPromptLabel.implicitWidth + 36, root.width - 2 * (Theme.panelMargin + Theme.s5))
+        height: backPromptLabel.implicitHeight + 20
+        radius: Theme.rMd
+        color: Sys.surfaceAlt
+        border.width: 0
+        opacity: visible ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+        scale: visible ? 1.0 : 0.94
+        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+
+        Text {
+            id: backPromptLabel
+            anchors.centerIn: parent
+            text: "Pulsa otra vez para salir"
+            color: Sys.text
+            font.pixelSize: Theme.tMd
+            font.weight: Font.Medium
         }
     }
 
@@ -3366,7 +3518,7 @@ Window {
             radius: Theme.rPill
             color: gbHover.containsMouse
                    ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Sys.surfaceAlt))
-                   : (gb.danger ? "transparent" : Sys.surfaceAlt)
+                   : (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Sys.surfaceAlt)
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Text {
@@ -3374,7 +3526,7 @@ Window {
                 anchors.centerIn: parent
                 text: gb.text
                 color: gb.danger
-                       ? (gbHover.containsMouse ? Sys.danger : Sys.textDim)
+                       ? Sys.danger
                        : (gbHover.containsMouse ? Sys.accent : Sys.text)
                 font.pixelSize: Theme.tMd
                 font.weight: Font.DemiBold
@@ -3448,17 +3600,19 @@ Window {
                 Item { Layout.fillWidth: true }
 
                 Rectangle { // close
-                    width: 32
-                    height: 32
+                    width: Theme.touch ? 36 : 32
+                    height: Theme.touch ? 36 : 32
                     radius: Theme.rMd
                     color: closeMa.containsMouse ? Sys.surfaceAlt : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
-                        width: 16
-                        height: 16
+                        width: Theme.touch ? 18 : 16
+                        height: Theme.touch ? 18 : 16
                         kind: "x"
-                        color: closeMa.containsMouse ? Sys.accent : Sys.textDim
+                        // Touch has no hover: idle stays bright (the dim
+                        // one was unreadable on the phone).
+                        color: (closeMa.containsMouse || Theme.touch) ? Sys.text : Sys.textDim
                     }
                     MouseArea {
                         id: closeMa

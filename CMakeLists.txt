@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 
 project(lotus-tune
-    VERSION 1.0.0
+    VERSION 1.2.0
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -66,7 +66,57 @@ set(LOTUS_SOURCES
 
 qt_add_executable(lotus-tune ${LOTUS_SOURCES})
 
+# The native catalogue helper for the phone: on Android Catalog runs this
+# binary instead of "python3 ytm_api.py" / "yt-dlp" (there is no Python and
+# no yt-dlp in an APK). Its name must start with lib…so so the Android
+# packaging includes it as an extra native library; it stays a PIE
+# EXECUTABLE (Android launches it through QProcess like the python one).
+option(LOTUS_TMCLI "Build the ytmcli helper" OFF)
+if(ANDROID)
+    set(LOTUS_TMCLI ON)
+endif()
+if(LOTUS_TMCLI)
+    add_executable(lotus-ytmcli src/ytmcli_main.cpp)
+    target_link_libraries(lotus-ytmcli PRIVATE Qt6::Core Qt6::Network)
+    if(ANDROID)
+        set_target_properties(lotus-ytmcli PROPERTIES
+            OUTPUT_NAME "ytmcli" PREFIX "lib" SUFFIX ".so")
+        # The NDK toolchain links executables with -static-libstdc++ (two
+        # std-lib entities: the static copy in this binary and the shared
+        # libc++_shared.so of the Qt libs) -> at start the locale facets
+        # resolve to the wrong copy and libc++ throws std::bad_cast inside
+        # std::ios_base::Init. -nostdlib++ (later than the toolchain flag,
+        # so it wins) plus an explicit libc++_shared.so make the executable
+        # a member of the same std library the Qt libs use.
+        target_link_options(lotus-ytmcli PRIVATE -nostdlib++)
+        target_include_directories(lotus-ytmcli SYSTEM PRIVATE
+            ${CMAKE_SOURCE_DIR}/third_party/openssl)
+        # OpenSSL transport: link the same packaged libs (their SONAME are
+        # libssl.so / libcrypto.so, resolved from LD_LIBRARY_PATH when the
+        # helper is launched).
+        target_link_libraries(lotus-ytmcli PRIVATE
+            ${CMAKE_SOURCE_DIR}/build-android/android-build/libs/arm64-v8a/libssl_3.so
+            ${CMAKE_SOURCE_DIR}/build-android/android-build/libs/arm64-v8a/libcrypto_3.so)
+        # Derive the absolute libc++_shared.so path from the toolchain's
+        # own bin directory (ANDROID_NDK_ROOT is not always exported).
+        get_filename_component(_lotus_ndk_bin "${CMAKE_AR}" DIRECTORY)
+        target_link_libraries(lotus-ytmcli PRIVATE
+            ${_lotus_ndk_bin}/../sysroot/usr/lib/aarch64-linux-android/libc++_shared.so)
+    else()
+        set_target_properties(lotus-ytmcli PROPERTIES OUTPUT_NAME "ytmcli")
+        # TEMP: force the OpenSSL transport on the host as well for the
+        # parity debugging of this build iteration.
+        target_compile_definitions(lotus-ytmcli PRIVATE LTM_OSSL)
+        target_include_directories(lotus-ytmcli SYSTEM PRIVATE
+            ${CMAKE_SOURCE_DIR}/third_party/openssl)
+        target_link_libraries(lotus-ytmcli PRIVATE ssl crypto)
+    endif()
+endif()
 
+# The QML module is the same for desktop and Android: qt_add_qml_module
+# embeds it in the binary resources (qmldir + types) and the finalizer
+# links the static plugin so loadFromModule("LotusTune", "Main") works
+# on both desktop and Android.
 qt_add_qml_module(lotus-tune
     URI LotusTune
     VERSION 1.0
@@ -74,6 +124,7 @@ qt_add_qml_module(lotus-tune
         qml/Main.qml
         qml/Panel.qml
         qml/Sidebar.qml
+        qml/BottomNav.qml
         qml/TopBar.qml
         qml/PlayerBar.qml
         qml/RightPanel.qml
@@ -95,6 +146,8 @@ qt_add_qml_module(lotus-tune
         qml/PlaylistEditor.qml
         qml/LyricsView.qml
         qml/FullscreenLyrics.qml
+    RESOURCES
+        packaging/icons/lotus-tune.svg
 )
 
 qt_add_resources(lotus-tune "ui_sounds"
@@ -138,20 +191,27 @@ endif()
 target_compile_definitions(lotus-tune PRIVATE
     LOTUS_TUNE_VERSION="${PROJECT_VERSION}")
 
+# For Android, the QML module must be importable from the source tree
+# (the APK does not embed the module by default). We add the QML import
+# path as a CMake property so that the "LotusTune" module can be found.
+
 target_link_libraries(lotus-tune PRIVATE
     Qt6::Quick
     Qt6::Network
     Qt6::Sql
     Qt6::Multimedia
+    Qt6::Qml
 )
 
 # On Android the executable is packaged as an APK: the Gradle project of
-# the app (manifest, activity, resources) lives in android/ and Qt plugs
-# the QML module and the libraries into it.
+# the app (manifest, activity, resources) lives in android/. The
+# finalization (which also links the static QML plugin so
+# loadFromModule("LotusTune", "Main") resolves types) is already done
+# automatically at the end of the directory scope - calling it manually
+# here runs it twice and skips qt_import_qml_plugins.
 if(ANDROID)
     set_property(TARGET lotus-tune PROPERTY
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
-    qt_finalize_executable(lotus-tune)
 endif()
 if(LOTUS_DESKTOP)
     target_link_libraries(lotus-tune PRIVATE Qt6::DBus)

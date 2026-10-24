@@ -10,6 +10,10 @@
 
 #ifdef Q_OS_ANDROID
 #include <QNetworkReply>
+#include <QJniEnvironment>
+#include <QJniObject>
+#include <QRegularExpression>
+#include <QUrlQuery>
 #endif
 
 // Playback engine: mpv running headless (no video) with a JSON IPC socket.
@@ -115,6 +119,8 @@ private:
     void saveStreamCache();
 
     QProcess m_proc;
+    // Forward declaration: prefetch slots are declared below.
+    struct ResolveJob;
 #ifdef Q_OS_ANDROID
     // On a phone there is no mpv: the audio is played by Qt itself and the
     // stream URL is asked to YouTube Music's internal API (the same one the
@@ -125,9 +131,35 @@ private:
     // Asks the API for the direct stream of a YouTube video.
     void resolveWithApi(const QString &url);
     void onApiReply(QNetworkReply *reply, const QString &url);
+    // Chain for the WEB_REMIX + WebView-solver playback (see player.cpp):
+    // player response -> watch page (player id) -> player JS -> solver
+    // -> assembled URL -> QMediaPlayer.
+    void onWatchPageReply(QNetworkReply *reply, const QString &trackUrl);
+    void onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
+                         const QString &trackUrl);
+    void solveJsWithPlayerJs(const QString &trackUrl);
+    void onSolverPoll();
+    // Challenge state for the solver chain.
+    QString m_apTrack, m_apUrl, m_apSig, m_apSp, m_apN;
+    QString m_playerJsId, m_playerJsText;
+    // Preprocessed player text (the solver's own cache): after the first
+    // solve the ~2.9 MiB player JS does not get re-parsed per track.
+    QString m_preprocessed;
+    QString m_preprocessedFor;
+    QTimer *m_solverTimer = nullptr;
+    int m_solverWait = 0;
+    // True when the preprocessed blob is not readable (the real player
+    // JS text must be sent to the solver).
+    bool loadPreprocessed();
+    void savePreprocessed(const QString &pp);
     // The session of the user (the SAPISID of the cookies): without it
     // the API does not serve the stream.
     QString sessionCookie() const;
+    // On a phone the prefetch jobs (startResolve) run through the same
+    // WEB_REMIX + WebView-solver chain as load(), but they only fill the
+    // resolve cache (QMediaPlayer plays nothing). There is just one chain
+    // at a time.
+    ResolveJob *m_chainJob = nullptr;
 #endif
     class QLocalSocket *m_sock = nullptr;
     QByteArray m_buf;

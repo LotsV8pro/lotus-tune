@@ -11,6 +11,11 @@ import "theme.js" as Theme
 Rectangle {
     id: bar
 
+    // Phone: secondary actions (shuffle, repeat, volume, the heart when
+    // it cannot be used yet) hide so the transport and queue/lyrics fit
+    // with air; active sizes grow for touch targets.
+    readonly property bool compact: Theme.touch
+
     property bool playing: false
     // Track requested but not playing yet (resolving the stream): the bar
     // shows a waiting state so the start does not look stuck.
@@ -61,9 +66,9 @@ Rectangle {
         id: bb
         property string kind: "play"
         property bool active: false
-        property color iconColor: Sys.textDim
-        property int diameter: 28
-        property real glyph: 14
+        property color iconColor: bar.compact ? Sys.text : Sys.textDim
+        property int diameter: bar.compact ? 34 : 28
+        property real glyph: bar.compact ? 16 : 14
         signal tapped()
         width: diameter
         height: diameter
@@ -95,8 +100,8 @@ Rectangle {
             anchors.fill: parent
             // Generous side margins: the bar breathes and nothing
             // (buttons, artwork, volume) is glued to the island's edge.
-            anchors.leftMargin: Theme.s5
-            anchors.rightMargin: Theme.s5
+            anchors.leftMargin: bar.compact ? Theme.s3 : Theme.s5
+            anchors.rightMargin: bar.compact ? Theme.s3 : Theme.s5
             anchors.bottomMargin: Theme.s1
             spacing: 0
 
@@ -194,8 +199,8 @@ Rectangle {
 
                     Item {
                         Layout.alignment: Qt.AlignVCenter
-                        width: 30
-                        height: 30
+                        width: bar.compact ? 38 : 30
+                        height: bar.compact ? 38 : 30
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.rSm
@@ -211,8 +216,8 @@ Rectangle {
                             }
                             LotusMark {
                                 anchors.centerIn: parent
-                                width: 16
-                                height: 15
+                                width: bar.compact ? 20 : 16
+                                height: bar.compact ? 19 : 15
                                 petalColor: Sys.accent
                                 active: bar.playing
                                 visible: !coverArt.ready
@@ -302,12 +307,13 @@ Rectangle {
                     id: centerCol
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.s2
+                    spacing: bar.compact ? Theme.s1 : Theme.s2
 
                     BarButton {
                         kind: "shuffle"
                         active: bar.shuffle
                         iconColor: Sys.text
+                        visible: !bar.compact
                         onTapped: { if (typeof sfx !== 'undefined') sfx.play('toggle'); bar.shuffleToggled() }
                     }
 
@@ -318,9 +324,9 @@ Rectangle {
                     }
 
                     Rectangle {
-                        width: 30
-                        height: 30
-                        radius: 15
+                        width: bar.compact ? 40 : 30
+                        height: bar.compact ? 40 : 30
+                        radius: width / 2
                         color: playHover.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                         scale: playHover.pressed ? 0.94 : (playHover.hovered ? 1.04 : 1)
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -329,8 +335,8 @@ Rectangle {
                         Glyph {
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: 1
-                            width: 15
-                            height: 15
+                            width: bar.compact ? 17 : 15
+                            height: bar.compact ? 17 : 15
                             kind: bar.playing ? "pause" : "play"
                             color: Sys.onAccent
                         }
@@ -347,6 +353,7 @@ Rectangle {
                         kind: bar.repeatMode === 2 ? "repeat-one" : "repeat"
                         active: bar.repeatMode !== 0
                         iconColor: Sys.text
+                        visible: !bar.compact
                         onTapped: { if (typeof sfx !== 'undefined') sfx.play('toggle'); bar.repeatToggled() }
                     }
                 }
@@ -356,7 +363,7 @@ Rectangle {
                     id: rightSide
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Theme.s2
+                    spacing: bar.compact ? Theme.s1 : Theme.s2
                     width: Math.max(0, (parent.width - centerCol.width) / 2 - Theme.s3)
 
                     Item { Layout.fillWidth: true }
@@ -365,6 +372,10 @@ Rectangle {
                         kind: bar.liked ? "heart" : "heart-outline"
                         active: bar.liked
                         iconColor: bar.canInteract ? Sys.text : Sys.textDim
+                        // On the phone it takes room without doing
+                        // anything until the session is up: it only
+                        // shows when it works (always on desktop).
+                        visible: !bar.compact || bar.canInteract
                         onTapped: { if (typeof sfx !== 'undefined') sfx.play('like'); if (bar.canInteract) bar.likeRequested() }
                     }
                     BarButton {
@@ -384,7 +395,10 @@ Rectangle {
                     RowLayout {
                         Layout.alignment: Qt.AlignVCenter
                         spacing: Theme.s1
-                        visible: bar.width >= 620
+                        // On the phone the slider is meaningless (touch has
+                        // no hover nor drag precision and the transport
+                        // needs the room): it stays desktop-only.
+                        visible: bar.width >= 620 && !Theme.touch
 
                         Glyph {
                             Layout.alignment: Qt.AlignVCenter

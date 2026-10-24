@@ -19,6 +19,12 @@
         android:theme="@android:style/Theme.NoTitleBar">
 
         <activity
+            android:name="io.github.lotsv8pro.lotustune.LotusLoginActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.NoTitleBar"/>
+
+        <activity
             android:name="io.github.lotsv8pro.lotustune.MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
@@ -28,6 +34,33 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- Qt's app loader (QtLoader): name of the shared library
+                 built by CMake. Without it the loader cannot find
+                 liblotus-tune_arm64-v8a.so and the app cannot start. -->
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="lotus-tune"/>
+            <!-- The loader reads this bundle entry; with no meta-data at
+                 all Android leaves ApplicationInfo.metaData null and the
+                 loader NPEs (Bundle.containsKey on null). -->
+            <meta-data
+                android:name="android.app.background_running"
+                android:value="false"/>
+            <meta-data
+                android:name="android.app.extract_android_style"
+                android:value="minimal"/>
         </activity>
+
+        <!-- File provider used by Qt (share sheets, save dialogs). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.qtprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qtprovider_paths"/>
+        </provider>
     </application>
 </manifest>

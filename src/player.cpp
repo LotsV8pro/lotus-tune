@@ -509,6 +509,14 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
         emit positionChanged();
         emit stateChanged();
         if (network) {
+            // Cached from an earlier prefetch: it sounds instantly.
+            if (m_resolved.contains(url)) {
+                m_loading = false;
+                m_androidPlayer->setSource(QUrl(m_resolved.value(url)));
+                m_androidPlayer->play();
+                emit stateChanged();
+                return;
+            }
             resolveWithApi(url);
         } else {
             m_androidPlayer->setSource(QUrl::fromLocalFile(url));
@@ -722,9 +730,18 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     }
     args << url;
 #ifdef Q_OS_ANDROID
-    // No yt-dlp on a phone: the stream cannot be resolved from a shell
-    // script, the job simply finishes as failed.
-    onResolveFinished(job, 1);
+    // No yt-dlp on a phone: the stream is resolved with the app's own
+    // chain (WEB_REMIX + WebView solver). One chain at a time: while one
+    // resolution is in flight the other jobs finish as failed so the
+    // queue keeps flowing (the player JS is cached, so a chain is a
+    // couple of requests once warm).
+    if (!m_apTrack.isEmpty()) {
+        onResolveFinished(job, 1);
+        return;
+    }
+    m_chainJob = job;
+    m_apTrack = url;
+    resolveWithApi(url);
     return;
 #endif
     job->proc.setProgram(QStringLiteral("yt-dlp"));
@@ -1048,25 +1065,21 @@ void Player::resolveWithApi(const QString &url)
         return;
 
     const QString session = sessionCookie();
-    if (session.isEmpty()) {
-        qWarning() << "[player] sin sesión de YouTube Music: no se puede"
-                      " resolver el stream";
-        m_loading = false;
-        emit stateChanged();
-        return;
+    QString auth, cookie;
+    if (!session.isEmpty()) {
+        const int bar = session.indexOf(QLatin1Char('|'));
+        auth = session.left(bar);
+        cookie = session.mid(bar + 1);
     }
-    const int bar = session.indexOf(QLatin1Char('|'));
-    const QString auth = session.left(bar);
-    const QString cookie = session.mid(bar + 1);
 
+    // WEB_REMIX is the client that accepts the web session: the mobile
+    // clients reject the browser cookies outright (HTTP 400). It answers
+    // with signatureCipher formats, which the WebView solver decodes.
     QJsonObject cli;
-    cli[QStringLiteral("clientName")] = QStringLiteral("ANDROID_MUSIC");
-    cli[QStringLiteral("clientVersion")] = QStringLiteral("7.27.52");
+    cli[QStringLiteral("clientName")] = QStringLiteral("WEB_REMIX");
+    cli[QStringLiteral("clientVersion")] = QStringLiteral("1.20240101.01.00");
     cli[QStringLiteral("hl")] = QStringLiteral("es");
     cli[QStringLiteral("gl")] = QStringLiteral("ES");
-    cli[QStringLiteral("androidSdkVersion")] = 34;
-    cli[QStringLiteral("userAgent")] = QStringLiteral(
-        "com.google.android.apps.youtube.music/7.27.52 (Linux; U; Android 11) gzip");
     QJsonObject ctx;
     ctx[QStringLiteral("client")] = cli;
     ctx[QStringLiteral("user")] = QJsonObject();
@@ -1077,14 +1090,20 @@ void Player::resolveWithApi(const QString &url)
     body[QStringLiteral("racyCheckOk")] = true;
 
     QNetworkRequest req(QUrl(QStringLiteral("https://music.youtube.com/youtubei/v1/player"
-                                           "?alt=json&key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30")));
+                                           "?alt=json&key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
+                                           "&prettyPrint=false")));
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    req.setRawHeader("User-Agent", "com.google.android.apps.youtube.music/7.27.52");
-    req.setRawHeader("Authorization", auth.toUtf8());
-    req.setRawHeader("Cookie", cookie.toUtf8());
+    req.setTransferTimeout(20000);
+    if (!auth.isEmpty()) {
+        req.setRawHeader("Authorization", auth.toUtf8());
+        req.setRawHeader("Cookie", cookie.toUtf8());
+    }
+    req.setRawHeader("User-Agent",
+                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                     " (KHTML, like Gecko) Chrome/130.0 Safari/537.36");
     req.setRawHeader("Origin", "https://music.youtube.com");
-    req.setRawHeader("X-Goog-Api-Format-Version", "2");
-    req.setTransferTimeout(15000);
+    req.setRawHeader("Referer", "https://music.youtube.com/");
+    req.setRawHeader("X-Goog-Api-Format-Version", "1");
 
     if (!m_apiNet)
         m_apiNet = new QNetworkAccessManager(this);
@@ -1098,7 +1117,11 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     reply->deleteLater();
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
-        qWarning() << "[player] la API no devolvió el stream:" << reply->errorString();
+        qWarning() << "[player] la API no devolvió el stream:"
+                   << int(reply->error())
+                   << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
+                   << QString::fromUtf8(raw.left(200))
+                   << reply->errorString();
         m_loading = false;
         emit stateChanged();
         return;
@@ -1106,30 +1129,358 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     const QJsonObject root = QJsonDocument::fromJson(raw).object();
     const QJsonObject streaming =
         root.value(QStringLiteral("streamingData")).toObject();
+
+    // The best audio format with signatureCipher (WEB_REMIX serves it
+    // scrambled; the WebView solver decodes it).
     const QJsonArray formats = streaming.value(QStringLiteral("adaptiveFormats")).toArray();
-    QString best;
+    QString cipher;
     int bestBitrate = -1;
-    for (const QJsonValue &v : formats) {
-        const QJsonObject f = v.toObject();
-        const QString direct = f.value(QStringLiteral("url")).toString();
-        if (direct.isEmpty())
+    for (const QJsonValue &fv : formats) {
+        const QJsonObject f = fv.toObject();
+        const QString mine = f.value(QStringLiteral("signatureCipher")).toString();
+        if (mine.isEmpty())
+            continue;
+        const QString mime = f.value(QStringLiteral("mimeType")).toString();
+        if (!mime.startsWith(QStringLiteral("audio/")))
             continue;
         const int bitrate = f.value(QStringLiteral("bitrate")).toInt();
         if (bitrate > bestBitrate) {
             bestBitrate = bitrate;
-            best = direct;
+            cipher = mine;
         }
     }
-    if (best.isEmpty()) {
-        qWarning() << "[player] la API no devolvió ninguna URL de audio";
+    if (cipher.isEmpty()) {
+        qWarning() << "[player] la API no devolvió ningún formato de audio firmado:"
+                   << int(formats.count())
+                   << root.value(QStringLiteral("playabilityStatus")).toObject()
+                          .value(QStringLiteral("status")).toString()
+                   << root.value(QStringLiteral("videoDetails")).toObject()
+                          .value(QStringLiteral("videoId")).toString();
+        qWarning() << root.value(QStringLiteral("playabilityStatus")).toObject()
+                          .value(QStringLiteral("reason")).toString();
+        qWarning() << raw.left(500);
+        qWarning() << root.value(QStringLiteral("playabilityStatus")).toObject()
+                          .value(QStringLiteral("reason")).toString();
         m_loading = false;
         emit stateChanged();
         return;
     }
-    if (!m_androidPlayer)
+
+    // signatureCipher is form-encoded: url + s + sp (sp names the query
+    // parameter that has to carry the decoded signature, usually "sig").
+    const QUrlQuery sc(cipher);
+    m_apUrl = sc.queryItemValue(QStringLiteral("url"));
+    m_apSig = sc.queryItemValue(QStringLiteral("s"));
+    m_apSp = sc.hasQueryItem(QStringLiteral("sp"))
+                 ? sc.queryItemValue(QStringLiteral("sp"))
+                 : QStringLiteral("sig");
+    QUrlQuery uq(QUrl(m_apUrl).query());
+    m_apN = uq.queryItemValue(QStringLiteral("n"));
+    if (m_apUrl.isEmpty() || m_apSig.isEmpty() || m_apN.isEmpty()) {
+        qWarning() << "[player] url/s/n incompletos en el formato";
+        m_loading = false;
+        emit stateChanged();
         return;
-    m_androidPlayer->setSource(QUrl(best));
-    m_androidPlayer->play();
+    }
+
+    // The player JS is referenced from the watch page (it changes whenever
+    // YouTube ships a new player): it stays cached in memory, so the next
+    // track doesn't re-download ~2.9 MiB.
+    if (!m_playerJsText.isEmpty() && !m_playerJsId.isEmpty()) {
+        solveJsWithPlayerJs(url);
+        return;
+    }
+    QString id = url;
+    if (const int v = id.lastIndexOf(QLatin1Char('=')); v >= 0)
+        id = id.mid(v + 1);
+    QNetworkRequest preq(QUrl(QStringLiteral("https://www.youtube.com/watch?v=") + id
+                              + QStringLiteral("&bpctr=9999999999&has_verified=1")));
+    preq.setTransferTimeout(20000);
+    preq.setRawHeader(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/130.0 Safari/537.36");
+    const QString session = sessionCookie();
+    if (!session.isEmpty()) {
+        const int bar = session.indexOf(QLatin1Char('|'));
+        preq.setRawHeader("Cookie", session.mid(bar + 1).toUtf8());
+    }
+    preq.setRawHeader("Accept-Language", "es-ES,es;q=0.9");
+    QNetworkReply *preply = m_apiNet->get(preq);
+    connect(preply, &QNetworkReply::finished, this,
+            [this, preply, url]() { onWatchPageReply(preply, url); });
+}
+
+void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
+{
+    reply->deleteLater();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
+        qWarning() << "[player] la página watch no llegó:" << reply->errorString();
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    const QString page = QString::fromUtf8(raw);
+    // The player id is stable for the whole YouTube build: any variant
+    // reference gives the id; the classic player_ias variant (the one
+    // yt-dlp reads too) is requested directly.
+    static const QRegularExpression re(QStringLiteral(
+        "\"js\": ?\"\\\\?/s\\\\?/player\\\\?/([0-9A-Za-z-]+)\\\\?/"));
+    const QRegularExpressionMatch m = re.match(page);
+    m_playerJsId.clear();
+    if (!m.hasMatch()) {
+        static const QRegularExpression re2(
+            QStringLiteral("/s/player/([0-9A-Za-z-]+)/[A-Za-z0-9_]+\\.vflset"));
+        const QRegularExpressionMatch m2 = re2.match(page);
+        if (!m2.hasMatch()) {
+            qWarning() << "[player] el id del player JS no está en la página";
+            m_loading = false;
+            emit stateChanged();
+            return;
+        }
+        m_playerJsId = m2.captured(1);
+    } else {
+        m_playerJsId = m.captured(1);
+    }
+    QNetworkRequest jreq(QUrl(QStringLiteral("https://www.youtube.com/s/player/")
+                              + m_playerJsId
+                              + QStringLiteral("/player_ias.vflset/en_US/base.js")));
+    jreq.setTransferTimeout(30000);
+    jreq.setRawHeader(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/130.0 Safari/537.36");
+    QNetworkReply *jreply = m_apiNet->get(jreq);
+    connect(jreply, &QNetworkReply::finished, this,
+            [this, jreply, trackUrl, jurl = jreq.url()]() {
+                onPlayerJsReply(jreply, jurl, trackUrl);
+            });
+}
+
+void Player::onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
+                             const QString &trackUrl)
+{
+    reply->deleteLater();
+    const QByteArray raw = reply->readAll();
+    if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
+        qWarning() << "[player] el player JS no llegó:" << reply->errorString();
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    m_playerJsText = QString::fromUtf8(raw);
+    // A different player id invalidates any preprocessed blob of the old
+    // one (a normally running session keeps the same id, so this only
+    // happens when YouTube ships a new player build).
+    if (!m_preprocessedFor.isEmpty() && m_playerJsId != m_preprocessedFor)
+        m_preprocessed.clear();
+    qInfo() << "[player] player JS cargado:" << m_playerJsId << raw.size() << "bytes";
+    solveJsWithPlayerJs(trackUrl);
+}
+
+void Player::solveJsWithPlayerJs(const QString &trackUrl)
+{
+    // Challenges: s (signature) and n (throttle). The WebView solver runs
+    // the same scripts yt-dlp uses; its answer is polled every 200 ms.
+    // The first solve parses the whole player JS (~2.9 MiB) and returns
+    // a preprocessed form that is cached (memory + disk): the next solves
+    // skip that parse.
+    QJsonArray requests;
+    requests.append(QJsonObject{{QStringLiteral("type"),
+                                 QStringLiteral("sig")},
+                                {QStringLiteral("challenges"),
+                                 QJsonArray{m_apSig}}});
+    requests.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("n")},
+                                {QStringLiteral("challenges"), QJsonArray{m_apN}}});
+
+    QJsonObject input;
+    bool havePre = !m_preprocessed.isEmpty();
+    if (!m_playerJsId.isEmpty() && !havePre)
+        havePre = !loadPreprocessed();   // true => not usable on disk
+    if (!havePre) {
+        input[QStringLiteral("type")] = QStringLiteral("player");
+        input[QStringLiteral("player")] = m_playerJsText;
+        input[QStringLiteral("output_preprocessed")] = true;
+    } else {
+        input[QStringLiteral("type")] = QStringLiteral("preprocessed");
+        input[QStringLiteral("preprocessed_player")] = m_preprocessed;
+    }
+    input[QStringLiteral("requests")] = requests;
+    const QString inputJson =
+        QString::fromUtf8(QJsonDocument{input}.toJson(QJsonDocument::Compact));
+
+    m_apTrack = trackUrl;
+    m_solverWait = 0;
+    if (!m_solverTimer) {
+        m_solverTimer = new QTimer(this);
+        m_solverTimer->setInterval(200);
+        connect(m_solverTimer, &QTimer::timeout, this, &Player::onSolverPoll);
+    }
+    QJniObject::callStaticMethod<void>(
+        "io/github/lotsv8pro/lotustune/WebViewSolver", "solve",
+        "(Ljava/lang/String;)V",
+        QJniObject::fromString(inputJson).object());
+    m_solverTimer->start();
+}
+
+// Reads the preprocessed player from disk (per player id). Returns true
+// when it is NOT usable (the real player text has to be sent).
+bool Player::loadPreprocessed()
+{
+    const QString path = AppPaths::cacheDir()
+                         + QStringLiteral("/solver_pp_%1.js").arg(m_playerJsId);
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly) || f.size() < 4096)
+        return true;
+    m_preprocessed = QString::fromUtf8(f.readAll());
+    return false;
+}
+
+void Player::savePreprocessed(const QString &pp)
+{
+    m_preprocessed = pp;
+    m_preprocessedFor = m_playerJsId;
+    const QString path = AppPaths::cacheDir()
+                         + QStringLiteral("/solver_pp_%1.js").arg(m_playerJsId);
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(pp.toUtf8());
+}
+
+void Player::onSolverPoll()
+{
+    // The solver answers through a static Java field that we poll: no
+    // Qt-side thread blocks on the WebView.
+    QJniEnvironment env;
+    jclass cls = env.findClass("io/github/lotsv8pro/lotustune/WebViewSolver");
+    if (!cls) {
+        m_solverTimer->stop();
+        return;
+    }
+    jfieldID statusField = env->GetStaticFieldID(
+        cls, "sStatus", "Ljava/lang/String;");
+    jstring jstatus =
+        jstring(env->GetStaticObjectField(cls, statusField));
+    const char *cs = env->GetStringUTFChars(jstatus, nullptr);
+    const QString status = QString::fromUtf8(cs);
+    env->ReleaseStringUTFChars(jstatus, cs);
+    ++m_solverWait;
+    if (status == QStringLiteral("working") && m_solverWait < 150)
+        return;
+    m_solverTimer->stop();
+    if (status != QStringLiteral("done")) {
+        qWarning() << "[player] el solver JS no respondió:" << status;
+        if (m_chainJob) {
+            ResolveJob *job = m_chainJob;
+            m_chainJob = nullptr;
+            m_apTrack.clear();
+            m_apUrl.clear();
+            onResolveFinished(job, 1);
+        }
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    jfieldID resField = env->GetStaticFieldID(
+        cls, "sResult", "Ljava/lang/String;");
+    jstring jres = jstring(env->GetStaticObjectField(cls, resField));
+    const char *cr = env->GetStringUTFChars(jres, nullptr);
+    const QString result = QString::fromUtf8(cr);
+    env->ReleaseStringUTFChars(jres, cr);
+    if (result.isEmpty()) {
+        qWarning() << "[player] el solver devolvió un resultado vacío";
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+
+    const QJsonObject out = QJsonDocument::fromJson(result.toUtf8()).object();
+    const QJsonArray resp = out.value(QStringLiteral("responses")).toArray();
+    QString sig, nval;
+    for (const QJsonValue &rv : resp) {
+        const QJsonObject r = rv.toObject();
+        if (r.value(QStringLiteral("type")).toString()
+            != QStringLiteral("result"))
+            continue;
+        const QJsonObject data = r.value(QStringLiteral("data")).toObject();
+        if (data.isEmpty() || data.keys().isEmpty())
+            continue;
+        const QString challenge = data.keys().constFirst();
+        const QString value = data.value(challenge).toString();
+        // s challenges are long strings (>= 40 chars), n challenges are
+        // single words.
+        if (challenge.size() > 20)
+            sig = value;
+        else
+            nval = value;
+    }
+    if (sig.isEmpty() || nval.isEmpty()) {
+        qWarning() << "[player] el solver no devolvió s/n";
+        if (m_chainJob) {
+            ResolveJob *job = m_chainJob;
+            m_chainJob = nullptr;
+            m_apTrack.clear();
+            m_apUrl.clear();
+            onResolveFinished(job, 1);
+        }
+        m_loading = false;
+        emit stateChanged();
+        return;
+    }
+    // Remember the preprocessed form for the next solves (the solver only
+    // returns it when it parsed the raw player JS).
+    const QString pp = out.value(QStringLiteral("preprocessed_player")).toString();
+    if (!pp.isEmpty() && m_preprocessed.isEmpty())
+        savePreprocessed(pp);
+
+    // The final url: the sp parameter carries the decoded signature and
+    // the n parameter the decoded throttle token.
+    QString finalUrl = m_apUrl;
+    {
+        QUrl u(finalUrl);
+        QUrlQuery uq(u.query());
+        QList<QPair<QString, QString> > items;
+        const auto original = uq.queryItems();
+        for (const auto &kv : original)
+            if (kv.first != m_apSp)
+                items.append(kv);
+        items.append(qMakePair(m_apSp, sig));
+        uq.clear();
+        for (const auto &kv : items)
+            uq.addQueryItem(kv.first, kv.second);
+        u.setQuery(uq);
+        finalUrl = u.toString();
+    }
+    finalUrl.replace(QLatin1String("n=") + m_apN,
+                     QLatin1String("n=") + nval);
+    qInfo() << "[player] stream resuelto:" << m_apTrack.left(60) << "[" << m_playerJsId << "]";
+
+    m_resolved.insert(m_apTrack, finalUrl);
+    m_resolvedAt.insert(m_apTrack, QDateTime::currentSecsSinceEpoch());
+    m_cacheDirty = true;
+    m_cacheSaveTimer.start();
+    if (m_chainJob) {
+        // Prefetch job: the queue machinery takes it from here (it fills
+        // the cache; QMediaPlayer must stay silent, and a load() that was
+        // waiting for this track starts through the cached URL).
+        ResolveJob *job = m_chainJob;
+        m_chainJob = nullptr;
+        m_apTrack.clear();
+        m_apUrl.clear();
+        m_apSig.clear();
+        m_apN.clear();
+        onResolveFinished(job, 0);
+        return;
+    }
+    m_apTrack.clear();
+    m_apUrl.clear();
+    m_apSig.clear();
+    m_apN.clear();
+    if (m_androidPlayer && !finalUrl.isEmpty()) {
+        m_androidPlayer->setSource(QUrl(finalUrl));
+        m_androidPlayer->play();
+    }
     m_loading = false;
     emit stateChanged();
 }

@@ -33,7 +33,16 @@ Item {
     signal searchRequested(string query)
 
     // Fixed height of each card rail (cover 172 + text 54).
-    readonly property int rowHeight: 230
+    // Card size adapts to the device: on a narrow screen the radio /
+    // recommended squares shrink (about 3.5 visible per row) instead of
+    // getting cut; the desktop keeps the 172 px card.
+    readonly property int deckCardWidth: {
+        const avail = page.width - Theme.panelMargin * 2
+        if (avail < 620)
+            return Math.round(Math.max(104, (avail - 3 * cardSpacing) / 3.4))
+        return 172
+    }
+    readonly property int rowHeight: page.deckCardWidth + 42
     readonly property int cardSpacing: 14
 
     // ---- Recent (Sonora style deck) -------------------------------------
@@ -92,12 +101,23 @@ Item {
 
     function quickPicks() {
         const out = []
-        const tracks = page.recentTracks()
-        for (var i = 0; i < tracks.length; i++)
-            out.push(tracks[i])
-        const lists = page.recentLists(5)
-        for (var j = 0; j < lists.length; j++)
-            out.push(lists[j])
+        if (Theme.touch) {
+            // Phone grid: the playlists are the first part (they are what
+            // gets opened) and then the loose tracks.
+            const lists = page.recentLists(5)
+            for (var j = 0; j < lists.length; j++)
+                out.push(lists[j])
+            const tracks = page.recentTracks()
+            for (var i = 0; i < tracks.length; i++)
+                out.push(tracks[i])
+        } else {
+            const tracks = page.recentTracks()
+            for (var i = 0; i < tracks.length; i++)
+                out.push(tracks[i])
+            const lists = page.recentLists(5)
+            for (var j = 0; j < lists.length; j++)
+                out.push(lists[j])
+        }
         return out
     }
 
@@ -673,12 +693,14 @@ Item {
 
                 // Grid: 3 columns × 2 rows (filled by columns: with
                 // vertical flow the GridLayout groups by ROWS, so the
-                // wrap point is rows=2).
+                // wrap point is rows=2). Phone: 2 columns of photo tiles.
                 GridLayout {
                     Layout.fillWidth: true
-                    rows: page.picksRows
-                    flow: GridLayout.TopToBottom
-                    columnSpacing: Theme.s3
+                    rows: Theme.touch ? 0 : page.picksRows
+                    columns: Theme.touch ? 2 : 0
+                    flow: Theme.touch ? GridLayout.LeftToRight
+                                      : GridLayout.TopToBottom
+                    columnSpacing: Theme.touch ? Theme.panelGap : Theme.s3
                     rowSpacing: Theme.s2
 
                     Repeater {
@@ -690,7 +712,10 @@ Item {
                             required property int index
 
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 58
+                            // Phone tile: square photo + two caption lines
+                            // below (the row pills stay on the desktop).
+                            Layout.preferredHeight: Theme.touch
+                                ? (width + Theme.s2 + 34) : 58
                             // Pill always hinted (like in the reference
                             // repo): the shortcut looks accessible
                             // without passing the mouse over it.
@@ -699,7 +724,59 @@ Item {
                                    ? Theme.alpha(Sys.text, 0.11) : Theme.alpha(Sys.text, 0.055)
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
+                            // Phone: vertical tile (photo on top).
+                            ColumnLayout {
+                                visible: Theme.touch
+                                anchors.fill: parent
+                                anchors.margins: Theme.s1
+                                spacing: 0
+
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: width
+                                    radius: Theme.rMd
+                                    color: Sys.surfaceAlt
+                                    clip: true
+                                    RoundedArt {
+                                        anchors.fill: parent
+                                        source: pickRow.modelData.thumb || ""
+                                        radiusSpec: Theme.rMd
+                                    }
+                                    Glyph {
+                                        anchors.centerIn: parent
+                                        width: 22
+                                        height: 22
+                                        visible: !pickRow.modelData.thumb
+                                        kind: pickRow.modelData.kind === "liked"
+                                              ? "heart"
+                                              : (pickRow.modelData.kind === "playlist"
+                                                 ? "list" : "music")
+                                        color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
+                                    }
+                                }
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: Theme.s1
+                                    text: pickRow.modelData.title || ""
+                                    color: Sys.text
+                                    font.pixelSize: Theme.tSm
+                                    font.weight: Font.DemiBold
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: pickRow.modelData.sub || ""
+                                    color: Sys.textDim
+                                    font.pixelSize: Theme.tXs
+                                    elide: Text.ElideRight
+                                    maximumLineCount: 1
+                                }
+                            }
+
                             RowLayout {
+                                visible: !Theme.touch
                                 anchors.fill: parent
                                 anchors.leftMargin: Theme.s2
                                 anchors.rightMargin: Theme.s2
@@ -800,6 +877,7 @@ Item {
 
                     delegate: HomeCard {
                         required property var modelData
+                        cardWidth: page.deckCardWidth
                         title: modelData.title
                         subtitle: modelData.sub
                         icon: modelData.icon
@@ -854,6 +932,7 @@ Item {
 
                     delegate: HomeCard {
                         required property var modelData
+                        cardWidth: page.deckCardWidth
                         title: modelData.t
                         subtitle: modelData.s
                         icon: modelData.icon

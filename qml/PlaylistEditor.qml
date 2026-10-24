@@ -227,7 +227,10 @@ Item {
                         id: saveLabel
                         anchors.centerIn: parent
                         text: pel.createMode ? "Crear" : "Guardar"
-                        color: enabled ? Sys.onAccent : Sys.textDim
+                        // Legible over ANY accent (on Android it comes from
+                        // the wallpaper and can be dark - see theme.js).
+                        color: enabled ? Theme.onAccentOf(Sys.accent, Sys.onAccent)
+                                       : Sys.textDim
                         font.pixelSize: Theme.tMd
                         font.weight: Font.DemiBold
                     }

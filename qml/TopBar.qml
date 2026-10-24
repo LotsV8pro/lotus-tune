@@ -79,7 +79,9 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 17; height: 17
                     kind: "search"
-                    color: launcherHover.hovered ? Sys.text : Sys.textDim
+                    // Touch has no hover: the icon cannot be "off"
+                    // (textDim on the dark surface was unreadable).
+                    color: (launcherHover.hovered || Theme.touch) ? Sys.text : Sys.textDim
                 }
                 TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
             }
@@ -96,7 +98,7 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 17; height: 17
                     kind: "gear"
-                    color: gearHover.hovered ? Sys.text : Sys.textDim
+                    color: (gearHover.hovered || Theme.touch) ? Sys.text : Sys.textDim
                 }
                 TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
             }

@@ -63,7 +63,9 @@ Item {
     readonly property color tintColor: hasArtColor ? artColor : coverA
 
     // ---- fixed measurements (they never change on hover) ------------
-    readonly property int cardWidth: 172
+    // cardWidth overridable: HomePage shrinks it on narrow screens so the
+    // radio/recommended squares fit more per row on the phone.
+    property int cardWidth: 172
     readonly property int coverSize: cardWidth
     readonly property int textHeight: 54
 
