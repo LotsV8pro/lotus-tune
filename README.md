@@ -1,28 +1,41 @@
-# 🪷 lotus-tune
+<p align="center">
+  <img src="https://img.shields.io/badge/Qt_6_%2F_QML-141218?style=for-the-badge&logo=qt&logoColor=C4A8E2"/>
+  <img src="https://img.shields.io/badge/YouTube_Music-141218?style=for-the-badge&logo=youtubemusic&logoColor=C4A8E2"/>
+  <img src="https://img.shields.io/badge/Wayland_%C2%B7_Niri_ready-141218?style=for-the-badge&logo=linux&logoColor=C4A8E2"/>
+  <img src="https://img.shields.io/badge/MPRIS_%2B_Discord_RP-141218?style=for-the-badge&logo=discord&logoColor=C4A8E2"/>
+  <img src="https://img.shields.io/github/actions/workflow/status/LotsV8pro/lotus-tune/build.yml?style=for-the-badge&logo=githubactions&logoColor=C4A8E2&label=CI"/>
+  <img src="https://img.shields.io/badge/MIT_%2B_GPL--3.0-141218?style=for-the-badge&logo=open-source-initiative&logoColor=C4A8E2"/>
+</p>
 
-Reproductor de música para **YouTube Music** y **SoundCloud** construido con **Qt 6 / QML**: busca, reproduce y **canta la letra palabra a palabra** (karaoke real), con las portadas en alta resolución y un fondo que sigue la portada de la canción.
+<h1 align="center">◈ LOTUS TUNE ◈</h1>
 
-Parte del proyecto **[Lotus-Arch](https://github.com/LotsV8pro/Lotus-Arch)** — Arch Linux + Hyprland, tema morado DedSec.
+<p align="center">
+  <b>Reproductor de música para YouTube Music — karaoke palabra a palabra</b><br>
+  <sub>Qt 6/QML · letras sincronizadas reales · parte del ecosistema Lotus · Linux, Windows y Android</sub>
+</p>
 
-> ⚠️ **En desarrollo.** La app funciona, pero algunas cosas todavía se rompen (la letra de una canción que no es, el karaoke en un vídeo con un intro largo…). Cada cambio se prueba antes de subirlo.
+## ✦ Overview
 
----
+Lotus Tune es un reproductor de música construido con **Qt 6 / QML**: busca en YouTube Music y SoundCloud, reproduce y **canta la letra palabra a palabra** (karaoke real, con los tiempos de cada palabra), con portadas en alta resolución y un fondo dinámico pintado con el color de la canción.
 
-## ✨ Qué hace
+- **Karaoke real** — la letra se rellena palabra a palabra con los tiempos de la canción, alineada con el vídeo que suena.
+- **Liviano a propósito** — render software sin OpenGL, sin MangoHud, sin drivers de vídeo de más; RAM contenida sin sacrificar fluidez.
+- **Sin bloqueos en la UI** — la letra y las portadas se traen fuera del hilo de la ventana: la interfaz nunca se congela.
+- **Ecosistema Lotus** — misma estética púrpura que [Lotus-Arch](https://github.com/LotsV8pro/Lotus-Arch), integra MPRIS (controles del sistema) y Discord Rich Presence.
 
 | | |
 |---|---|
-| **🔎 Búsqueda** | YouTube Music y SoundCloud, por separado o a la vez (grupados por fuente) |
-| **🎤 Karaoke** | La letra se rellena **palabra a palabra** con los tiempos reales de la canción |
-| **🖼️ Portadas** | Se piden en alta resolución y se recortan y redondean en el propio motor |
-| **🌄 Fondo** | La portada estirada y difuminada detrás de todo, con el color de la canción |
-| **📥 Descargas** | Se descarga con `yt-dlp` a la carpeta que elijas y se reproduce en local |
+| **🔎 Búsqueda** | YouTube Music y SoundCloud, por separado o a la vez (agrupado por fuente) |
+| **🎤 Karaoke** | Relleno **palabra a palabra** con los tiempos reales de la canción |
+| **🖼️ Portadas** | Alta resolución, recortadas y redondeadas en el propio motor |
+| **🌄 Fondo** | Portada estirada y difuminada detrás de todo, siguiendo el color de la canción |
+| **📥 Descargas** | Con `yt-dlp` a la carpeta que elijas + biblioteca local |
 | **🔗 Integraciones** | MPRIS (controles multimedia del sistema) y Discord Rich Presence |
 | **📱 Android** | La misma app en APK (ARM64) |
 
-## 🎤 El karaoke palabra a palabra
+## ✦ El karaoke palabra a palabra
 
-La letra sale de varias fuentes y se elige la mejor:
+La letra llega de varias fuentes y la app elige **la mejor**:
 
 | Fuente | Qué trae |
 |---|---|
@@ -30,72 +43,95 @@ La letra sale de varias fuentes y se elige la mejor:
 | **YouTube Music** | La letra **del vídeo que suena**, con tiempos por línea (la referencia) |
 | **LRCLIB** | Letra sincronizada por líneas |
 | **NetEase** | Su *klyric*, con tiempos por palabra |
-| **Caché local** | La letra ya descargada (si trae tiempos por palabra, se usa) |
+| **Caché local** | La letra ya descargada (si trae tiempos por palabra, se usa primero) |
 
-Los tiempos de palabra vienen del **álbumo** y la letra del **vídeo**: por eso se alinean entre sí (el desfase es la mediana de las líneas que coinciden) y por eso la letra que se muestra es siempre la del vídeo, nunca la de otra versión.
+Los tiempos de palabra vienen del **álbum** y la letra del **vídeo**: por eso se alinean entre sí (el desfase se calcula como la mediana de las líneas que coinciden) y por eso la letra mostrada es siempre la del vídeo, nunca la de otra versión.
 
-## 📥 Descargas
+## ✦ Install
 
-Cada versión publicada en
-[Releases](https://github.com/LotsV8pro/lotus-tune/releases) trae los tres formatos:
+**Linux — un solo comando:**
 
-| Sistema | Fichero | Notas |
-|---|---|---|
-| Linux | `lotus-tune_<versión>_amd64.deb` | Debian/Ubuntu y derivadas |
-| Linux | `lotus-tune-<versión>.x86_64.rpm` | Fedora/openSUSE |
-| Linux | `lotus-tune-<versión>-x86_64.AppImage` | No necesita instalar nada |
-| Linux | `lotus-tune-<versión>-linux-x86_64.tar.gz` | Binario + ficheros |
-| Windows | `lotus-tune-windows.zip` | El `.exe` con las bibliotecas de Qt al lado |
-| Android | `lotus-tune-android.apk` | ARM64 (build de depuración: Android la marca como «de prueba») |
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh)"
+```
 
-En Linux hacen falta `mpv`, `yt-dlp` y `python3`. En Windows, `mpv.exe` y `yt-dlp.exe` en el `PATH`.
+El instalador detecta tu distro (Arch / Debian / Fedora), pide permiso para instalar las dependencias si faltan (`qt6`, `mpv`, `yt-dlp`…), clona el código, compila y deja la app lista en `~/.local` — con el acceso en el menú de aplicaciones y el icono incluidos. Si algo falla o prefieres controlar cada paso:
 
-## 📦 Requisitos
+```bash
+git clone https://github.com/LotsV8pro/lotus-tune.git
+cd lotus-tune && ./tools/install.sh
+```
 
-- `mpv` ≥ 0.40 (probado con 0.41.0)
-- `yt-dlp` (probado con 2026.08.19)
-- `python3`
-- Qt 6.5+ (módulos `Qt6Quick`, `Qt6Network`, `Qt6Sql`, `Qt6Multimedia`, `Qt6DBus`)
-- `cmake` ≥ 3.19 y `ninja` (para compilar)
+Opciones útiles: `./tools/install.sh --prefix ~/.local` (destino), `--system` (a `/usr/local`), `--no-pull`, `--jobs N`. Sintaxis completa con `--help`.
 
-## 🛠️ Compilar
+> **Windows / Android** — el CI de cada commit deja el `.exe` y el `.apk` como artefactos en la pestaña [Actions](https://github.com/LotsV8pro/lotus-tune/actions) del repo.
 
-```sh
+## ✦ Compilar a mano
+
+```
 cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/lotus-tune
 ```
 
-Para empaquetar (`.deb`, `.rpm`, `.AppImage`, `.tar.gz`):
+Requisitos: `mpv` ≥ 0.40, `yt-dlp`, `python3`, Qt 6.5+ (`Quick`, `Network`, `Sql`, `Multimedia`), `cmake` ≥ 3.19 y `ninja`. Para empaquetar (`.deb`, `.rpm`, `.tar.gz`): `./tools/package-linux.sh`.
 
-```sh
-./tools/package-linux.sh
-```
+## ✦ Descargas
 
-## 📱 Android
+| Sistema | Fichero |
+|---|---|
+| Linux | `.deb` (Debian/Ubuntu) · `.rpm` (Fedora/openSUSE) · `.AppImage` · `.tar.gz` |
+| Windows | `.zip` con el `.exe` y las bibliotecas de Qt al lado |
+| Android | APK ARM64 (build de depuración) |
 
-```sh
-tools/setup-android-toolchain.sh     # Qt host y target, SDK, NDK y JDK 17
-source ~/lotus-android-toolchain/env.sh
-tools/build-android.sh
-```
+El CI genera `.deb`, `.rpm` y el `.tar.gz` en cada push a `master` y en cada etiqueta `v*` — están como artefactos en [Actions](https://github.com/LotsV8pro/lotus-tune/actions). El `.AppImage` lo produce `./tools/package-linux.sh` localmente. Windows incluye `mpv.exe` y `yt-dlp.exe` en el `PATH`; en Android se configura con `tools/build-android.sh`.
 
-El APK sale en `build-android/android-build/build/outputs/apk/debug/`.
+## ✦ Estado
 
-En Android el motor de audio es **QtMultimedia** (no hay `mpv`) y el stream se pide a la API interna de YouTube Music. **Para que suene hace falta la sesión de la cuenta**: en *Ajustes → Sesión de YouTube Music* se exporta a un fichero y se lleva al móvil (*Importar la sesión*).
+- ✅ Búsqueda y reproducción (YouTube Music + SoundCloud)
+- ✅ Karaoke palabra a palabra con alineación con el vídeo
+- ✅ Portadas en alta resolución y fondo dinámico
+- ✅ Descargas y biblioteca local
+- ✅ MPRIS y Discord Rich Presence
+- ✅ APK de Android
+- 🔜 Inicio de sesión en Android (de momento se importa la sesión del PC)
+- 🔜 Búsqueda en Android (el catálogo usa `yt-dlp`, que aún no va embebido)
+- 🔜 Menú contextual con pulsación larga en táctil
 
-## 🐛 Estado
+## ✦ Ecosystem
 
-- [x] Búsqueda y reproducción (YouTube Music + SoundCloud)
-- [x] Karaoke palabra a palabra con alineación con el vídeo
-- [x] Portadas en alta resolución, fondo dinámico
-- [x] Descargas y biblioteca local
-- [x] MPRIS y Discord Rich Presence
-- [x] APK de Android
-- [ ] Iniciar sesión en Android (de momento se importa la sesión del PC)
-- [ ] Búsqueda en Android (el catálogo usa `yt-dlp`, que aún no va embebido)
-- [ ] Menú contextual con pulsación larga en táctil
+Lotus Tune forma parte de un ecosistema de escritorio unificado, con la misma estética púrpura:
 
-## 📜 Licencia
+| App | Theme | Repo |
+|---|---|---|
+| **Lotus Arch** | Escritorio completo (Niri + iNiR / Hyprland) | [Lotus-Arch](https://github.com/LotsV8pro/Lotus-Arch) |
+| **Discord** (Vencord) | Lotus Purple | [lotus-discord](https://github.com/LotsV8pro/lotus-discord) |
+| **Spotify** (Spicetify) | Lotus Purple | [lotus-spotify](https://github.com/LotsV8pro/lotus-spotify) |
+| **EasyEffects mic chain** | deepfilternet→rnnoise→EQ→limit | [lotus-mic-chain](https://github.com/LotsV8pro/lotus-mic-chain) |
 
-MIT · GPL-3.0 (las partes que enlazan con `mpv` y `yt-dlp`).
+---
+
+## ✦ Credits
+
+Lotus Tune se apoya en proyectos open-source:
+
+| Proyecto | Uso |
+|---|---|
+| [**mpv**](https://mpv.io) | Motor de reproducción (headless, JSON IPC) |
+| [**yt-dlp**](https://github.com/yt-dlp/yt-dlp) | Metadatos y descargas |
+| [**Musixmatch**](https://www.musixmatch.com) | Tiempos palabra a palabra (*richsync*) |
+| [**LRCLIB**](https://lrclib.net) | Letra sincronizada por líneas |
+| [**NetEase**](https://music.163.com) | *Klyric* con tiempos por palabra |
+| [**Qt**](https://www.qt.io) | Qt 6 / QML — toda la interfaz |
+
+Partes que enlazan con `mpv` y `yt-dlp` están licenciadas bajo GPL-3.0; el resto del proyecto es MIT.
+
+<p align="center">
+  <a href="https://github.com/LotsV8pro/Lotus-Arch"><img src="https://img.shields.io/badge/Lotus_Arch-141218?style=flat-square&logo=arch-linux&logoColor=C4A8E2"/></a>
+  <a href="https://github.com/LotsV8pro/lotus-discord"><img src="https://img.shields.io/badge/Lotus_Discord-141218?style=flat-square&logo=discord&logoColor=C4A8E2"/></a>
+  <a href="https://github.com/LotsV8pro/lotus-spotify"><img src="https://img.shields.io/badge/Lotus_Spotify-141218?style=flat-square&logo=spotify&logoColor=C4A8E2"/></a>
+</p>
+
+<p align="center">
+  <sub>MIT · GPL-3.0 — <a href="https://github.com/LotsV8pro">@LotsV8pro</a> 🪷</sub>
+</p>
