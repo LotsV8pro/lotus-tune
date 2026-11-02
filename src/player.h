@@ -6,6 +6,7 @@
 #include <QTimer>
 
 #include <QHash>
+#include <QSet>
 #include <QVector>
 
 #ifdef Q_OS_ANDROID
@@ -40,6 +41,12 @@ class Player : public QObject
     // Track requested but whose stream is still being resolved/loaded in
     // mpv (it does not sound yet). It lets the UI show a waiting state.
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
+    // Ultimo fallo de reproduccion/descarga, ya en lenguaje humano
+    // ("Tu operador ha bloqueado la descarga (403)..."). Vacio = sin error.
+    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    // Duracion conocida por la interfaz (la que trae la lista de YouTube
+    // Music) para pistas que ya estan en cache y no se vuelven a resolver.
+    Q_PROPERTY(double hintDuration WRITE setHintDuration)
 
 public:
     explicit Player(QObject *parent = nullptr);
@@ -58,6 +65,9 @@ public:
     bool hasFile() const { return m_hasFile; }
     // A track was asked for but does not sound yet (resolving/loading)?
     bool loading() const { return m_loading; }
+    QString lastError() const { return m_lastError; }
+    // La interfaz avisa de la duracion que conoce antes de cargar.
+    void setHintDuration(double secs) { m_hintDur = secs; }
     // URL/page of the current track (for MPRIS' xesam:url). It is a
     // property (not only a method): the QML reads it and it was undefined.
     Q_PROPERTY(QString currentUrl READ currentUrl NOTIFY stateChanged)
@@ -70,6 +80,11 @@ public:
     Q_INVOKABLE void setVolume(int v);
     // Changes mpv's --ytdl-format selector on the fly (through IPC).
     Q_INVOKABLE void setQuality(const QString &q);
+    // Estado del widget de pantalla de inicio y de la notificacion.
+    Q_INVOKABLE void updateWidget(const QString &title, const QString &artist,
+                                  bool playing, bool shuffle, int repeat,
+                                  bool fav, const QString &artUrl,
+                                  double position, double duration);
     // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
     // --get-url with the same session/cookies as mpv) and caches it, so a
     // later load() gets the already resolved URL and starts almost
@@ -103,9 +118,16 @@ signals:
     void seeked(double seconds);
     // A track finished on its own (eof) or failed to play (error).
     void endOfFile(bool ok);
+    // Cambia el ultimo error mostrable (vacio = se limpia).
+    void lastErrorChanged();
+    // Accion pedida desde el widget de inicio o la notificacion
+    // ("TOGGLE", "NEXT", "PREV", "SHUFFLE", "REPEAT", "FAV").
+    void widgetAction(const QString &action);
 
 private:
     void startMpv();
+    void setLastError(const QString &msg);
+    QString m_lastError;
     void tryConnect();
     void send(const QJsonObject &cmd);
     void handleLine(const QByteArray &line);
@@ -127,13 +149,21 @@ private:
     // app already uses for the lyrics).
     class QMediaPlayer *m_androidPlayer = nullptr;
     class QAudioOutput *m_androidAudio = nullptr;
+    // Abre un fichero local en el reproductor de Qt midiendo antes su
+    // duracion (los MP4 fragmentados de YouTube dan 0:00 si no).
+    void androidPlayLocalFile(const QString &path);
+    // Fin de pista del reproductor de Qt, con anti-rebote: tras cargar la
+    // siguiente el backend sigue entregando posiciones de la anterior y el
+    // aviso se repetia (saltaba varias canciones de golpe).
+    void androidEndOfTrack(const char *why);
     class QNetworkAccessManager *m_apiNet = nullptr;
     // Asks the API for the direct stream of a YouTube video.
     void resolveWithApi(const QString &url);
     void onApiReply(QNetworkReply *reply, const QString &url);
-    // Chain for the WEB_REMIX + WebView-solver playback (see player.cpp):
-    // player response -> watch page (player id) -> player JS -> solver
-    // -> assembled URL -> QMediaPlayer.
+    // The page (visitor id) and the player build (sts) are needed before
+    // the TV player request answers with formats.
+    void fetchBootPage(const QString &trackUrl);
+    void sendPlayerRequest(const QString &trackUrl);
     void onWatchPageReply(QNetworkReply *reply, const QString &trackUrl);
     void onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
                          const QString &trackUrl);
@@ -142,24 +172,81 @@ private:
     // Challenge state for the solver chain.
     QString m_apTrack, m_apUrl, m_apSig, m_apSp, m_apN;
     QString m_playerJsId, m_playerJsText;
+    // TV bootstrap: the anonymous visitor id (header X-Goog-Visitor-Id,
+    // scraped from the watch page once per session) and the signature
+    // timestamp (sts) of the TV player build, read from its JS.
+    QString m_visitor;
+    QString m_sigTs;
+    // Track url waiting for the boot to finish (page -> JS -> player).
+    QString m_apiPending;
+    // One visitor refresh per track when the API rejects the cached one.
+    bool m_retriedBoot = false;
     // Preprocessed player text (the solver's own cache): after the first
     // solve the ~2.9 MiB player JS does not get re-parsed per track.
     QString m_preprocessed;
     QString m_preprocessedFor;
+    // Vigilante de la cadena de resolucion (Android): si una peticion o el
+    // solver JS se quedan colgados, la cadena se abandona para que la
+    // siguiente pista pueda resolverse. Sin esto, una sola resolucion
+    // fallida dejaba el reproductor sin poder cambiar de cancion.
+    QTimer *m_chainTimer = nullptr;
+    int m_lastMedium = -1;      // ultimo transporte de red conocido
+    void abortChain(const QString &why);
+    void waitForStreamAndFetch(const QString &track, int attempt);
     QTimer *m_solverTimer = nullptr;
     int m_solverWait = 0;
+    // The input of the solve in flight: a "solver busy" answer re-posts
+    // it once the WebView frees up.
+    QString m_solverInput;
+    // La descarga del audio la hace Java (MediaFetch): HttpsURLConnection
+    // es el stack HTTP del sistema (el que usan OkHttp/Media3/Chrome) y el
+    // único que los nodos del operador no rechazan con 403.
+    QString m_fetching;
+    // Pistas cuya descarga esta esperando a que se abra la ventana del
+    // preanuncio de YouTube (no se reintentan ni se duplican).
+    QSet<QString> m_fetchDeferred;
+    QTimer *m_fetchPoll = nullptr;                  // sondeo del descargador
+    // Widget de inicio + notificacion: sondeo del buzon de acciones.
+    QTimer *m_widgetPoll = nullptr;
+    int m_widgetSeq = -1;
+    void pollWidgetActions();
+    void setBackgroundPlayback(bool on);
+    QHash<QString, QString> m_audioLocal;           // track -> local file
+    QHash<QString, bool> m_audioPlay;               // track -> play on done
+    QHash<QString, int> m_audioTries;               // track -> reintentos
+    // Una descarga a la vez: los nodos del operador comparten IP (CGNAT) y
+    // varias descargas simultáneas empiezan a devolver 403.
+    QList<QPair<QString, QString>> m_audioQueue;    // (track, url) en espera
+    void pumpAudioQueue();
+    void audioFetchDone(const QString &track, const QString &path, bool ok);
+    void pollAudioFetch();
+    void startAudioFetch(const QString &track, const QString &streamUrl,
+                         bool playNow);
     // True when the preprocessed blob is not readable (the real player
     // JS text must be sent to the solver).
     bool loadPreprocessed();
     void savePreprocessed(const QString &pp);
-    // The session of the user (the SAPISID of the cookies): without it
-    // the API does not serve the stream.
+    // The session of the user (the SAPISID of the cookies), as
+    // "SAPISIDHASH ts_digest|cookie string". The hash is bound to the
+    // request origin (music vs www give different digests).
     QString sessionCookie() const;
+    QString sessionForOrigin(const QString &origin) const;
     // On a phone the prefetch jobs (startResolve) run through the same
     // WEB_REMIX + WebView-solver chain as load(), but they only fill the
     // resolve cache (QMediaPlayer plays nothing). There is just one chain
     // at a time.
     ResolveJob *m_chainJob = nullptr;
+    // Pista que el usuario pidio mientras la cadena estaba ocupada con
+    // otra: se resuelve en cuanto la actual acabe. Sin esta espera, la
+    // peticion nueva clobberaba el estado de la cadena en vuelo y el
+    // solver contestaba "busy" -> se abandonaba todo y la pista no sonaba.
+    QString m_apWanted;
+    // Arranca la cadena para `url` (una sola a la vez; si hay otra en
+    // vuelo, la deja apuntada en m_apWanted).
+    void beginChain(const QString &url);
+    // Cierra la cadena en curso y da paso a la siguiente / a la cola de
+    // resoluciones. Todas las salidas (exito, error, timeout) pasan aqui.
+    void endChain();
 #endif
     class QLocalSocket *m_sock = nullptr;
     QByteArray m_buf;
@@ -193,6 +280,11 @@ private:
     QHash<QString, QString> m_resolved;
     // Moment (epoch) when each entry was resolved, for the cache's TTL.
     QHash<QString, qint64> m_resolvedAt;
+    // Duration of each track according to YouTube. The fragmented DASH
+    // files do not always carry it in the header (WebM has no Duration),
+    // so it is kept in the cache: a track that was already resolved shows
+    // its real time on any platform.
+    QHash<QString, double> m_trackDur;
     // On-disk cache of direct URLs (so an already resolved track sounds
     // instantly even after restarting the app). It expires by TTL.
     QString m_cacheFile;
@@ -238,6 +330,14 @@ private:
     bool m_posDirty = false;
     double m_position = 0.0;
     double m_duration = 0.0;
+    // Android: el reproductor de Qt no siempre avisa del final (algunos
+    // backends se paran en silencio). Con estas dos marcas el fin se emite
+    // una sola vez, venga de mediaStatusChanged o del respaldo por
+    // posicion >= duracion.
+    bool m_endFired = false;
+    qint64 m_endBlockUntil = 0; // ms epoch: anti-rebote del fin de pista
+    qint64 m_mediaDurMs = 0;   // duracion leida del fichero (mvhd/EBML)
+    double m_hintDur = 0.0;    // duracion conocida por la interfaz
     int m_volume = 70;
     qint64 m_lastPosEmit = 0;
 };

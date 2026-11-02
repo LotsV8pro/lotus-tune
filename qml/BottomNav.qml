@@ -25,9 +25,15 @@ Item {
     signal likedRequested()
     signal downloadsRequested()
 
-    // Low on purpose: content (20 px glyph + 10 px label + margins)
-    // matches Theme.playerBarH so the two bars read as one bottom block.
-    implicitHeight: 54
+    // Height: one comfortable touch row (glyph + label + margins). On the
+    // phone it grows a step so the labels are not glued to the edge.
+    implicitHeight: Theme.touch ? 60 : 54
+
+    // Readable accent: the raw accent comes from the wallpaper and can be
+    // as dark as #1a1a1a, which made the active tab invisible.
+    readonly property color _acc: Theme.accentOn(Sys.accent, Sys.bg)
+    readonly property color _quiet: Theme.mix(Sys.bg, Sys.text, 0.74)
+    readonly property color _label: Theme.tDim(Sys.bg, Sys.text)
 
     function activate(id) {
         if (id === "liked")
@@ -87,8 +93,16 @@ Item {
                     Layout.preferredWidth: 100 * modelData.w
                     Layout.minimumWidth: navCell.duo ? 48 : 56
                     radius: Theme.rPill
-                    color: navCell.on ? Sys.accentDim : "transparent"
+                    // Active = a soft accent tint (16 %) plus the accent
+                    // itself on the glyph/label (5.7:1 on the tint). Inactive
+                    // = quiet grey, readable but clearly "off".
+                    color: navCell.on ? Theme.alpha(bar._acc, 0.16)
+                                      : (navHold.pressed ? Theme.sHigh(Sys.bg, Sys.text)
+                                                         : "transparent")
+                    scale: navHold.pressed ? 0.96 : 1
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                    HoverHandler { id: navHold; cursorShape: Qt.PointingHandCursor }
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -111,8 +125,8 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: navCell.big ? -3 : 0
                                 radius: width / 2
-                                color: Sys.accent
-                                opacity: navCell.on ? 0.16 : 0.0
+                                color: bar._acc
+                                opacity: navCell.on ? 0.20 : 0.0
                                 Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
                             }
 
@@ -124,9 +138,9 @@ Item {
                                 // Inactive tabs stay clearly visible: the full
                                 // text color at icon weight, the accent only
                                 // marks the active one.
-                                color: navCell.on ? Sys.accent : Sys.text
+                                color: navCell.on ? bar._acc : bar._quiet
                                 weight: navCell.on ? 1.9 : 1.5
-                                opacity: navCell.on ? 1.0 : 0.82
+                                opacity: 1.0
                                 // Slight lift for the active hero tab.
                                 scale: navCell.on && navCell.big ? 1.08 : 1.0
                                 Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -135,8 +149,8 @@ Item {
 
                         Text {
                             text: navCell.modelData.label
-                            color: navCell.on ? Sys.accent : Sys.text
-                            opacity: navCell.on ? 1.0 : 0.68
+                            color: navCell.on ? bar._acc : bar._label
+                            opacity: 1.0
                             // The hero tab label goes one step up the scale.
                             font.pixelSize: navCell.big ? Theme.tSm : Theme.tXs
                             font.weight: navCell.on ? Font.DemiBold : Font.Medium

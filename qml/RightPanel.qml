@@ -68,11 +68,11 @@ Item {
                             Glyph {
                                 width: 14; height: 14
                                 kind: tabItem.modelData.icon
-                                color: tabItem.on ? Sys.accent : Sys.textDim
+                                color: tabItem.on ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                             Text {
                                 text: tabItem.modelData.name
-                                color: tabItem.on ? Sys.text : Sys.textDim
+                                color: tabItem.on ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tBase
                                 font.weight: tabItem.on ? Font.DemiBold : Font.Medium
                             }
@@ -104,7 +104,7 @@ Item {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         kind: "expand"
-                        color: fsHover.hovered ? Sys.accent : Sys.textDim
+                        color: fsHover.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.fullscreenLyricsRequested() } }
                 }
@@ -121,7 +121,7 @@ Item {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         kind: "chevron-right"
-                        color: closeHover.hovered ? Sys.accent : Sys.textDim
+                        color: closeHover.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); panel.closeRequested() } }
                 }

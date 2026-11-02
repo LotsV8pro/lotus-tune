@@ -1553,13 +1553,20 @@ void Lyrics::settleOrFail()
         return;
     }
     // Nothing at all: Musixmatch is tried (it also has the line timings)
-    // and, if it does not know the song, NetEase.
-    if (!m_mxmTried)
+    // and, if it does not know the song, NetEase. Each source is asked ONCE:
+    // without this guard the NetEase "no match" reply called settleOrFail()
+    // again, which launched the same search in a loop (one request every
+    // ~300 ms until the app was closed).
+    if (!m_mxmTried) {
         startMusixmatch();
-    else {
-        m_neteaseTried = true;
-        startNetease();
+        return;
     }
+    if (m_neteaseTried) {
+        fail(QStringLiteral("Sin letra disponible"));
+        return;
+    }
+    m_neteaseTried = true;
+    startNetease();
 }
 
 void Lyrics::finish()
@@ -2379,17 +2386,38 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
 {
     const QString t = norm(title);
     const QString a = norm(artist);
+    // Only the HEADER of the lyrics carries the title/artist ("Title -
+    // Artist", "Artist: Title", the credits of the video…). Applying this
+    // rule to the whole song deleted the chorus of any track whose title
+    // is sung in it: "I Hate Everything About You" lost 6 lines out of 34
+    // and the same happened with every repeated hook.
+    const int headerLines = 4;
+    // Some sources cut the artist ("…-Avenged"): the first word identifies
+    // the header too. `a` has no spaces (norm removes them), so the word
+    // is taken from the raw name.
+    QString aFirst;
+    for (const QString &w : artist.split(QRegularExpression(QStringLiteral("\\s+")),
+                                        Qt::SkipEmptyParts)) {
+        const QString nw = norm(w);
+        if (nw.size() >= 3) { aFirst = nw; break; }
+    }
     QVector<LrcLine> out;
     out.reserve(lines.size());
+    int index = -1;
     for (LrcLine &line : lines) {
         const QString key = norm(line.text);
         if (key.isEmpty())
             continue;
-        // The header of the lyrics: the title (with the artist) is not a
-        // line of the song.
-        if (!t.isEmpty() && key.contains(t) && key.size() <= t.size() + 40)
-            continue;
-        if (!a.isEmpty() && key.contains(a) && key.size() <= a.size() + 40)
+        ++index;
+        const bool inHeader = index < headerLines;
+        // The header of the lyrics ("Artist - Title", "Title - Artist") is
+        // not a sung line. The artist name is the key: a chorus that
+        // repeats the TITLE is sung and must stay.
+        const bool hasArtist =
+            (!a.isEmpty() && key.contains(a) && key.size() <= a.size() + 40)
+            || (!aFirst.isEmpty() && key.contains(aFirst)
+                && key.size() <= aFirst.size() + t.size() + 40);
+        if (inHeader && hasArtist)
             continue;
         // The words of the line cover a stretch that is not sung: the text
         // is real, but the timings are not, so the line is kept without

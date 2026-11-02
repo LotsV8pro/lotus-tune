@@ -42,7 +42,7 @@ Item {
             return Math.round(Math.max(104, (avail - 3 * cardSpacing) / 3.4))
         return 172
     }
-    readonly property int rowHeight: page.deckCardWidth + 42
+    readonly property int rowHeight: page.deckCardWidth + Theme.cardTextH
     readonly property int cardSpacing: 14
 
     // ---- Recent (Sonora style deck) -------------------------------------
@@ -69,7 +69,8 @@ Item {
                 continue
             out.push({ kind: "track", title: t.title || "",
                        sub: t.artist || "", thumb: t.thumb || "",
-                       url: t.url, source: t.source || "" })
+                       url: t.url, source: t.source || "",
+                       duration: Number(t.duration || 0) })
         }
         return out
     }
@@ -163,7 +164,8 @@ Item {
                 artist: item.sub || "",
                 url: item.url || "",
                 thumb: item.thumb || "",
-                source: item.source || ""
+                source: item.source || "",
+                duration: Number(item.duration || 0)
             }], 0)
             return
         }
@@ -450,7 +452,7 @@ Item {
             height: 17
             visible: secTitle.icon !== ""
             kind: secTitle.icon
-            color: Sys.accent
+            color: Theme.accentOn(Sys.accent, Sys.bg)
         }
         Text {
             Layout.fillWidth: true
@@ -472,7 +474,7 @@ Item {
         property alias spacing: inner.spacing
 
         implicitHeight: inner.implicitHeight + island.pad * 2
-        radius: 0
+        radius: Theme.rPanel
         color: "transparent"
         border.width: 0
 
@@ -497,41 +499,58 @@ Item {
 
         ColumnLayout {
             id: content
-            x: Theme.s5
-            y: Theme.s4
-            width: pageFlick.width - Theme.s5 * 2
+            // Gutter: one consistent inset. On the phone it drops to 12 dp
+            // (the page goes almost edge to edge: the outer 6 dp of
+            // `panelMargin` already separates the content from the glass).
+            x: Theme.touch ? Theme.s3 : Theme.s5
+            y: Theme.touch ? Theme.s3 : Theme.s4
+            width: pageFlick.width - x * 2
             spacing: Theme.panelGap
 
             // ---- header: greeting + search box (floating island) ---------
             Island {
                 Layout.fillWidth: true
-                spacing: Theme.s4
+                spacing: Theme.touch ? Theme.s3 : Theme.s4
 
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Theme.s3
 
-                    Text {
-                        text: page.greeting
-                        color: Sys.text
-                        font.pixelSize: Theme.t2xl
-                        font.weight: Font.DemiBold
-                    }
-                    Text {
+                    // Greeting + date: two lines on the phone (the date
+                    // was being cut), one line on the desktop.
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignBaseline
-                        text: "· " + page.today + (page.src ? " · " + page.src.name : "")
-                        color: Sys.textDim
-                        font.pixelSize: Theme.tSm
-                        elide: Text.ElideRight
+                        spacing: 1
+
+                        Text {
+                            Layout.fillWidth: true
+                            text: page.greeting
+                            color: Sys.text
+                            // The phone is 384 dp wide: a 24 dp greeting ate
+                            // a whole line of the page for no information.
+                            font.pixelSize: Theme.touch ? Theme.tXl : Theme.t2xl
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: page.today + (page.src ? " · " + page.src.name : "")
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tSm
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
                     }
 
-                    // Shortcut to Downloads: an action pill.
+                    // Shortcut to Downloads: an action pill. The bottom
+                    // navigation already carries "Descargas" on the phone,
+                    // so there it would only steal room from the date.
                     Rectangle {
+                        visible: !Theme.touch
                         Layout.preferredHeight: Theme.pillH
                         implicitWidth: dlRow.implicitWidth + Theme.pillHPad * 2
                         radius: Theme.rPill
-                        color: dlMa.containsMouse ? Sys.accentDim : Sys.surfaceAlt
+                        color: dlMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         RowLayout {
@@ -542,11 +561,11 @@ Item {
                                 Layout.preferredWidth: 14
                                 Layout.preferredHeight: 14
                                 kind: "download"
-                                color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                                color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                             Text {
                                 text: "Descargas"
-                                color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                                color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tMd
                                 font.weight: Font.DemiBold
                                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -562,15 +581,21 @@ Item {
                     }
                 }
 
-                // ---- search (opens the launcher) - thin line ------------
-                // Minimal: no grey box, just a line below that lights up on
-                // hover. The "Downloads" button next to it does have a
-                // background (it is a button).
+                // ---- search: a real field (opens the launcher) ----------
+                // Rounded surface + accent icon: it reads as an input, and
+                // the "Ctrl+Espacio" shortcut only exists on a desktop.
                 Rectangle {
                     id: searchSpot
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 40
-                    color: "transparent"
+                    Layout.preferredHeight: Theme.touch ? 42 : 40
+                    radius: Theme.rPill
+                    color: spotMouse.containsMouse ? Theme.sHigh(Sys.bg, Sys.text)
+                                                 : Theme.sAlt(Sys.bg, Sys.text)
+                    border.width: 1
+                    border.color: spotMouse.containsMouse
+                                  ? Theme.alpha(Theme.accentOn(Sys.accent, Sys.bg), 0.55)
+                                  : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     // The field is INSIDE the page's carousel: without this
                     // the wheel over it dragged the whole page.
@@ -578,40 +603,33 @@ Item {
 
                     RowLayout {
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.s1
-                        anchors.rightMargin: Theme.s1
+                        anchors.leftMargin: Theme.s4
+                        anchors.rightMargin: Theme.s4
                         spacing: Theme.s2
                         Glyph {
-                            width: 16; height: 16
+                            Layout.alignment: Qt.AlignVCenter
+                            width: 17; height: 17
                             kind: "search"
-                            color: spotMouse.containsMouse ? Sys.accent : Sys.textDim
+                            color: spotMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg)
+                                                           : Theme.tDim(Sys.bg, Sys.text)
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         }
                         Text {
-                            text: "Buscar en cualquier fuente…"
-                            color: Sys.textDim
-                            font.pixelSize: Theme.tBase
                             Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            text: "Buscar canciones, artistas, listas…"
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tBase
                             elide: Text.ElideRight
                         }
                         Text {
-                            text: "Ctrl+Espacio"
-                            color: Sys.textDim
+                            visible: !Theme.touch
+                            Layout.alignment: Qt.AlignVCenter
+                            text: "Ctrl+K"
+                            color: Theme.tFaint(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.weight: Font.DemiBold
-                            opacity: 0.7
                         }
-                    }
-
-                    // The line: it lights up on hover.
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        color: spotMouse.containsMouse ? Theme.alpha(Sys.accent, 0.55)
-                                                      : Theme.alpha(Sys.text, 0.14)
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     }
 
                     MouseArea {
@@ -656,7 +674,7 @@ Item {
                             width: 15
                             height: 15
                             kind: "chevron-left"
-                            color: prevMa.containsMouse ? Sys.accent : Sys.textDim
+                            color: prevMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                         }
                         MouseArea {
                             id: prevMa
@@ -679,7 +697,7 @@ Item {
                             width: 15
                             height: 15
                             kind: "chevron-right"
-                            color: nextMa.containsMouse ? Sys.accent : Sys.textDim
+                            color: nextMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                         }
                         MouseArea {
                             id: nextMa
@@ -693,11 +711,13 @@ Item {
 
                 // Grid: 3 columns × 2 rows (filled by columns: with
                 // vertical flow the GridLayout groups by ROWS, so the
-                // wrap point is rows=2). Phone: 2 columns of photo tiles.
+                // wrap point is rows=2). Phone: 3 columns of photo tiles
+                // (two columns left only ~2 rows on screen and turned the
+                // shortcuts into a gallery).
                 GridLayout {
                     Layout.fillWidth: true
                     rows: Theme.touch ? 0 : page.picksRows
-                    columns: Theme.touch ? 2 : 0
+                    columns: Theme.touch ? 3 : 0
                     flow: Theme.touch ? GridLayout.LeftToRight
                                       : GridLayout.TopToBottom
                     columnSpacing: Theme.touch ? Theme.panelGap : Theme.s3
@@ -715,7 +735,7 @@ Item {
                             // Phone tile: square photo + two caption lines
                             // below (the row pills stay on the desktop).
                             Layout.preferredHeight: Theme.touch
-                                ? (width + Theme.s2 + 34) : 58
+                                ? (width + Theme.s2 + 50) : 58
                             // Pill always hinted (like in the reference
                             // repo): the shortcut looks accessible
                             // without passing the mouse over it.
@@ -735,7 +755,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: width
                                     radius: Theme.rMd
-                                    color: Sys.surfaceAlt
+                                    color: Theme.sAlt(Sys.bg, Sys.text)
                                     clip: true
                                     RoundedArt {
                                         anchors.fill: parent
@@ -751,7 +771,7 @@ Item {
                                               ? "heart"
                                               : (pickRow.modelData.kind === "playlist"
                                                  ? "list" : "music")
-                                        color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
+                                        color: pickMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     }
                                 }
 
@@ -762,13 +782,16 @@ Item {
                                     color: Sys.text
                                     font.pixelSize: Theme.tSm
                                     font.weight: Font.DemiBold
+                                    // Dos lineas: en 3 columnas un titulo de
+                                    // lista no cabe en una sola.
+                                    wrapMode: Text.Wrap
                                     elide: Text.ElideRight
-                                    maximumLineCount: 1
+                                    maximumLineCount: 2
                                 }
                                 Text {
                                     Layout.fillWidth: true
                                     text: pickRow.modelData.sub || ""
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tXs
                                     elide: Text.ElideRight
                                     maximumLineCount: 1
@@ -786,7 +809,7 @@ Item {
                                     Layout.preferredWidth: 42
                                     Layout.preferredHeight: 42
                                     radius: Theme.rMd
-                                    color: Sys.surfaceAlt
+                                    color: Theme.sAlt(Sys.bg, Sys.text)
                                     clip: true
                                     RoundedArt {
                                         anchors.fill: parent
@@ -802,7 +825,7 @@ Item {
                                               ? "heart"
                                               : (pickRow.modelData.kind === "playlist"
                                                  ? "list" : "music")
-                                        color: pickMouse.containsMouse ? Sys.accent : Sys.textDim
+                                        color: pickMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     }
                                 }
 
@@ -821,7 +844,7 @@ Item {
                                     Text {
                                         Layout.fillWidth: true
                                         text: pickRow.modelData.sub || ""
-                                        color: Sys.textDim
+                                        color: Theme.tDim(Sys.bg, Sys.text)
                                         font.pixelSize: Theme.tSm
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
@@ -942,6 +965,7 @@ Item {
                         coverA: page.moodA(modelData.t)
                         coverB: page.moodB(modelData.t)
                         onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
                             page.openListRequested(false)
                             catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
                         }
@@ -983,7 +1007,7 @@ Item {
                             id: clearHistBtn
                             anchors.centerIn: parent
                             text: "Borrar historial"
-                            color: clearHistMa.containsMouse ? Sys.accent : Sys.textDim
+                            color: clearHistMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.weight: Font.DemiBold
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1001,10 +1025,13 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: page.searchHistory.length === 0
-                    text: "Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+Espacio."
-                    color: Sys.textDim
+                    text: Theme.touch
+                          ? "Todavía no hay búsquedas. Toca la barra de arriba para buscar."
+                          : "Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+K."
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
-                    opacity: 0.8
+                    wrapMode: Text.WordWrap
+                    lineHeight: 1.15
                 }
 
                 ListView {
@@ -1028,7 +1055,7 @@ Item {
                         height: Theme.pillH
                         radius: Theme.rPill
                         width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 340)
-                        color: histChipMa.containsMouse ? Sys.accentDim : Sys.surfaceAlt
+                        color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         RowLayout {
@@ -1039,12 +1066,12 @@ Item {
                                 Layout.preferredWidth: 12
                                 Layout.preferredHeight: 12
                                 kind: "search"
-                                color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
+                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                             Text {
                                 id: histTxt
                                 text: histChip.modelData.q
-                                color: histChipMa.containsMouse ? Sys.accent : Sys.textDim
+                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tMd
                                 font.weight: Font.DemiBold
                                 elide: Text.ElideRight

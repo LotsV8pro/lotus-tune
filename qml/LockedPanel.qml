@@ -21,7 +21,7 @@ ColumnLayout {
         width: 28
         height: 28
         kind: "lock"
-        color: Sys.textDim
+        color: Theme.tDim(Sys.bg, Sys.text)
         weight: 1.4
     }
 
@@ -38,7 +38,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.maximumWidth: 420
         text: panel.note
-        color: Sys.textDim
+        color: Theme.tDim(Sys.bg, Sys.text)
         font.pixelSize: Theme.tMd
         horizontalAlignment: Text.AlignHCenter
         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -59,7 +59,7 @@ ColumnLayout {
             id: actText
             anchors.centerIn: parent
             text: "Elige una fuente activa en la barra lateral"
-            color: actMa.containsMouse ? Sys.accent : Sys.textDim
+            color: actMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tSm
             font.weight: Font.Medium
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }

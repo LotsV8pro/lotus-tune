@@ -38,6 +38,11 @@ class AppTheme : public QObject
     // the desktop and the islands become translucent. The UI decides it (it
     // is remembered in appcfg); it only lives here so every QML reacts.
     Q_PROPERTY(bool dynamicBg READ dynamicBg WRITE setDynamicBg NOTIFY washChanged)
+    // System bars, in dp (0 on desktop). The phone interface is edge to
+    // edge and Qt 6.6 has no SafeArea: the bottom tab bar was drawn under
+    // the gesture handle, so QML pads itself with these.
+    Q_PROPERTY(int safeTop READ safeTop NOTIFY insetsChanged)
+    Q_PROPERTY(int safeBottom READ safeBottom NOTIFY insetsChanged)
 
 public:
     explicit AppTheme(QObject *parent = nullptr);
@@ -54,6 +59,9 @@ public:
     QColor textDim() const { return m_textDim; }
     QColor danger() const { return m_danger; }
     bool followingSystem() const { return m_followSystem; }
+    int safeTop() const { return m_safeTop; }
+    int safeBottom() const { return m_safeBottom; }
+    void refreshInsets();
     QString source() const { return m_source; }
     bool dynamicBg() const { return m_dynamicBg; }
     void setDynamicBg(bool on) {
@@ -66,6 +74,7 @@ public:
 signals:
     void paletteChanged();
     void washChanged();
+    void insetsChanged();
 
 private:
     void reload();
@@ -85,6 +94,8 @@ private:
     QVariantMap m_over;  // parsed config.ini overrides
     bool m_followSystem = true;
     bool m_dynamicBg = false;   // "Dynamic background" asked for by the UI (Main.qml)
+    int m_safeTop = 0;          // system bars in dp (Android)
+    int m_safeBottom = 0;
 
     // resolved values
     QColor m_bg, m_surface, m_surfaceAlt, m_border, m_borderSubtle;

@@ -16,6 +16,11 @@ Item {
     // "circle" = perfect circle; a number = corner radius in slot pixels.
     property var radiusSpec: 16
 
+    // Desenfoque (0 = ninguno). Se hace en C++ con el pipeline del wash:
+    // la app va con el backend software y un shader (MultiEffect) no
+    // dibujaria nada. Se usa como fondo de la lista abierta.
+    property int blur: 0
+
     readonly property bool ready: img.status === Image.Ready
 
     // Radius in logical pixels. The circle is resolved on the C++ side,
@@ -33,14 +38,15 @@ Item {
             art.artUrl = ""
             return
         }
-        art.artUrl = rart.url([art.source], w, h, art.radius,
-                              Screen.devicePixelRatio)
+        art.artUrl = rart.urlBlurred([art.source], w, h, art.radius,
+                                     Screen.devicePixelRatio, art.blur)
     }
 
     onSourceChanged: refresh()
     onWidthChanged: refresh()
     onHeightChanged: refresh()
     onRadiusChanged: refresh()
+    onBlurChanged: refresh()
 
     Component.onCompleted: refresh()
 
@@ -49,9 +55,9 @@ Item {
     Connections {
         target: rart
         function onReady(key) {
-            if (key === rart.key([art.source], Math.round(art.width),
-                                 Math.round(art.height), art.radius,
-                                 Screen.devicePixelRatio))
+            if (key === rart.keyBlurred([art.source], Math.round(art.width),
+                                        Math.round(art.height), art.radius,
+                                        Screen.devicePixelRatio, art.blur))
                 art.refresh()
         }
     }

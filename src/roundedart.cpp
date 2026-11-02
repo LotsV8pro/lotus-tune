@@ -1,5 +1,7 @@
 #include "roundedart.h"
+#include "wash.h"
 
+#include <QColor>
 #include <QCryptographicHash>
 #include <QImage>
 #include <QNetworkAccessManager>
@@ -12,10 +14,31 @@
 
 namespace {
 
+// Sube la saturacion sin tocar el valor (HSV). Se usa en el fondo
+// desenfocado de la lista: el blur del wash apaga el color y la pagina
+// quedaba gris.
+QImage boostSaturation(const QImage &src, qreal factor)
+{
+    if (src.isNull() || factor == 1.0)
+        return src;
+    QImage out = src.convertToFormat(QImage::Format_RGB32);
+    for (int y = 0; y < out.height(); ++y) {
+        auto *line = reinterpret_cast<QRgb *>(out.scanLine(y));
+        for (int x = 0; x < out.width(); ++x) {
+            QColor c = QColor::fromRgb(line[x]);
+            int h, s, v;
+            c.getHsv(&h, &s, &v);
+            s = qBound(0, int(s * factor), 255);
+            line[x] = QColor::fromHsv(h, s, v).rgb();
+        }
+    }
+    return out;
+}
+
 // The key identifies the combination (candidates + slot + radius + dpr).
 // It travels in the provider's URL, so it is summarised with a hash.
 QString makeKey(const QStringList &candidates, int boxW, int boxH, int radius,
-                qreal scale)
+                qreal scale, int blur = 0)
 {
     QCryptographicHash h(QCryptographicHash::Sha1);
     for (const QString &c : candidates)
@@ -24,6 +47,10 @@ QString makeKey(const QStringList &candidates, int boxW, int boxH, int radius,
     h.addData(QByteArray::number(boxH));
     h.addData(QByteArray::number(radius));
     h.addData(QByteArray::number(qRound(scale * 100)));
+    // Blurred and sharp jobs are different images: the strength is part
+    // of the key (an open list and its header background never collide).
+    if (blur > 0)
+        h.addData(QByteArray("blur").append(QByteArray::number(blur)));
     return h.result().toHex().left(16);
 }
 
@@ -59,11 +86,17 @@ QString RoundedArt::url(const QString &src, int boxW, int boxH, int radius,
 QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
                          int radius, qreal scale)
 {
+    return urlBlurred(candidates, boxW, boxH, radius, scale, 0);
+}
+
+QString RoundedArt::urlBlurred(const QStringList &candidates, int boxW, int boxH,
+                               int radius, qreal scale, int blur)
+{
     const QStringList real = usable(candidates);
     if (real.isEmpty() || boxW <= 0 || boxH <= 0)
         return QString();
 
-    const QString key = makeKey(real, boxW, boxH, radius, scale);
+    const QString key = makeKey(real, boxW, boxH, radius, scale, blur);
     int version = 0;
     bool needStart = false;
     {
@@ -76,6 +109,7 @@ QString RoundedArt::url(const QStringList &candidates, int boxW, int boxH,
             job.boxH = boxH;
             job.radius = radius;
             job.scale = scale > 0 ? scale : 1.0;
+            job.blur = blur;
             m_jobs.insert(key, job);
             // Every size (and every radius) is a different job with its own
             // image: without a limit the map grows with every resize of
@@ -128,6 +162,15 @@ QString RoundedArt::key(const QStringList &candidates, int boxW, int boxH,
     return makeKey(real, boxW, boxH, radius, scale);
 }
 
+QString RoundedArt::keyBlurred(const QStringList &candidates, int boxW, int boxH,
+                               int radius, qreal scale, int blur) const
+{
+    const QStringList real = usable(candidates);
+    if (real.isEmpty() || boxW <= 0 || boxH <= 0)
+        return QString();
+    return makeKey(real, boxW, boxH, radius, scale, blur);
+}
+
 QImage RoundedArt::image(const QString &key) const
 {
     QMutexLocker lock(&m_mutex);
@@ -150,7 +193,7 @@ void RoundedArt::start(const QString &key)
             if (orig == m_originals.constEnd())
                 continue;
             const QImage img = process(*orig, it->boxW, it->boxH, it->radius,
-                                       it->scale);
+                                       it->scale, it->blur);
             it->image = img;
             it->done = true;
             it->version++;
@@ -167,7 +210,7 @@ void RoundedArt::start(const QString &key)
 void RoundedArt::tryNext(const QString &key, int index)
 {
     QStringList candidates;
-    int boxW = 0, boxH = 0, radius = 0;
+    int boxW = 0, boxH = 0, radius = 0, blur = 0;
     qreal scale = 1.0;
     QImage fallback;
     {
@@ -182,6 +225,7 @@ void RoundedArt::tryNext(const QString &key, int index)
         boxH = it->boxH;
         radius = it->radius;
         scale = it->scale;
+        blur = it->blur;
         fallback = it->fallback;
     }
     if (index >= candidates.size()) {
@@ -200,7 +244,7 @@ void RoundedArt::tryNext(const QString &key, int index)
             emit ready(key);
             return;
         }
-        const QImage img = process(fallback, boxW, boxH, radius, scale);
+        const QImage img = process(fallback, boxW, boxH, radius, scale, blur);
         {
             QMutexLocker lock(&m_mutex);
             auto it = m_jobs.find(key);
@@ -228,7 +272,7 @@ void RoundedArt::tryNext(const QString &key, int index)
         }
     });
     QObject::connect(reply, &QNetworkReply::finished, this,
-                     [this, reply, key, index, url, boxW, boxH, radius, scale]() {
+                     [this, reply, key, index, url, boxW, boxH, radius, scale, blur]() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             tryNext(key, index + 1);
@@ -267,7 +311,7 @@ void RoundedArt::tryNext(const QString &key, int index)
             }
         }
 
-        const QImage img = process(src, boxW, boxH, radius, scale);
+        const QImage img = process(src, boxW, boxH, radius, scale, blur);
         {
             QMutexLocker lock(&m_mutex);
             auto it = m_jobs.find(key);
@@ -282,7 +326,7 @@ void RoundedArt::tryNext(const QString &key, int index)
 }
 
 QImage RoundedArt::process(const QImage &src, int boxW, int boxH, int radius,
-                           qreal scale)
+                           qreal scale, int blur)
 {
     if (src.isNull() || boxW <= 0 || boxH <= 0)
         return QImage();
@@ -299,6 +343,23 @@ QImage RoundedArt::process(const QImage &src, int boxW, int boxH, int radius,
     const int x = (scaled.width() - w) / 2;
     const int y = (scaled.height() - h) / 2;
     scaled = scaled.copy(x, y, w, h);
+
+    // Desenfoque de verdad (CPU): el mismo pipeline del wash. El backend
+    // de Qt es software, asi que un MultiEffect no dibujaria nada.
+    if (blur > 0) {
+        // `blur` = numero de pasadas (1-3). El pipeline del wash trabaja
+        // en 480x480 y devuelve ese tamano: se vuelve al tamano del hueco
+        // para que la imagen no se quede en una esquina.
+        for (int i = 0; i < qBound(1, blur, 3); ++i)
+            scaled = Wash::blurPipeline(scaled);
+        // El blur del wash devuelve 480x480: se vuelve al tamano del hueco.
+        scaled = scaled.scaled(w, h, Qt::IgnoreAspectRatio,
+                               Qt::SmoothTransformation);
+        // La referencia no deja el fondo gris: lo tiñe con el color de la
+        // portada. Se sube la saturacion (sobre 480 px, es barato) para
+        // que el velo se lea como color y no como una mancha.
+        scaled = boostSaturation(scaled, 1.45);
+    }
 
     QImage out(w, h, QImage::Format_ARGB32_Premultiplied);
     out.fill(Qt::transparent);

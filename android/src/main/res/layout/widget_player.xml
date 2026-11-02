@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Widget de reproduccion: caratula + titulo + artista + controles.
+     Todo es RemoteViews (ImageView + TextViews).
+     Orden de controles: like (izquierda), anterior, play, siguiente,
+     bucle y aleatorio (derecha). Los iconos son vectoriales: los glifos
+     de texto (♡, ⇄) no existen en todas las fuentes y salian en blanco. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_bg"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/w_art"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="12dp"
+            android:scaleType="centerCrop"
+            android:contentDescription="Caratula"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/w_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="#FFFFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:text="Lotus Tune" />
+
+            <TextView
+                android:id="@+id/w_artist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                android:text="" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/w_fav"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Me gusta"
+            android:src="@drawable/ic_w_heart_outline" />
+
+        <ImageView
+            android:id="@+id/w_prev"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Anterior"
+            android:src="@drawable/ic_w_prev" />
+
+        <ImageView
+            android:id="@+id/w_play"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.4"
+            android:padding="9dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Reproducir"
+            android:src="@drawable/ic_w_play" />
+
+        <ImageView
+            android:id="@+id/w_next"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Siguiente"
+            android:src="@drawable/ic_w_next" />
+
+        <ImageView
+            android:id="@+id/w_repeat"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Bucle"
+            android:src="@drawable/ic_w_repeat" />
+
+        <ImageView
+            android:id="@+id/w_shuffle"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:padding="11dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="Aleatorio"
+            android:src="@drawable/ic_w_shuffle" />
+    </LinearLayout>
+</LinearLayout>

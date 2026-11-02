@@ -33,3 +33,8 @@ lotus-tune_qmltyperegistrations.cpp
 lotus-tune-tests_autogen/
 /lotus-tune
 /lotus-tune-tests
+
+# Firma de la APK (nunca al repo)
+keystore.properties
+*.jks
+*.keystore

@@ -43,9 +43,18 @@ public:
     Q_INVOKABLE QString url(const QString &src, int boxW, int boxH,
                             int radius, qreal scale);
 
+    // Same thing, but the resulting image is blurred in the CPU (`blur`
+    // is the strength: 0 = no blur). It is used as the background of the
+    // opened list, behind the header and the rows.
+    Q_INVOKABLE QString urlBlurred(const QStringList &candidates, int boxW,
+                                   int boxH, int radius, qreal scale, int blur);
+
     // The key of a combination (so the QML can compare it with the signal).
     Q_INVOKABLE QString key(const QStringList &candidates, int boxW, int boxH,
                             int radius, qreal scale) const;
+    Q_INVOKABLE QString keyBlurred(const QStringList &candidates, int boxW,
+                                   int boxH, int radius, qreal scale,
+                                   int blur) const;
 
     // The already processed image (the provider asks for it).
     QImage image(const QString &key) const;
@@ -61,6 +70,7 @@ private:
         int boxH = 0;
         int radius = 0;
         qreal scale = 1.0;
+        int blur = 0;
         int version = 0;
         bool started = false;
         bool done = false;
@@ -79,7 +89,7 @@ private:
     void tryNext(const QString &key, int index);
     // Crops to the centre at the requested size and applies the mask.
     static QImage process(const QImage &src, int boxW, int boxH, int radius,
-                           qreal scale);
+                           qreal scale, int blur = 0);
 
     QNetworkAccessManager *m_net;
     mutable QMutex m_mutex;

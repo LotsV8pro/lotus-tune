@@ -28,6 +28,18 @@ public class MainActivity extends QtActivity
         sCtx = getApplicationContext();
         sActivity = this;
 
+        // Android 13+: sin POST_NOTIFICATIONS la notificacion del servicio
+        // de reproduccion no se ve; la musica seguiria sonando pero sin
+        // controles y sin que el usuario sepa que hay un servicio activo.
+        if (android.os.Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(
+                       android.Manifest.permission.POST_NOTIFICATIONS)
+                   != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                new String[]{ android.Manifest.permission.POST_NOTIFICATIONS },
+                7);
+        }
+
         // The player bar and the lyrics panels use the mouse: on a phone
         // they work with the touch (the QML checks the pointer type).
         View decor = getWindow().getDecorView();
@@ -40,6 +52,62 @@ public class MainActivity extends QtActivity
                 // Keep the navigation bar visible.
             }
         });
+    }
+
+    // El permiso de notificaciones es NUESTRO (no de Qt): sin esta
+    // sobrecarga, QtActivity no lo reconoce, avisa de "no valid pending
+    // permission request" y la respuesta se queda sin tratar.
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String[] permissions,
+                                           int[] grantResults)
+    {
+        if (requestCode == 7)
+            return;
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    }
+
+    // System bars in pixels. The QML lays itself out edge to edge and has no
+    // safe-area support on Qt 6.6, so the bottom tab bar was landing UNDER
+    // the gesture handle (the labels were half hidden). The C++ theme asks
+    // for these once the window is laid out and converts them to dp.
+    public static int insetBottomPx()
+    {
+        Activity act = sActivity;
+        if (act == null)
+            return 0;
+        try {
+            View deco = act.getWindow().getDecorView();
+            android.view.WindowInsets ins = deco.getRootWindowInsets();
+            if (ins == null)
+                return 0;
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                // navigationBars = the gesture handle / 3-button bar;
+                // systemGestures is its (bigger) swipe capture zone.
+                return Math.max(
+                    ins.getInsets(android.view.WindowInsets.Type.navigationBars()).bottom,
+                    ins.getInsets(android.view.WindowInsets.Type.systemGestures()).bottom);
+            }
+        } catch (Exception ignored) {
+        }
+        return 0;
+    }
+
+    public static int insetTopPx()
+    {
+        Activity act = sActivity;
+        if (act == null)
+            return 0;
+        try {
+            View deco = act.getWindow().getDecorView();
+            android.view.WindowInsets ins = deco.getRootWindowInsets();
+            if (ins == null)
+                return 0;
+            if (android.os.Build.VERSION.SDK_INT >= 30)
+                return ins.getInsets(android.view.WindowInsets.Type.statusBars()).top;
+        } catch (Exception ignored) {
+        }
+        return 0;
     }
 
     // WhatsApp directory of the native libs ("libytmcli.so"), the native

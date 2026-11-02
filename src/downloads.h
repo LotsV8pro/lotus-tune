@@ -65,6 +65,16 @@ public:
     Q_INVOKABLE void downloadTrack(const QString &url, const QString &title,
                                    const QString &artist);
     Q_INVOKABLE void cancelAll();
+    // Pause / resume a job by its position in `jobs`. Pausing STOPS yt-dlp
+    // but keeps the .part, so resuming continues from the same byte
+    // (--continue) and skips the tracks already in the list's archive.
+    // A job that failed can also be resumed this way (retry from where it
+    // stopped) instead of downloading the whole list again.
+    Q_INVOKABLE void pauseDownload(int index);
+    Q_INVOKABLE void resumeDownload(int index);
+    // Same, for every job (the header buttons of the download panel).
+    Q_INVOKABLE void pauseAll();
+    Q_INVOKABLE void resumeAll();
     // Scans the folder recursively looking for audio (non blocking).
     Q_INVOKABLE void refreshLocal();
     // xdg-open on the root folder.
@@ -80,7 +90,7 @@ public:
     // Public / testable utility methods:
     static QString safeSegment(const QString &text);
     static QString friendlyError(const QString &raw);
-    static void removePartials(const QString &dir);
+    static void removePartials(const QString &dir, bool keepResumable = false);
     static int countAudioFiles(const QString &dir);
     QString uniqueListFolder(const QString &seg, const QString &url) const;
 
@@ -112,6 +122,11 @@ private:
     };
 
     void enqueue(const Job &job);
+    // Position of the job of that URL that is still alive (queued,
+    // downloading, paused or failed); -1 if there is none. Clicking
+    // download again on the same list resumes it instead of stacking a
+    // second copy of the same download.
+    int liveJobForUrl(const QString &url) const;
     void startNext();
     void readStdout();
     void finishJob(int code);
@@ -142,6 +157,9 @@ private:
     int m_current = -1;      // index of the running job, -1 if none
     bool m_busy = false;
     bool m_cancelling = false;
+    // The running yt-dlp is being stopped to PAUSE it: finishJob() keeps the
+    // partial files and leaves the job in "paused" instead of failing it.
+    bool m_pausing = false;
     QString m_lastError;     // last "ERROR:" seen in the output
     QByteArray m_buf;
     // Global progress of a list: yt-dlp emits "Downloading item X of Y" and

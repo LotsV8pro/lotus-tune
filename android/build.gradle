@@ -32,16 +32,18 @@ dependencies {
 }
 
 android {
-    namespace 'io.github.lotsv8pro.lotustune'
+    namespace 'io.github.lotsv8pro.lotustunetest'
     compileSdk 34
     ndkVersion "27.0.12077973"
 
     defaultConfig {
-        applicationId "io.github.lotsv8pro.lotustune"
+        applicationId "io.github.lotsv8pro.lotustunetest"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "1.2.0"
+        // El mismo numero que CMakeLists (1.2.1 -> 10201): si baja, el
+        // sistema rechaza la instalacion por "downgrade".
+        versionCode 10201
+        versionName "1.2.1"
     }
 
     buildTypes {
