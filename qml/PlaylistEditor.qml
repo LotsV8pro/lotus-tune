@@ -38,7 +38,10 @@ Item {
     // Dark background: a click outside cancels.
     MouseArea {
         anchors.fill: parent
-        onClicked: pel.canceled()
+        onClicked: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            pel.canceled()
+        }
     }
 
     // Floating island: `Panel` gives the rounded corners and the bright edge
@@ -66,7 +69,7 @@ Item {
                     Layout.preferredWidth: 18
                     Layout.preferredHeight: 18
                     kind: pel.createMode ? "plus" : "pencil"
-                    color: Sys.accent
+                    color: Theme.accentOn(Sys.accent, Sys.bg)
                 }
                 Text {
                     Layout.fillWidth: true
@@ -84,7 +87,7 @@ Item {
                 radius: Theme.rPill
                 color: Sys.bg
                 border.width: 1
-                border.color: nameField.activeFocus ? Sys.accent : Sys.borderSubtle
+                border.color: nameField.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
                 Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
                 TextInput {
@@ -106,7 +109,7 @@ Item {
                     anchors.leftMargin: Theme.s3
                     anchors.verticalCenter: parent.verticalCenter
                     text: "Nombre de la lista"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                 }
             }
@@ -118,7 +121,7 @@ Item {
 
                 Text {
                     text: "Privacidad"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tMd
                 }
                 Item { Layout.fillWidth: true }
@@ -129,9 +132,9 @@ Item {
                     Layout.preferredHeight: Theme.pillH
                     implicitWidth: privLabel.implicitWidth + 26
                     radius: Theme.rPill
-                    color: privToggle.priv ? Sys.accentDim : Sys.surfaceAlt
+                    color: privToggle.priv ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
-                    border.color: privToggle.priv ? Sys.accent : Sys.border
+                    border.color: privToggle.priv ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.border
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -141,12 +144,12 @@ Item {
                         Glyph {
                             width: 13; height: 13
                             kind: privToggle.priv ? "lock" : "user"
-                            color: privToggle.priv ? Sys.accent : Sys.textDim
+                            color: privToggle.priv ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                         }
                         Text {
                             id: privLabel
                             text: privToggle.priv ? "Privada" : "Pública"
-                            color: privToggle.priv ? Sys.accent : Sys.text
+                            color: privToggle.priv ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tMd
                             font.weight: Font.DemiBold
                         }
@@ -179,12 +182,12 @@ Item {
                         Glyph {
                             width: 14; height: 14
                             kind: "trash"
-                            color: delHov.hovered ? Sys.danger : Sys.textDim
+                            color: delHov.hovered ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
                         }
                         Text {
                             id: delLabel
                             text: "Eliminar"
-                            color: delHov.hovered ? Sys.danger : Sys.textDim
+                            color: delHov.hovered ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                             font.weight: Font.DemiBold
                         }
@@ -220,7 +223,7 @@ Item {
                     implicitWidth: saveLabel.implicitWidth + 40
                     radius: Theme.rPill
                     enabled: nameField.text.trim().length > 0
-                    color: !enabled ? Sys.surfaceAlt
+                    color: !enabled ? Theme.sAlt(Sys.bg, Sys.text)
                            : (saveHov.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent)
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Text {
@@ -229,8 +232,8 @@ Item {
                         text: pel.createMode ? "Crear" : "Guardar"
                         // Legible over ANY accent (on Android it comes from
                         // the wallpaper and can be dark - see theme.js).
-                        color: enabled ? Theme.onAccentOf(Sys.accent, Sys.onAccent)
-                                       : Sys.textDim
+                        color: enabled ? Theme.onAccentOf(Sys.accent, Theme.onAccent(Sys.accent))
+                                       : Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tMd
                         font.weight: Font.DemiBold
                     }

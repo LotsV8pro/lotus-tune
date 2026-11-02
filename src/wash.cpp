@@ -23,13 +23,13 @@ static QImage boxBlur(const QImage &in, int r)
         QRgb *dst = reinterpret_cast<QRgb *>(tmp.scanLine(y));
         long sa = 0, sr = 0, sg = 0, sb = 0;
         for (int k = -r; k <= r; ++k) {
-            const QRgb p = row[qBound(0, w - 1, k)];
+            const QRgb p = row[qBound(0, k, w - 1)];
             sa += qAlpha(p); sr += qRed(p); sg += qGreen(p); sb += qBlue(p);
         }
         for (int x = 0; x < w; ++x) {
             dst[x] = qRgba(int(sr / win), int(sg / win), int(sb / win), int(sa / win));
-            const QRgb pa = row[qBound(0, w - 1, x + r + 1)];
-            const QRgb pb = row[qBound(0, w - 1, x - r)];
+            const QRgb pa = row[qBound(0, x + r + 1, w - 1)];
+            const QRgb pb = row[qBound(0, x - r, w - 1)];
             sa += qAlpha(pa) - qAlpha(pb);
             sr += qRed(pa) - qRed(pb);
             sg += qGreen(pa) - qGreen(pb);
@@ -41,14 +41,14 @@ static QImage boxBlur(const QImage &in, int r)
     for (int x = 0; x < w; ++x) {
         long sa = 0, sr = 0, sg = 0, sb = 0;
         for (int k = -r; k <= r; ++k) {
-            const QRgb p = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, h - 1, k)))[x];
+            const QRgb p = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, k, h - 1)))[x];
             sa += qAlpha(p); sr += qRed(p); sg += qGreen(p); sb += qBlue(p);
         }
         for (int y = 0; y < h; ++y) {
             reinterpret_cast<QRgb *>(out.scanLine(y))[x] =
                 qRgba(int(sr / win), int(sg / win), int(sb / win), int(sa / win));
-            const QRgb pa = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, h - 1, y + r + 1)))[x];
-            const QRgb pb = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, h - 1, y - r)))[x];
+            const QRgb pa = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, y + r + 1, h - 1)))[x];
+            const QRgb pb = reinterpret_cast<const QRgb *>(tmp.constScanLine(qBound(0, y - r, h - 1)))[x];
             sa += qAlpha(pa) - qAlpha(pb);
             sr += qRed(pa) - qRed(pb);
             sg += qGreen(pa) - qGreen(pb);

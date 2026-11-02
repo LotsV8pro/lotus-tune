@@ -29,8 +29,10 @@ Rectangle {
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: Theme.s4
-            anchors.rightMargin: Theme.s3
+            // Same gutter as the page content (almost edge to edge on the
+            // phone, 24 dp on the desktop).
+            anchors.leftMargin: Theme.touch ? Theme.s3 : Theme.s4
+            anchors.rightMargin: Theme.touch ? Theme.s2 : Theme.s3
             spacing: Theme.s2
 
             // Back: only when the page is a child of another. Round
@@ -57,7 +59,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 text: top.title
                 color: Sys.text
-                font.pixelSize: Theme.tLg
+                font.pixelSize: Theme.touch ? Theme.tXl : Theme.tLg
                 font.weight: Font.DemiBold
                 elide: Text.ElideRight
                 maximumLineCount: 1
@@ -81,7 +83,7 @@ Rectangle {
                     kind: "search"
                     // Touch has no hover: the icon cannot be "off"
                     // (textDim on the dark surface was unreadable).
-                    color: (launcherHover.hovered || Theme.touch) ? Sys.text : Sys.textDim
+                    color: (launcherHover.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                 }
                 TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
             }
@@ -98,7 +100,7 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 17; height: 17
                     kind: "gear"
-                    color: (gearHover.hovered || Theme.touch) ? Sys.text : Sys.textDim
+                    color: (gearHover.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                 }
                 TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
             }

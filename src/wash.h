@@ -35,13 +35,15 @@ public:
     // The current blurred image (the provider asks for it).
     QImage blurred() const { return m_image; }
 
+    // Blur pipeline: halving + separable box ×2 + bilinear upscale.
+    // Public because `RoundedArt` reuses it for the blurred cover of an
+    // opened list (the app runs on the software backend: no shaders).
+    static QImage blurPipeline(const QImage &src);
+
 signals:
     void changed();
 
 private:
-    // Blur pipeline: halving + separable box ×2 + bilinear upscale.
-    static QImage blurPipeline(const QImage &src);
-
     QNetworkAccessManager *m_net;
     QImage m_image;
     QUrl m_wanted;

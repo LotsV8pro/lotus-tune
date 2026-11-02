@@ -11,7 +11,7 @@ Sfx::Sfx(QObject *parent)
     : QObject(parent)
     , m_settings(new QSettings("lotus-tune", "lotus-tune", this))
     , m_enabled(true)
-    , m_volume(0.35)
+    , m_volume(0.5)
 {
     loadSettings();
     const QString click = QStringLiteral("qrc:/sounds/click.wav");
@@ -79,7 +79,7 @@ QSoundEffect *Sfx::effectFor(const QString &path)
 void Sfx::loadSettings()
 {
     m_enabled = m_settings->value("uiSounds", true).toBool();
-    m_volume = m_settings->value("uiSoundsVolume", 0.35).toReal();
+    m_volume = m_settings->value("uiSoundsVolume", 0.5).toReal();
     if (m_volume < 0.0) m_volume = 0.0;
     if (m_volume > 1.0) m_volume = 1.0;
 }

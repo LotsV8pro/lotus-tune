@@ -174,6 +174,11 @@ public:
     Q_INVOKABLE void clearRecent();
     Q_INVOKABLE void dismissError();
 
+    // Path of the YouTube Music helper (tools/ytm_api.py on desktop,
+    // libytmcli.so on Android). Public because the free helpers at the
+    // top of catalog.cpp (ytmHelperReady) ask for it.
+    static QString ytmApiPath();
+
 signals:
     void changed();
     void libraryChanged();
@@ -203,6 +208,10 @@ signals:
     void likedChanged();
     // A list's metadata arrived (answer to fetchPlaylistInfo).
     void playlistInfoReady(const QVariantMap &info);
+    // YouTube rejected the stored session (expired cookies, or the same
+    // session used from another network): the app goes on anonymously and
+    // the UI explains why the "my lists" disappeared.
+    void sessionExpired();
 
 private:
     void run(const QString &target, const QString &purpose, const QString &title);
@@ -246,7 +255,6 @@ private:
     void saveLibrary() const;
     static QString stateFile();
     static QString helperPath();
-    static QString ytmApiPath();
     static QString cookieFile();
     bool ytmLoggedIn() const;
     void handleLoginOutput();
@@ -378,11 +386,22 @@ private:
     // fails.
     QString m_fastFallback;      // pending yt-dlp target ("" if it does not apply)
     QString m_fastFallbackTitle; // title to keep in the fallback
+    // yt-dlp call made with the session cookies, kept so that a session
+    // rejected by YouTube (CookieMismatch from another network) can be
+    // retried once without the cookies instead of losing the list.
+    QString m_cookieRetryTarget;
+    QString m_cookieRetryPurpose;
+    QString m_cookieRetryTitle;
+    bool m_noCookies = false;    // next yt-dlp run goes anonymous
     // Playlist opened through the fast path (for the "remove from the
     // list" button).
     QString m_openPlaylistId;
     QString m_openListUrl;
     QString m_loginState;
+    // YouTube rejected the stored cookies (expired session, or the session
+    // used from another network): they are not sent any more until a new
+    // login writes a fresh cookies.txt.
+    bool m_sessionRejected = false;
     QString m_loginError;
     QString m_loginUrl;
     QByteArray m_loginBuf;

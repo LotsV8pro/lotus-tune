@@ -12,7 +12,7 @@ import "theme.js" as Theme
 // drift apart (that used to happen because the LRC was parsed twice).
 //
 // Minimalism: only the active line gets `Sys.text` at full weight; the
-// surroundings are `Sys.textDim` dimmed by distance. No boxes, no glow,
+// surroundings are `Theme.tDim(Sys.bg, Sys.text)` dimmed by distance. No boxes, no glow,
 // just the two edge washes tying into `edgeColor`.
 Item {
     id: lv
@@ -30,9 +30,18 @@ Item {
     // the column starts at the edge of the area instead of being centred.
     // Panel and Now Playing stay centred (default).
     property bool leftAlign: false
+    // Dueto (Sonora style): cuando la fuente marca las lineas de la
+    // segunda voz (`secondary`), la voz principal se va a la IZQUIERDA y
+    // la segunda a la DERECHA, de modo que se ve quien canta cada frase.
+    // Sin marcas de dueto nada cambia (todo sigue centrado o alineado a la
+    // izquierda segun `leftAlign`).
+    property bool duetSides: false
     // Sync pill: top centre (cinema mode) and visible while the controls
     // are around (`pillShown`). By default: bottom right, on hover.
     property bool pillTop: false
+    // El ajuste fino de sincronia es util en el panel, pero en el cinema
+    // (pantalla completa, sin sitio) sobra: se apaga desde ahi.
+    property bool syncAdjustAllowed: true
     property bool pillShown: false
     // Real background colour of the panel; the edges fade into it.
     property color edgeColor: Sys.surface
@@ -53,6 +62,18 @@ Item {
     readonly property string errorText: lyr ? String(lyr.error || "") : ""
 
     readonly property bool showSynced: hasSynced && lines.length > 0
+    // ¿La cancion tiene dos voces? Solo si la fuente lo dice: se mira si
+    // alguna linea viene marcada como `secondary` (segunda voz). Asi el
+    // reparto a los lados no se inventa en canciones de un solo cantante.
+    readonly property bool duet: {
+        if (!duetSides)
+            return false
+        for (let i = 0; i < lines.length; ++i) {
+            if (lines[i] && lines[i].secondary === true)
+                return true
+        }
+        return false
+    }
     readonly property bool showPlain: hasLyrics && !showSynced && plainText.length > 0
     readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
@@ -71,7 +92,9 @@ Item {
     // The padding above/below allows pinning any line at that height, and
     // `following` decides whether we follow the singing or respect a manual
     // scroll.
-    readonly property real pinFrac: 0.5
+    // Altura a la que queda fijada la linea activa (0 = arriba, 0.5 =
+    // centrada). El cinema lo baja a ~0.34 para que se vean las que vienen.
+    property real pinFrac: 0.5
     readonly property real pinTop: Math.max(56, Math.floor(height * pinFrac))
     readonly property real pinBottom: Math.max(56, Math.ceil(height * (1 - pinFrac)))
     property bool following: true
@@ -247,11 +270,11 @@ Item {
         if (d === 0)
             return 1
         if (d === 1)
-            return 0.62
+            return 0.74
         if (d === 2)
-            return 0.40
+            return 0.48
         if (d === 3)
-            return 0.20
+            return 0.22
         return 0
     }
 
@@ -385,13 +408,13 @@ Item {
             width: 24
             height: 24
             kind: "disc"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             weight: 1.5
         }
         Text {
             Layout.fillWidth: true
             text: "Buscando letra…"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tBase
             horizontalAlignment: Text.AlignHCenter
         }
@@ -442,21 +465,29 @@ Item {
                     // or the bottom of the view. No black bands above:
                     // over the artwork wash they looked horrible.
                     readonly property real vfade: {
-                        var zone = Math.max(28, lv.height * 0.14)
+                        var zone = Math.max(20, lv.height * 0.09)
                         var top = y - syncedFlick.contentY
                         var a = Theme.clamp(top / zone, 0, 1)
                         var b = Theme.clamp((lv.height - top - height) / zone, 0, 1)
                         return Math.min(a, b)
                     }
 
+                    // Segunda voz del dueto: su frase sale desde la derecha.
+                    readonly property bool sec: modelData.secondary === true
+
                     width: lv.colW
+                    // Dueto: la voz principal empieza a la izquierda y la
+                    // segunda se pega a la derecha (con un pequeño margen
+                    // para que no toque el borde de la columna).
+                    leftPadding: lv.duet && !rrow.sec ? 6 : 0
+                    rightPadding: lv.duet && rrow.sec ? 6 : 0
                     wrapMode: Text.WordWrap
                     text: modelData.text || ""
                     textFormat: Text.PlainText
                     color: rrow.instrumental
-                           ? Theme.alpha(Sys.textDim, 0.75)
+                           ? Theme.alpha(Theme.tDim(Sys.bg, Sys.text), 0.75)
                            : (active ? Theme.mix(Sys.text, Sys.accent, 0.14)
-                                     : Sys.textDim)
+                                     : Theme.tDim(Sys.bg, Sys.text))
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
                     font.weight: active ? Font.DemiBold : Font.Normal
@@ -467,7 +498,9 @@ Item {
                              ? Math.min(vfade, 0.7)
                              : Math.min(vfade, lv.lineOpacity(index)
                                         + (lineMa.containsMouse ? 0.22 : 0))
-                    horizontalAlignment: lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter
+                    horizontalAlignment: lv.duet
+                                         ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
+                                         : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
                     lineHeight: 1.32
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
                     Behavior on color { ColorAnimation { duration: Theme.medMs } }
@@ -478,7 +511,10 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: lv.seekTo(modelData.time)
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            lv.seekTo(modelData.time)
+                        }
                     }
                 }
             }
@@ -512,7 +548,7 @@ Item {
         color: followMa.containsMouse
                ? Theme.hover(Sys.surface) : Sys.surface
         border.width: 1
-        border.color: Sys.borderSubtle
+        border.color: Theme.line(Sys.bg, Sys.text)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
         RowLayout {
@@ -522,7 +558,7 @@ Item {
             Glyph { width: 12; height: 12; kind: "refresh"; color: Sys.accent }
             Text {
                 text: "Seguir la canción"
-                color: Sys.accent
+                color: Theme.accentOn(Sys.accent, Sys.bg)
                 font.pixelSize: Theme.tMd
                 font.weight: Font.Medium
             }
@@ -533,6 +569,7 @@ Item {
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
             onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
                 lv.following = true
                 lv.scrollToActive(true)
             }
@@ -555,7 +592,7 @@ Item {
             y: 12
             width: plainLabel.width
             text: "SIN LETRA SINCRONIZADA"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tXs
             font.bold: true
             font.letterSpacing: 1.4
@@ -588,7 +625,7 @@ Item {
             width: 28
             height: 28
             kind: "mic"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             weight: 1.3
         }
         Text {
@@ -603,7 +640,7 @@ Item {
         Text {
             Layout.fillWidth: true
             text: lv.showError ? "No encontramos la letra de esta canción." : "Buscando la letra…"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tMd
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -616,7 +653,8 @@ Item {
     HoverHandler { id: lyricHover }
 
     Rectangle {
-        visible: lv.showSynced && (lv.pillShown || lyricHover.hovered || Theme.touch)
+        visible: lv.showSynced && lv.syncAdjustAllowed
+                 && (lv.pillShown || lyricHover.hovered || Theme.touch)
         anchors.horizontalCenter: lv.pillTop ? parent.horizontalCenter : undefined
         anchors.top: lv.pillTop ? parent.top : undefined
         anchors.topMargin: Theme.s4
@@ -629,7 +667,7 @@ Item {
         radius: Theme.rPill
         color: Sys.surface
         border.width: 1
-        border.color: Sys.borderSubtle
+        border.color: Theme.line(Sys.bg, Sys.text)
         opacity: 0.95
 
         RowLayout {
@@ -641,12 +679,12 @@ Item {
                 width: 22
                 height: 22
                 radius: 11
-                color: offMinus.hovered ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                color: offMinus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 Text {
                     anchors.centerIn: parent
                     text: "−"
-                    color: offMinus.hovered ? Sys.accent : Sys.textDim
+                    color: offMinus.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                     font.weight: Font.DemiBold
                 }
@@ -677,13 +715,13 @@ Item {
                 width: 12
                 height: 12
                 kind: "clock"
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
             }
 
             Text {
                 Layout.alignment: Qt.AlignVCenter
                 text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + " s"
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tXs
                 font.weight: Font.DemiBold
             }
@@ -692,12 +730,12 @@ Item {
                 width: 22
                 height: 22
                 radius: 11
-                color: offPlus.hovered ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                color: offPlus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 Text {
                     anchors.centerIn: parent
                     text: "+"
-                    color: offPlus.hovered ? Sys.accent : Sys.textDim
+                    color: offPlus.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                     font.weight: Font.DemiBold
                 }

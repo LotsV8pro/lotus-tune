@@ -65,6 +65,16 @@ Window {
             return String(catalog.loginError)
         return "No se pudo iniciar sesión. Inténtalo de nuevo."
     }
+    // YouTube rechazó la sesión guardada (caducada, o usada desde otra red).
+    // La app sigue funcionando de forma anónima; se avisa una vez y se deja
+    // de mandar la cookie rechazada (si no, TODAS las listas fallarían).
+    Connections {
+        target: catalog
+        function onSessionExpired() {
+            root.toast("Sesión de YouTube caducada: vuelve a iniciar sesión "
+                       + "para ver tus listas y Me gusta")
+        }
+    }
     function ytmOpen() {
         if (root.ytmUrl())
             Qt.openUrlExternally(root.ytmUrl())
@@ -275,6 +285,26 @@ Window {
         root.radioResumePending = false
         queue.append(root.queueRow(t))
         root.toast("Añadido a la cola")
+        root.saveSession()
+    }
+
+    // Appends a WHOLE list to the queue ("Anadir a la cola" of the list
+    // header). Without a queue it just plays it: an empty queue cannot
+    // "continue" after anything.
+    function enqueueTracks(list) {
+        const arr = list || []
+        if (arr.length === 0)
+            return
+        if (queue.count === 0) {
+            root.playTracks(arr, 0)
+            return
+        }
+        root.autoplayRadioPending = false
+        root.radioResumePending = false
+        for (let i = 0; i < arr.length; ++i)
+            queue.append(root.queueRow(arr[i]))
+        root.toast(arr.length + (arr.length === 1 ? " pista añadida a la cola"
+                                                  : " pistas añadidas a la cola"))
         root.saveSession()
     }
 
@@ -584,6 +614,8 @@ Window {
         // The cinema mode takes the whole window; there is only one
         // fullscreen lyrics view: the two column one.
         root.fsLyricsOpen = true
+        // Always start with the music and no sheet on top.
+        root.fsQueueOpen = false
     }
     // Toggles the cinema mode (same logic for L, F and Ctrl+L).
     function toggleFullscreenLyrics() {
@@ -594,6 +626,9 @@ Window {
     }
     function closeFullscreenLyrics() {
         root.fsLyricsOpen = false
+        // Leaving the cinema also closes the queue sheet: it lives on top
+        // of the cinema and has no meaning outside it.
+        root.fsQueueOpen = false
     }
 
     // ---- navigation with a stack ("back") --------------------------------
@@ -1145,7 +1180,14 @@ Window {
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
-        Sys.dynamicBg = cfgGet("dynamicBg") !== "false"
+        // Dynamic background (the blurred artwork behind everything): on a
+        // phone the veil is 5× larger and the artwork turns into a smear
+        // that eats the contrast, so it is OFF by default there. It stays
+        // available in Ajustes → Apariencia.
+        {
+            const dyn = cfgGet("dynamicBg")
+            Sys.dynamicBg = (dyn === "") ? !Theme.touch : (dyn !== "false")
+        }
         // First wash computation: if the restored session already brings a
         // track, its thumbnail is blurred now (if not, the track change will
         // do it). ALWAYS, not only when the dynamic background is on: the
@@ -1250,6 +1292,9 @@ Window {
     // Fullscreen lyrics (cinema mode, Liner style): an overlay on top of
     // everything.
     property bool fsLyricsOpen: false
+    // Queue sheet drawn ON TOP of the cinema (the cinema does not close:
+    // the queue adapts to it instead of opening the side panel).
+    property bool fsQueueOpen: false
     // QA: open the cinema mode as soon as there is a track playing.
     property bool qaFsLyrics: false
     // QA: open the launcher with a query already in the field.
@@ -1950,6 +1995,7 @@ Window {
             lyrics.fetch(root.currentArtist, root.currentTitle, 0,
                          root.currentVideoId)
         }
+        player.hintDuration = Number(t.duration || 0)
         player.load(t.url)
         // Pre-resolves the stream of the next tracks in the background so
         // the song change is instant (Sonora style). Whatever was left
@@ -1957,7 +2003,11 @@ Window {
         // position) is dropped first, so it does not block the ones that
         // are going to play.
         player.clearPrefetch()
-        prefetchAhead(queueIndex, 6)
+        // Solo 2 por delante: en el movil cada pista son 4-8 MB y
+        // precargar 6 gastaba ~30 MB de datos por cada cambio.
+        // En Android 1 y no 2: cada precarga es una descarga mas en la
+        // misma IP y YouTube limita (403) cuando se piden varias seguidas.
+        prefetchAhead(queueIndex, Qt.platform.os === "android" ? 1 : 2)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "",
                             setId: t.setId || "" })
@@ -2596,6 +2646,10 @@ Window {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.panelMargin
+        // Edge to edge on the phone: the gesture handle eats the bottom of
+        // the window, so the whole frame (bottom tab bar included) is
+        // lifted by the system inset. On the desktop it is 0.
+        anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
         spacing: Theme.panelGap
 
         RowLayout {
@@ -2697,17 +2751,42 @@ Window {
                     clipContent: true
                     color: "transparent"
 
+                    NumberAnimation {
+                        id: pageIn
+                        target: stack
+                        property: "opacity"
+                        to: 1
+                        duration: 220
+                        easing.type: Easing.OutCubic
+                    }
+                    NumberAnimation {
+                        id: pageShiftIn
+                        target: pageShift
+                        property: "y"
+                        to: 0
+                        duration: 260
+                        easing.type: Easing.OutCubic
+                    }
+
                     StackLayout {
                         id: stack
                         anchors.fill: parent
                         currentIndex: root.pageIndex(root.page)
 
-                        // Immediate page change: no fade nor transition.
+                        // La pagina entra con un desvanecido corto y 10 px
+                        // de subida: cambiar de seccion ya no es un corte
+                        // seco. Solo opacity/transform: va a 120 Hz.
                         onCurrentIndexChanged: {
                             // Reloads the home search history (it is
                             // written from Search while it is not visible).
                             homePage.refreshSearchHistory()
+                            stack.opacity = 0
+                            pageShift.y = 10
+                            pageIn.restart()
+                            pageShiftIn.restart()
                         }
+
+                        transform: Translate { id: pageShift }
 
                         HomePage {
                             id: homePage
@@ -2750,6 +2829,7 @@ Window {
                             onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                             onCoverContextRequested: (c, x, y) => root.showPlaylistMenu(c, x, y)
                             onShuffleListRequested: root.shuffleTracks(libPage.viewTracks())
+                            onQueueListRequested: root.enqueueTracks(libPage.viewTracks())
                             onUninstallListRequested: (folder, name) => root.confirmRemoveDownload(folder, name)
                             onDownloadMenuRequested: (folder, name, x, y) => root.showDownloadMenu(folder, name, x, y)
                             onDownloadOpenRequested: (folder) => {
@@ -2766,8 +2846,19 @@ Window {
 
             RightPanel {
                 id: rightPanel
-                visible: root.panelOpen
-                Layout.preferredWidth: root.isPhone ? 290 : 360
+                // Nada aparece de golpe: la columna se abre empujando el
+                // contenido (ancho animado) y se funde; al cerrar se
+                // recoge igual. Todo es layout+opacity, sin efectos.
+                visible: root.panelOpen || width > 1
+                Layout.preferredWidth: root.panelOpen
+                                        ? (root.isPhone ? 290 : 360) : 0
+                Behavior on Layout.preferredWidth {
+                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                }
+                opacity: root.panelOpen ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: 190 } }
+                enabled: root.panelOpen
+                clip: true
                 Layout.fillHeight: true
                 tab: root.panelTab
                 onTabRequested: (t) => root.panelTab = t
@@ -2809,10 +2900,15 @@ Window {
             onLyricsRequested: root.openFullscreenLyrics()
             onQueueRequested: root.togglePanel(0)
             onLyricsPanelRequested: root.togglePanel(1)
+            // Swipe up on the progress line: the cinema mode (the same
+            // full screen the "L"/"F" keys and the side panel open).
+            onCinemaRequested: root.openFullscreenLyrics()
             onSeekRequested: (secs) => player.seek(secs)
             onVolumeWanted: (v) => player.setVolume(v)
             videoId: root.currentVideoId
             liked: root.currentLiked
+            // Highlight of the queue button while the panel shows the queue.
+            queueOpen: root.panelOpen && root.panelTab === 0
             canInteract: catalog.loginState === "ok"
             onLikeRequested: root.toggleLike()
             onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
@@ -2848,6 +2944,59 @@ Window {
         }
     }
 
+    // ---- widget de inicio / notificacion -----------------------------
+    // El widget de Android manda acciones por un buzon que el C++ sondea;
+    // aqui se traducen a las mismas funciones que usan los botones.
+    function refreshWidget() {
+        if (typeof player.updateWidget !== "function")
+            return
+        player.updateWidget(root.currentTitle, root.currentArtist,
+                            player.playing, root.shuffle,
+                            root.repeatMode, root.currentLiked,
+                            root.currentThumb, player.position, player.duration)
+    }
+
+    Connections {
+        target: player
+        function onWidgetAction(action) {
+            if (action === "TOGGLE")
+                root.togglePlay()
+            else if (action === "PLAY") {
+                if (!player.playing)
+                    root.togglePlay()
+            } else if (action === "PAUSE") {
+                if (player.playing)
+                    root.togglePlay()
+            } else if (action === "NEXT")
+                root.next()
+            else if (action === "PREV")
+                root.prev()
+            else if (action === "SHUFFLE")
+                root.toggleShuffle()
+            else if (action === "REPEAT")
+                root.toggleRepeat()
+            else if (action === "FAV")
+                root.toggleLike()
+        }
+        function onStateChanged() { root.refreshWidget() }
+        function onSeeked() { root.refreshWidget() }
+        // El fallo ya viene traducido del C++ ("403 del operador", "sin
+        // conexion"...): se enseña tal cual en vez de un codigo.
+        function onLastErrorChanged() {
+            if (player.lastError.length)
+                root.toast(player.lastError)
+        }
+    }
+
+    Connections {
+        target: root
+        function onShuffleChanged() { root.refreshWidget() }
+        function onRepeatModeChanged() { root.refreshWidget() }
+        function onCurrentLikedChanged() { root.refreshWidget() }
+        function onCurrentVideoIdChanged() { root.refreshWidget() }
+        function onCurrentThumbChanged() { root.refreshWidget() }
+    }
+
     // ---- fullscreen lyrics (cinema mode) ----------------------------
     FullscreenLyrics {
         id: fsLyrics
@@ -2862,6 +3011,8 @@ Window {
         shuffleOn: root.shuffle
         repeatVal: root.repeatMode
         liked: root.currentLiked
+        volume: player.volume
+        onVolumeWanted: (v) => player.setVolume(v)
         onCloseRequested: root.fsLyricsOpen = false
         onToggleRequested: root.togglePlay()
         onNextRequested: root.next()
@@ -2870,6 +3021,9 @@ Window {
         onShuffleRequested: root.toggleShuffle()
         onRepeatRequested: root.toggleRepeat()
         onLikeRequested: root.toggleLike()
+        // La cola ya no cierra el cinema: se abre DENTRO, como una hoja
+        // (ver `cinemaQueue`), sin pestañas y con los colores del cinema.
+        onQueueRequested: root.fsQueueOpen = !root.fsQueueOpen
         onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
         onArtistRequested: (name) => {
             root.closeFullscreenLyrics()
@@ -2880,10 +3034,130 @@ Window {
         // below the lyrics (task: floating controls without "fullscreen"
         // chrome). Phone: the bar floats over the tab bar, so the tab bar,
         // the air and the outer margin join the inset.
-        bottomInset: root.isPhone
-                     ? Theme.panelMargin + bottomNav.implicitHeight
-                       + Theme.panelGap + Theme.playerBarH
-                     : Theme.panelMargin + Theme.playerBarH
+        // Pantalla completa de verdad (estilo Metrolist): el transporte
+        // vive DENTRO del cinema, asi que la barra flotante y la barra de
+        // navegacion dejan de reservar sitio y quedan debajo de la capa.
+        bottomInset: 0
+    }
+
+    // ---- cola DENTRO del cinema -------------------------------------
+    // Al pulsar la cola en el cinema ya NO se cierra el cinema ni se abre
+    // el panel lateral (el de las pestañas Cola/Letra): se despliega esta
+    // hoja encima, con el mismo lenguaje visual (velo cálido, aura de
+    // acento, sin pestañas) y solo la cola.
+    Item {
+        id: cinemaQueue
+        z: 78                                  // encima del cinema (72)
+        // Panel FLOTANTE: no toca los bordes (aire alrededor), esquinas
+        // redondeadas y sombra de borde, para que se lea como una pestaña
+        // independiente que flota sobre el cinema y no como una hoja
+        // pegada al lateral.
+        width: Math.min(372, Math.round(parent.width * 0.84))
+        height: Math.min(520, Math.max(240, parent.height - 2 * Theme.s5))
+        // 0 = fuera (a la derecha y un poco abajo), 1 = dentro.
+        property real slide: (root.fsLyricsOpen && root.fsQueueOpen) ? 1 : 0
+        x: parent.width - width - Theme.s4 + (1 - slide) * Math.round(width * 0.22)
+        y: Math.round((parent.height - height) / 2) + (1 - slide) * Theme.s4
+        visible: slide > 0.001
+        opacity: slide
+        Behavior on slide {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
+
+        // Velo: oscurece el cinema detrás y cierra al tocar fuera.
+        MouseArea {
+            // Ojo: el velo NO es hijo del Item de la hoja (iría con ella);
+            // se coloca a mano cubriendo la ventana entera.
+            x: -cinemaQueue.x
+            y: -cinemaQueue.y
+            width: cinemaQueue.parent.width
+            height: cinemaQueue.parent.height
+            visible: root.fsQueueOpen
+            onClicked: root.fsQueueOpen = false
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.alpha(Sys.bg, 0.28 * cinemaQueue.slide)
+            }
+        }
+
+        // Superficie del panel: mismo tono que el velo del cinema, con
+        // borde de hilo y esquinas redondeadas (todo el contorno).
+        Rectangle {
+            id: cqSurface
+            anchors.fill: parent
+            radius: 24
+            color: Theme.alpha(Theme.sAccent(Sys.bg, Sys.accent, 0.13), 0.98)
+            border.width: 1
+            border.color: Theme.alpha(Sys.text, 0.10)
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.s4
+            anchors.rightMargin: Theme.s4
+            anchors.topMargin: Theme.s4
+            anchors.bottomMargin: Theme.s3
+            spacing: Theme.s3
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s2
+
+                Text {
+                    Layout.fillWidth: true
+                    text: "COLA"
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tXs
+                    font.letterSpacing: 1.4
+                    font.weight: Font.DemiBold
+                }
+                Text {
+                    text: queue.count + " pistas"
+                    color: Theme.tFaint(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tXs
+                }
+                // Cerrar la hoja (el cinema sigue detrás).
+                Rectangle {
+                    Layout.preferredWidth: 26
+                    Layout.preferredHeight: 26
+                    radius: Theme.rMd
+                    color: cqCloseMa.containsMouse
+                           ? Theme.sAccent(Sys.bg, Sys.accent, 0.22)
+                           : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 12
+                        height: 12
+                        kind: "x"
+                        color: Theme.tDim(Sys.bg, Sys.text)
+                    }
+                    MouseArea {
+                        id: cqCloseMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("tap")
+                            root.fsQueueOpen = false
+                        }
+                    }
+                }
+            }
+
+            QueueView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                tracks: queue
+                currentIndex: root.queueIndex
+                onTrackActivated: (i) => {
+                    root.queueIndex = i
+                    root.startCurrent()
+                }
+                onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+            }
+        }
     }
 
     // ---- list picker (add to playlist) ---------------------------
@@ -2940,12 +3214,12 @@ Window {
                         spacing: Theme.s2
                         Glyph {
                             width: 15; height: 15; kind: "plus"
-                            color: Sys.accent
+                            color: Theme.accentOn(Sys.accent, Sys.bg)
                         }
                         Text {
                             Layout.fillWidth: true
                             text: "Nueva lista"
-                            color: newPick.hovered ? Sys.accent : Sys.text
+                            color: newPick.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tBase
                             font.bold: true
                         }
@@ -2984,12 +3258,12 @@ Window {
                                     spacing: Theme.s2
                                     Glyph {
                                         width: 15; height: 15; kind: "list"
-                                        color: pickHover.hovered ? Sys.accent : Sys.textDim
+                                        color: pickHover.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     }
                                     Text {
                                         Layout.fillWidth: true
                                         text: modelData.name || "Sin nombre"
-                                        color: pickHover.hovered ? Sys.text : Sys.textDim
+                                        color: pickHover.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                                         font.pixelSize: Theme.tBase
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
@@ -3000,7 +3274,7 @@ Window {
                         Text {
                             visible: catalog.ytmLibrary.length === 0
                             text: "No hay listas en tu cuenta de YouTube Music"
-                            color: Sys.textDim
+                            color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                         }
                     }
@@ -3030,12 +3304,12 @@ Window {
                         spacing: Theme.s2
                         Glyph {
                             width: 15; height: 15; kind: "x"
-                            color: pickHover2.hovered ? Sys.accent : Sys.textDim
+                            color: pickHover2.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                         }
                         Text {
                             Layout.fillWidth: true
                             text: "Quitar de la lista actual"
-                            color: pickHover2.hovered ? Sys.text : Sys.textDim
+                            color: pickHover2.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tBase
                         }
                     }
@@ -3050,7 +3324,7 @@ Window {
                         anchors.centerIn: parent
                         width: 14; height: 14
                         kind: "x"
-                        color: (closePick.hovered || Theme.touch) ? Sys.text : Sys.textDim
+                        color: (closePick.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                     }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.playlistPickerOpen = false } }
                 }
@@ -3128,7 +3402,7 @@ Window {
                         Layout.preferredHeight: Theme.rowThin
                         implicitWidth: cCancel.implicitWidth + 32
                         radius: Theme.rMd
-                        color: cCancelHov.hovered ? Theme.hover(Sys.surfaceAlt) : Sys.surfaceAlt
+                        color: cCancelHov.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : Theme.sAlt(Sys.bg, Sys.text)
                         border.width: 0
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         Text {
@@ -3152,7 +3426,7 @@ Window {
                             id: cOk
                             anchors.centerIn: parent
                             text: root.confirmLabel
-                            color: Sys.onAccent
+                            color: Theme.onAccent(Sys.accent)
                             font.pixelSize: Theme.tMd
                             font.bold: true
                         }
@@ -3175,7 +3449,7 @@ Window {
         width: Math.min(toastLabel.implicitWidth + 30, root.width - 60)
         height: toastLabel.implicitHeight + 18
         radius: Theme.rMd
-        color: Sys.surfaceAlt
+        color: Theme.sAlt(Sys.bg, Sys.text)
         border.width: 0
         opacity: visible ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
@@ -3198,7 +3472,7 @@ Window {
 
     // ---- Android back: exit prompt -------------------------------------
     // Small centered popup ("Pulsa otra vez para salir"): same surface
-    // language as the toast above (Sys.surfaceAlt island, mid-size text)
+    // language as the toast above (Theme.sAlt(Sys.bg, Sys.text) island, mid-size text)
     // but in the middle of the screen so the thumb that just went back
     // can see it. Sized with safe-area margins on both sides so it
     // cannot touch the gesture edges on any phone.
@@ -3210,7 +3484,7 @@ Window {
         width: Math.min(backPromptLabel.implicitWidth + 36, root.width - 2 * (Theme.panelMargin + Theme.s5))
         height: backPromptLabel.implicitHeight + 20
         radius: Theme.rMd
-        color: Sys.surfaceAlt
+        color: Theme.sAlt(Sys.bg, Sys.text)
         border.width: 0
         opacity: visible ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
@@ -3257,7 +3531,7 @@ Window {
             Text {
                 Layout.fillWidth: true
                 text: sec.title.toUpperCase()
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 font.weight: Font.DemiBold
                 font.letterSpacing: 1.4
@@ -3268,7 +3542,7 @@ Window {
                 radius: Theme.rLg
                 // A shade lighter than the island, so the card reads as a
                 // card on top of it (like the rest of the app).
-                color: Sys.surfaceAlt
+                color: Theme.sAlt(Sys.bg, Sys.text)
                 // The same faint edge as the islands: the hierarchy is
                 // marked by the air, not by a hard line.
                 border.width: 1
@@ -3309,7 +3583,7 @@ Window {
                     Layout.fillWidth: true
                     visible: row.desc !== ""
                     text: row.desc
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                     elide: Text.ElideRight
                     maximumLineCount: 1
@@ -3347,7 +3621,7 @@ Window {
                     Layout.fillWidth: true
                     visible: blk.desc !== ""
                     text: blk.desc
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                     elide: Text.ElideRight
                     maximumLineCount: 1
@@ -3367,15 +3641,15 @@ Window {
             signal toggled()
             width: 40
             height: 22
-            radius: 11
-            color: tg.checked ? Sys.accent : Theme.mix(Sys.surface, Sys.text, 0.16)
+            radius: Theme.rPill
+            color: tg.checked ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.mix(Sys.surface, Sys.text, 0.16)
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Rectangle {
                 width: 18
                 height: 18
-                radius: 9
-                color: Sys.onAccent
+                radius: Theme.rPill
+                color: Theme.onAccent(Sys.accent)
                 anchors.verticalCenter: parent.verticalCenter
                 x: tg.checked ? parent.width - width - 3 : 3
                 Behavior on x { NumberAnimation { duration: Theme.fastMs } }
@@ -3409,7 +3683,7 @@ Window {
                 anchors.centerIn: parent
                 text: ch.text
                 color: ch.selected ? Sys.accent
-                                   : (chHover.containsMouse ? Sys.text : Sys.textDim)
+                                   : (chHover.containsMouse ? Sys.text : Theme.tDim(Sys.bg, Sys.text))
                 font.pixelSize: Theme.tSm
                 font.weight: ch.selected ? Font.DemiBold : Font.Normal
                 elide: Text.ElideRight
@@ -3438,7 +3712,7 @@ Window {
             Text {
                 visible: fld.label !== ""
                 text: fld.label
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tXs
             }
             Rectangle {
@@ -3447,7 +3721,7 @@ Window {
                 radius: Theme.rMd
                 color: Sys.bg
                 border.width: 1
-                border.color: input.activeFocus ? Sys.accent : Sys.borderSubtle
+                border.color: input.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
                 Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
                 TextInput {
@@ -3467,7 +3741,7 @@ Window {
                     anchors.leftMargin: Theme.s3
                     verticalAlignment: Text.AlignVCenter
                     text: fld.placeholder
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
             }
@@ -3490,7 +3764,7 @@ Window {
                 id: pbLabel
                 anchors.centerIn: parent
                 text: pb.text
-                color: Sys.onAccent
+                color: Theme.onAccent(Sys.accent)
                 font.pixelSize: Theme.tMd
                 font.weight: Font.DemiBold
             }
@@ -3517,8 +3791,8 @@ Window {
             height: 34
             radius: Theme.rPill
             color: gbHover.containsMouse
-                   ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Sys.surfaceAlt))
-                   : (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Sys.surfaceAlt)
+                   ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Theme.sAlt(Sys.bg, Sys.text)))
+                   : (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.sAlt(Sys.bg, Sys.text))
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Text {
@@ -3527,7 +3801,7 @@ Window {
                 text: gb.text
                 color: gb.danger
                        ? Sys.danger
-                       : (gbHover.containsMouse ? Sys.accent : Sys.text)
+                       : (gbHover.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text)
                 font.pixelSize: Theme.tMd
                 font.weight: Font.DemiBold
             }
@@ -3558,7 +3832,7 @@ Window {
                 id: sbLabel
                 anchors.centerIn: parent
                 text: sb.ok ? sb.okText : sb.offText
-                color: sb.ok ? Sys.accent : Sys.danger
+                color: sb.ok ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.danger
                 font.pixelSize: Theme.tXs
                 font.weight: Font.DemiBold
             }
@@ -3603,7 +3877,7 @@ Window {
                     width: Theme.touch ? 36 : 32
                     height: Theme.touch ? 36 : 32
                     radius: Theme.rMd
-                    color: closeMa.containsMouse ? Sys.surfaceAlt : "transparent"
+                    color: closeMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
@@ -3612,7 +3886,7 @@ Window {
                         kind: "x"
                         // Touch has no hover: idle stays bright (the dim
                         // one was unreadable on the phone).
-                        color: (closeMa.containsMouse || Theme.touch) ? Sys.text : Sys.textDim
+                        color: (closeMa.containsMouse || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                     }
                     MouseArea {
                         id: closeMa
@@ -3699,6 +3973,7 @@ Window {
                                 PrimaryButton {
                                     text: "Aplicar"
                                     onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
                                         const v = accentField.text.trim()
                                         if (!root.hexOk(v)) {
                                             root.toast("Color inválido: usa #rrggbb")
@@ -3826,17 +4101,23 @@ Window {
                                     text: (root.lyricsOffset > 0 ? "+" : "")
                                           + root.lyricsOffset.toFixed(1) + " s"
                                     color: Math.abs(root.lyricsOffset) > 0.001
-                                           ? Sys.accent : Sys.textDim
+                                           ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     font.weight: Font.DemiBold
                                 }
                                 GhostButton {
                                     text: "−"
-                                    onClicked: root.setLyricsOffset(root.lyricsOffset - 0.1)
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        root.setLyricsOffset(root.lyricsOffset - 0.1)
+                                    }
                                 }
                                 GhostButton {
                                     text: "+"
-                                    onClicked: root.setLyricsOffset(root.lyricsOffset + 0.1)
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        root.setLyricsOffset(root.lyricsOffset + 0.1)
+                                    }
                                 }
                             }
                         }
@@ -3845,7 +4126,52 @@ Window {
                             desc: "Modo cine de dos columnas; también con L, F o Ctrl+L"
                             GhostButton {
                                 text: "Abrir"
-                                onClicked: root.openFullscreenLyrics()
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    root.openFullscreenLyrics()
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // ALMACENAMIENTO
+                    // ======================================================
+                    SettingSection {
+                        title: "Almacenamiento"
+
+                        SettingRow {
+                            label: "Caché de audio"
+                            desc: audiocache.summary
+                                  + " · se borran primero las más antiguas"
+                            GhostButton {
+                                text: "Borrar"
+                                onClicked: {
+                                    const n = audiocache.clear()
+                                    if (typeof sfx !== "undefined")
+                                        sfx.play("tap")
+                                    root.toast(n > 0
+                                        ? "Caché borrada (" + n + " pistas)"
+                                        : "El caché ya estaba vacío")
+                                }
+                            }
+                        }
+                        SettingBlock {
+                            label: "Límite"
+                            desc: "Al pasarse, se eliminan las pistas que hace más tiempo que no suenan"
+                            RowLayout {
+                                spacing: Theme.s2
+                                Repeater {
+                                    model: [ { mb: 512, t: "512 MB" },
+                                             { mb: 1024, t: "1 GB" },
+                                             { mb: 2048, t: "2 GB" },
+                                             { mb: 0, t: "Sin límite" } ]
+                                    Chip {
+                                        text: modelData.t
+                                        selected: audiocache.limitMB === modelData.mb
+                                        onPicked: audiocache.limitMB = modelData.mb
+                                    }
+                                }
                             }
                         }
                     }
@@ -3864,7 +4190,7 @@ Window {
                                 Text {
                                     text: discord.connected ? "Conectado"
                                           : (root.discordEnabled ? "Sin conexión" : "Desactivado")
-                                    color: discord.connected ? Sys.accent : Sys.textDim
+                                    color: discord.connected ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tXs
                                     font.weight: Font.DemiBold
                                 }
@@ -3895,21 +4221,24 @@ Window {
                                 radius: Theme.rMd
                                 color: Sys.bg
                                 border.width: 1
-                                border.color: Sys.borderSubtle
+                                border.color: Theme.line(Sys.bg, Sys.text)
                                 Text {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.s3
                                     anchors.rightMargin: Theme.s3
                                     verticalAlignment: Text.AlignVCenter
                                     text: downloads.folder
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideMiddle
                                 }
                             }
                             GhostButton {
                                 text: "Abrir carpeta"
-                                onClicked: downloads.openFolder()
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    downloads.openFolder()
+                                }
                             }
                         }
 
@@ -3921,20 +4250,24 @@ Window {
                                 text: updates.available
                                       ? "Hay una versión nueva: " + updates.latestVersion
                                       : "Versión actual: " + updates.currentVersion
-                                color: updates.available ? Sys.accent : Sys.textDim
+                                color: updates.available ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tSm
                                 elide: Text.ElideRight
                             }
                             GhostButton {
                                 text: "Buscar actualizaciones"
                                 onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
                                     updates.check()
                                 }
                             }
                             GhostButton {
                                 text: "Ver la versión publicada"
                                 visible: updates.url !== ""
-                                onClicked: updates.openDownload()
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    updates.openDownload()
+                                }
                             }
                         }
 
@@ -3944,6 +4277,7 @@ Window {
                             GhostButton {
                                 text: "Exportar la sesión"
                                 onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
                                     root.sessionExported = catalog.exportSession(root.sessionPath)
                                     root.toast(root.sessionExported
                                                ? "Sesión exportada a " + root.sessionPath
@@ -3952,7 +4286,10 @@ Window {
                             }
                             GhostButton {
                                 text: "Importar la sesión"
-                                onClicked: sessionDialog.open()
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    sessionDialog.open()
+                                }
                             }
                         }
                     }
@@ -3994,7 +4331,7 @@ Window {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "ytm"
                                     text: "Inicia sesión con Google y sincroniza tus «Me gusta»."
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideRight
                                 }
@@ -4006,12 +4343,18 @@ Window {
                                     StatusBadge { ok: true; okText: "Sesión iniciada" }
                                     GhostButton {
                                         text: "Sincronizar Me gusta"
-                                        onClicked: catalog.syncLiked()
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            catalog.syncLiked()
+                                        }
                                     }
                                     GhostButton {
                                         text: "Cerrar sesión"
                                         danger: true
-                                        onClicked: catalog.logoutYTM()
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            catalog.logoutYTM()
+                                        }
                                     }
                                     Item { Layout.fillWidth: true }
                                 }
@@ -4020,7 +4363,10 @@ Window {
                                     visible: modelData.id === "ytm"
                                              && (root.ytmState() === "" || root.ytmState() === "nologin")
                                     text: "Iniciar sesión con Google"
-                                    onClicked: root.ytmLogin()
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        root.ytmLogin()
+                                    }
                                 }
 
                                 ColumnLayout { // waiting for the sign in
@@ -4062,7 +4408,10 @@ Window {
                                         GhostButton {
                                             text: "Cancelar"
                                             danger: true
-                                            onClicked: catalog.logoutYTM()
+                                            onClicked: {
+                                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                                catalog.logoutYTM()
+                                            }
                                         }
                                     }
                                 }
@@ -4081,7 +4430,10 @@ Window {
                                     }
                                     PrimaryButton {
                                         text: "Reintentar"
-                                        onClicked: root.ytmLogin()
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            root.ytmLogin()
+                                        }
                                     }
                                 }
 
@@ -4090,7 +4442,7 @@ Window {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "soundcloud"
                                     text: "Acceso público, sin necesidad de cuenta."
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideRight
                                 }
@@ -4130,6 +4482,7 @@ Window {
                                         PrimaryButton {
                                             text: "Guardar"
                                             onClicked: {
+                                                if (typeof sfx !== "undefined") sfx.play("tap")
                                                 root.cfgLogin("spotify", spotCid.text,
                                                               spotUser.text, spotPass.text)
                                                 root.toast("Guardado en la configuración")
@@ -4138,7 +4491,7 @@ Window {
                                         Text {
                                             Layout.fillWidth: true
                                             text: "Se activará cuando el backend librespot esté listo."
-                                            color: Sys.textDim
+                                            color: Theme.tDim(Sys.bg, Sys.text)
                                             font.pixelSize: Theme.tXs
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
@@ -4175,6 +4528,7 @@ Window {
                                         PrimaryButton {
                                             text: "Guardar"
                                             onClicked: {
+                                                if (typeof sfx !== "undefined") sfx.play("tap")
                                                 root.cfgLogin("tidal", tidalUser.text,
                                                               tidalPass.text, "")
                                                 root.toast("Guardado en la configuración")
@@ -4183,7 +4537,7 @@ Window {
                                         Text {
                                             Layout.fillWidth: true
                                             text: "Se activará cuando el backend esté listo."
-                                            color: Sys.textDim
+                                            color: Theme.tDim(Sys.bg, Sys.text)
                                             font.pixelSize: Theme.tXs
                                             elide: Text.ElideRight
                                             verticalAlignment: Text.AlignVCenter
@@ -4231,7 +4585,10 @@ Window {
 
         MouseArea { // click outside closes
             anchors.fill: parent
-            onClicked: root.closeLauncher()
+            onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                root.closeLauncher()
+            }
         }
 
         Rectangle {
@@ -4261,7 +4618,7 @@ Window {
                     radius: Theme.rMd
                     color: Sys.bg
                     border.width: 1
-                    border.color: launchInput.activeFocus ? Sys.accent : Sys.borderSubtle
+                    border.color: launchInput.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
                     Behavior on border.color { ColorAnimation { duration: Theme.fastMs } }
 
                     RowLayout {
@@ -4273,7 +4630,7 @@ Window {
                             width: 16
                             height: 16
                             kind: "search"
-                            color: Sys.textDim
+                            color: Theme.tDim(Sys.bg, Sys.text)
                         }
                         TextInput {
                             id: launchInput
@@ -4288,7 +4645,7 @@ Window {
                         }
                         Text {
                             text: "Esc"
-                            color: Sys.textDim
+                            color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.bold: true
                             opacity: 0.6
@@ -4314,7 +4671,7 @@ Window {
                             Layout.topMargin: Theme.s2
                             visible: root.launcherRows.length === 0
                             text: "Sin resultados"
-                            color: Sys.textDim
+                            color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                             horizontalAlignment: Text.AlignHCenter
                         }
@@ -4334,7 +4691,7 @@ Window {
                                     anchors.left: parent.left
                                     anchors.leftMargin: Theme.s2
                                     text: modelData.t
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tXs
                                     font.letterSpacing: 1.4
                                 }
@@ -4358,7 +4715,7 @@ Window {
                                             kind: lrow.modelData.kind === "source"
                                                   ? (lrow.modelData.locked ? "lock" : "search")
                                                   : (lrow.modelData.kind === "playlist" ? "library" : "play")
-                                            color: rowHover.containsMouse ? Sys.accent : Sys.textDim
+                                            color: rowHover.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                         }
                                         ColumnLayout {
                                             Layout.fillWidth: true
@@ -4375,7 +4732,7 @@ Window {
                                                 Layout.fillWidth: true
                                                 visible: (lrow.modelData.s || "").length > 0
                                                 text: lrow.modelData.h ? "" : (lrow.modelData.s || "")
-                                                color: Sys.textDim
+                                                color: Theme.tDim(Sys.bg, Sys.text)
                                                 font.pixelSize: Theme.tXs
                                                 elide: Text.ElideRight
                                             }
@@ -4387,7 +4744,10 @@ Window {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: root.launcherActivate(lrow.modelData)
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            root.launcherActivate(lrow.modelData)
+                                        }
                                     }
                                 }
                             }

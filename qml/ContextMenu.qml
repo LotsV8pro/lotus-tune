@@ -24,7 +24,8 @@ Item {
     readonly property int pad: 6
     readonly property real idealH: col.implicitHeight + 2 * pad
 
-    visible: open
+    // Se queda visible mientras se desvanece: cerrar tambien se anima.
+    visible: open || island.opacity > 0.01
     z: 96
 
     // Closes the menu by telling the owner (Main), which is the one in
@@ -58,6 +59,12 @@ Item {
         clipContent: true
         opacity: menu.open ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+        // Crece desde la esquina donde se pulso (no aparece ya montado).
+        scale: menu.open ? 1 : 0.955
+        transformOrigin: Item.TopLeft
+        Behavior on scale {
+            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        }
 
         Flickable {
             id: flick
@@ -131,7 +138,7 @@ Item {
                                     Layout.alignment: Qt.AlignVCenter
                                     visible: (modelData.icon || "").length > 0
                                     kind: modelData.icon || "music"
-                                    color: !row.can ? Sys.textDim
+                                    color: !row.can ? Theme.tDim(Sys.bg, Sys.text)
                                            : (modelData.danger === true ? Sys.danger
                                               : (modelData.checked === true || row.on
                                                  ? row.hi : Sys.text))
@@ -141,7 +148,7 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.alignment: Qt.AlignVCenter
                                     text: modelData.label || ""
-                                    color: !row.can ? Sys.textDim
+                                    color: !row.can ? Theme.tDim(Sys.bg, Sys.text)
                                            : (modelData.danger === true ? Sys.danger
                                               : (row.on ? row.hi : Sys.text))
                                     font.pixelSize: Theme.tBase

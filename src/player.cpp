@@ -1,11 +1,29 @@
 #include "player.h"
+#include "audiocache.h"
+#include "errortext.h"
 
 #ifdef Q_OS_ANDROID
 #include <QAudioOutput>
+#include <QCoreApplication>
 #include <QMediaPlayer>
+#include <cstring>
 #include <QCryptographicHash>
 #include <QNetworkAccessManager>
+#include <QNetworkReply>
+#ifdef Q_OS_ANDROID
+#include <QNetworkInformation>
+#endif
 #include <QNetworkRequest>
+#include <QSaveFile>
+
+// Contexto Android (widget/notificacion).
+static jobject ltAndroidContext();
+static bool ltWidgetJava();
+static bool ltServiceJava();
+// Duracion real del audio descargado (definida mas abajo).
+static qint64 localAudioDurationMs(const QString &path);
+// Id del video de una url de YouTube (definida mas abajo).
+static QString videoIdOf(const QString &trackUrl);
 #endif
 #include "paths.h"
 
@@ -67,6 +85,40 @@ Player::Player(QObject *parent)
         connect(&job->proc, &QProcess::finished, this,
                 [this, job](int code, QProcess::ExitStatus) { onResolveFinished(job, code); });
     }
+
+    // Al cambiar de red (wifi <-> datos) la IP publica cambia y las urls
+    // firmadas dejan de valer: se tira de la cache para resolver de nuevo
+    // en la red nueva (si no, el 403 es permanente hasta reiniciar). El
+    // backend puede no existir en algunos despliegues: se ignora.
+#ifdef Q_OS_ANDROID
+    if (QNetworkInformation::loadDefaultBackend()) {
+        auto *ni = QNetworkInformation::instance();
+        if (ni) {
+            m_lastMedium = int(ni->transportMedium());
+            connect(ni, &QNetworkInformation::transportMediumChanged, this,
+                    [this](QNetworkInformation::TransportMedium m) {
+                        const int now = int(m);
+                        if (now == m_lastMedium)
+                            return;
+                        m_lastMedium = now;
+                        qInfo() << "[player] ha cambiado la red: se descarta la"
+                                   " cache de streams (las urls van por IP)";
+                        m_resolved.clear();
+                        m_resolvedAt.clear();
+                        m_cacheDirty = true;
+                        m_cacheSaveTimer.start();
+                    });
+        }
+    }
+#endif
+
+#ifdef Q_OS_ANDROID
+    m_chainTimer = new QTimer(this);
+    m_chainTimer->setSingleShot(true);
+    m_chainTimer->setInterval(35000);   // la cadena normal tarda ~2 s
+    connect(m_chainTimer, &QTimer::timeout, this,
+            [this]() { abortChain(QStringLiteral("timeout")); });
+#endif
 
     startMpv();
     m_connectTimer.start();
@@ -130,10 +182,18 @@ void Player::loadStreamCache()
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
         const QJsonArray a = it.value().toArray();
-        if (a.size() != 2)
+        if (a.size() < 2)
             continue;
         const QString direct = a.at(0).toString();
         const qint64 ts = qint64(a.at(1).toDouble());
+        // Tercer campo (opcional): duracion de la pista segun YouTube.
+        // Se guarda para que una pista ya cacheada enseñe su tiempo real
+        // aunque no se vuelva a resolver.
+        if (a.size() >= 3) {
+            const double secs = a.at(2).toDouble();
+            if (secs > 0.0)
+                m_trackDur.insert(it.key(), secs);
+        }
         if (direct.isEmpty() || now - ts > kStreamCacheTtlSec)
             continue;
         m_resolved.insert(it.key(), direct);
@@ -161,7 +221,8 @@ void Player::saveStreamCache()
         items = items.mid(0, 300);
     QJsonObject o;
     for (const auto &p : items)
-        o.insert(p.first, QJsonArray{m_resolved.value(p.first), double(p.second)});
+        o.insert(p.first, QJsonArray{m_resolved.value(p.first), double(p.second),
+                                    m_trackDur.value(p.first, 0.0)});
     QDir().mkpath(QFileInfo(m_cacheFile).absolutePath());
     QFile f(m_cacheFile);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
@@ -169,6 +230,23 @@ void Player::saveStreamCache()
     f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
     f.close();
 }
+
+void Player::setLastError(const QString &msg)
+{
+    if (m_lastError == msg)
+        return;
+    m_lastError = msg;
+    emit lastErrorChanged();
+}
+
+#ifndef Q_OS_ANDROID
+// En escritorio no hay widget de inicio ni notificacion de Android: el
+// QML es el mismo en las dos versiones, asi que la llamada es un no-op.
+void Player::updateWidget(const QString &, const QString &, bool, bool, int,
+                          bool, const QString &, double, double)
+{
+}
+#endif
 
 void Player::startMpv()
 {
@@ -183,24 +261,82 @@ void Player::startMpv()
                 [this](qint64 pos) {
                     m_position = pos / 1000.0;
                     emit positionChanged();
+                    // Respaldo del fin de pista: algunos backends de
+                    // Android se paran al final SIN avisar por
+                    // mediaStatusChanged, y la musica se quedaba muda en
+                    // la ultima cancion.
+                    if (m_duration > 0.0 && m_playing && m_position > 0.5
+                        && m_position >= m_duration - 0.35)
+                        androidEndOfTrack("posicion");
                 });
         connect(m_androidPlayer, &QMediaPlayer::durationChanged, this,
                 [this](qint64 dur) {
+                    // Un 0 del backend no borra la duracion leida del
+                    // fichero: los MP4 fragmentados de YouTube se quedan
+                    // en 0 y la barra enseñaba 0:00.
+                    if (dur <= 0 && m_duration > 0.0)
+                        return;
                     m_duration = dur / 1000.0;
                     emit stateChanged();
+                });
+        // El final de pista REAL: sin esto (solo lo emitia mpv) la
+        // cancion acababa y no pasaba a la siguiente.
+        connect(m_androidPlayer, &QMediaPlayer::mediaStatusChanged, this,
+                [this](QMediaPlayer::MediaStatus st) {
+                    if (st == QMediaPlayer::EndOfMedia) {
+                        androidEndOfTrack("EndOfMedia");
+                    } else if (st == QMediaPlayer::InvalidMedia) {
+                        if (m_endFired)
+                            return;
+                        m_endFired = true;
+                        qWarning() << "[player] medio no valido:"
+                                   << m_currentUrl;
+                        m_hasFile = false;
+                        m_loading = false;
+                        if (!m_currentUrl.isEmpty()
+                            && m_resolved.remove(m_currentUrl) > 0) {
+                            m_resolvedAt.remove(m_currentUrl);
+                            m_cacheDirty = true;
+                            m_cacheSaveTimer.start();
+                        }
+                        emit endOfFile(false);
+                    }
                 });
         connect(m_androidPlayer, &QMediaPlayer::playbackStateChanged, this,
                 [this](QMediaPlayer::PlaybackState st) {
                     m_playing = st == QMediaPlayer::PlayingState;
                     m_hasFile = st != QMediaPlayer::StoppedState;
+                    // Con la app en segundo plano o la pantalla apagada el
+                    // servicio en primer plano mantiene el proceso vivo.
+                    setBackgroundPlayback(st != QMediaPlayer::StoppedState);
                     emit stateChanged();
                 });
         connect(m_androidPlayer, &QMediaPlayer::errorOccurred, this,
-                [this](QMediaPlayer::Error, const QString &err) {
-                    qWarning() << "[player] error de reproducción:" << err;
+                [this](QMediaPlayer::Error e, const QString &err) {
+                    qWarning() << "[player] error de reproducción:" << int(e)
+                               << err << "| source:"
+                               << (m_androidPlayer->source().isValid()
+                                       ? m_androidPlayer->source().toString().left(160)
+                                       : QStringLiteral("<sin fuente>"));
                     m_loading = false;
                     emit stateChanged();
                 });
+    }
+    // Widget + servicio de reproduccion en segundo plano. Si las clases
+    // Java no estan en el APK se avisa y se sigue: la musica funciona
+    // igual, solo faltan los controles externos.
+    if (!ltWidgetJava())
+        qWarning() << "[widget] PlayerWidget no esta en el APK:"
+                   << "recompila el modulo Java (gradle) o reinstala";
+    else
+        QJniObject::callStaticMethod<void>(
+            "io/github/lotsv8pro/lotustune/PlayerWidget", "attach",
+            "(Landroid/content/Context;)V", ltAndroidContext());
+    if (ltWidgetJava() && !m_widgetPoll) {
+        m_widgetPoll = new QTimer(this);
+        m_widgetPoll->setInterval(400);
+        connect(m_widgetPoll, &QTimer::timeout, this, &Player::pollWidgetActions);
+        m_widgetPoll->start();
     }
     m_ready = true;
     emit stateChanged();
@@ -422,9 +558,12 @@ void Player::handleLine(const QByteArray &line)
                 m_cacheDirty = true;
                 m_cacheSaveTimer.start();
             }
+            const QString rawErr =
+                o.value(QStringLiteral("error")).toString() + QLatin1Char(' ')
+                + o.value(QStringLiteral("file_error")).toString();
             qWarning() << "[player] playback error" << "url=" << m_currentUrl
-                       << "err=" << o.value(QStringLiteral("error")).toString()
-                       << "file=" << o.value(QStringLiteral("file_error")).toString();
+                       << "err=" << rawErr;
+            setLastError(LotusText::friendlyNetError(rawErr));
             // Typical transient YouTube/yt-dlp failure (rate limit or
              // token): it retries the same track a couple of times before
              // giving it up.
@@ -437,6 +576,8 @@ void Player::handleLine(const QByteArray &line)
                         load(url);
                 });
             } else {
+                if (m_lastError.isEmpty())
+                    setLastError(tr("No se ha podido reproducir la pista."));
                 emit endOfFile(false);
             }
         }
@@ -481,6 +622,65 @@ void Player::load(const QString &url)
     loadImpl(url, /*allowResolve=*/true);
 }
 
+// Abre un fichero local en el reproductor de Qt. La duracion se mide en
+// el propio fichero porque el backend de Android no la saca de los MP4
+// fragmentados de YouTube (la barra se quedaba en 0:00 y no se podia
+// saltar dentro de la cancion).
+#ifdef Q_OS_ANDROID
+void Player::androidPlayLocalFile(const QString &path)
+{
+    if (!m_androidPlayer)
+        return;
+    m_mediaDurMs = localAudioDurationMs(path);
+    if (m_mediaDurMs > 0) {
+        m_duration = m_mediaDurMs / 1000.0;
+        qInfo() << "[player] duracion del fichero:" << m_duration << "s";
+    } else if (m_duration <= 0.0 && !m_currentUrl.isEmpty()) {
+        // El fichero no lleva la duracion (WebM DASH): se usa la que
+        // dio YouTube al resolver. Se compara por id porque la url de la
+        // pista puede ser music.youtube.com y la resuelta www.youtube.com.
+        double secs = 0.0;
+        const QString want = videoIdOf(m_currentUrl);
+        for (auto it = m_trackDur.constBegin(); it != m_trackDur.constEnd(); ++it) {
+            if (videoIdOf(it.key()) == want) {
+                secs = it.value();
+                break;
+            }
+        }
+        if (secs > 0.0) {
+            m_duration = secs;
+            qInfo() << "[player] duracion (YouTube):" << m_duration << "s";
+        }
+    }
+    m_androidPlayer->setSource(QUrl::fromLocalFile(path));
+    m_androidPlayer->play();
+    m_loading = false;
+    emit stateChanged();
+}
+
+// Fin de pista del reproductor de Qt.
+//
+// El anti-rebote es imprescindible: al cargar la pista siguiente, el
+// backend todavia entrega posiciones de la anterior (al final), y sin
+// ventana el aviso se repetia 3-4 veces seguidas y el reproductor se
+// saltaba canciones. 3 s es mas que suficiente para que la nueva fuente
+// arranque en 0.
+void Player::androidEndOfTrack(const char *why)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_endFired || now < m_endBlockUntil)
+        return;
+    m_endFired = true;
+    m_endBlockUntil = now + 3000;
+    m_hasFile = false;
+    m_loading = false;
+    m_position = 0;
+    emit positionChanged();
+    qInfo() << "[player] fin de pista (" << why << ")";
+    emit endOfFile(true);
+}
+#endif   // Q_OS_ANDROID
+
 void Player::loadImpl(const QString &rawUrl, bool allowResolve)
 {
     const QString url = normalizeUrl(rawUrl);
@@ -501,28 +701,45 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
     if (m_androidPlayer) {
         m_pendingLoadUrl.clear();
         m_position = 0;
-        m_duration = 0;
+        m_duration = m_hintDur > 0.0 ? m_hintDur : 0.0;
+        m_mediaDurMs = 0;
+        m_endFired = false;
         m_currentUrl = url;
         m_hasFile = true;
         m_loading = true;
+    setLastError(QString());
         m_playing = true;
         emit positionChanged();
         emit stateChanged();
         if (network) {
             // Cached from an earlier prefetch: it sounds instantly.
             if (m_resolved.contains(url)) {
-                m_loading = false;
-                m_androidPlayer->setSource(QUrl(m_resolved.value(url)));
-                m_androidPlayer->play();
-                emit stateChanged();
+                const QString direct = m_resolved.value(url);
+                const QString localPath = m_audioLocal.value(url);
+                if (!localPath.isEmpty() && QFileInfo(localPath).isFile()
+                    && QFileInfo(localPath).size() > 4096) {
+                    androidPlayLocalFile(localPath);
+                    return;
+                }
+                if (direct.startsWith(QStringLiteral("file:"))) {
+                    // Stale cache entry of an old build: a deleted local
+                    // file is resolved again from scratch.
+                    if (QFileInfo(direct.mid(7)).isFile()) {
+                        androidPlayLocalFile(direct.mid(7));
+                        return;
+                    }
+                    m_resolved.remove(url);
+                    beginChain(url);
+                    return;
+                }
+                // A http url cached: it goes through the local copy (the
+                // same path as the fresh resolutions).
+                startAudioFetch(url, direct, true);
                 return;
             }
-            resolveWithApi(url);
+            beginChain(url);
         } else {
-            m_androidPlayer->setSource(QUrl::fromLocalFile(url));
-            m_androidPlayer->play();
-            m_loading = false;
-            emit stateChanged();
+            androidPlayLocalFile(url);
         }
         return;
     }
@@ -677,6 +894,11 @@ void Player::resolveQueue()
     for (ResolveJob *job : m_jobs) {
         if (job->proc.state() != QProcess::NotRunning)
             continue;
+        // Un trabajo que ya tiene url esta en espera (en Android solo hay
+        // una cadena a la vez, asi que los demas esperan su turno): pisar
+        // su url lo perderia.
+        if (!job->url.isEmpty())
+            continue;
         bool front = false;
         const QString url = takeNextResolve(front);
         if (url.isEmpty())
@@ -731,17 +953,17 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     args << url;
 #ifdef Q_OS_ANDROID
     // No yt-dlp on a phone: the stream is resolved with the app's own
-    // chain (WEB_REMIX + WebView solver). One chain at a time: while one
-    // resolution is in flight the other jobs finish as failed so the
-    // queue keeps flowing (the player JS is cached, so a chain is a
-    // couple of requests once warm).
+    // chain (WEB_REMIX + WebView solver). One chain at a time: los demas
+    // trabajos se quedan ESPERANDO su turno (job->url puesto) y
+    // endChain() vuelve a llamar a resolveQueue(). Antes se daban por
+    // fallidos al instante, y como el fallo arrastraba un loadImpl(), la
+    // pista que el usuario acababa de pedir se quedaba sin sonar.
     if (!m_apTrack.isEmpty()) {
-        onResolveFinished(job, 1);
+        job->timer.stop();
         return;
     }
     m_chainJob = job;
-    m_apTrack = url;
-    resolveWithApi(url);
+    beginChain(url);
     return;
 #endif
     job->proc.setProgram(QStringLiteral("yt-dlp"));
@@ -774,10 +996,18 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
 
 bool Player::isResolving(const QString &url) const
 {
+    // Un trabajo con url asignada esta resolviendose (Linux: yt-dlp en
+    // marcha) o esperando turno (Android: cola de la cadena unica). Sin
+    // esto, en el movil el dedupe no funcionaba (proc nunca arranca) y la
+    // misma pista se encolaba una y otra vez.
     for (const ResolveJob *job : m_jobs) {
-        if (job->proc.state() != QProcess::NotRunning && job->url == url)
+        if (!job->url.isEmpty() && job->url == url)
             return true;
     }
+#ifdef Q_OS_ANDROID
+    if (m_apTrack == url)
+        return true;
+#endif
     return false;
 }
 
@@ -1009,7 +1239,7 @@ void Player::setQuality(const QString &q)
 #ifdef Q_OS_ANDROID
 // The session of the user: the cookies file of the app. The API needs the
 // SAPISID to sign the request, and with it it serves the stream.
-QString Player::sessionCookie() const
+QString Player::sessionForOrigin(const QString &origin) const
 {
     QFile f(AppPaths::cookiesFile());
     if (!f.open(QIODevice::ReadOnly))
@@ -1037,12 +1267,12 @@ QString Player::sessionCookie() const
     }
     if (sapisid.isEmpty())
         return QString();
-    // The signature of the request (the same one ytm_api.py uses).
+    // The signature of the request (the same one ytm_api.py uses): the
+    // digest binds the origin of the request, not a fixed host.
     const QString ts = QString::number(QDateTime::currentSecsSinceEpoch());
     const QByteArray digest = QCryptographicHash::hash(
-        QStringLiteral("%1 %2 %3").arg(ts, sapisid,
-                                      QStringLiteral("https://music.youtube.com"))
-            .toUtf8(), QCryptographicHash::Sha1).toHex();
+        QStringLiteral("%1 %2 %3").arg(ts, sapisid, origin).toUtf8(),
+        QCryptographicHash::Sha1).toHex();
     QString cookie;
     for (auto it = jar.constBegin(); it != jar.constEnd(); ++it)
         cookie += QStringLiteral("%1=%2; ").arg(it.key(), it.value());
@@ -1051,70 +1281,291 @@ QString Player::sessionCookie() const
                                                   cookie);
 }
 
-void Player::resolveWithApi(const QString &url)
+// The catalog/lyrics keep talking to music.youtube.com.
+QString Player::sessionCookie() const
 {
-    // The id of the video: the watch URL or the permalink.
-    QString id = url;
-    const int q = id.indexOf(QLatin1Char('?'));
-    if (q >= 0)
-        id = id.left(q);
+    return sessionForOrigin(QStringLiteral("https://music.youtube.com"));
+}
+
+// The 11-character id of the video from any of its url forms:
+// "...watch?v=ID&...", "...youtu.be/ID", "ID".
+static QString videoIdOf(const QString &trackUrl)
+{
+    QString id = trackUrl;
     const int v = id.lastIndexOf(QLatin1Char('='));
     if (v >= 0)
         id = id.mid(v + 1);
+    for (const char stop : {'&', '#', ' '}) {
+        const int at = id.indexOf(QChar::fromLatin1(stop));
+        if (at >= 0)
+            id = id.left(at);
+    }
+    // A non-parameter form (youtu.be/ID) has no '=': the tail is the id.
+    if (id.size() < 11 || id.startsWith(QLatin1String("/watch"))) {
+        const QString tail = trackUrl.mid(trackUrl.lastIndexOf(QLatin1Char('/')) + 1);
+        const int at = tail.indexOf(QLatin1Char('?'));
+        return (at >= 0 && tail.size() - at - 1 >= 11) ? tail.mid(at + 2) : tail;
+    }
+    return id;
+}
+
+// Duracion real del audio descargado, leida del propio fichero.
+//
+// Hace falta porque el reproductor de Qt en Android se queda en 0 con los
+// MP4 fragmentados de YouTube (el `moov` trae `mvex` y el backend no
+// calcula la duracion): la barra enseñaba 0:00 y no se podia buscar dentro
+// de la cancion. Se lee `mvhd` del MP4 y `Info>Duration` del WebM.
+#ifdef Q_OS_ANDROID
+static qint64 localAudioDurationMs(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return 0;
+    const QByteArray buf = f.read(4 * 1024 * 1024);
+    auto be32 = [](const QByteArray &b, int at) -> quint32 {
+        return (quint32(quint8(b.at(at))) << 24)
+               | (quint32(quint8(b.at(at + 1))) << 16)
+               | (quint32(quint8(b.at(at + 2))) << 8)
+               | quint32(quint8(b.at(at + 3)));
+    };
+    // --- MP4 / M4A ---
+    const int mv = buf.indexOf("mvhd");
+    if (mv >= 0 && mv + 32 < buf.size()) {
+        const int p = mv + 4;              // version + flags
+        if (p + 20 <= buf.size()) {
+            const int version = quint8(buf.at(p));
+            quint32 timescale = 0;
+            quint64 duration = 0;
+            if (version == 1) {
+                timescale = be32(buf, p + 20);
+                duration = (quint64(be32(buf, p + 24)) << 32)
+                           | be32(buf, p + 28);
+            } else {
+                timescale = be32(buf, p + 12);
+                duration = be32(buf, p + 16);
+            }
+            if (timescale > 0 && duration > 0)
+                return qint64(double(duration) * 1000.0 / double(timescale));
+        }
+    }
+    // --- WebM / Matroska (itag 249/250/251) ---
+    const int dur = buf.indexOf(QByteArray("\x44\x89", 2));
+    if (dur >= 0 && dur + 2 < buf.size()) {
+        const int b = quint8(buf.at(dur + 2));
+        const int len = b & 0x0f;
+        double secs = 0.0;
+        if ((b & 0x80) && len == 4 && dur + 7 <= buf.size()) {
+            const quint32 raw = be32(buf, dur + 3);
+            float fl;
+            memcpy(&fl, &raw, 4);
+            secs = double(fl);
+        } else if ((b & 0x80) && len == 8 && dur + 11 <= buf.size()) {
+            quint64 raw = 0;
+            for (int i = 0; i < 8; ++i)
+                raw = (raw << 8) | quint8(buf.at(dur + 3 + i));
+            double db;
+            memcpy(&db, &raw, 8);
+            secs = db;
+        }
+        // TimecodeScale por defecto: 1.000.000 ns (1 ms).
+        if (secs > 0.0 && secs < 100000.0)
+            return qint64(secs * 1000.0);
+    }
+    return 0;
+}
+#endif   // Q_OS_ANDROID
+
+// Arranca la cadena de resolucion para `url`. Solo puede haber una en
+// vuelo: el WebView del solver es unico y su estado (retos, url firmada) es
+// de un solo carril. Si hay otra, la pista pedida queda apuntada y entra en
+// cuanto acabe; si es la misma, no se toca nada (reintentarla solo daba
+// "solver busy").
+void Player::beginChain(const QString &url)
+{
+    if (url.isEmpty() || m_resolved.contains(url))
+        return;
+    if (m_apTrack == url)
+        return;
+    if (!m_apTrack.isEmpty()) {
+        m_apWanted = url;
+        qInfo() << "[player] resolucion en espera (cadena ocupada):" << url;
+        return;
+    }
+    m_apTrack = url;
+    m_apUrl.clear();
+    m_apSig.clear();
+    m_apSp.clear();
+    m_apN.clear();
+    if (m_chainTimer)
+        m_chainTimer->start();
+    resolveWithApi(url);
+}
+
+// Cierra la cadena en curso y libera el carril. Deja arrancada la pista
+// que se quedo esperando y vuelve a llenar la cola de resoluciones.
+void Player::endChain()
+{
+    if (m_chainTimer)
+        m_chainTimer->stop();
+    if (m_solverTimer)
+        m_solverTimer->stop();
+    m_apTrack.clear();
+    m_apUrl.clear();
+    m_apSig.clear();
+    m_apSp.clear();
+    m_apN.clear();
+    if (!m_apWanted.isEmpty()) {
+        const QString next = m_apWanted;
+        m_apWanted.clear();
+        QTimer::singleShot(0, this, [this, next]() { beginChain(next); });
+    }
+    // Fuera de esta pila: los trabajos en espera pueden arrancar ya.
+    QTimer::singleShot(0, this, &Player::resolveQueue);
+}
+
+// Abandona la cadena de resolucion en curso y deja el estado limpio para
+// la siguiente pista. Todas las salidas por error pasan por aqui: antes
+// varias dejaban m_apTrack puesto y el reproductor rechazaba en silencio
+// TODAS las resoluciones siguientes (el boton de pasar dejaba de ir).
+void Player::abortChain(const QString &why)
+{
+    if (!m_apTrack.isEmpty() || m_chainJob)
+        qWarning() << "[player] resolucion abandonada:" << why;
+    m_loading = false;
+    ResolveJob *job = m_chainJob;
+    m_chainJob = nullptr;
+    endChain();
+    if (job)
+        onResolveFinished(job, 1);
+    emit stateChanged();
+}
+
+void Player::resolveWithApi(const QString &url)
+{
+    // The 11-character id of the video (the watch URL or the permalink).
+    const QString id = videoIdOf(url);
     if (id.size() < 11)
         return;
 
-    const QString session = sessionCookie();
-    QString auth, cookie;
-    if (!session.isEmpty()) {
-        const int bar = session.indexOf(QLatin1Char('|'));
-        auth = session.left(bar);
-        cookie = session.mid(bar + 1);
+    // TV client (the one yt-dlp plays with today): it answers with
+    // signatureCipher formats on its own, without cookies, once the
+    // player request carries the visitor id (scraped once from the watch
+    // page) and the signatureTimestamp of its own player build.
+    if (m_visitor.isEmpty() || m_sigTs.isEmpty() || m_playerJsText.isEmpty()) {
+        m_apiPending = url;
+        fetchBootPage(url);
+        return;
     }
+    sendPlayerRequest(url);
+}
 
-    // WEB_REMIX is the client that accepts the web session: the mobile
-    // clients reject the browser cookies outright (HTTP 400). It answers
-    // with signatureCipher formats, which the WebView solver decodes.
-    QJsonObject cli;
-    cli[QStringLiteral("clientName")] = QStringLiteral("WEB_REMIX");
-    cli[QStringLiteral("clientVersion")] = QStringLiteral("1.20240101.01.00");
-    cli[QStringLiteral("hl")] = QStringLiteral("es");
-    cli[QStringLiteral("gl")] = QStringLiteral("ES");
+
+void Player::sendPlayerRequest(const QString &trackUrl)
+{
+    // The id of THIS track (a bad id makes YouTube answer "unavailable").
+    const QString id = videoIdOf(trackUrl);
+    static const QUrl apiUrl(QStringLiteral(
+        "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"));
+    static const char *kTvUa =
+        "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 "
+        "(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1";
+
+    QJsonObject tv;
+    tv[QStringLiteral("clientName")] = QStringLiteral("TVHTML5");
+    tv[QStringLiteral("clientVersion")] = QStringLiteral("5.20260707");
+    tv[QStringLiteral("deviceMake")] = QStringLiteral("Samsung");
+    tv[QStringLiteral("deviceModel")] = QStringLiteral("UKS9800");
+    tv[QStringLiteral("userAgent")] = QString::fromLatin1(kTvUa);
+    tv[QStringLiteral("osName")] = QStringLiteral("Tizen");
+    tv[QStringLiteral("osVersion")] = QStringLiteral("2.4.0");
+    tv[QStringLiteral("hl")] = QStringLiteral("en");
+    tv[QStringLiteral("timeZone")] = QStringLiteral("UTC");
+    tv[QStringLiteral("utcOffsetMinutes")] = 0;
     QJsonObject ctx;
-    ctx[QStringLiteral("client")] = cli;
+    ctx[QStringLiteral("client")] = tv;
     ctx[QStringLiteral("user")] = QJsonObject();
     QJsonObject body;
     body[QStringLiteral("videoId")] = id;
     body[QStringLiteral("context")] = ctx;
     body[QStringLiteral("contentCheckOk")] = true;
     body[QStringLiteral("racyCheckOk")] = true;
+    // The sts (read from the player JS) is what makes the player answer
+    // with formats instead of "El vídeo no está disponible".
+    QJsonObject cpc;
+    cpc[QStringLiteral("html5Preference")] = QStringLiteral("HTML5_PREF_WANTS");
+    cpc[QStringLiteral("signatureTimestamp")] = m_sigTs.toInt();
+    QJsonObject playbackContext;
+    playbackContext[QStringLiteral("contentPlaybackContext")] = cpc;
+    body[QStringLiteral("playbackContext")] = playbackContext;
 
-    QNetworkRequest req(QUrl(QStringLiteral("https://music.youtube.com/youtubei/v1/player"
-                                           "?alt=json&key=AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
-                                           "&prettyPrint=false")));
+    QNetworkRequest req(apiUrl);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     req.setTransferTimeout(20000);
-    if (!auth.isEmpty()) {
-        req.setRawHeader("Authorization", auth.toUtf8());
-        req.setRawHeader("Cookie", cookie.toUtf8());
-    }
-    req.setRawHeader("User-Agent",
-                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                     " (KHTML, like Gecko) Chrome/130.0 Safari/537.36");
-    req.setRawHeader("Origin", "https://music.youtube.com");
-    req.setRawHeader("Referer", "https://music.youtube.com/");
+    req.setRawHeader("User-Agent", kTvUa);
+    req.setRawHeader("Origin", "https://www.youtube.com");
+    req.setRawHeader("Referer", "https://www.youtube.com/");
+    req.setRawHeader("X-Youtube-Client-Name", "7");
+    req.setRawHeader("X-Youtube-Client-Version", "5.20260707");
     req.setRawHeader("X-Goog-Api-Format-Version", "1");
+    if (!m_visitor.isEmpty())
+        req.setRawHeader("X-Goog-Visitor-Id", m_visitor.toUtf8());
+    // With a logged session the play is not blocked by IP reputation
+    // (carrier CGNAT networks refuse the anonymous play of some videos).
+    // The digest binds www.youtube.com, the host of this request.
+    const QString session = sessionForOrigin(QStringLiteral("https://www.youtube.com"));
+    if (!session.isEmpty()) {
+        const int bar = session.indexOf(QLatin1Char('|'));
+        req.setRawHeader("Authorization", session.left(bar).toUtf8());
+        req.setRawHeader("Cookie", session.mid(bar + 1).toUtf8());
+        qInfo() << "[player] GetPlayer TV con sesión iniciada";
+    } else {
+        qInfo() << "[player] GetPlayer TV anónimo (sin sesión)";
+    }
 
     if (!m_apiNet)
         m_apiNet = new QNetworkAccessManager(this);
     QNetworkReply *reply = m_apiNet->post(req, QJsonDocument(body).toJson());
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, url]() { onApiReply(reply, url); });
+            [this, reply, trackUrl]() { onApiReply(reply, trackUrl); });
+}
+
+// The watch page gives the anonymous visitor id AND the player id; its
+// TV player build provides the sts.
+void Player::fetchBootPage(const QString &trackUrl)
+{
+    // watch page of the id itself (not of the full url!)
+    const QString id = videoIdOf(trackUrl);
+
+    QNetworkRequest preq(QUrl(QStringLiteral("https://www.youtube.com/watch?v=") + id
+                              + QStringLiteral("&bpctr=9999999999&has_verified=1")));
+    preq.setTransferTimeout(20000);
+    preq.setRawHeader(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like"
+        " Gecko) Chrome/130.0 Safari/537.36");
+    preq.setRawHeader("Accept-Language", "en-US,en;q=0.9");
+    // With a logged session the boot page binds the visitor token to the
+    // account: CGNAT networks refuse the play of an authed request whose
+    // visitor was fetched anonymously.
+    const QString pageSession = sessionCookie();
+    if (!pageSession.isEmpty()) {
+        const int bar = pageSession.indexOf(QLatin1Char('|'));
+        preq.setRawHeader("Cookie", pageSession.mid(bar + 1).toUtf8());
+    }
+    QNetworkReply *preply = (m_apiNet ? m_apiNet : (m_apiNet = new QNetworkAccessManager(this)))->get(preq);
+    connect(preply, &QNetworkReply::finished, this,
+            [this, preply, trackUrl]() { onWatchPageReply(preply, trackUrl); });
 }
 
 void Player::onApiReply(QNetworkReply *reply, const QString &url)
 {
     reply->deleteLater();
+    // Solo interesa la respuesta de la cadena en vuelo: la de una cadena
+    // abandonada llegaba tarde y clobberaba los retos/url de la nueva.
+    if (m_apTrack.isEmpty() || url != m_apTrack) {
+        qInfo() << "[player] respuesta tardia ignorada:" << url;
+        return;
+    }
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
         qWarning() << "[player] la API no devolvió el stream:"
@@ -1122,19 +1573,72 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
                    << reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()
                    << QString::fromUtf8(raw.left(200))
                    << reply->errorString();
-        m_loading = false;
-        emit stateChanged();
+        abortChain(QStringLiteral("respuesta de la API"));
         return;
     }
     const QJsonObject root = QJsonDocument::fromJson(raw).object();
+    // Which video was asked (so failures can be replayed on the desktop
+    // with the exact same id) and the verdict details.
+    const QString rawText = QString::fromUtf8(raw.left(12000));
+    QString reason;
+    if (const int ri = rawText.lastIndexOf(QLatin1String("\"reason\":\"")); ri >= 0) {
+        reason = rawText.mid(ri + 10, 60);
+        reason = reason.left(reason.indexOf(QLatin1Char('"')));
+    }
+    qInfo() << "[player] GetPlayer TV respondió para" << url
+            << "| status:"
+            << root.value(QStringLiteral("playabilityStatus"))
+                   .toObject()
+                   .value(QStringLiteral("status"))
+                   .toString()
+            << "| reason:" << reason;
     const QJsonObject streaming =
         root.value(QStringLiteral("streamingData")).toObject();
 
+    // Duracion de la pista. Hace falta porque el fichero descargado no
+    // siempre la lleva: los WebM DASH de YouTube omiten el elemento
+    // Duration y el MP4 fragmentado se queda en 0:00 en el backend de
+    // Android. Con esto la barra enseña el tiempo real y el respaldo de
+    // fin de pista puede disparar el "siguiente".
+    {
+        double secs = root.value(QStringLiteral("videoDetails"))
+                          .toObject()
+                          .value(QStringLiteral("lengthSeconds"))
+                          .toString()
+                          .toDouble();
+        if (secs <= 0.0) {
+            const QJsonArray af =
+                streaming.value(QStringLiteral("adaptiveFormats")).toArray();
+            for (const QJsonValue &v : af) {
+                const double ms = v.toObject()
+                                      .value(QStringLiteral("approxDurationMs"))
+                                      .toString()
+                                      .toDouble();
+                secs = qMax(secs, ms / 1000.0);
+            }
+        }
+        if (secs > 0.0) {
+            m_trackDur.insert(url, secs);
+            m_cacheDirty = true;
+            m_cacheSaveTimer.start();
+            if (m_duration <= 0.0 && !m_currentUrl.isEmpty()
+                && videoIdOf(url) == videoIdOf(m_currentUrl)) {
+                m_duration = secs;
+                emit stateChanged();
+            }
+        }
+    }
+
     // The best audio format with signatureCipher (WEB_REMIX serves it
-    // scrambled; the WebView solver decodes it).
+    // scrambled; the WebView solver decodes it). Preference for the AAC
+    // m4a (itag 140): the Android decoder (Media3) opens it always, while
+    // the opus/webm can fail on some devices.
     const QJsonArray formats = streaming.value(QStringLiteral("adaptiveFormats")).toArray();
     QString cipher;
+    QString opusCipher;
     int bestBitrate = -1;
+    int opusBitrate = -1;
+    QStringList offered;
     for (const QJsonValue &fv : formats) {
         const QJsonObject f = fv.toObject();
         const QString mine = f.value(QStringLiteral("signatureCipher")).toString();
@@ -1144,12 +1648,49 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
         if (!mime.startsWith(QStringLiteral("audio/")))
             continue;
         const int bitrate = f.value(QStringLiteral("bitrate")).toInt();
-        if (bitrate > bestBitrate) {
-            bestBitrate = bitrate;
-            cipher = mine;
+        offered << QStringLiteral("itag%1 %2 %3k")
+                       .arg(f.value(QStringLiteral("itag")).toInt())
+                       .arg(mime.section(QLatin1Char(';'), 0, 0))
+                       .arg(bitrate / 1000);
+        if (mime.startsWith(QStringLiteral("audio/mp4"))) {
+            if (bitrate > bestBitrate) {
+                bestBitrate = bitrate;
+                cipher = mine;
+            }
+        } else if (bitrate > opusBitrate) {
+            opusBitrate = bitrate;
+            opusCipher = mine;
         }
     }
+    if (!offered.isEmpty())
+        qInfo() << "[player] audio ofrecido:" << offered.join(QLatin1String(" | "));
+    // m4a/AAC es el contenedor más compatible, pero si el nodo sirve un
+    // opus claramente mejor (p. ej. 160k frente a 128k) se usa: se
+    // reproduce desde fichero local y FFmpeg abre ambos.
+    if (!opusCipher.isEmpty() && opusBitrate > bestBitrate + bestBitrate / 10)
+        cipher = opusCipher;
+    else if (cipher.isEmpty())
+        cipher = opusCipher;
     if (cipher.isEmpty()) {
+        // One boot refresh per track: the cached visitor can have gone
+        // stale ("El vídeo no está disponible") — the page gives a new
+        // token and the same request is retried once.
+        const QString pStatus = root.value(QStringLiteral("playabilityStatus"))
+                                    .toObject()
+                                    .value(QStringLiteral("status"))
+                                    .toString();
+        if (!m_retriedBoot && (pStatus == QStringLiteral("UNPLAYABLE")
+                               || pStatus == QStringLiteral("ERROR"))) {
+            m_retriedBoot = true;
+            m_visitor.clear();
+            m_sigTs.clear();
+            m_apUrl.clear();
+            m_apSig.clear();
+            m_apiPending = url;
+            qInfo() << "[player] la API rechazó la pista; renovando el boot";
+            fetchBootPage(url);
+            return;
+        }
         qWarning() << "[player] la API no devolvió ningún formato de audio firmado:"
                    << int(formats.count())
                    << root.value(QStringLiteral("playabilityStatus")).toObject()
@@ -1161,25 +1702,29 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
         qWarning() << raw.left(500);
         qWarning() << root.value(QStringLiteral("playabilityStatus")).toObject()
                           .value(QStringLiteral("reason")).toString();
-        m_loading = false;
-        emit stateChanged();
+        abortChain(QStringLiteral("sin formato de audio firmado"));
         return;
     }
 
     // signatureCipher is form-encoded: url + s + sp (sp names the query
     // parameter that has to carry the decoded signature, usually "sig").
+    // FullyDecoded: YT reencodes even '?' inside the url value (%3F) and
+    // the default decode mode would leave it → a stream url with NO
+    // visible query.
+    m_retriedBoot = false;
     const QUrlQuery sc(cipher);
-    m_apUrl = sc.queryItemValue(QStringLiteral("url"));
-    m_apSig = sc.queryItemValue(QStringLiteral("s"));
+    m_apUrl = sc.queryItemValue(QStringLiteral("url"), QUrl::FullyDecoded);
+    m_apSig = sc.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded);
     m_apSp = sc.hasQueryItem(QStringLiteral("sp"))
-                 ? sc.queryItemValue(QStringLiteral("sp"))
+                 ? sc.queryItemValue(QStringLiteral("sp"), QUrl::FullyDecoded)
                  : QStringLiteral("sig");
     QUrlQuery uq(QUrl(m_apUrl).query());
     m_apN = uq.queryItemValue(QStringLiteral("n"));
     if (m_apUrl.isEmpty() || m_apSig.isEmpty() || m_apN.isEmpty()) {
-        qWarning() << "[player] url/s/n incompletos en el formato";
-        m_loading = false;
-        emit stateChanged();
+        qWarning() << "[player] url/s/n incompletos en el formato (len cipher:"
+                   << cipher.size() << "| url:" << m_apUrl.size() << "| s:"
+                   << m_apSig.size() << "| n:" << m_apN.size() << ")";
+        abortChain(QStringLiteral("url/s/n incompletos"));
         return;
     }
 
@@ -1190,38 +1735,47 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
         solveJsWithPlayerJs(url);
         return;
     }
-    QString id = url;
-    if (const int v = id.lastIndexOf(QLatin1Char('=')); v >= 0)
-        id = id.mid(v + 1);
-    QNetworkRequest preq(QUrl(QStringLiteral("https://www.youtube.com/watch?v=") + id
-                              + QStringLiteral("&bpctr=9999999999&has_verified=1")));
-    preq.setTransferTimeout(20000);
-    preq.setRawHeader(
-        "User-Agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like"
-        " Gecko) Chrome/130.0 Safari/537.36");
-    const QString session = sessionCookie();
-    if (!session.isEmpty()) {
-        const int bar = session.indexOf(QLatin1Char('|'));
-        preq.setRawHeader("Cookie", session.mid(bar + 1).toUtf8());
-    }
-    preq.setRawHeader("Accept-Language", "es-ES,es;q=0.9");
-    QNetworkReply *preply = m_apiNet->get(preq);
-    connect(preply, &QNetworkReply::finished, this,
-            [this, preply, url]() { onWatchPageReply(preply, url); });
+    qInfo() << "[player] falta el player JS: página watch de boot";
+    m_apiPending = url;
+    fetchBootPage(url);
 }
 
 void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
 {
     reply->deleteLater();
+    if (m_apTrack.isEmpty() || trackUrl != m_apTrack) {
+        qInfo() << "[player] página watch tardía ignorada:" << trackUrl;
+        return;
+    }
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
         qWarning() << "[player] la página watch no llegó:" << reply->errorString();
-        m_loading = false;
-        emit stateChanged();
+        abortChain(QStringLiteral("pagina watch"));
+        return;
         return;
     }
     const QString page = QString::fromUtf8(raw);
+    // The anonymous visitor id travels in the page's ytcfg: the TV player
+    // request only answers with formats when this token is in its
+    // X-Goog-Visitor-Id header.
+    static const QRegularExpression visitorRe(QStringLiteral(
+        R"re("INNERTUBE_CONTEXT":\{"client":\{[^}]*?"visitorData":"([^"]+)")re"));
+    if (const QRegularExpressionMatch mv = visitorRe.match(page);
+        mv.hasMatch())
+        m_visitor = mv.captured(1);
+    // The page carries the token JSON-escaped (\u003d, \u0026): decoded
+    // is what the header expects (same as the node reference test).
+    m_visitor.replace(QStringLiteral("\\u003d"), QStringLiteral("="));
+    m_visitor.replace(QStringLiteral("\\u0026"), QStringLiteral("&"));
+    if (!m_visitor.isEmpty())
+        qInfo() << "[player] visitor listo:" << m_visitor.size() << "bytes"
+                << m_visitor.left(14);
+    // Which egress IP YouTube attributed to this boot page (the visitor
+    // token is bound to it: a carrier CGNAT IP explains play refusals
+    // that do not reproduce on the desktop).
+    if (const QRegularExpressionMatch mh = QRegularExpression(QStringLiteral(
+            R"re("remoteHost":"([0-9.]+)")re")).match(page); mh.hasMatch())
+        qInfo() << "[player] remoteHost de la página boot:" << mh.captured(1);
     // The player id is stable for the whole YouTube build: any variant
     // reference gives the id; the classic player_ias variant (the one
     // yt-dlp reads too) is requested directly.
@@ -1243,9 +1797,12 @@ void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
     } else {
         m_playerJsId = m.captured(1);
     }
+    // TV build of the same player id: its challenge functions are the
+    // ones the TVHTML5 formats were signed with (the web player_ias
+    // build decodes them wrongly -> HTTP 403 when fetching).
     QNetworkRequest jreq(QUrl(QStringLiteral("https://www.youtube.com/s/player/")
                               + m_playerJsId
-                              + QStringLiteral("/player_ias.vflset/en_US/base.js")));
+                              + QStringLiteral("/tv-player-ias.vflset/tv-player-ias.js")));
     jreq.setTransferTimeout(30000);
     jreq.setRawHeader(
         "User-Agent",
@@ -1262,6 +1819,10 @@ void Player::onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
                              const QString &trackUrl)
 {
     reply->deleteLater();
+    if (m_apTrack.isEmpty() || trackUrl != m_apTrack) {
+        qInfo() << "[player] player JS tardío ignorado:" << trackUrl;
+        return;
+    }
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
         qWarning() << "[player] el player JS no llegó:" << reply->errorString();
@@ -1270,17 +1831,57 @@ void Player::onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
         return;
     }
     m_playerJsText = QString::fromUtf8(raw);
+    // The signatureTimestamp (sts) travels inside the build itself: the
+    // TV player request needs it or YouTube answers "unavailable".
+    static const QRegularExpression stsRe(QStringLiteral(
+        "(?:signatureTimestamp|sts)\\s*:\\s*([0-9]{5})"));
+    if (const QRegularExpressionMatch mSts = stsRe.match(m_playerJsText);
+        mSts.hasMatch())
+        m_sigTs = mSts.captured(1);
     // A different player id invalidates any preprocessed blob of the old
     // one (a normally running session keeps the same id, so this only
     // happens when YouTube ships a new player build).
     if (!m_preprocessedFor.isEmpty() && m_playerJsId != m_preprocessedFor)
         m_preprocessed.clear();
-    qInfo() << "[player] player JS cargado:" << m_playerJsId << raw.size() << "bytes";
+    qInfo() << "[player] player JS cargado:" << m_playerJsId << raw.size()
+            << "bytes | sts:" << m_sigTs;
+    // Boot path (the page was fetched before asking the API): now the
+    // player request can be sent with visitor + sts ready.
+    if (m_apUrl.isEmpty() && !m_apiPending.isEmpty()) {
+        const QString pending = m_apiPending;
+        m_apiPending.clear();
+        sendPlayerRequest(pending);
+        return;
+    }
     solveJsWithPlayerJs(trackUrl);
 }
 
 void Player::solveJsWithPlayerJs(const QString &trackUrl)
 {
+    // Empty challenges make the solver answer {"":null}: only a plain
+    // mistake of a racing chain can reach here — ignore it, the chain
+    // with the real challenges is already in flight.
+    if (m_apSig.isEmpty() || m_apN.isEmpty()) {
+        qWarning() << "[player] solve con retos vacíos; ignorado (s:"
+                   << m_apSig.size() << "| n:" << m_apN.size() << ")";
+        return;
+    }
+    // A solve is already in flight: the poll serves it; do not hijack
+    // the WebView (a second post returns "solver busy").
+    if (m_solverTimer && m_solverTimer->isActive()) {
+        if (m_apTrack == trackUrl) {
+            // Es la MISMA pista/cadena: el sondeo ya entregara el
+            // resultado. Abandonar aqui dejaba la pista sin sonar para
+            // siempre (era el fallo de "no reproduce" en el movil).
+            qInfo() << "[player] solve ya en vuelo para esta pista; se espera";
+            return;
+        }
+        // El WebView esta con otro reto (de una cadena ya abandonada):
+        // quedarse esperando aqui colgaba el reproductor. Se abandona esta
+        // cadena; la siguiente vuelve a resolver con todo limpio.
+        abortChain(QStringLiteral("solver ocupado"));
+        return;
+    }
     // Challenges: s (signature) and n (throttle). The WebView solver runs
     // the same scripts yt-dlp uses; its answer is polled every 200 ms.
     // The first solve parses the whole player JS (~2.9 MiB) and returns
@@ -1312,6 +1913,10 @@ void Player::solveJsWithPlayerJs(const QString &trackUrl)
 
     m_apTrack = trackUrl;
     m_solverWait = 0;
+    m_solverInput = inputJson;
+    qInfo() << "[player] solve a" << (havePre ? "preprocesado" : "player crudo")
+            << "| s:" << m_apSig.size() << "| n:" << m_apN.size()
+            << "| track:" << trackUrl.right(14);
     if (!m_solverTimer) {
         m_solverTimer = new QTimer(this);
         m_solverTimer->setInterval(200);
@@ -1324,12 +1929,12 @@ void Player::solveJsWithPlayerJs(const QString &trackUrl)
     m_solverTimer->start();
 }
 
-// Reads the preprocessed player from disk (per player id). Returns true
-// when it is NOT usable (the real player text has to be sent).
+// Reads the preprocessed player from disk (per player id, TV JS). Returns
+// true when it is NOT usable (the real player text has to be sent).
 bool Player::loadPreprocessed()
 {
     const QString path = AppPaths::cacheDir()
-                         + QStringLiteral("/solver_pp_%1.js").arg(m_playerJsId);
+                         + QStringLiteral("/solver_pp_%1_tv.js").arg(m_playerJsId);
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly) || f.size() < 4096)
         return true;
@@ -1342,7 +1947,7 @@ void Player::savePreprocessed(const QString &pp)
     m_preprocessed = pp;
     m_preprocessedFor = m_playerJsId;
     const QString path = AppPaths::cacheDir()
-                         + QStringLiteral("/solver_pp_%1.js").arg(m_playerJsId);
+                         + QStringLiteral("/solver_pp_%1_tv.js").arg(m_playerJsId);
     QFile f(path);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         f.write(pp.toUtf8());
@@ -1366,20 +1971,26 @@ void Player::onSolverPoll()
     const QString status = QString::fromUtf8(cs);
     env->ReleaseStringUTFChars(jstatus, cs);
     ++m_solverWait;
-    if (status == QStringLiteral("working") && m_solverWait < 150)
+    if (status == QStringLiteral("working") && m_solverWait < 450)
         return;
+    // "solver busy": the WebView is finishing the previous solve. This
+    // solve never got queued: re-post the same input every ~1 s while
+    // there is patience left.
+    if (status == QStringLiteral("error:solver busy") && m_solverWait < 450) {
+        if (m_solverWait % 5 == 0) {
+            if (m_solverWait % 25 == 0)
+                qInfo() << "[player] el solver sigue ocupado; se reintenta la petición";
+            QJniObject::callStaticMethod<void>(
+                "io/github/lotsv8pro/lotustune/WebViewSolver", "solve",
+                "(Ljava/lang/String;)V",
+                QJniObject::fromString(m_solverInput).object());
+        }
+        return;
+    }
     m_solverTimer->stop();
     if (status != QStringLiteral("done")) {
         qWarning() << "[player] el solver JS no respondió:" << status;
-        if (m_chainJob) {
-            ResolveJob *job = m_chainJob;
-            m_chainJob = nullptr;
-            m_apTrack.clear();
-            m_apUrl.clear();
-            onResolveFinished(job, 1);
-        }
-        m_loading = false;
-        emit stateChanged();
+        abortChain(QStringLiteral("solver JS"));
         return;
     }
     jfieldID resField = env->GetStaticFieldID(
@@ -1390,8 +2001,7 @@ void Player::onSolverPoll()
     env->ReleaseStringUTFChars(jres, cr);
     if (result.isEmpty()) {
         qWarning() << "[player] el solver devolvió un resultado vacío";
-        m_loading = false;
-        emit stateChanged();
+        abortChain(QStringLiteral("resultado vacio"));
         return;
     }
 
@@ -1416,16 +2026,11 @@ void Player::onSolverPoll()
             nval = value;
     }
     if (sig.isEmpty() || nval.isEmpty()) {
-        qWarning() << "[player] el solver no devolvió s/n";
-        if (m_chainJob) {
-            ResolveJob *job = m_chainJob;
-            m_chainJob = nullptr;
-            m_apTrack.clear();
-            m_apUrl.clear();
-            onResolveFinished(job, 1);
-        }
-        m_loading = false;
-        emit stateChanged();
+        qWarning() << "[player] el solver no devolvió s/n | respuestas:"
+                   << resp.size() << "| sig vacía:" << sig.isEmpty()
+                   << "| n vacía:" << nval.isEmpty()
+                   << "| resultado:" << result.left(280);
+        abortChain(QStringLiteral("solver sin s/n"));
         return;
     }
     // Remember the preprocessed form for the next solves (the solver only
@@ -1460,28 +2065,351 @@ void Player::onSolverPoll()
     m_resolvedAt.insert(m_apTrack, QDateTime::currentSecsSinceEpoch());
     m_cacheDirty = true;
     m_cacheSaveTimer.start();
-    if (m_chainJob) {
+    // The stream travels to a local file before the player opens it: a
+    // device-agnostic, network-agnostic path (Media3's own HTTP stack is
+    // out of the equation). The URL stays in the cache as fallback.
+    const QString doneTrack = m_apTrack;
+    ResolveJob *job = m_chainJob;
+    m_chainJob = nullptr;
+    // El "cargando" se marca ANTES de lanzar la descarga: si el audio ya
+    // estaba en cache, startAudioFetch reproduce en el acto y su
+    // m_loading=false quedaba pisado por esta linea (la barra se quedaba
+    // en "Cargando…" para siempre aunque la cancion sonara).
+    if (!job)
+        m_loading = true;
+    startAudioFetch(doneTrack, finalUrl, /*playNow=*/!job);
+    endChain();
+    if (job) {
         // Prefetch job: the queue machinery takes it from here (it fills
         // the cache; QMediaPlayer must stay silent, and a load() that was
         // waiting for this track starts through the cached URL).
-        ResolveJob *job = m_chainJob;
-        m_chainJob = nullptr;
-        m_apTrack.clear();
-        m_apUrl.clear();
-        m_apSig.clear();
-        m_apN.clear();
         onResolveFinished(job, 0);
         return;
     }
-    m_apTrack.clear();
-    m_apUrl.clear();
-    m_apSig.clear();
-    m_apN.clear();
-    if (m_androidPlayer && !finalUrl.isEmpty()) {
-        m_androidPlayer->setSource(QUrl(finalUrl));
-        m_androidPlayer->play();
-    }
-    m_loading = false;
     emit stateChanged();
+}
+
+// ---- Widget de inicio + notificacion (Android) -------------------------
+// El APK puede no llevar las clases Java (build sin actualizar), asi que
+// NUNCA se llama a Java a ciegas: si la clase falta, se ignora en vez de
+// abortar el proceso con CheckJNI (que fue justo lo que impedia abrir la
+// app: ClassNotFoundException dentro de startMpv).
+static bool ltWidgetJava()
+{
+    static const bool ok = QJniObject::isClassAvailable(
+        "io/github/lotsv8pro/lotustune/PlayerWidget");
+    return ok;
+}
+
+static bool ltServiceJava()
+{
+    static const bool ok = QJniObject::isClassAvailable(
+        "io/github/lotsv8pro/lotustune/AudioService");
+    return ok;
+}
+
+// El widget y la notificacion mandan acciones por un buzon volatil que se
+// sondea aqui: asi el hilo de la UI nunca se bloquea esperando a Java.
+static jobject ltAndroidContext()
+{
+    return QNativeInterface::QAndroidApplication::context();
+}
+
+void Player::setBackgroundPlayback(bool on)
+{
+    jobject ctx = ltAndroidContext();
+    if (!ctx || !ltServiceJava())
+        return;
+    QJniObject::callStaticMethod<void>(
+        "io/github/lotsv8pro/lotustune/AudioService",
+        on ? "start" : "stop", "(Landroid/content/Context;)V", ctx);
+}
+
+void Player::updateWidget(const QString &title, const QString &artist,
+                          bool playing, bool shuffle, int repeat, bool fav,
+                          const QString &artUrl, double position,
+                          double duration)
+{
+    if (!ltWidgetJava())
+        return;                         // sin widget en el APK: nada que hacer
+    const QJniObject jt = QJniObject::fromString(title.left(120));
+    const QJniObject ja = QJniObject::fromString(artist.left(120));
+    // La caratula viaja como URL: la descarga el servicio (fuera del hilo
+    // de la interfaz) y la usa en el aviso y en el widget.
+    const QJniObject ju = QJniObject::fromString(artUrl.left(400));
+    QJniObject::callStaticMethod<void>(
+        "io/github/lotsv8pro/lotustune/PlayerWidget", "update",
+        "(Ljava/lang/String;Ljava/lang/String;ZZIZLjava/lang/String;JJ)V",
+        jt.object(), ja.object(), jboolean(playing), jboolean(shuffle),
+        jint(repeat), jboolean(fav), ju.object(),
+        jlong(qint64(position * 1000.0)), jlong(qint64(duration * 1000.0)));
+    jobject ctx = ltAndroidContext();
+    if (ctx && ltServiceJava())
+        QJniObject::callStaticMethod<void>(
+            "io/github/lotsv8pro/lotustune/AudioService", "refresh",
+            "(Landroid/content/Context;)V", ctx);
+}
+
+void Player::pollWidgetActions()
+{
+    if (!ltWidgetJava())
+        return;
+    const jint seq = QJniObject::callStaticMethod<jint>(
+        "io/github/lotsv8pro/lotustune/PlayerWidget", "pendingSeq", "()I");
+    if (int(seq) == m_widgetSeq)
+        return;
+    m_widgetSeq = int(seq);
+    const QJniObject act = QJniObject::callStaticObjectMethod(
+        "io/github/lotsv8pro/lotustune/PlayerWidget", "pendingAction",
+        "()Ljava/lang/String;");
+    QJniObject::callStaticMethod<void>(
+        "io/github/lotsv8pro/lotustune/PlayerWidget", "clearAction", "()V");
+    const QString a = act.isValid() ? act.toString() : QString();
+    if (!a.isEmpty())
+        emit widgetAction(a);
+}
+
+// The stream download (QMediaPlayer plays the local file): the HTTP url
+// is bound to the egress IP, so this also keeps every media fetch on our
+// own stack with our own user agent.
+void Player::pumpAudioQueue()
+{
+    if (m_fetching.isEmpty() && !m_audioQueue.isEmpty()) {
+        const QPair<QString, QString> job = m_audioQueue.takeFirst();
+        startAudioFetch(job.first, job.second, true);
+    }
+}
+
+void Player::startAudioFetch(const QString &track, const QString &streamUrl,
+                             bool playNow)
+{
+    if (streamUrl.isEmpty() || track.isEmpty())
+        return;
+    QUrl u(streamUrl);
+    if (!u.isValid() || u.scheme() != QLatin1String("https"))
+        return;
+    // A URL too big for the cache (> 40 MB) plays directly instead of
+    // being downloaded.
+    const QUrlQuery qu(u.query());
+    const qint64 clen = qu.queryItemValue(QStringLiteral("clen")).toLongLong();
+    if (clen > 40LL * 1024 * 1024) {
+        const bool cur = !m_currentUrl.isEmpty()
+                         && videoIdOf(track) == videoIdOf(m_currentUrl);
+        if (playNow && m_androidPlayer && cur) {
+            m_androidPlayer->setSource(QUrl(streamUrl));
+            m_androidPlayer->play();
+        }
+        return;
+    }
+    // A local copy already fetched for this exact track: instant play.
+    const QString path = AppPaths::cacheDir() + QStringLiteral("/audio_")
+                         + videoIdOf(track) + QStringLiteral(".bin");
+    const QFileInfo fi(path);
+    if (fi.isFile() && fi.size() > 4096) {
+        audioFetchDone(track, path, true);
+        return;
+    }
+    if (!m_fetching.isEmpty() && videoIdOf(m_fetching) == videoIdOf(track))
+        return;                       // ya se esta descargando
+    m_audioPlay.insert(track, playNow);
+    const bool wanted = !m_currentUrl.isEmpty()
+                        && videoIdOf(track) == videoIdOf(m_currentUrl);
+    // Una precarga de fondo en curso no debe retrasar la pista que el
+    // usuario acaba de pedir: se cancela y empieza la suya.
+    if (wanted && !m_fetching.isEmpty() && m_fetching != track) {
+        QJniObject::callStaticMethod<void>(
+            "io/github/lotsv8pro/lotustune/MediaFetch", "cancel", "()V");
+        qInfo() << "[player] precarga en curso cancelada (prioridad a la pista actual)";
+        m_fetching.clear();
+    }
+    // Una descarga a la vez: la IP del 5G es compartida (CGNAT) y varias
+    // peticiones simultaneas al mismo nodo acaban en 403.
+    if (!m_fetching.isEmpty() || !m_audioQueue.isEmpty()) {
+        const bool isCurrent = !m_currentUrl.isEmpty()
+                               && videoIdOf(track) == videoIdOf(m_currentUrl);
+        int at = -1;
+        for (int i = 0; i < m_audioQueue.size(); ++i)
+            if (m_audioQueue.at(i).first == track)
+                at = i;
+        if (at < 0) {
+            if (isCurrent)
+                m_audioQueue.prepend(qMakePair(track, streamUrl));
+            else
+                m_audioQueue.append(qMakePair(track, streamUrl));
+        } else if (isCurrent && at > 0) {
+            // La pista que el usuario acaba de pedir pasa delante de las
+            // precargas de fondo.
+            m_audioQueue.move(at, 0);
+        }
+        return;
+    }
+    // YouTube entrega la url de audio con una espera obligatoria (el
+    // preanuncio: los formatos vienen con available_at = resolucion + 6 s).
+    // Pedir el audio antes de que abra la ventana da 403 o deja la
+    // conexion colgada sin contestar (comprobado: la MISMA url baja 7 MB
+    // en 0,3 s en cuanto pasa). Si la url acaba de salir, se espera aqui
+    // en vez de gastar intentos y de enseñar un error que no es tal.
+    if (m_resolvedAt.contains(track) && !m_fetchDeferred.contains(track)) {
+        const qint64 at = m_resolvedAt.value(track);
+        const qint64 ageMs =
+            (QDateTime::currentMSecsSinceEpoch() / 1000 - at) * 1000;
+        const qint64 waitMs = 7000 - ageMs;
+        if (waitMs > 0) {
+            m_fetchDeferred.insert(track);
+            qInfo() << "[player] audio en espera" << waitMs
+                    << "ms (ventana del preanuncio)";
+            QTimer::singleShot(int(waitMs), this, [this, track, streamUrl]() {
+                m_fetchDeferred.remove(track);
+                startAudioFetch(track, streamUrl, true);
+            });
+            return;
+        }
+    }
+    m_fetchDeferred.remove(track);
+    m_fetching = track;
+    // La descarga la hace Java (HttpsURLConnection): ese es el stack HTTP
+    // del sistema, el mismo de OkHttp/Media3/Chrome. Qt (OpenSSL) recibe
+    // un 403 del nodo del operador con la misma url y los mismos headers.
+    QJniObject::callStaticMethod<void>(
+        "io/github/lotsv8pro/lotustune/MediaFetch", "start",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+        QJniObject::fromString(track).object(),
+        QJniObject::fromString(streamUrl).object(),
+        QJniObject::fromString(path).object());
+    qInfo() << "[player] descarga (sistema):" << track;
+    if (!m_fetchPoll) {
+        m_fetchPoll = new QTimer(this);
+        m_fetchPoll->setInterval(300);
+        connect(m_fetchPoll, &QTimer::timeout, this, &Player::pollAudioFetch);
+    }
+    m_fetchPoll->start();
+}
+
+// Reintenta la descarga esperando, si hace falta, a que la resolucion
+// nueva deje la url en la cache (max ~12 s). Sin esto el reintento podia
+// dispararse antes de que llegara la url nueva y darlo todo por perdido.
+void Player::waitForStreamAndFetch(const QString &track, int attempt)
+{
+    const QString url = m_resolved.value(track);
+    if (!url.isEmpty()) {
+        startAudioFetch(track, url, true);
+        return;
+    }
+    if (attempt >= 12) {
+        audioFetchDone(track, QString(), false);
+        return;
+    }
+    QTimer::singleShot(1000, this, [this, track, attempt]() {
+        waitForStreamAndFetch(track, attempt + 1);
+    });
+}
+
+// Final de una descarga: la pista actual suena en cuanto su audio esta
+// listo (venga la descarga del toque o del prefetch de fondo).
+void Player::audioFetchDone(const QString &track, const QString &path, bool ok)
+{
+    m_audioPlay.remove(track);
+    m_fetching.clear();
+    // Arranca la siguiente descarga en espera (fuera de esta pila).
+    QTimer::singleShot(0, this, &Player::pumpAudioQueue);
+    // La pista actual puede venir con otro host (music.youtube.com) del
+    // que usa la resolución (www.youtube.com): se compara por id, o la
+    // pista suena "cargando" para siempre.
+    const bool isCurrent = !m_currentUrl.isEmpty()
+                           && !track.isEmpty()
+                           && videoIdOf(track) == videoIdOf(m_currentUrl);
+    if (!ok) {
+        if (isCurrent && m_androidPlayer) {
+            // Sin copia local: la url directa (atada a esta salida).
+            const QString direct = m_resolved.value(track);
+            if (direct.startsWith(QLatin1String("http"))) {
+                m_androidPlayer->setSource(QUrl(direct));
+                m_androidPlayer->play();
+            }
+            m_loading = false;
+            emit stateChanged();
+        }
+        return;
+    }
+    m_audioLocal.insert(track, path);
+    m_cacheDirty = true;
+    m_cacheSaveTimer.start();
+    if (isCurrent && m_androidPlayer) {
+        qInfo() << "[player] reproduciendo fichero local:" << path;
+        androidPlayLocalFile(path);
+    }
+}
+
+// Sondeo del descargador Java (nunca bloquea el hilo de la UI).
+void Player::pollAudioFetch()
+{
+    if (m_fetching.isEmpty()) {
+        if (m_fetchPoll)
+            m_fetchPoll->stop();
+        return;
+    }
+    const QString track = m_fetching;
+    const QString status = QJniObject::callStaticObjectMethod(
+        "io/github/lotsv8pro/lotustune/MediaFetch", "status",
+        "()Ljava/lang/String;").toString();
+    if (status.isEmpty() || status == QLatin1String("working")
+        || status == QLatin1String("idle"))
+        return;
+    if (m_fetchPoll)
+        m_fetchPoll->stop();
+    const QString path = AppPaths::cacheDir() + QStringLiteral("/audio_")
+                         + videoIdOf(track) + QStringLiteral(".bin");
+    if (status == QLatin1String("done")) {
+        m_audioTries.remove(track);
+        const QFileInfo fi(path);
+        const bool ok = fi.isFile() && fi.size() > 4096;
+        if (ok) {
+            setLastError(QString());
+            // Tope del cache: se borran las pistas mas antiguas y nunca la
+            // que se esta reproduciendo.
+            AudioCache::instance()->prune(videoIdOf(track));
+        }
+        audioFetchDone(track, path, ok);
+        return;
+    }
+    qWarning() << "[player] descarga fallo |" << status << "| pista:" << track;
+    // Un 403 del nodo es casi siempre transitorio (IP compartida del 5G):
+    // se reintenta con espera creciente antes de caer a la url directa.
+    const int tries = m_audioTries.value(track, 0);
+    if (tries < 4) {
+        m_audioTries.insert(track, tries + 1);
+        m_fetching.clear();
+        // YouTube publica la url de audio con una espera obligatoria (el
+        // preanuncio: los formatos traen available_at = ahora + 6 s).
+        // Pedirla antes da 403 SIEMPRE, aunque la url sea buena. Por eso
+        // las esperas se escalonan para que el intento que cuenta caiga
+        // pasados esos ~6 s, y no se avisa de error mientras se reintenta.
+        static const int waits[4] = { 2500, 6000, 10000, 15000 };
+        const int wait = waits[qBound(0, tries, 3)];
+        // La url de googlevideo va firmada con la IP (`ip=...`): al pasar
+        // de wifi a datos (o al caducar el nodo) el 403 es PERMANENTE y
+        // reintentar la misma url no sirve de nada. A la segunda, se tira
+        // de la cache y se resuelve otra vez para esta red.
+        const bool stale = tries >= 1 && status.contains(QLatin1String("403"));
+        if (stale) {
+            qInfo() << "[player] url inservible en esta red: resolviendo de nuevo";
+            m_resolved.remove(track);
+            m_resolvedAt.remove(track);
+            m_cacheDirty = true;
+            m_cacheSaveTimer.start();
+            m_audioTries.remove(track);          // cuenta nueva para la url nueva
+            enqueueResolve(track, true, true);
+        }
+        qInfo() << "[player] reintento de descarga" << (tries + 1)
+                << "en" << wait << "ms";
+        QTimer::singleShot(wait, this, [this, track]() {
+            waitForStreamAndFetch(track, 0);
+        });
+        return;
+    }
+    // Se agotaron los intentos: ahora si se explica y se cae a la url
+    // directa (QMediaPlayer puede acertar donde el CDN decia 403).
+    setLastError(LotusText::friendlyNetError(status));
+    audioFetchDone(track, path, false);
 }
 #endif

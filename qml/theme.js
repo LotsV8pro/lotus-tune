@@ -6,6 +6,25 @@
 // The palette itself comes from the desktop (context property `Sys`, an
 // AppTheme). Here we only keep the *derived* values (hover/active surfaces,
 // soft tints) and the small layout rhythm used across the interface.
+//
+// IMPORTANT about the palette: the C++ side fails to resolve the camelCase
+// keys of its default table (`surfaceAlt`, `borderSubtle`, `onAccent`,
+// `textDim`), so those four `Sys.*` values arrive INVALID and QML paints
+// them black — that is what made the secondary text unreadable and the
+// pills look like black holes. The interface therefore never uses them:
+// they are derived here from the three tokens that do resolve
+// (`Sys.bg`, `Sys.surface`, `Sys.text`, `Sys.accent`):
+//
+//   tDim(bg, text)   secondary text (≈ #8e8e99 over the dark bg)
+//   tFaint(bg, text) tertiary text / very quiet labels
+//   sAlt(bg, text)   raised surface (cards, pills, artwork placeholders)
+//   sHigh(bg, text)  one more step up (menus, hovered rows)
+//   line(bg, text)   hairlines / soft borders
+//   onAccent(accent) readable ink ON an accent-filled surface
+//   accentOn(accent, bg)  the accent itself, lifted until it reads on bg
+//
+// Everything is derived with `mix`, so the whole interface follows a
+// light palette too (light bg + dark text) instead of assuming "dark".
 // ------------------------------------------------------------------
 
 // Is it a touch screen? There is no hover and no right button there, so
@@ -31,8 +50,8 @@ var rXl = 22
 // Pills: capsule control (radius = height/2). Chips, toggles, tabs and
 // action/navigation buttons. Always use it with a fixed `height`.
 var rPill = 999          // "pill" radius
-var pillH = 30           // standard pill height
-var pillHPad = 14        // pill horizontal padding
+var pillH = touch ? 34 : 30    // standard pill height
+var pillHPad = touch ? 16 : 14 // pill horizontal padding
 
 // ---- floating surfaces -------------------------------------------
 // The interface is made of rounded "islands" that float over the window
@@ -44,16 +63,18 @@ var panelMargin = touch ? 6 : 14   // air with the window edge (room for shadow)
 var panelGap = touch ? 6 : 10      // air between islands
 var panelBorderAlpha = 0.11   // bright edge that separates the island from the background
 
-// Type scale (px). One ramp for the whole app: quiet by default, one clear
-// step for the page title and the now-playing title.
-var tXs = 10
-var tSm = 11
-var tMd = 12
-var tBase = 13
-var tLg = 15
-var tXl = 18
-var t2xl = 22
-var t3xl = 28
+// Type scale (px = dp on Android). One ramp for the whole app: quiet by
+// default, one clear step for the page title and the now-playing title.
+// On the phone every step is bigger: at 10-12 dp the secondary text was
+// unreadable on a 6" screen (Android asks for 12 sp minimum for body text).
+var tXs = touch ? 11 : 10
+var tSm = touch ? 12 : 11
+var tMd = touch ? 13 : 12
+var tBase = touch ? 14 : 13
+var tLg = touch ? 16 : 15
+var tXl = touch ? 20 : 18
+var t2xl = touch ? 24 : 22
+var t3xl = touch ? 28 : 28
 
 // Spacing scale (px). Prefer space over lines: hierarchy comes from air.
 var s1 = 4
@@ -67,16 +88,32 @@ var s6 = 32
 // On the phone everything compresses: the margins of the floating
 // islands and the rows shrink so the 1320-px-wide desktop layout
 // holds together in a 4xx-px-wide screen without cutting content.
-var rowH = 52
-var rowCompact = touch ? 44 : 46
-var rowThin = 32
-var topBarH = touch ? 46 : 52
-// La isla de la barra: el transporte (botones 32) + el progreso fino con su
-// the air no longer fitted in 56 px and the buttons were glued to the edge.
-// It went up
-// a 68 para que respiren por arriba y por abajo.
-var playerBarH = touch ? 62 : 60
+var rowH = touch ? 54 : 52
+var rowCompact = touch ? 48 : 46
+var rowThin = touch ? 36 : 32
+// Text block of a rail card (HomeCard): two title lines + one subtitle
+// line + the padding. The rail MUST use this same value as its extra
+// height under the artwork, or the last line gets cut in half (it did:
+// rowHeight reserved 42 px for a 54 px block).
+var cardLineH = function(px) { return Math.ceil(px * 1.35) }
+var cardTextH = cardLineH(tBase) * 2 + cardLineH(tSm) + s1 + 2
+var topBarH = touch ? 52 : 52
+// The player island: the progress line with its times + one content row
+// (cover 40, transport 44). It needs 70 dp on the phone so nothing is
+// glued to the edges; the swipe-up gesture leaves no visual trace.
+// Phone bar: two rows (cover/title/heart + transport). The height has to
+// fit 20 (progress) + 44 (cover/title row) + 44 (play button) + 4 (bottom
+// margin) = 112; with 104 the play button was left half cut by the island.
+var playerBarH = touch ? 112 : 64
 var sidePanelMin = touch ? 252 : 300
+
+// Bottom padding for the system gesture zone. Android's
+// navigationBars inset comes back 0 with the hidden handle some ROMs
+// use (MIUI/HyperOS), so a floor is applied on touch: the tab bar was
+// drawn inside the swipe-up zone.
+function safeBottom(sysBottom) {
+    return Math.max(sysBottom || 0, touch ? 16 : 0)
+}
 
 function clamp(v, lo, hi) {
     return Math.max(lo, Math.min(hi, v))
@@ -122,37 +159,96 @@ function mix(a, b, t) {
 function hover(c) { return Qt.lighter(c, 1.10) }
 function active(c) { return Qt.lighter(c, 1.20) }
 
-// ---- readable tokens on top of the accent -------------------------------
-// The accent is dark in the current palette (#983e45) and - on Android it
-// also comes straight from the wallpaper - it can be dark, light or
-// anything in between. On a dark surface a dark accent "eats" the text
-// sitting on it, so menus and dialogs that accent-tint their glyphs take
-// this lightened copy instead of the raw token: same hue, readable weight.
-function accentText(c) {
-    var C = _rgba(c)
-    if (!C)
-        return c
-    var lum = 0.299 * C[0] + 0.587 * C[1] + 0.114 * C[2]
-    var min = 0.45
-    if (lum >= min)
-        return c
-    return Qt.lighter(c, Math.min(3.0, min / Math.max(0.05, lum)))
+// ---- readable derived tokens (see the header note) ----------------------
+// Secondary text. 0.56 of the way from the background to the text colour
+// is the "quiet but readable" point (≈ 6:1 contrast on the dark palette).
+function tDim(bg, text) { return mix(bg, text, 0.56) }
+// Subtitle of a CARD (the line under the title of a cover). It sits over a
+// surface tinted with the artwork colour, where 0.56 disappeared: it goes
+// one step further (≈ 8:1 on the dark palette) so it reads on any tint.
+function tSub(bg, text) { return mix(bg, text, 0.72) }
+// Tertiary: timestamps, counters, hints that must NOT compete.
+function tFaint(bg, text) { return mix(bg, text, 0.40) }
+// Raised surface: cards, pills, artwork placeholders.
+function sAlt(bg, text) { return mix(bg, text, 0.075) }
+// One step higher: menus, hovered rows, pressed pills.
+function sHigh(bg, text) { return mix(bg, text, 0.13) }
+
+// ---- palette tinted surfaces -------------------------------------------
+// The desktop palette defines its raised surface as the ACCENT mixed over
+// the background (its surface_container is exactly bg + accent at ~0.155,
+// a warm tone). Mixing bg + TEXT instead gives a neutral grey, which is
+// why the playback bar and the cinema view stopped following the theme
+// and looked plain grey. These two tokens reproduce the palette.
+function sAccent(bg, accent, amount) {
+    return mix(bg, accent, amount === undefined ? 0.155 : amount)
+}
+// Hover of a palette tinted surface: one small step brighter.
+function sAccentHi(bg, accent, amount) {
+    return mix(bg, accent, (amount === undefined ? 0.155 : amount) + 0.07)
+}
+// Hairline: separators and soft borders.
+function line(bg, text) { return mix(bg, text, 0.16) }
+
+// ---- WCAG helpers -------------------------------------------------------
+function _lin(v) {
+    v /= 255
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
 }
 
-// Text —or icon— ON an accent surface (Crear/Guardar buttons, the like
-// pill, chips...): keep the theme's `onAccent` when it actually contrasts
-// with the accent, else pick the obvious one. Never touches the accent
-// itself, only what is drawn on top of it.
-function onAccentOf(bg, base) {
-    var B = _rgba(bg)
-    if (!B)
-        return "#f4f4f6"
-    var lum = 0.299 * B[0] + 0.587 * B[1] + 0.114 * B[2]
-    var F = _rgba(base)
-    var lF = F ? (0.299 * F[0] + 0.587 * F[1] + 0.114 * F[2]) : 0.0
-    if (Math.abs(lum - lF) > 0.20)
-        return base
-    return lum > 0.5 ? "#0a0a0d" : "#f4f4f6"
+function luminance(c) {
+    var C = _rgba(c)
+    if (!C)
+        return 0
+    return 0.2126 * _lin(C[0] * 255)
+         + 0.7152 * _lin(C[1] * 255)
+         + 0.0722 * _lin(C[2] * 255)
+}
+
+// WCAG contrast ratio between two colours (1..21).
+function contrast(a, b) {
+    var la = luminance(a)
+    var lb = luminance(b)
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+
+// Text —or icon— ON a filled surface (play button, active pill, chips,
+// badges): near-white when the fill is dark, near-black when it is light.
+// Never returns the same tone as the fill, so it can never "eat" the glyph.
+function onAccent(bg) {
+    var la = luminance(bg)
+    var light = "#ffffff"
+    var dark = "#0b0b0f"
+    return contrast(bg, light) >= contrast(bg, dark) ? light : dark
+}
+
+// The accent used as TEXT or as a thin line over `bg`: the raw accent is
+// whatever the wallpaper gave (often a deep, muted red) and it simply does
+// not read on a dark surface, so it is lifted (or deepened on a light bg)
+// in small steps until it clears 4.5:1. Same hue, readable weight.
+function accentOn(accent, bg) {
+    var A = _rgba(accent)
+    if (!A)
+        return accent
+    var base = luminance(bg) > 0.5 ? 0.72 : 1.45
+    var c = accent
+    for (var i = 0; i < 6; i++) {
+        if (contrast(c, bg) >= 4.5)
+            break
+        var f = base > 1 ? Math.min(3.0, Math.pow(base, i + 1))
+                         : Math.max(0.15, Math.pow(base, i + 1))
+        c = Qt.rgba(A[0] * f > 1 ? 1 : A[0] * f,
+                    A[1] * f > 1 ? 1 : A[1] * f,
+                    A[2] * f > 1 ? 1 : A[2] * f, A[3])
+        // Mixing with white/black is what actually keeps the hue: a plain
+        // multiply saturates the dominant channel and the colour turns
+        // "hot". Lift halfway towards white instead on dark backgrounds.
+        if (base > 1)
+            c = mix(accent, "#ffffff", Math.min(0.72, 0.16 * (i + 1)))
+        else
+            c = mix(accent, "#000000", Math.min(0.72, 0.20 * (i + 1)))
+    }
+    return c
 }
 
 // Soft tint of `c` laid over `base` (used to wash the player bar with the
@@ -164,6 +260,22 @@ function alpha(c, a) {
     if (!C)
         return c
     return Qt.rgba(C[0], C[1], C[2], a)
+}
+
+// Kept for callers that only have the accent: lifts it on the assumption
+// of a dark background.
+function accentText(c) { return accentOn(c, "#0a0a0d") }
+
+// Text —or icon— ON an accent surface with an explicit base tone. Kept
+// from the original API: it now resolves through the same contrast rule.
+function onAccentOf(bg, base) {
+    if (!_rgba(bg))
+        return "#f4f4f6"
+    var want = onAccent(bg)
+    var F = _rgba(base)
+    if (!F)
+        return want
+    return contrast(base, bg) >= 4.5 ? base : want
 }
 
 // Seconds -> "m:ss" (or "h:mm:ss").

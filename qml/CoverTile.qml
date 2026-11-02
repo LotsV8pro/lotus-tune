@@ -34,8 +34,10 @@ Rectangle {
         id: card                      // text below, like in the base repo
         x: 0
         y: 0
-        width: tile.width - 14
-        height: tile.height - 18
+        // Phone: the tile is ~120 dp, so the desktop gutters (14/18) ate a
+        // quarter of the cover. They shrink to keep the art big.
+        width: tile.width - (Theme.touch ? 6 : 14)
+        height: tile.height - (Theme.touch ? 10 : 18)
         radius: Theme.rMd
         color: "transparent"
         border.width: 0
@@ -43,16 +45,18 @@ Rectangle {
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: Theme.s2
-            spacing: Theme.s2
+            anchors.margins: Theme.touch ? Theme.s1 : Theme.s2
+            spacing: Theme.touch ? Theme.s1 : Theme.s2
 
             Rectangle {                // square cover
                 id: coverBox
                 Layout.fillWidth: true
-                Layout.preferredHeight: card.width - Theme.s4
+                // Cuadrada de verdad: el alto sigue al ancho que le da la
+                // rejilla (antes era unos 30 px mas baja que ancha).
+                Layout.preferredHeight: coverBox.width
                 radius: Theme.rMd
                 clip: true
-                color: Sys.surfaceAlt
+                color: Theme.sAlt(Sys.bg, Sys.text)
 
                 RoundedArt {
                     anchors.fill: parent
@@ -66,7 +70,7 @@ Rectangle {
                     height: 30
                     visible: tile.thumb === ""
                     kind: "music"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                 }
                 Rectangle {            // floating play button (over the mouse)
                     id: playBadge
@@ -89,7 +93,7 @@ Rectangle {
                         width: 13
                         height: 13
                         kind: "play"
-                        color: Sys.onAccent
+                        color: Theme.onAccent(Sys.accent)
                     }
                 }
             }
@@ -107,13 +111,20 @@ Rectangle {
                 Layout.fillWidth: true
                 visible: tile.subtitle !== ""
                 text: tile.subtitle
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
                 maximumLineCount: 1
             }
         }
     }
+
+    // Hover of the WHOLE tile, passive on purpose: the action buttons sit ON
+    // TOP of the card, so while the mouse is over them `tileMa.containsMouse`
+    // turns false. Using that as the visibility condition made the buttons
+    // disappear under the cursor (the blink) and the click landed on the
+    // card instead of the button.
+    HoverHandler { id: tileHover }
 
     MouseArea {
         id: tileMa
@@ -134,9 +145,25 @@ Rectangle {
         onMouseYChanged: tile.overPlay = overPlayBtn(mouseX, mouseY)
         onExited: tile.overPlay = false
 
+        // Long press = the right click of the phone: without this the menu
+        // of the list (edit / delete / copy link) did not exist on touch.
+        // `menuHeld` swallows the click that comes right after, otherwise
+        // the menu would open AND the list would start playing.
+        property bool menuHeld: false
+        onPressAndHold: {
+            tileMa.menuHeld = true
+            const p = mapToItem(null, mouseX, mouseY)
+            tile.contextRequested(p.x, p.y)
+        }
+
         // Click on the play button -> PLAY; the rest -> OPEN.
         // Right click -> context menu of the list.
         onClicked: (mouse) => {
+            if (tileMa.menuHeld) {
+                tileMa.menuHeld = false
+                return
+            }
+            if (typeof sfx !== "undefined") sfx.play("tap")
             if (mouse.button === Qt.RightButton) {
                 const p = mapToItem(null, mouse.x, mouse.y)
                 tile.contextRequested(p.x, p.y)
@@ -158,7 +185,8 @@ Rectangle {
         y: Theme.s1
         z: 2
         spacing: Theme.s1
-        visible: (tileMa.containsMouse || Theme.touch)
+        visible: (tileHover.hovered || tileMa.containsMouse
+                  || dlMa.containsMouse || rmMa.containsMouse || Theme.touch)
             && (tile.downloadable || tile.removable)
 
         Rectangle {
@@ -174,14 +202,17 @@ Rectangle {
                 width: 15
                 height: 15
                 kind: "download"
-                color: dlMa.containsMouse ? Sys.accent : Sys.textDim
+                color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
             }
             MouseArea {
                 id: dlMa
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: tile.downloadRequested()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    tile.downloadRequested()
+                }
             }
         }
 
@@ -198,14 +229,17 @@ Rectangle {
                 width: 15
                 height: 15
                 kind: "x"
-                color: rmMa.containsMouse ? Sys.danger : Sys.textDim
+                color: rmMa.containsMouse ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
             }
             MouseArea {
                 id: rmMa
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: tile.removeRequested()
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    tile.removeRequested()
+                }
             }
         }
     }

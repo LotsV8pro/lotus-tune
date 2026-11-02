@@ -71,7 +71,28 @@ Item {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
+                // Long press = right click on touch: the row menu (queue,
+                // like, add to list, download…) was unreachable with a
+                // finger.
+                property bool menuHeld: false
+                onPressAndHold: {
+                    rowMouse.menuHeld = true
+                    const p = mapToItem(null, mouseX, mouseY)
+                    qv.trackContextRequested({
+                        title: row.title,
+                        artist: row.artist,
+                        thumb: row.thumb,
+                        duration: row.duration,
+                        source: row.source,
+                        url: row.url
+                    }, p.x, p.y)
+                }
                 onClicked: (mouse) => {
+                    if (rowMouse.menuHeld) {
+                        rowMouse.menuHeld = false
+                        return
+                    }
+                    if (typeof sfx !== "undefined") sfx.play("tap")
                     if (mouse.button === Qt.RightButton) {
                         const p = mapToItem(null, mouse.x, mouse.y)
                         qv.trackContextRequested({
@@ -104,7 +125,7 @@ Item {
                         anchors.centerIn: parent
                         visible: index !== qv.currentIndex
                         text: index + 1
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                     }
                     Row {
@@ -136,7 +157,7 @@ Item {
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.rMd
                     clip: true
-                    color: Sys.surfaceAlt
+                    color: Theme.sAlt(Sys.bg, Sys.text)
                     RoundedArt {
                         anchors.fill: parent
                         source: row.thumb || ""
@@ -149,7 +170,7 @@ Item {
                         height: 15
                         visible: !row.thumb
                         kind: "music"
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                     }
                 }
 
@@ -162,7 +183,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             text: row.title || "Sin título"
-                            color: index === qv.currentIndex ? Sys.accent : Sys.text
+                            color: index === qv.currentIndex ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tBase
                             font.weight: index === qv.currentIndex ? Font.DemiBold : Font.Normal
                             elide: Text.ElideRight
@@ -188,7 +209,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: row.artist || ""
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                         elide: Text.ElideRight
                         maximumLineCount: 1
@@ -209,7 +230,7 @@ Item {
                         id: durText
                         anchors.centerIn: parent
                         text: Theme.mmss(row.duration)
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                     }
                 }
@@ -228,13 +249,13 @@ Item {
             width: 52
             height: 52
             radius: 26
-            color: Sys.surfaceAlt
+            color: Theme.sAlt(Sys.bg, Sys.text)
             Glyph {
                 anchors.centerIn: parent
                 width: 22
                 height: 22
                 kind: "queue"
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
             }
         }
         Text {
@@ -248,7 +269,7 @@ Item {
         Text {
             Layout.fillWidth: true
             text: "Reproduce algo y aparecerá aquí."
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tSm
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WordWrap

@@ -67,7 +67,12 @@ Item {
     // radio/recommended squares fit more per row on the phone.
     property int cardWidth: 172
     readonly property int coverSize: cardWidth
-    readonly property int textHeight: 54
+    // Title (2 lines) + subtitle (1 line) + padding, from the shared tokens:
+    // the rail reserves this very height under the artwork (HomePage
+    // rowHeight), so no line is ever cut.
+    readonly property int titleLineH: Theme.cardLineH(Theme.tBase)
+    readonly property int subLineH: Theme.cardLineH(Theme.tSm)
+    readonly property int textHeight: Theme.cardTextH
 
     implicitWidth: cardWidth
     implicitHeight: coverSize + textHeight
@@ -199,7 +204,7 @@ Item {
                 anchors.rightMargin: Theme.s2
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.s2
-                opacity: card.hovered ? 1 : 0
+                opacity: (card.hovered || Theme.touch) ? 1 : 0
                 scale: card.hovered ? (playHit.pressed ? 0.92
                                         : (playHit.containsMouse ? 1.06 : 1)) : 0.8
                 Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
@@ -212,7 +217,7 @@ Item {
                     width: 16
                     height: 16
                     kind: "play"
-                    color: Sys.onAccent
+                    color: Theme.onAccent(Sys.accent)
                 }
 
                 MouseArea {
@@ -236,7 +241,7 @@ Item {
 
             Text {
                 width: parent.width
-                height: card.textHeight - Theme.s1 - 16
+                height: card.titleLineH * 2
                 text: card.title
                 color: Sys.text
                 font.pixelSize: Theme.tBase
@@ -248,9 +253,13 @@ Item {
             }
             Text {
                 width: parent.width
-                height: 16
+                height: card.subLineH
+                visible: card.subtitle.length > 0
                 text: card.subtitle
-                color: Sys.textDim
+                // tSub, not tDim: the subtitle sits over the artwork tint,
+                // where the dim mix disappeared (the line was there but
+                // unreadable).
+                color: Theme.tSub(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
                 maximumLineCount: 1

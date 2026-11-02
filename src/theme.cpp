@@ -4,8 +4,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QTimer>
@@ -49,6 +51,15 @@ static QString androidSystemAccent()
 }
 #endif
 
+#ifdef Q_OS_ANDROID
+// System bar heights in device pixels, straight from the window insets.
+static int androidInsetPx(const char *method)
+{
+    return int(QJniObject::callStaticMethod<jint>(
+        "io/github/lotsv8pro/lotustune/MainActivity", method, "()I"));
+}
+#endif
+
 AppTheme::AppTheme(QObject *parent) : QObject(parent)
 {
     m_watchFiles = {
@@ -81,6 +92,38 @@ AppTheme::AppTheme(QObject *parent) : QObject(parent)
         rearmWatch(path);
         scheduleReload();
     });
+
+#ifdef Q_OS_ANDROID
+    // The insets do not exist yet when the app starts (the activity is
+    // still in onCreate), so they are read again once the window is
+    // laid out.
+    QTimer::singleShot(400, this, &AppTheme::refreshInsets);
+    QTimer::singleShot(1600, this, &AppTheme::refreshInsets);
+#endif
+}
+
+// Reads the system bars and publishes them in dp (QML works in dp). QML
+// gets 0 until the window exists; insetsChanged repaints the layout.
+void AppTheme::refreshInsets()
+{
+    int top = 0;
+    int bottom = 0;
+#ifdef Q_OS_ANDROID
+    const QScreen *scr = QGuiApplication::primaryScreen();
+    const qreal dpr = scr ? scr->devicePixelRatio() : 1.0;
+    const int topPx = androidInsetPx("insetTopPx");
+    const int bottomPx = androidInsetPx("insetBottomPx");
+    if (dpr > 0.0) {
+        top = qRound(topPx / dpr);
+        bottom = qRound(bottomPx / dpr);
+    }
+#endif
+    if (top == m_safeTop && bottom == m_safeBottom)
+        return;
+    m_safeTop = top;
+    m_safeBottom = bottom;
+    qInfo() << "[theme] system bars:" << m_safeTop << "/" << m_safeBottom << "dp";
+    emit insetsChanged();
 }
 
 void AppTheme::scheduleReload()
@@ -207,9 +250,14 @@ void AppTheme::reload()
     loadSystemPalette();
     loadOverrides();
 
+    // Comparacion SIN distinguir mayusculas: la tabla esta en camelCase
+    // ("surfaceAlt") y resolve() pregunta en minusculas ("surfacealt").
+    // Al no encontrarlas, esos cuatro colores salian invalidos (negros) en
+    // toda la interfaz: texto secundario ilegible y pildoras negras.
     auto def = [](const char *key) -> QString {
+        const QLatin1String want(key);
         for (const auto &kv : kDefaults)
-            if (QLatin1String(kv[0]) == QLatin1String(key))
+            if (QLatin1String(kv[0]).compare(want, Qt::CaseInsensitive) == 0)
                 return QString::fromLatin1(kv[1]);
         return {};
     };

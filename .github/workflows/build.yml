@@ -48,6 +48,11 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr
           cmake --build build
 
+      - name: Tests
+        # La suite cubre las utilidades (rutas, LRC, errores, cache): si
+        # falla, el paquete no se genera.
+        run: cd build && ctest --output-on-failure
+
       - name: Empaquetar
         run: |
           cd build

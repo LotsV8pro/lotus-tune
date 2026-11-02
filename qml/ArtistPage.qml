@@ -43,7 +43,7 @@ Item {
                 width: 36
                 height: 36
                 radius: Theme.rMd
-                color: backMa.containsMouse ? Sys.surfaceAlt : "transparent"
+                color: backMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 Glyph {
                     anchors.centerIn: parent
@@ -99,7 +99,7 @@ Item {
                     height: 46
                     visible: !artImg.ready
                     kind: "music"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                 }
             }
 
@@ -155,7 +155,7 @@ Item {
                         width: shuffleAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: 40
                         radius: Theme.rPill
-                        color: shuffleAllMa.containsMouse ? Sys.surfaceAlt : "transparent"
+                        color: shuffleAllMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                         border.width: 1
                         border.color: Theme.alpha(Sys.text, 0.28)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -195,7 +195,7 @@ Item {
                     Layout.fillWidth: true
                     visible: page.busy
                     text: "Leyendo su discografía en YouTube Music…"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
             }
@@ -205,7 +205,7 @@ Item {
         Text {
             visible: !page.busy && page.albums.length > 0
             text: "Discografía"
-            color: Sys.textDim
+            color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tXs
             font.letterSpacing: 1.4
             Layout.leftMargin: Theme.s1
@@ -219,7 +219,7 @@ Item {
                 anchors.centerIn: parent
                 visible: !page.busy && page.albums.length === 0
                 text: "Esta búsqueda no dejó discos a la vista."
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tMd
             }
 
@@ -239,7 +239,7 @@ Item {
                     width: ListView.view.width
                     height: 64
                     radius: Theme.rMd
-                    color: rowMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                    color: rowMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     MouseArea {
@@ -278,7 +278,7 @@ Item {
                                 height: 20
                                 visible: !covImg.ready
                                 kind: "disc"
-                                color: Sys.textDim
+                                color: Theme.tDim(Sys.bg, Sys.text)
                             }
                         }
 
@@ -296,7 +296,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: String(arow.modelData.subtitle || "")
-                                color: Sys.textDim
+                                color: Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tSm
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
@@ -309,7 +309,7 @@ Item {
                             height: 16
                             visible: rowMa.containsMouse
                             kind: "play"
-                            color: Sys.accent
+                            color: Theme.accentOn(Sys.accent, Sys.bg)
                         }
                     }
                 }

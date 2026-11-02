@@ -1,4 +1,5 @@
 #include "appconfig.h"
+#include "audiocache.h"
 #include "catalog.h"
 #include "paths.h"
 #include "discordrpc.h"
@@ -416,8 +417,14 @@ int main(int argc, char *argv[])
     // Window/taskbar icon: the installed hicolor icon; fall back to the
     // source tree icon so local runs show it too.
     QIcon appIcon = QIcon::fromTheme(QStringLiteral("lotus-tune"));
-    if (appIcon.isNull())
+    if (appIcon.isNull()) {
+#ifdef Q_OS_ANDROID
+        // On Android, the icon is in the APK assets
+        appIcon = QIcon(QStringLiteral(":/android_rcc_bundle/lotus-tune.svg"));
+#else
         appIcon = QIcon(QStringLiteral(":/LotusTune/packaging/icons/lotus-tune.svg"));
+#endif
+    }
     if (!appIcon.isNull())
         app.setWindowIcon(appIcon);
 
@@ -437,6 +444,20 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
+#ifdef Q_OS_ANDROID
+    // On Android, QML files are in the APK assets and must be added to the
+    // import paths explicitly. Without this, the module lookup fails because
+    // the RCC bundle is corrupt (header "qres" vs expected "QRsc").
+    // Add the Qt QML modules path from the Qt installation
+    engine.addImportPath(QStringLiteral(":/qt/qml"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Controls"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Layouts"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Window"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtQml"));
+    engine.addImportPath(QStringLiteral(":/qt/qml/QtCore"));
+#endif
+
     // Live theme (iNiR/matugen palette + config.ini overrides).
     AppTheme theme;
     engine.rootContext()->setContextProperty(QStringLiteral("Sys"), &theme);
@@ -452,6 +473,13 @@ int main(int argc, char *argv[])
     // Persistent settings (theme ini + QSettings conf), see src/appconfig.cpp.
     AppConfig appcfg;
     engine.rootContext()->setContextProperty(QStringLiteral("appcfg"), &appcfg);
+
+    // Limpieza del cache de audio: en Android cada pista descargada deja
+    // 4-8 MB en cache/audio_<id>.bin y sin tope se come el almacenamiento.
+    AudioCache &audiocache = *AudioCache::instance();
+    audiocache.prunePartials();
+    audiocache.prune();
+    engine.rootContext()->setContextProperty(QStringLiteral("audiocache"), &audiocache);
 
     // mpv playback engine (headless, JSON IPC).
     Player player;
@@ -532,8 +560,54 @@ int main(int argc, char *argv[])
         // sibling components resolve through the implicit directory
         // import, exactly as they do on the file system.
         dumpErrors(component);
-        qWarning() << "[fallback] qrc file exists:"
-                   << QFile::exists(QStringLiteral(":/LotusTune/qml/Main.qml"));
+        qWarning() << "[fallback] module load failed, trying resource/asset paths";
+
+#ifdef Q_OS_ANDROID
+        // On Android, try loading from assets directly. The RCC bundle is
+        // corrupt (header "qres" vs expected "QRsc"), so we load QML files
+        // from the APK assets. The key paths are:
+        // - ":/qt/qml/LotusTune/qml/Main.qml" - if Qt installation has it
+        // - ":/android_rcc_bundle/qml/LotusTune/Main.qml" - from APK assets
+        const QStringList mainQmlPaths = {
+            QStringLiteral(":/qt/qml/LotusTune/qml/Main.qml"),
+            QStringLiteral(":/android_rcc_bundle/qml/LotusTune/Main.qml"),
+            QStringLiteral(":/assets/android_rcc_bundle/qml/LotusTune/Main.qml"),
+        };
+        bool loaded = false;
+        for (const QString &path : mainQmlPaths) {
+            if (QFile::exists(path)) {
+                qInfo() << "[fallback] loading Main.qml from:" << path;
+                QQmlComponent direct(&engine,
+                                     QUrl(path),
+                                     QQmlComponent::PreferSynchronous);
+                if (!direct.isError()) {
+                    root = direct.create();
+                    loaded = true;
+                    break;
+                }
+                dumpErrors(direct);
+            }
+        }
+        if (!loaded) {
+            // Final fallback: try file URL (assets may be extracted to app's storage)
+            QString extractedPath = QStandardPaths::writableLocation(
+                QStandardPaths::AppDataLocation) + QStringLiteral("/qml/Main.qml");
+            if (QFile::exists(extractedPath)) {
+                qInfo() << "[fallback] loading from extracted path:" << extractedPath;
+                QQmlComponent direct(&engine,
+                                     QUrl::fromLocalFile(extractedPath),
+                                     QQmlComponent::PreferSynchronous);
+                if (!direct.isError()) {
+                    root = direct.create();
+                    loaded = true;
+                }
+                dumpErrors(direct);
+            }
+        }
+        if (!loaded) {
+            return 1;
+        }
+#else
         QQmlComponent direct(&engine,
                              QUrl(QStringLiteral("qrc:/LotusTune/qml/Main.qml")),
                              QQmlComponent::PreferSynchronous);
@@ -542,8 +616,7 @@ int main(int argc, char *argv[])
             return 1;
         }
         root = direct.create();
-    } else {
-        root = component.create();
+#endif
     }
     if (!root) {
         dumpErrors(component);

@@ -99,7 +99,17 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     m_statusProc.setProcessChannelMode(QProcess::MergedChannels);
     connect(&m_statusProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
+                // The helper checks the session against YouTube: a stored
+                // cookies.txt that YouTube rejects (expired, or used from
+                // another network) must not be sent from here on, or every
+                // list would fail with an authentication error.
+                const QString why = QString::fromUtf8(m_statusProc.readAll());
+                m_sessionRejected = (code != 0);
                 setLoginState(code == 0 ? QStringLiteral("ok") : QString());
+                // Only a rejected session deserves a notice: a plain
+                // "sin-sesion" is simply an app that was never logged in.
+                if (code != 0 && why.contains(QLatin1String("sesion-caducada")))
+                    emit sessionExpired();
             });
     if (QFile::exists(helperPath())) {
         m_statusProc.setProgram(AppPaths::pythonProgram());
@@ -433,6 +443,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 const QByteArray out = m_proc.readAllStandardOutput();
                 if (code == 0 && handleOutput(out)) {
                     m_busy = false;
+                    m_cookieRetryTarget.clear();   // the session worked
                     // Search across all the sources: what just arrived
                     // belongs to one source; it is stored in its group and
                     // it goes on with the next one.
@@ -479,6 +490,38 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                             tail = l;
                             break;
                         }
+                    }
+                    // A rejected session (an expired cookies.txt, or the
+                    // same session used from another network, which YouTube
+                    // answers with a CookieMismatch page) makes yt-dlp fail
+                    // on the lists even though the anonymous extraction of
+                    // the very same target works. Before telling the user
+                    // that something broke, it is retried once without the
+                    // cookies: the list opens and the session is left as it
+                    // was (signing in again is what fixes it for good).
+                    const QString low = tail.toLower();
+                    const bool sessionProblem =
+                        low.contains(QLatin1String("authcheck"))
+                        || low.contains(QLatin1String("authenticat"))
+                        || low.contains(QLatin1String("cookie"))
+                        || low.contains(QLatin1String("sign in"))
+                        || low.contains(QLatin1String("login"))
+                        || low.contains(QLatin1String("unable to download webpage"))
+                        || low.contains(QLatin1String("429"))
+                        || low.contains(QLatin1String("403"));
+                    if (!m_cookieRetryTarget.isEmpty() && sessionProblem) {
+                        const QString target = m_cookieRetryTarget;
+                        const QString title = m_cookieRetryTitle;
+                        const QString purpose = m_cookieRetryPurpose;
+                        m_cookieRetryTarget.clear();
+                        m_cookieRetryTitle.clear();
+                        m_noCookies = true;
+                        m_busy = false;
+                        m_error.clear();
+                        qWarning() << "[catalog] sesión rechazada por YouTube,"
+                                   << "reintento sin cookies:" << tail.left(160);
+                        runYtdlp(target, purpose, title);
+                        return;
                     }
                     fail(tail.isEmpty()
                              ? QStringLiteral("%1 devolvió un error").arg(m_proc.program())
@@ -535,6 +578,25 @@ QString Catalog::helperPath()
 QString Catalog::cookieFile()
 {
     return AppPaths::cookiesFile();
+}
+
+// El "helper" que hace las llamadas autenticadas a YouTube Music.
+//
+// En escritorio es el script tools/ytm_api.py. En Android ese .py NO se
+// empaqueta: el mismo codigo va compilado en libytmcli.so y el binario
+// busca el comando dentro de argv. Aqui se comprobaba siempre el .py, asi
+// que en el movil TODAS las acciones con sesion (me gusta, quitar me
+// gusta, añadir/quitar de lista, crear lista, refrescar la biblioteca)
+// se cancelaban en el acto con "No se encontró ytm_api.py" y el corazon
+// solo cambiaba de color en local.
+static bool ytmHelperReady()
+{
+#ifdef Q_OS_ANDROID
+    const QString cli = AppPaths::cliProgram();
+    return !cli.isEmpty() && QFile::exists(cli);
+#else
+    return QFile::exists(Catalog::ytmApiPath());
+#endif
 }
 
 // The "my lists" helper: next to the binary (post-build) or in the source
@@ -766,14 +828,34 @@ void Catalog::runYtdlp(const QString &target, const QString &purpose,
         && target.contains(QLatin1String("soundcloud.com/"));
     if (!soundcloudPlaylist)
         args << QStringLiteral("--flat-playlist");
+    // A retry decided after a cookie rejection: the flag only covers this
+    // one run, so the following loads go back to using the session.
+    const bool noCookies = m_noCookies;
+    m_noCookies = false;
+
     // YouTube Music session: use the cookies of the integrated login for the
     // YouTube targets (search, playlists, Liked Music). The other sources
     // go without cookies.
-    if (ytmLoggedIn()
+    if (!noCookies && ytmLoggedIn()
         && (target.contains(QLatin1String("youtube.com"))
             || target.startsWith(QLatin1String("ytsearch")))) {
         args << QStringLiteral("--cookies") << cookieFile();
+        // Remembered: if YouTube rejects the session, the same target is
+        // retried anonymously (see the failure handler).
+        m_cookieRetryTarget = target;
+        m_cookieRetryPurpose = purpose;
+        m_cookieRetryTitle = title;
+    } else {
+        m_cookieRetryTarget.clear();
     }
+    // YouTube answers a page request made with session cookies from another
+    // network (or with an expired session) with a redirect to
+    // accounts.google.com/CookieMismatch and no ytcfg. YoutubeTabIE then
+    // ABORTS the whole extraction with "Playlists that require
+    // authentication may not extract correctly..."; with skip=authcheck the
+    // list is extracted anyway through the API.
+    args << QStringLiteral("--extractor-args")
+         << QStringLiteral("youtubetab:skip=authcheck");
     args << target;
 
     // Android has no yt-dlp: the native helper answers the same flags
@@ -1104,7 +1186,7 @@ void Catalog::refreshYtmLibrary()
         return;
     if (m_libraryProc.state() != QProcess::NotRunning)
         return;  // there is already a query in progress
-    if (!QFile::exists(ytmApiPath()))
+    if (!ytmHelperReady())
         return;
 
     m_libraryBusy = true;
@@ -1128,9 +1210,10 @@ void Catalog::runYtmAction(const QStringList &args, const QString &okMessage)
         emit interactionDone(false, QStringLiteral("Hay una acción en curso"));
         return;
     }
-    if (!QFile::exists(ytmApiPath())) {
+    if (!ytmHelperReady()) {
         emit interactionDone(false,
-                             QStringLiteral("No se encontró ytm_api.py"));
+                             QStringLiteral("No se encontró el asistente de "
+                                            "YouTube Music"));
         return;
     }
     m_ytmOkMessage = okMessage;
@@ -1256,8 +1339,10 @@ void Catalog::runPlaylistAction(const QStringList &args, const QString &mode)
         emit interactionDone(false, QStringLiteral("Hay una operación de lista en curso"));
         return;
     }
-    if (!QFile::exists(ytmApiPath())) {
-        emit interactionDone(false, QStringLiteral("No se encontró ytm_api.py"));
+    if (!ytmHelperReady()) {
+        emit interactionDone(false,
+                             QStringLiteral("No se encontró el asistente de "
+                                            "YouTube Music"));
         return;
     }
     m_plMode = mode;
@@ -1311,7 +1396,7 @@ void Catalog::fetchPlaylistInfo(const QString &id)
         emit playlistInfoReady({});
         return;
     }
-    if (!ytmLoggedIn() || !QFile::exists(ytmApiPath())
+    if (!ytmLoggedIn() || !ytmHelperReady()
         || m_plProc.state() != QProcess::NotRunning) {
         emit playlistInfoReady({});
         return;
@@ -1473,7 +1558,7 @@ void Catalog::launchLikedFetch()
 {
     if (!ytmLoggedIn() || m_likedProc.state() != QProcess::NotRunning)
         return;
-    if (!QFile::exists(ytmApiPath()))
+    if (!ytmHelperReady())
         return;
     m_likedProc.setProgram(AppPaths::pythonProgram());
     m_likedProc.setArguments({ytmApiPath(), QStringLiteral("playlist"),
@@ -1766,6 +1851,10 @@ bool Catalog::ytmLoggedIn() const
 {
     if (m_loginState == QLatin1String("ok"))
         return true;
+    // YouTube already said no to the stored cookies: sending them again
+    // would only break the lists (see m_sessionRejected).
+    if (m_sessionRejected)
+        return false;
 
     // Light check: is there a SAPISID cookie in cookies.txt?
     QFile f(cookieFile());
@@ -1788,6 +1877,10 @@ bool Catalog::ytmLoggedIn() const
 
 void Catalog::setLoginState(const QString &state)
 {
+    // Any path that reaches "ok" (fresh login, imported session, the status
+    // check) means the cookies on disk are usable again.
+    if (state == QLatin1String("ok"))
+        m_sessionRejected = false;
     if (m_loginState == state)
         return;
     m_loginState = state;
@@ -1823,6 +1916,10 @@ void Catalog::finishLogin(int code)
         m_loginCancel = false;
         return;
     }
+    // The login wrote a fresh cookies.txt: whatever YouTube rejected before
+    // is no longer the session in use.
+    if (code == 0)
+        m_sessionRejected = false;
     if (code == 0 && ytmLoggedIn()) {
         m_loginError.clear();
         setLoginState(QStringLiteral("ok"));
@@ -1923,6 +2020,7 @@ void Catalog::logoutYTM()
     invalidatePlaylistCache();
     QFile::remove(likedFile());
     m_loginError.clear();
+    m_sessionRejected = false;
     setLoginState(QString());
     // On sign out, forget the "liked" set.
     if (!m_likedIds.isEmpty() || m_likedReady) {
@@ -2007,6 +2105,23 @@ bool Catalog::handleOutput(const QByteArray &json)
     return true;
 }
 
+// YT Music etiqueta algunas filas de estantería con el TIPO delante del
+// artista ("Canción • FloyyMenor y Cris Mj"). Ese prefijo no es parte del
+// nombre: acababa guardado como artista en el historial y el reproductor lo
+// enseñaba tal cual.
+static QString artistWithoutKindPrefix(QString a)
+{
+    static const QRegularExpression re(
+        QStringLiteral("^\\s*(?:canci[oó]n|v[ií]deo|song|video|"
+                       "[aá]lbum|album|lista|playlist|artista|artist|"
+                       "sencillo|single|radio)\\s*[•·|]\\s*"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch m = re.match(a);
+    if (m.hasMatch())
+        a = a.mid(m.capturedLength());
+    return a.trimmed();
+}
+
 QVariantMap Catalog::normalize(const QVariantMap &e) const
 {
     QVariantMap t;
@@ -2016,6 +2131,7 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
         artist = e.value(QStringLiteral("uploader")).toString();
     if (artist.isEmpty())
         artist = e.value(QStringLiteral("artist")).toString();
+    artist = artistWithoutKindPrefix(artist);
 
     // Flat SoundCloud entries carry the canonical permalink in webpage_url
     // (their url is an api.soundcloud.com/tracks/... API URL); YouTube flat
@@ -2221,6 +2337,11 @@ void Catalog::loadLibrary()
         QVariantMap m = v.toObject().toVariantMap();
         if (schema < 1)
             m.insert(QStringLiteral("legacy"), true);
+        // Historial viejo: el artista pudo guardarse con la etiqueta de
+        // tipo delante ("Canción • ..."). Se limpia al cargar.
+        const QString a = m.value(QStringLiteral("artist")).toString();
+        if (!a.isEmpty())
+            m.insert(QStringLiteral("artist"), artistWithoutKindPrefix(a));
         m_recent.append(m);
     }
 }

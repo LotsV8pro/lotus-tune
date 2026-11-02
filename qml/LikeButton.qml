@@ -2,7 +2,7 @@ import QtQuick
 import "theme.js" as Theme
 
 // "Liked" (library) heart for the list rows.
-// Minimal: a dimmed outline when the track is not saved (`Sys.textDim`),
+// Minimal: a dimmed outline when the track is not saved (`Theme.tDim(Sys.bg, Sys.text)`),
 // a filled glyph in the accent colour plus a faint pill behind it when it
 // is (`Sys.accent`). That pill makes the MARKED state obvious at a
 // glance in the queue and in the side panel, not only by the shape of the
@@ -54,7 +54,7 @@ Item {
         height: 15
         kind: btn.liked ? "heart" : "heart-outline"
         weight: btn.liked ? 1.9 : 1.6
-        color: btn.liked ? Sys.accent : (hh.hovered ? Sys.text : Sys.textDim)
+        color: btn.liked ? Theme.accentOn(Sys.accent, Sys.bg) : (hh.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text))
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
     }
 

@@ -19,6 +19,11 @@
 
 #include <utility>
 
+#ifdef Q_OS_LINUX
+#include <signal.h>
+#include <sys/types.h>
+#endif
+
 #include <QDebug>
 
 namespace {
@@ -246,6 +251,15 @@ void Downloads::downloadPlaylist(const QString &url, const QString &name)
     const QString u = url.trimmed();
     if (u.isEmpty())
         return;
+    // Same list already in the queue (or paused, or failed): it is resumed
+    // instead of adding a second job of the same download.
+    const int alive = liveJobForUrl(u);
+    if (alive >= 0) {
+        const QString state = m_jobs.at(alive).state;
+        if (state == QLatin1String("paused") || state == QLatin1String("error"))
+            resumeDownload(alive);
+        return;
+    }
     Job j;
     j.url = u;
     j.playlist = true;
@@ -259,6 +273,13 @@ void Downloads::downloadTrack(const QString &url, const QString &title,
     const QString u = url.trimmed();
     if (u.isEmpty())
         return;
+    const int alive = liveJobForUrl(u);
+    if (alive >= 0) {
+        const QString state = m_jobs.at(alive).state;
+        if (state == QLatin1String("paused") || state == QLatin1String("error"))
+            resumeDownload(alive);
+        return;
+    }
     Job j;
     j.url = u;
     j.playlist = false;
@@ -268,6 +289,110 @@ void Downloads::downloadTrack(const QString &url, const QString &title,
     if (j.name.trimmed().isEmpty())
         j.name = QStringLiteral("Pista");
     enqueue(j);
+}
+
+int Downloads::liveJobForUrl(const QString &url) const
+{
+    if (url.isEmpty())
+        return -1;
+    for (int i = m_jobs.size() - 1; i >= 0; --i) {
+        const Job &j = m_jobs.at(i);
+        if (j.url != url)
+            continue;
+        if (j.state == QLatin1String("queued")
+            || j.state == QLatin1String("downloading")
+            || j.state == QLatin1String("paused")
+            || j.state == QLatin1String("error"))
+            return i;
+    }
+    return -1;
+}
+
+void Downloads::pauseDownload(int index)
+{
+    if (index < 0 || index >= m_jobs.size())
+        return;
+    Job &j = m_jobs[index];
+    if (j.state == QLatin1String("done"))
+        return;
+
+    if (index == m_current
+        && m_proc.state() != QProcess::NotRunning) {
+        // Running: the process is stopped (SIGINT: yt-dlp closes the .part
+        // where it is, so the resume continues from that byte) and
+        // finishJob() sees m_pausing and leaves the job as "paused".
+        j.state = QStringLiteral("paused");
+        m_pausing = true;
+        emit jobsChanged();
+        emit changed();
+#ifdef Q_OS_LINUX
+        ::kill(static_cast<pid_t>(m_proc.processId()), SIGINT);
+#else
+        m_proc.terminate();
+#endif
+        // If it does not answer (a stuck postprocessor), it is killed: the
+        // .part stays on disk either way.
+        QTimer::singleShot(8000, this, [this, index]() {
+            if (m_pausing && m_current == index
+                && m_proc.state() != QProcess::NotRunning) {
+                qWarning() << "[downloads] la pausa no cerró yt-dlp: se mata";
+                m_proc.kill();
+            }
+        });
+        return;
+    }
+
+    // Not running: queued (it will not start) or already failed.
+    if (j.state == QLatin1String("queued") || j.state == QLatin1String("error")) {
+        j.state = QStringLiteral("paused");
+        emit jobsChanged();
+        emit changed();
+        emit activeProgressChanged();
+    }
+}
+
+void Downloads::resumeDownload(int index)
+{
+    if (index < 0 || index >= m_jobs.size())
+        return;
+    Job &j = m_jobs[index];
+    if (j.state != QLatin1String("paused") && j.state != QLatin1String("error"))
+        return;
+    j.state = QStringLiteral("queued");
+    j.error.clear();
+    emit jobsChanged();
+    emit changed();
+    emit activeProgressChanged();
+    if (m_current < 0)
+        startNext();
+}
+
+void Downloads::pauseAll()
+{
+    for (int i = 0; i < m_jobs.size(); ++i)
+        if (m_jobs.at(i).state == QLatin1String("queued"))
+            setJob(i, QStringLiteral("paused"));
+    if (m_current >= 0)
+        pauseDownload(m_current);
+    emit jobsChanged();
+    emit changed();
+    emit activeProgressChanged();
+}
+
+void Downloads::resumeAll()
+{
+    for (int i = 0; i < m_jobs.size(); ++i) {
+        const QString s = m_jobs.at(i).state;
+        if (s == QLatin1String("paused") || s == QLatin1String("error")) {
+            m_jobs[i].state = QStringLiteral("queued");
+            m_jobs[i].error.clear();
+        }
+    }
+    emit jobsChanged();
+    emit changed();
+    emit activeProgressChanged();
+    if (m_current < 0)
+        startNext();
 }
 
 void Downloads::setJob(int index, const QString &state, const QString &error)
@@ -323,7 +448,8 @@ void Downloads::startNext()
 
     m_current = idx;
     Job &j = m_jobs[idx];
-    j.progress = 0;
+    // The progress is NOT reset: a job that was paused (or that failed and
+    // is retried) keeps the percentage it had and goes on from there.
     j.state = QStringLiteral("downloading");
     j.error.clear();
     j.folder.clear();
@@ -437,8 +563,7 @@ void Downloads::startNext()
     // without cookies return "YouTube said: The playlist does not exist",
     // so the cookies.txt of the integrated login is attached, just like the
     // catalogue does to search/open lists.
-    const QString cookies = QDir::homePath()
-        + QStringLiteral("/cookies.txt");
+    const QString cookies = AppPaths::cookiesFile();
     if (QFile::exists(cookies)
         && (j.url.contains(QLatin1String("youtube.com"))
             || j.url.contains(QLatin1String("youtu.be"))
@@ -589,15 +714,24 @@ int Downloads::countAudioFiles(const QString &dir)
     return n;
 }
 
-void Downloads::removePartials(const QString &dir)
+void Downloads::removePartials(const QString &dir, bool keepResumable)
 {
     QDir d(dir);
     if (!d.exists())
         return;
     const QStringList names = d.entryList(QDir::Files | QDir::NoDotAndDotDot);
-    for (const QString &n : names)
-        if (isPartialName(n))
-            d.remove(n);
+    for (const QString &n : names) {
+        if (!isPartialName(n))
+            continue;
+        // A failed download keeps its .part: that is what makes the retry
+        // continue from where it stopped instead of starting the track
+        // again. The rest (.temp, .ytdl...) is useless after a failure.
+        if (keepResumable
+            && (n.endsWith(QLatin1String(".part"), Qt::CaseInsensitive)
+                || n.endsWith(QLatin1String(".part-frag"), Qt::CaseInsensitive)))
+            continue;
+        d.remove(n);
+    }
 }
 
 void Downloads::sweepOrphans(qint64 ageSecs)
@@ -633,6 +767,20 @@ void Downloads::finishJob(int code)
     const QString dir = job.folder.isEmpty()
         ? m_folder
         : m_folder + QLatin1Char('/') + job.folder;
+
+    if (m_pausing) {
+        // Paused halfway: the .part is KEPT on purpose, so resuming goes on
+        // from that same byte (--continue) and the list's archive skips the
+        // tracks already downloaded.
+        m_pausing = false;
+        setJob(idx, QStringLiteral("paused"));
+        m_busy = false;
+        emit jobsChanged();
+        emit changed();
+        emit activeProgressChanged();
+        startNext();   // the rest of the queue (if any) carries on
+        return;
+    }
 
     if (m_cancelling) {
         // Cancelled halfway: it deletes the partial leftovers so no trash is left.
@@ -670,12 +818,14 @@ void Downloads::finishJob(int code)
         emit downloadCompleted(job.name, job.folder);
         emit activeProgressChanged();
     } else {
-        // Failure: it cleans the partials and publishes a readable reason.
+        // Failure: a readable reason is published and the RESUMABLE
+        // leftovers (.part) are kept, so pressing retry/resume goes on from
+        // the byte where it stopped instead of downloading the track again.
         const QString raw = m_lastError.isEmpty()
             ? QStringLiteral("yt-dlp terminó con código %1").arg(code)
             : m_lastError;
         const QString msg = friendlyError(raw);
-        removePartials(dir);
+        removePartials(dir, /*keepResumable=*/true);
         setJob(idx, QStringLiteral("error"), msg);
         emit jobsChanged();
         emit changed();
@@ -690,9 +840,10 @@ void Downloads::finishJob(int code)
 
 void Downloads::cancelAll()
 {
-    // The jobs still queued will never get to run.
+    // The jobs still queued or paused will never get to run.
     for (int i = 0; i < m_jobs.size(); ++i) {
-        if (m_jobs[i].state == QLatin1String("queued"))
+        const QString s = m_jobs.at(i).state;
+        if (s == QLatin1String("queued") || s == QLatin1String("paused"))
             setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));
     }
 

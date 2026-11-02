@@ -307,7 +307,7 @@ Item {
                     width: 16
                     height: 16
                     kind: "search"
-                    color: input.activeFocus ? Sys.accent : Sys.textDim
+                    color: input.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
 
@@ -349,7 +349,7 @@ Item {
                     width: input.width
                     text: "¿Qué quieres escuchar en "
                           + (page.src ? page.src.name : "") + "?"
-                    color: Sys.textDim
+                    color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                     elide: Text.ElideRight
                 }
@@ -362,14 +362,14 @@ Item {
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.s2
                     anchors.verticalCenter: parent.verticalCenter
-                    color: clearMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                    color: clearMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
                         anchors.centerIn: parent
                         width: 11
                         height: 11
                         kind: "x"
-                        color: clearMa.containsMouse ? Sys.accent : Sys.textDim
+                        color: clearMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                     }
                     MouseArea {
                         id: clearMa
@@ -397,7 +397,7 @@ Item {
                         width: modeLabel.implicitWidth + Theme.pillHPad * 2
                         height: Theme.pillH
                         radius: Theme.rPill
-                        color: modePill.on ? Sys.accent : "transparent"
+                        color: modePill.on ? Theme.accentOn(Sys.accent, Sys.bg) : "transparent"
                         border.width: modePill.on ? 0 : 1
                         border.color: Theme.alpha(Sys.text, 0.28)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -405,7 +405,7 @@ Item {
                             id: modeLabel
                             anchors.centerIn: parent
                             text: index === 0 ? "Canciones" : "Artistas"
-                            color: modePill.on ? Sys.bg : Sys.textDim
+                            color: modePill.on ? Sys.bg : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tSm
                             font.weight: modePill.on ? Font.DemiBold : Font.Normal
                         }
@@ -430,7 +430,7 @@ Item {
                 text: page.artistMode ? "Buscando artistas…"
                       : (catalog.multiSearching ? "Buscando en todas las fuentes…"
                                                 : "Buscando…")
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
             }
             Text {
@@ -440,7 +440,7 @@ Item {
                          && page.flatTracks.length > 0
                 text: page.flatTracks.length + " resultados para «"
                       + catalog.resultsQuery + "»"
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
             }
@@ -450,7 +450,7 @@ Item {
                 visible: page.artistMode && !page.artistBusy && page.artistResults.length > 0
                 text: page.artistResults.length + " artistas para «"
                       + page.lastQuery + "»"
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
             }
@@ -503,7 +503,7 @@ Item {
                     height: rrow.modelData.secHead ? 30 : Theme.rowH
                     radius: Theme.rLg
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
-                           ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                           ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     // ---- source header (YT, SoundCloud, …) --------------------
@@ -514,7 +514,7 @@ Item {
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: Theme.s3
                         text: String(rrow.modelData.sec || "").toUpperCase()
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
                         font.letterSpacing: 1.4
@@ -528,7 +528,7 @@ Item {
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: Theme.s3
                         text: "— bloqueada, necesita credenciales"
-                        color: Sys.textDim
+                        color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         opacity: 0.6
                     }
@@ -548,12 +548,12 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             width: 16; height: 16
                             kind: "queue"
-                            color: Sys.accent
+                            color: Theme.accentOn(Sys.accent, Sys.bg)
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Encolar"
-                            color: Sys.accent
+                            color: Theme.accentOn(Sys.accent, Sys.bg)
                             font.pixelSize: Theme.tSm
                             font.weight: Font.DemiBold
                         }
@@ -566,12 +566,26 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        // Long press = right click on touch (the row menu).
+                        property bool menuHeld: false
+                        onPressAndHold: {
+                            if (rrow.modelData.secHead)
+                                return
+                            rrowMouse.menuHeld = true
+                            const p = mapToItem(null, mouseX, mouseY)
+                            page.trackContextRequested(rrow.modelData, p.x, p.y)
+                        }
                         // On hover, pre-resolve that track with
                         // priority: if the click lands right away, it already sounds.
                         onContainsMouseChanged: if (containsMouse && rrow.modelData
                                                      && rrow.modelData.url)
                                                     player.prefetchFront(rrow.modelData.url)
                         onClicked: (mouse) => {
+                            if (rrowMouse.menuHeld) {
+                                rrowMouse.menuHeld = false
+                                return
+                            }
+                            if (typeof sfx !== "undefined") sfx.play("tap")
                             if (mouse.button === Qt.RightButton) {
                                 const p = mapToItem(null, mouse.x, mouse.y)
                                 page.trackContextRequested(rrow.modelData, p.x, p.y)
@@ -623,7 +637,7 @@ Item {
                                 height: 15
                                 visible: !rrow.modelData.thumb
                                 kind: rrowMouse.containsMouse ? "play" : "music"
-                                color: rrowMouse.containsMouse ? Sys.accent : Sys.textDim
+                                color: rrowMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                         }
 
@@ -665,7 +679,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: rrow.modelData.artist || ""
-                                color: Sys.textDim
+                                color: Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tSm
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
@@ -675,7 +689,7 @@ Item {
                         Text {
                             Layout.alignment: Qt.AlignVCenter
                             text: Theme.mmss(rrow.modelData.duration)
-                            color: Sys.textDim
+                            color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tSm
                         }
                     }
@@ -701,7 +715,7 @@ Item {
                         width: ListView.view.width
                         height: 64
                         radius: Theme.rLg
-                        color: arowMa.containsMouse ? Theme.hover(Sys.surfaceAlt) : "transparent"
+                        color: arowMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         MouseArea {
@@ -709,7 +723,10 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: page.artistRequested(arow.modelData)
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.artistRequested(arow.modelData)
+                            }
                         }
 
                         RowLayout {
@@ -737,7 +754,7 @@ Item {
                                     height: 18
                                     visible: !arow.modelData.thumb
                                     kind: "music"
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                 }
                             }
 
@@ -756,7 +773,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: arow.modelData.subtitle || ""
-                                    color: Sys.textDim
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideRight
                                     maximumLineCount: 1
@@ -787,7 +804,7 @@ Item {
                         + "resultados aparecen solos (también puedes pulsar Enter). "
                         + "Se usa la extracción directa de la fuente: sin anuncios, "
                         + "sin navegador."
-                color: Sys.textDim
+                color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tMd
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WrapAtWordBoundaryOrAnywhere
