@@ -57,10 +57,14 @@ Item {
         { id: "downloads", label: "Descargas",  icon: "download", w: 1.0, big: false, duo: true }
     ]
 
+    // Same island as the desktop rail (Sidebar.qml): a faint light wash
+    // over the dynamic background, radius 12, no edge. On the phone it is
+    // the only nav surface, so it needs the same body the rail has.
     Panel {
         anchors.fill: parent
-        radius: Theme.rPanel
-        color: "transparent"
+        radius: 12
+        color: Theme.alpha(Sys.text, 0.05)
+        borderWidth: 0
 
         RowLayout {
             anchors.fill: parent

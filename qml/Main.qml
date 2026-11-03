@@ -2735,7 +2735,10 @@ Window {
                     Layout.preferredHeight: Theme.topBarH
                     title: root.pageTitle()
                     subtitle: root.pageSubtitle()
-                    showBack: root.navStack.length > 0
+                    // Inicio is the default place: no back arrow there, even
+                    // if the stack still has steps (there is nothing above
+                    // Home to go back to).
+                    showBack: root.page !== "home" && root.navStack.length > 0
                     onBackRequested: root.navBack()
                     onLauncherRequested: root.toggleLauncher()
                     onSettingsRequested: root.toggleSettings()
