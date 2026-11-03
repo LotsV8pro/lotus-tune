@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RCC version="1.0">
+<qresource prefix="/LotusTune">
+<file>qmldir</file>
+<file>qml/LotusTune/Main.qml</file>
+<file>qml/LotusTune/Panel.qml</file>
+<file>qml/LotusTune/Sidebar.qml</file>
+<file>qml/LotusTune/BottomNav.qml</file>
+<file>qml/LotusTune/TopBar.qml</file>
+<file>qml/LotusTune/PlayerBar.qml</file>
+<file>qml/LotusTune/RightPanel.qml</file>
+<file>qml/LotusTune/QueueView.qml</file>
+<file>qml/LotusTune/Glyph.qml</file>
+<file>qml/LotusTune/LikeButton.qml</file>
+<file>qml/LotusTune/LotusMark.qml</file>
+<file>qml/LotusTune/LockedPanel.qml</file>
+<file>qml/LotusTune/theme.js</file>
+<file>qml/LotusTune/HomePage.qml</file>
+<file>qml/LotusTune/ArtImage.qml</file>
+<file>qml/LotusTune/HomeCard.qml</file>
+<file>qml/LotusTune/RoundedArt.qml</file>
+<file>qml/LotusTune/SearchPage.qml</file>
+<file>qml/LotusTune/ArtistPage.qml</file>
+<file>qml/LotusTune/LibraryPage.qml</file>
+<file>qml/LotusTune/CoverTile.qml</file>
+<file>qml/LotusTune/ContextMenu.qml</file>
+<file>qml/LotusTune/PlaylistEditor.qml</file>
+<file>qml/LotusTune/LyricsView.qml</file>
+<file>qml/LotusTune/FullscreenLyrics.qml</file>
+<file>qml/LotusTune/CinemaLeft.qml</file>
+</qresource>
+</RCC>

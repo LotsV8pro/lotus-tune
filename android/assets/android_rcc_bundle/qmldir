@@ -1,0 +1,28 @@
+module LotusTune
+typeinfo lotus-tune.qmltypes
+prefer :/LotusTune/
+Main 1.0 qml/LotusTune/Main.qml
+Panel 1.0 qml/LotusTune/Panel.qml
+Sidebar 1.0 qml/LotusTune/Sidebar.qml
+BottomNav 1.0 qml/LotusTune/BottomNav.qml
+TopBar 1.0 qml/LotusTune/TopBar.qml
+PlayerBar 1.0 qml/LotusTune/PlayerBar.qml
+RightPanel 1.0 qml/LotusTune/RightPanel.qml
+QueueView 1.0 qml/LotusTune/QueueView.qml
+Glyph 1.0 qml/LotusTune/Glyph.qml
+LikeButton 1.0 qml/LotusTune/LikeButton.qml
+LotusMark 1.0 qml/LotusTune/LotusMark.qml
+LockedPanel 1.0 qml/LotusTune/LockedPanel.qml
+HomePage 1.0 qml/LotusTune/HomePage.qml
+ArtImage 1.0 qml/LotusTune/ArtImage.qml
+HomeCard 1.0 qml/LotusTune/HomeCard.qml
+RoundedArt 1.0 qml/LotusTune/RoundedArt.qml
+SearchPage 1.0 qml/LotusTune/SearchPage.qml
+ArtistPage 1.0 qml/LotusTune/ArtistPage.qml
+LibraryPage 1.0 qml/LotusTune/LibraryPage.qml
+CoverTile 1.0 qml/LotusTune/CoverTile.qml
+ContextMenu 1.0 qml/LotusTune/ContextMenu.qml
+PlaylistEditor 1.0 qml/LotusTune/PlaylistEditor.qml
+LyricsView 1.0 qml/LotusTune/LyricsView.qml
+FullscreenLyrics 1.0 qml/LotusTune/FullscreenLyrics.qml
+CinemaLeft 1.0 qml/LotusTune/CinemaLeft.qml

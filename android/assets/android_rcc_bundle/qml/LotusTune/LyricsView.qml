@@ -1,0 +1,764 @@
+import QtQuick
+import QtQuick.Layouts
+import "theme.js" as Theme
+
+// Lyrics panel driven by the backend `lyrics` context property.
+// - hasSynced: renders the parsed lines, highlights the active one and
+//   auto-scrolls so it always sits in the middle of the view.
+// - otherwise: shows the plain text with a scroll fallback.
+//
+// The line list comes pre-parsed from the backend (`lyrics.lines`), so the
+// index returned by `lineIndexAt()` and the row drawn on screen can never
+// drift apart (that used to happen because the LRC was parsed twice).
+//
+// Minimalism: only the active line gets `Sys.text` at full weight; the
+// surroundings are `Theme.tDim(Sys.bg, Sys.text)` dimmed by distance. No boxes, no glow,
+// just the two edge washes tying into `edgeColor`.
+Item {
+    id: lv
+    clip: true
+
+    // Base size of a lyrics line. NowPlaying raises it for the big view.
+    property int lineSize: 16
+    // Size bump of the ACTIVE line: it is the one "singing", so it is
+    // drawn bigger (desktop karaoke, haku_widgets `lyr-cur` style).
+    property int activeBoost: 7
+    // Max width of the reading column: in fullscreen the right panel is
+    // huge and a 2000 px line is impossible to read.
+    property real maxLineWidth: 820
+    // Reading on the left (cinema mode, like in the reference repo):
+    // the column starts at the edge of the area instead of being centred.
+    // Panel and Now Playing stay centred (default).
+    property bool leftAlign: false
+    // Dueto (Sonora style): cuando la fuente marca las lineas de la
+    // segunda voz (`secondary`), la voz principal se va a la IZQUIERDA y
+    // la segunda a la DERECHA, de modo que se ve quien canta cada frase.
+    // Sin marcas de dueto nada cambia (todo sigue centrado o alineado a la
+    // izquierda segun `leftAlign`).
+    property bool duetSides: false
+    // Sync pill: top centre (cinema mode) and visible while the controls
+    // are around (`pillShown`). By default: bottom right, on hover.
+    property bool pillTop: false
+    // El ajuste fino de sincronia es util en el panel, pero en el cinema
+    // (pantalla completa, sin sitio) sobra: se apaga desde ahi.
+    property bool syncAdjustAllowed: true
+    property bool pillShown: false
+    // Real background colour of the panel; the edges fade into it.
+    property color edgeColor: Sys.surface
+
+    // Guarded references so the view still renders before the backend registers
+    // the context properties.
+    readonly property var lyr: (typeof lyrics !== "undefined") ? lyrics : null
+    readonly property var ply: (typeof player !== "undefined") ? player : null
+
+    // Synced lines already parsed by the backend: [{ time, text }]
+    property var lines: []
+    property int activeIndex: -1
+
+    readonly property bool loading: lyr ? !!lyr.loading : false
+    readonly property bool hasLyrics: lyr ? !!lyr.hasLyrics : false
+    readonly property bool hasSynced: lyr ? !!lyr.hasSynced : false
+    readonly property string plainText: lyr ? String(lyr.plain || "") : ""
+    readonly property string errorText: lyr ? String(lyr.error || "") : ""
+
+    readonly property bool showSynced: hasSynced && lines.length > 0
+    // ¿La cancion tiene dos voces? Solo si la fuente lo dice: se mira si
+    // alguna linea viene marcada como `secondary` (segunda voz). Asi el
+    // reparto a los lados no se inventa en canciones de un solo cantante.
+    readonly property bool duet: {
+        if (!duetSides)
+            return false
+        for (let i = 0; i < lines.length; ++i) {
+            if (lines[i] && lines[i].secondary === true)
+                return true
+        }
+        return false
+    }
+    readonly property bool showPlain: hasLyrics && !showSynced && plainText.length > 0
+    readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
+    readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
+
+    // Line-only lyrics by design: the sources only give line timings
+// (YTM/LRCLIB/NetEase), so the ACTIVE LINE lights up whole. The
+// word-by-word fill was dropped: half sweeps looked broken.
+// ---- geometry of the reading column --------------------------------
+    readonly property real sidePad: 24
+    readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
+    readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
+    // Half height: that way the first and the last line can be centred
+    // too.
+    readonly property int edgePad: Math.max(56, Math.floor(height / 2))
+    // Sonora anchors the active line at 32 % of the height (not centred).
+    // The padding above/below allows pinning any line at that height, and
+    // `following` decides whether we follow the singing or respect a manual
+    // scroll.
+    // Altura a la que queda fijada la linea activa (0 = arriba, 0.5 =
+    // centrada). El cinema lo baja a ~0.34 para que se vean las que vienen.
+    property real pinFrac: 0.5
+    readonly property real pinTop: Math.max(56, Math.floor(height * pinFrac))
+    readonly property real pinBottom: Math.max(56, Math.ceil(height * (1 - pinFrac)))
+    property bool following: true
+    property bool _animating: false
+
+    // ---- progressive fill (karaoke) -------------------------------------
+    // Position interpolated between the engine's reports.
+    // `positionChanged` arrives at most every 240 ms; the fill's front is
+    // computed on top of this position, so it moves smoothly instead of
+    // jumping every 240 ms.
+    property real karaokePos: 0
+    property real _posAnchor: 0
+    property double _posStamp: 0
+
+    // Fine sync adjustment (Sonora's `positionTrim` equivalent): seconds
+    // added to the engine position when the lyrics are matched. Positive
+    // = the lyrics run ahead and they are delayed to match the audio. It is
+    // stored in the app's config so it survives a restart.
+    //
+    // It is also stored PER TRACK (artist - title): the offset depends on
+    // the recording (the lyrics come from the album while the video may have
+    // a longer intro), so a global offset does not work. What you set here
+    // sticks to that song, and the desktop widget inherits it (the backend
+    // publishes the applied offset).
+    property real offset: 0
+    function setOffset(v) {
+        // The range is wide: a video may have a much longer intro than
+        // the album (and the opposite too).
+        offset = Math.round(Theme.clamp(v, -180, 180) * 4) / 4    // 250 ms steps
+        if (typeof appcfg !== "undefined") {
+            appcfg.set("lyricsOffset", offset.toFixed(2))
+            // Offset per track: "artist - title" -> seconds.
+            const key = String(lv.lyr && lv.lyr.trackKey ? lv.lyr.trackKey : "")
+            if (key.length > 0) {
+                let map = {}
+                try {
+                    map = JSON.parse(appcfg.get("lyricsOffsetByTrack") || "{}")
+                } catch (e) {
+                    map = {}
+                }
+                map[key] = offset
+                appcfg.set("lyricsOffsetByTrack", JSON.stringify(map))
+            }
+            appcfg.save()
+        }
+        // The backend publishes this same adjustment in the lyrics state so
+        // that the desktop widgets match the audio just like the app.
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
+    }
+
+    // Applies the offset saved for this track (if any) when the lyrics load.
+    function applyStoredOffset() {
+        if (typeof appcfg === "undefined")
+            return
+        const key = String(lv.lyr && lv.lyr.trackKey ? lv.lyr.trackKey : "")
+        if (key.length === 0)
+            return
+        let map = {}
+        try {
+            map = JSON.parse(appcfg.get("lyricsOffsetByTrack") || "{}")
+        } catch (e) {
+            return
+        }
+        if (map[key] === undefined)
+            return
+        const v = Number(map[key])
+        if (isNaN(v))
+            return
+        offset = v
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
+    }
+
+    // ---- active line ---------------------------------------------------
+    function localIndex(pos) {
+        var lo = 0
+        var hi = lines.length - 1
+        var res = -1
+        while (lo <= hi) {
+            var mid = (lo + hi) >> 1
+            if (lines[mid].time <= pos) {
+                res = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return res
+    }
+
+    function computeActive() {
+        if (lines.length === 0) {
+            activeIndex = -1
+            return
+        }
+        var pos = lv.karaokePos
+        var idx = -1
+        if (lyr && typeof lyr.lineIndexAt === "function") {
+            var r = lyr.lineIndexAt(pos)
+            if (typeof r === "number" && r >= 0 && r < lines.length)
+                idx = r
+        }
+        if (idx < 0)
+            idx = localIndex(pos)
+        activeIndex = idx
+    }
+
+    function rebuild() {
+        var src = (lyr && lyr.lines) ? lyr.lines : []
+        lines = (src && src.length) ? src : []
+        // Every track has its own offset (the video may have a longer intro
+        // than the album): the one saved for it is applied here.
+        applyStoredOffset()
+        // New track: we go back to following the singing from the beginning.
+        following = true
+        computeActive()
+        // Track change: jump without animation to the new active line.
+        Qt.callLater(function () { scrollToActive(true) })
+    }
+
+    // Centres the active line in the viewport with a smooth animation.
+    function scrollToActive(instant) {
+        if (!syncedFlick.visible)
+            return
+        if (activeIndex < 0 || activeIndex >= lines.length)
+            return
+        var item = lyricRepeater.itemAt(activeIndex)
+        if (!item)
+            return
+        // The active one is fixed at 32 % of the height (Sonora style), not centred.
+        var target = item.y + item.height / 2 - syncedFlick.height * pinFrac
+        var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
+        target = Math.max(0, Math.min(target, maxY))
+        _animating = true
+        if (instant) {
+            scrollAnim.stop()
+            syncedFlick.contentY = target
+            _animating = false
+            return
+        }
+        if (Math.abs(target - syncedFlick.contentY) < 1) {
+            _animating = false
+            return
+        }
+        scrollAnim.from = syncedFlick.contentY
+        scrollAnim.to = target
+        scrollAnim.restart()
+    }
+
+    // Click on a line: jumps to that moment and goes back to following
+    // the singing (like Sonora). The small margin keeps the highlight off
+    // the previous line.
+    function seekTo(t) {
+        if (!ply || typeof ply.seek !== "function")
+            return
+        ply.seek(Math.max(0, Number(t)) + 0.05)
+        following = true
+        computeActive()
+        Qt.callLater(function () { scrollToActive(true) })
+    }
+
+    // Fade by distance to the active line + symmetric window: only the
+    // active line, the two above and the two below (softly the third) are
+    // visible; everything else hides completely. The invisible rows keep
+    // their height so the auto-scroll never jumps. Symmetric: it does not
+    // matter if the line was already sung (above) or is still to come
+    // (below).
+    function lineOpacity(i) {
+        if (activeIndex < 0)
+            return 0.78
+        var d = Math.abs(i - activeIndex)
+        if (d === 0)
+            return 1
+        if (d === 1)
+            return 0.74
+        if (d === 2)
+            return 0.48
+        if (d === 3)
+            return 0.22
+        return 0
+    }
+
+    // Re-anchors the interpolated position to the engine's last value.
+    function syncKaraokePos() {
+        if (!ply)
+            return
+        _posAnchor = Number(ply.position || 0)
+        _posStamp = Date.now()
+        karaokePos = _posAnchor + offset
+    }
+
+    Connections {
+        target: lv.lyr
+        function onChanged() {
+            // Settings (or another view on screen) may have moved the
+            // compensation or the karaoke: the backend is the shared one,
+            // so the offset is brought over and everything is recomputed.
+            if (lv.lyr) {
+                var o = Number(lv.lyr.offset)
+                if (!isNaN(o) && Math.abs(o - lv.offset) > 0.001)
+                    lv.offset = o
+            }
+            lv.rebuild()
+        }
+    }
+    // The engine emits positionChanged at most every 240 ms: that notice
+    // re-anchors the interpolated position and recomputes the active line.
+    // `stateChanged` covers play/pause/seek, so that when paused the front
+    // stays where it sounds and not where the last interpolation left it.
+    Connections {
+        target: lv.ply
+        function onPositionChanged() { lv.syncKaraokePos(); lv.computeActive() }
+        function onStateChanged() { lv.syncKaraokePos(); lv.computeActive() }
+    }
+
+    // Interpolates the position between the engine's reports so the fill's
+    // front moves smoothly. It is always needed with synced lyrics playing:
+    // with word level timings it animates the front word by word, and with
+    // line level timings it feeds the sweep of the active phrase. The engine
+    // of the engine arrives at 240 ms; at 50 ms the front moves smoothly.
+    Timer {
+        // 30 fps is enough for the front of the karaoke (the engine
+        // reports the position four times a second and the front is
+        // interpolated): a faster timer only wakes the CPU up.
+        interval: 33
+        repeat: true
+        running: lv.showSynced && !!lv.ply && lv.ply.playing
+        onTriggered: {
+            if (!lv.ply)
+                return
+            // The position is re-anchored to the engine on EVERY tick (and
+            // not only when it reports): if the engine's reports are late
+            // (a busy track, a slow source) the interpolated front used to
+            // run ahead of the voice by seconds, and the line looked fully
+            // lit instead of being sung word by word.
+            var now = Date.now()
+            var engine = Number(lv.ply.position || 0)
+            if (engine !== lv._posAnchor) {
+                lv._posAnchor = engine
+                lv._posStamp = now
+            }
+            var est = lv._posAnchor + (now - lv._posStamp) / 1000
+            var dur = Number(lv.ply.duration || 0)
+            if (dur > 0)
+                est = Math.min(est, dur)
+            lv.karaokePos = est + lv.offset
+            // With the tick the active line changes as soon as it crosses
+            // its instant, without waiting for the engine's report (up to
+            // 240 ms late).
+            lv.computeActive()
+        }
+    }
+
+    Component.onCompleted: {
+        if (typeof appcfg !== "undefined") {
+            var v = parseFloat(appcfg.get("lyricsOffset"))
+            if (!isNaN(v))
+                offset = v
+        }
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+            lv.lyr.setPublishedOffset(offset)
+        rebuild()
+    }
+    onLinesChanged: computeActive()
+    onActiveIndexChanged: {
+        Qt.callLater(function () { if (lv.following) lv.scrollToActive(false) })
+        // The active one grows when it becomes active: the column
+        // reorders and the first centring may have been computed before
+        // the reflow. This second step (100 ms) smoothly fixes the
+        // position.
+        if (lv.following)
+            settleScroll.restart()
+    }
+
+    Timer {
+        id: settleScroll
+        interval: 100
+        onTriggered: lv.scrollToActive(false)
+    }
+
+    // Re-centre on resize (window <-> fullscreen change).
+    onHeightChanged: Qt.callLater(function () { lv.scrollToActive(true) })
+    onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
+
+    // When it becomes visible (opening the cinema or the queue panel): the scroll
+    // had been skipped while it was hidden (`scrollToActive` bails if the
+    // Flick is not visible), so on open we re-pin the position and jump
+    // WITHOUT animation to the line that sounds. Without this, the cinema
+    // opened with the lyrics where the last time left them and did not
+    // settle until the line went by.
+    onVisibleChanged: {
+        if (!lv.visible || !lv.showSynced)
+            return
+        syncKaraokePos()
+        computeActive()
+        following = true
+        Qt.callLater(function () { scrollToActive(true) })
+    }
+
+    // ---- loading ------------------------------------------------------
+    ColumnLayout {
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 320)
+        spacing: Theme.s3
+        visible: lv.loading
+
+        // Quiet static marker: no spinner, no infinite loops.
+        Glyph {
+            Layout.alignment: Qt.AlignHCenter
+            width: 24
+            height: 24
+            kind: "disc"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            weight: 1.5
+        }
+        Text {
+            Layout.fillWidth: true
+            text: "Buscando letra…"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tBase
+            horizontalAlignment: Text.AlignHCenter
+        }
+    }
+
+    // ---- synced -------------------------------------------------------
+    Flickable {
+        id: syncedFlick
+        anchors.fill: parent
+        visible: lv.showSynced
+        contentWidth: width
+        contentHeight: lyricCol.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+
+        // Manual scroll: we stop following the song until "Follow the
+        // song" is pressed. The animation of its own does not count.
+        onMovementStarted: if (!lv._animating) lv.following = false
+        onContentYChanged: if (!lv._animating && syncedFlick.moving
+                               && lv.following) lv.following = false
+
+        // Reading column centred and with a bounded width.
+        Column {
+            id: lyricCol
+            width: lv.colW
+            x: lv.leftAlign ? lv.sidePad : Math.max(0, (syncedFlick.width - width) / 2)
+            topPadding: lv.pinTop
+            bottomPadding: lv.pinBottom
+            spacing: lv.lineGap
+
+            Repeater {
+                id: lyricRepeater
+                model: lv.lines
+                delegate: Text {
+                    id: rrow
+                    required property var modelData
+                    required property int index
+                    readonly property bool active: index === lv.activeIndex
+
+                    // Line mode: the whole line lights up when it becomes
+                    // active (no half sweep - word sync is not wired).
+                    // The instrumental markers ("♪") are shown, but they
+                    // are not sung and they keep their dim colour.
+                    readonly property bool instrumental: modelData.instrumental === true
+
+                    // Edge fade: each line fades itself out near the top
+                    // or the bottom of the view. No black bands above:
+                    // over the artwork wash they looked horrible.
+                    readonly property real vfade: {
+                        var zone = Math.max(20, lv.height * 0.09)
+                        var top = y - syncedFlick.contentY
+                        var a = Theme.clamp(top / zone, 0, 1)
+                        var b = Theme.clamp((lv.height - top - height) / zone, 0, 1)
+                        return Math.min(a, b)
+                    }
+
+                    // Segunda voz del dueto: su frase sale desde la derecha.
+                    readonly property bool sec: modelData.secondary === true
+
+                    width: lv.colW
+                    // Dueto: la voz principal empieza a la izquierda y la
+                    // segunda se pega a la derecha (con un pequeño margen
+                    // para que no toque el borde de la columna).
+                    leftPadding: lv.duet && !rrow.sec ? 6 : 0
+                    rightPadding: lv.duet && rrow.sec ? 6 : 0
+                    wrapMode: Text.WordWrap
+                    text: modelData.text || ""
+                    textFormat: Text.PlainText
+                    color: rrow.instrumental
+                           ? Theme.alpha(Theme.tDim(Sys.bg, Sys.text), 0.75)
+                           : (active ? Theme.mix(Sys.text, Sys.accent, 0.14)
+                                     : Theme.tDim(Sys.bg, Sys.text))
+                    font.pixelSize: active ? lv.lineSize + lv.activeBoost
+                                            : lv.lineSize
+                    font.weight: active ? Font.DemiBold : Font.Normal
+                    // The opacity goes up on hover: the line under the
+                    // cursor is marked as «clickable» (it jumps to that moment).
+                    // All of that, multiplied by the edge fade.
+                    opacity: rrow.instrumental
+                             ? Math.min(vfade, 0.7)
+                             : Math.min(vfade, lv.lineOpacity(index)
+                                        + (lineMa.containsMouse ? 0.22 : 0))
+                    horizontalAlignment: lv.duet
+                                         ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
+                                         : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                    lineHeight: 1.32
+                    Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+                    Behavior on color { ColorAnimation { duration: Theme.medMs } }
+
+                    // Click on a line: jumps to that moment of the song.
+                    MouseArea {
+                        id: lineMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            lv.seekTo(modelData.time)
+                        }
+                    }
+                }
+            }
+        }
+
+        NumberAnimation {
+            id: scrollAnim
+            target: syncedFlick
+            property: "contentY"
+            duration: Theme.slowMs
+            easing.type: Easing.InOutCubic
+            onStopped: lv._animating = false
+        }
+    }
+
+    // The edges are no longer padded with colour bands: every line fades
+    // on its own (see `vfade` in the delegate). The bands cut the fade and
+    // over the artwork wash they looked awful.
+
+    // "Follow the song" button: it shows when the user scrolls and stops
+    // following the active line automatically (like Sonora).
+    Rectangle {
+        id: followBtn
+        visible: !lv.following && lv.showSynced
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 14
+        width: followRow.implicitWidth + Theme.pillHPad * 2
+        height: Theme.pillH
+        radius: Theme.rPill
+        color: followMa.containsMouse
+               ? Theme.hover(Sys.surface) : Sys.surface
+        border.width: 1
+        border.color: Theme.line(Sys.bg, Sys.text)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+        RowLayout {
+            id: followRow
+            anchors.centerIn: parent
+            spacing: 6
+            Glyph { width: 12; height: 12; kind: "refresh"; color: Sys.accent }
+            Text {
+                text: "Seguir la canción"
+                color: Theme.accentOn(Sys.accent, Sys.bg)
+                font.pixelSize: Theme.tMd
+                font.weight: Font.Medium
+            }
+        }
+        MouseArea {
+            id: followMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                lv.following = true
+                lv.scrollToActive(true)
+            }
+        }
+    }
+
+    // ---- plain --------------------------------------------------------
+    Flickable {
+        id: plainFlick
+        anchors.fill: parent
+        visible: lv.showPlain
+        contentWidth: width
+        contentHeight: plainLabel.implicitHeight + 84
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+
+        Text {
+            id: plainNote
+            x: plainLabel.x
+            y: 12
+            width: plainLabel.width
+            text: "SIN LETRA SINCRONIZADA"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tXs
+            font.bold: true
+            font.letterSpacing: 1.4
+        }
+
+        Text {
+            id: plainLabel
+            width: Math.min(plainFlick.width - 48, lv.maxLineWidth)
+            x: Math.max(24, (plainFlick.width - width) / 2)
+            y: 36
+            text: lv.plainText
+            color: Sys.text
+            font.pixelSize: Math.max(15, lv.lineSize - 1)
+            lineHeight: 1.55
+            horizontalAlignment: Text.AlignLeft
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+        }
+    }
+
+    // ---- empty / error ------------------------------------------------
+    // A still icon, a headline and a support line. No boxes.
+    ColumnLayout {
+        anchors.centerIn: parent
+        width: Math.min(parent.width - 40, 360)
+        spacing: Theme.s2
+        visible: lv.showEmpty || lv.showError
+
+        Glyph {
+            Layout.alignment: Qt.AlignHCenter
+            width: 28
+            height: 28
+            kind: "mic"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            weight: 1.3
+        }
+        Text {
+            Layout.fillWidth: true
+            text: lv.showError ? lv.errorText : "Sin letra sincronizada"
+            color: lv.showError ? Sys.danger : Sys.text
+            font.pixelSize: Theme.tLg
+            font.weight: Font.DemiBold
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+        }
+        Text {
+            Layout.fillWidth: true
+            text: lv.showError ? "No encontramos la letra de esta canción." : "Buscando la letra…"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tMd
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+        }
+    }
+
+    // ---- fine sync: in the panel it appears on hover; in the cinema
+    // mode it moves to the centre of the header (like in the reference repo)
+    // and it follows the controls.
+    HoverHandler { id: lyricHover }
+
+    Rectangle {
+        visible: lv.showSynced && lv.syncAdjustAllowed
+                 && (lv.pillShown || lyricHover.hovered || Theme.touch)
+        anchors.horizontalCenter: lv.pillTop ? parent.horizontalCenter : undefined
+        anchors.top: lv.pillTop ? parent.top : undefined
+        anchors.topMargin: Theme.s4
+        anchors.right: lv.pillTop ? undefined : parent.right
+        anchors.bottom: lv.pillTop ? undefined : parent.bottom
+        anchors.rightMargin: Theme.s3
+        anchors.bottomMargin: Theme.s3
+        height: Theme.pillH
+        width: offRow.implicitWidth + Theme.s4
+        radius: Theme.rPill
+        color: Sys.surface
+        border.width: 1
+        border.color: Theme.line(Sys.bg, Sys.text)
+        opacity: 0.95
+
+        RowLayout {
+            id: offRow
+            anchors.centerIn: parent
+            spacing: Theme.s2
+
+            Rectangle {
+                width: 22
+                height: 22
+                radius: 11
+                color: offMinus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "−"
+                    color: offMinus.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tBase
+                    font.weight: Font.DemiBold
+                }
+                HoverHandler { id: offMinus; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    id: minusTap
+                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset - 0.1) }
+                    // Holding it down repeats the change: a video with a long
+                    // intro may need a lot of seconds.
+                    onPressedChanged: {
+                        minusHold.armed = pressed
+                        if (pressed)
+                            minusHold.running = true
+                    }
+                }
+                Timer {
+                    id: minusHold
+                    interval: 90
+                    repeat: true
+                    running: false
+                    property bool armed: false
+                    onTriggered: if (armed) lv.setOffset(lv.offset - 0.5)
+                }
+            }
+
+            Glyph {
+                Layout.alignment: Qt.AlignVCenter
+                width: 12
+                height: 12
+                kind: "clock"
+                color: Theme.tDim(Sys.bg, Sys.text)
+            }
+
+            Text {
+                Layout.alignment: Qt.AlignVCenter
+                text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + " s"
+                color: Theme.tDim(Sys.bg, Sys.text)
+                font.pixelSize: Theme.tXs
+                font.weight: Font.DemiBold
+            }
+
+            Rectangle {
+                width: 22
+                height: 22
+                radius: 11
+                color: offPlus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: offPlus.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tBase
+                    font.weight: Font.DemiBold
+                }
+                HoverHandler { id: offPlus; cursorShape: Qt.PointingHandCursor }
+                TapHandler {
+                    id: plusTap
+                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); lv.setOffset(lv.offset + 0.1) }
+                    // Holding it down repeats the change.
+                    onPressedChanged: {
+                        plusHold.armed = pressed
+                        if (pressed)
+                            plusHold.running = true
+                    }
+                }
+                Timer {
+                    id: plusHold
+                    interval: 90
+                    repeat: true
+                    running: false
+                    property bool armed: false
+                    onTriggered: if (armed) lv.setOffset(lv.offset + 0.5)
+                }
+            }
+        }
+    }
+}

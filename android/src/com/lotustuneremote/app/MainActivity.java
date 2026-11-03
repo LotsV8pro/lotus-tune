@@ -137,7 +137,12 @@ public class MainActivity extends QtActivity
 
                     final float hz = bestHz;
                     final View decor = win.getDecorView();
-                    for (int delay : new int[] { 0, 1000, 3000, 6000 }) {
+                    // La superficie de Qt se crea despues de onCreate: se
+                    // engancha un callback para pedir la frecuencia en
+                    // cuanto exista (si se pide tarde, algunos ROMs ya han
+                    // decidido el modo y la ignoran).
+                    watchSurfaces(decor, hz);
+                    for (int delay : new int[] { 0, 500, 1500, 3000, 6000 }) {
                         decor.postDelayed(new Runnable()
                         {
                             @Override public void run()
@@ -153,6 +158,56 @@ public class MainActivity extends QtActivity
         });
     }
 
+    // Engancha un SurfaceHolder.Callback a cada SurfaceView para pedir la
+    // frecuencia en el mismo instante en que la superficie se crea.
+    private static void watchSurfaces(View v, final float hz)
+    {
+        if (v == null)
+            return;
+        if (v instanceof SurfaceView) {
+            try {
+                ((SurfaceView) v).getHolder().addCallback(
+                    new android.view.SurfaceHolder.Callback()
+                {
+                    @Override
+                    public void surfaceCreated(android.view.SurfaceHolder h)
+                    {
+                        applyFrameRate(h.getSurface(), hz);
+                    }
+                    @Override
+                    public void surfaceChanged(android.view.SurfaceHolder h,
+                                               int f, int w, int ht)
+                    {
+                        applyFrameRate(h.getSurface(), hz);
+                    }
+                    @Override
+                    public void surfaceDestroyed(android.view.SurfaceHolder h) { }
+                });
+            } catch (Throwable ignored) {
+            }
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); ++i)
+                watchSurfaces(g.getChildAt(i), hz);
+        }
+    }
+
+    private static void applyFrameRate(android.view.Surface s, float hz)
+    {
+        if (s == null || !s.isValid())
+            return;
+        try {
+            if (Build.VERSION.SDK_INT >= 30)
+                s.setFrameRate(hz,
+                    android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+            else if (Build.VERSION.SDK_INT >= 29)
+                s.setFrameRate(hz,
+                    android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+        } catch (Throwable ignored) {
+        }
+    }
+
     // Recorre la jerarquia y pide `hz` a cada superficie (el SurfaceView de
     // Qt). setFrameRate(float, int) es publico desde API 30; en API 29
     // existe la variante de 2 argumentos.
@@ -162,15 +217,7 @@ public class MainActivity extends QtActivity
             return;
         if (v instanceof SurfaceView) {
             try {
-                android.view.Surface s = ((SurfaceView) v).getHolder().getSurface();
-                if (s != null && s.isValid()) {
-                    if (Build.VERSION.SDK_INT >= 30)
-                        s.setFrameRate(hz,
-                            android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
-                    else if (Build.VERSION.SDK_INT >= 29)
-                        s.setFrameRate(hz,
-                            android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
-                }
+                applyFrameRate(((SurfaceView) v).getHolder().getSurface(), hz);
             } catch (Throwable ignored) {
             }
         }
