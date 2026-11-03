@@ -52,12 +52,17 @@ Item {
 
     // When the C++ side finishes cropping, the URL is requested again (it
     // already has the new version) and the artwork shows up.
+    //
+    // Solo se reacciona mientras ESTA tarjeta espera su imagen. Antes se
+    // comparaba la clave (un SHA1) en cada portada de la app por cada
+    // "ready": con una lista en scroll eso son cientos de hashes por
+    // segundo en el hilo de la GUI (tirones). Si ya hay URL no hay nada
+    // que hacer: los cambios de tamano/radio llaman a refresh() ellos
+    // mismos.
     Connections {
         target: rart
         function onReady(key) {
-            if (key === rart.keyBlurred([art.source], Math.round(art.width),
-                                        Math.round(art.height), art.radius,
-                                        Screen.devicePixelRatio, art.blur))
+            if (art.artUrl.length === 0 && art.source.length > 0)
                 art.refresh()
         }
     }

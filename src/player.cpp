@@ -558,7 +558,8 @@ void Player::handleLine(const QByteArray &line)
             m_loading = false;
             // The cached direct URL may have expired: it is invalidated so
             // the retry resolves it again (and does not fail in a loop).
-            if (!m_currentUrl.isEmpty() && m_resolved.remove(m_currentUrl) > 0) {
+            // remove() ya devuelve bool (MSVC avisaba del "> 0").
+            if (!m_currentUrl.isEmpty() && m_resolved.remove(m_currentUrl)) {
                 m_resolvedAt.remove(m_currentUrl);
                 m_cacheDirty = true;
                 m_cacheSaveTimer.start();

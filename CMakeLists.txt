@@ -274,6 +274,11 @@ target_link_libraries(lotus-tune-tests PRIVATE
     Qt6::Test
 )
 add_test(NAME AllTests COMMAND lotus-tune-tests)
+# QTEST_MAIN crea un QApplication (QtGui): en un runner sin X/Wayland el
+# plugin xcb no puede arrancar y el test aborta antes de ejecutarse. Con
+# `offscreen` corre en cualquier sitio (CI incluida) y no necesita pantalla.
+set_tests_properties(AllTests PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
 
 # ---------------------------------------------------------------------------

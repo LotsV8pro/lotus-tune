@@ -9,6 +9,10 @@ Item {
 
     property var tracks: null
     property int currentIndex: -1
+    // Bars of the playing row. Only while the queue is REALLY on screen
+    // and playing: before they ran forever even with the panel closed,
+    // which kept the whole window repainting at 60 fps for nothing.
+    property bool barsAnimate: false
 
     signal trackActivated(int index)
     // Right click: asks for the context menu of that track (x/y in window
@@ -142,6 +146,7 @@ Item {
                                 height: 5
                                 SequentialAnimation on height {
                                     running: row.index === qv.currentIndex
+                                             && qv.barsAnimate
                                     loops: Animation.Infinite
                                     NumberAnimation { to: 14; duration: 380 + index * 90; easing.type: Easing.InOutSine }
                                     NumberAnimation { to: 5; duration: 380 + index * 90; easing.type: Easing.InOutSine }

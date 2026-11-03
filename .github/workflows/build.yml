@@ -95,10 +95,13 @@ jobs:
       - name: Empaquetar (windeployqt)
         shell: pwsh
         run: |
-          & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw `
-             "build\lotus-tune.exe"
-          Copy-Item tools\ytm_login.py, tools\ytm_api.py build\ -ErrorAction SilentlyContinue
-          Compress-Archive -Path build\* -DestinationPath lotus-tune-windows.zip
+          # Con el generador de Visual Studio (multi-config) el binario NO
+          # cae en build\ sino en build\Release: por eso fallaba aqui.
+          $exe = "build\Release\lotus-tune.exe"
+          if (!(Test-Path $exe)) { throw "no se encontro $exe" }
+          & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw $exe
+          Copy-Item tools\ytm_login.py, tools\ytm_api.py build\Release\ -ErrorAction SilentlyContinue
+          Compress-Archive -Path build\Release\* -DestinationPath lotus-tune-windows.zip
 
       - uses: actions/upload-artifact@v4
         with:
