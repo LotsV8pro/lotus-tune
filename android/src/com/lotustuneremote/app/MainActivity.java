@@ -7,6 +7,7 @@ import android.content.Context;
 import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 
@@ -53,6 +54,7 @@ public class MainActivity extends QtActivity
         super.onCreate(savedInstanceState);
         sCtx = getApplicationContext();
         sActivity = this;
+        requestHighRefreshRate();
 
         // Android 13+: sin POST_NOTIFICATIONS la notificacion del servicio
         // de reproduccion no se ve; la musica seguiria sonando pero sin
@@ -78,6 +80,113 @@ public class MainActivity extends QtActivity
                 // Keep the navigation bar visible.
             }
         });
+    }
+
+    // Pide a Android la frecuencia maxima del panel (120 Hz en este movil).
+    // Qt no pide nunca una frecuencia alta: sin esto el compositor deja la
+    // ventana en 60 Hz y las animaciones van a 60 aunque la pantalla sea de
+    // 120.
+    //
+    // Se usan solo APIs publicas:
+    //   - WindowManager.LayoutParams.preferredRefreshRate /
+    //     preferredDisplayModeId (API 23): algunos ROMs lo respetan.
+    //   - Surface.setFrameRate (API 29/30): es lo que mira el compositor
+    //     moderno. Qt pinta en un SurfaceView, asi que se recorre la
+    //     jerarquia y se le pide a cada superficie. Se reintenta porque la
+    //     superficie no existe todavia en el primer instante.
+    //
+    // Limite conocido: MIUI/HyperOS mantiene una lista de apps con refresco
+    // alto y esta no esta en ella; ignora la peticion y fija 60 Hz. Ahi solo
+    // se consigue con el ajuste del sistema (Ajustes > Pantalla > Frecuencia
+    // de actualizacion, o `settings put secure miui_refresh_rate 120`). En
+    // cualquier ROM que respete la peticion esto basta.
+    public static void requestHighRefreshRate()
+    {
+        final Activity act = sActivity;
+        if (act == null)
+            return;
+        act.runOnUiThread(new Runnable()
+        {
+            @Override
+            public void run()
+            {
+                try {
+                    android.view.Window win = act.getWindow();
+                    android.view.Display d =
+                            win.getWindowManager().getDefaultDisplay();
+                    float bestHz = 0f;
+                    int bestMode = -1;
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        for (android.view.Display.Mode m : d.getSupportedModes()) {
+                            if (m.getRefreshRate() > bestHz) {
+                                bestHz = m.getRefreshRate();
+                                bestMode = m.getModeId();
+                            }
+                        }
+                    } else {
+                        bestHz = d.getRefreshRate();
+                    }
+                    if (bestHz < 90f)
+                        return;   // panel de 60: no hay nada que pedir
+
+                    WindowManager.LayoutParams lp = win.getAttributes();
+                    lp.preferredRefreshRate = bestHz;
+                    if (bestMode >= 0)
+                        lp.preferredDisplayModeId = bestMode;
+                    win.setAttributes(lp);
+
+                    final float hz = bestHz;
+                    final View decor = win.getDecorView();
+                    for (int delay : new int[] { 0, 1000, 3000, 6000 }) {
+                        decor.postDelayed(new Runnable()
+                        {
+                            @Override public void run()
+                            {
+                                applyFrameRate(decor, hz);
+                            }
+                        }, delay);
+                    }
+                } catch (Throwable ignored) {
+                    // Un panel sin modo alto se queda como esta.
+                }
+            }
+        });
+    }
+
+    // Recorre la jerarquia y pide `hz` a cada superficie (el SurfaceView de
+    // Qt). setFrameRate(float, int) es publico desde API 30; en API 29
+    // existe la variante de 2 argumentos.
+    private static void applyFrameRate(View v, float hz)
+    {
+        if (v == null)
+            return;
+        if (v instanceof SurfaceView) {
+            try {
+                android.view.Surface s = ((SurfaceView) v).getHolder().getSurface();
+                if (s != null && s.isValid()) {
+                    if (Build.VERSION.SDK_INT >= 30)
+                        s.setFrameRate(hz,
+                            android.view.Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+                    else if (Build.VERSION.SDK_INT >= 29)
+                        s.setFrameRate(hz,
+                            android.view.Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        if (v instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) v;
+            for (int i = 0; i < g.getChildCount(); ++i)
+                applyFrameRate(g.getChildAt(i), hz);
+        }
+    }
+
+    // Al volver del segundo plano Android puede haber devuelto la ventana a
+    // 60 Hz: se vuelve a pedir.
+    @Override
+    protected void onResume() {
+        super.onResume();
+        requestHighRefreshRate();
     }
 
     // MIUI HWUI cleanup: called when the activity is destroyed to prevent

@@ -2867,6 +2867,8 @@ Window {
                 onTabRequested: (t) => root.panelTab = t
                 queueModel: queue
                 queueIndex: root.queueIndex
+                open: root.panelOpen
+                playing: player.playing
                 onCloseRequested: root.panelOpen = false
                 onTrackActivated: (i) => {
                     root.queueIndex = i
@@ -3154,6 +3156,7 @@ Window {
                 Layout.fillHeight: true
                 tracks: queue
                 currentIndex: root.queueIndex
+                barsAnimate: root.fsQueueOpen && player.playing
                 onTrackActivated: (i) => {
                     root.queueIndex = i
                     root.startCurrent()

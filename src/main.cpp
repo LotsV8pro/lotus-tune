@@ -33,6 +33,19 @@
 #include <QResource>
 #include <QStandardPaths>
 #include <QThread>
+#include <QElapsedTimer>
+#include <QtQuick/QSGRendererInterface>
+
+// Contadores del medidor de frames (LOTUS_FRAME_LOG).
+struct FrameStats
+{
+    qint64 last = 0;
+    int frames = 0;
+    int over16 = 0;
+    int over33 = 0;
+    double sum = 0;
+    double mx = 0;
+};
 
 #include <csignal>
 #if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
@@ -398,14 +411,20 @@ int main(int argc, char *argv[])
     // has not forced it already, so GL can be brought back with
     // QT_QUICK_BACKEND=rhi|software|... if it were ever needed. It must
     // run before QGuiApplication.
-    // The software backend does not exist on a phone (the scenegraph uses
-    // RHI/OpenGL ES there), so the values are only forced on the desktop.
-    const bool softwareBackend = qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND");
-    if (true)
+    // ONLY on the desktop: on a phone the software rasterizer paints the
+    // whole 1080x2400 window on the CPU (measured ~8 ms per frame here,
+    // i.e. the entire 120 Hz budget before anything moves) and that is
+    // what made the menus feel heavy. The phone renders with the hardware
+    // (RHI -> OpenGL ES) and the default threaded render loop, which is
+    // what every Qt app uses there.
+#ifndef Q_OS_ANDROID
+    if (qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND"))
         qputenv("QT_QUICK_BACKEND", "software");
-    qputenv("QSG_RHI_BACKEND", "software");
+    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
+        qputenv("QSG_RHI_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "basic");
+#endif
 
     // This player never decodes video: the interface sounds use
     // QSoundEffect (audio only). Turning off Qt Multimedia's hardware
@@ -709,6 +728,45 @@ int main(int argc, char *argv[])
     g_mainWindow = qobject_cast<QQuickWindow *>(root);
     if (g_mainWindow)
         g_mainWindow->installEventFilter(new MouseNavFilter(root, g_mainWindow));
+
+    // Medidor de frames (solo con LOTUS_FRAME_LOG=1): cada bloque de 120
+    // frames imprime media y peor frame. Sirve para comparar antes/despues
+    // de un cambio sin adivinar. No se activa nunca por si solo (ni siquiera
+    // deja el connect hecho).
+    if (g_mainWindow && qEnvironmentVariableIntValue("LOTUS_FRAME_LOG") > 0) {
+        auto *clock = new QElapsedTimer;
+        clock->start();
+        auto *st = new FrameStats;
+        QObject::connect(g_mainWindow, &QQuickWindow::frameSwapped,
+                         g_mainWindow, [clock, st]() {
+            const qint64 now = clock->nsecsElapsed() / 1000;
+            if (st->last > 0) {
+                const double ms = double(now - st->last) / 1000.0;
+                // Un hueco grande es la app en reposo (no dibuja nada):
+                // no cuenta como frame lento.
+                if (ms > 250.0) {
+                    st->last = now;
+                    return;
+                }
+                st->sum += ms;
+                st->mx = qMax(st->mx, ms);
+                ++st->frames;
+                if (ms > 16.7) ++st->over16;
+                if (ms > 33.0) ++st->over33;
+                if (st->frames >= 120) {
+                    qInfo("[frame] n=%d avg=%.1f max=%.1f >16.7=%d >33=%d",
+                          st->frames, st->sum / st->frames, st->mx,
+                          st->over16, st->over33);
+                    st->sum = st->mx = 0;
+                    st->frames = st->over16 = st->over33 = 0;
+                }
+            }
+            st->last = now;
+        });
+        qInfo() << "[frame] graphics api ="
+                << int(g_mainWindow->rendererInterface()->graphicsApi())
+                << "loop =" << qgetenv("QSG_RENDER_LOOP");
+    }
 
     qInfo() << "[main] Lotus Tune running";
     return app.exec();
