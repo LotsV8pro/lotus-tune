@@ -10,7 +10,7 @@
  * bloqueo, ajustes rapidos, relojes, coche) muestre los controles buenos y
  * no una notificacion de texto.
  */
-package io.github.lotsv8pro.lotustune;
+package com.lotustuneremote.app;
 
 import android.app.Notification;
 import android.app.NotificationChannel;

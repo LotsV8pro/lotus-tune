@@ -20,7 +20,7 @@
  *    en true para siempre y TODAS las canciones siguientes daban
  *    "error:solver busy" en silencio.
  */
-package io.github.lotsv8pro.lotustune;
+package com.lotustuneremote.app;
 
 import android.content.Context;
 import android.webkit.WebView;
@@ -129,6 +129,9 @@ public class WebViewSolver
             @Override
             public void run() {
                 try {
+                    // The solver has no Activity of its own: MainActivity
+                    // keeps the application context (set in onCreate) for
+                    // exactly this kind of background helper.
                     final Context ctx = MainActivity.sCtx;
                     if (ctx == null)
                         throw new RuntimeException("no context");

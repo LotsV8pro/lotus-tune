@@ -668,7 +668,7 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     // real SNI + hostname verification.
     if (program.endsWith(QStringLiteral("libytmcli.so"))) {
         const QJniObject ips = QJniObject::callStaticObjectMethod(
-            QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+            QStringLiteral("com/lotustuneremote/app/MainActivity")
                 .toUtf8().constData(),
             "lookupDns",
             "(Ljava/lang/String;)Ljava/lang/String;",
@@ -1948,7 +1948,7 @@ void Catalog::loginYTM()
     m_loginCancel = false;
     setLoginState(QStringLiteral("waiting"));
     const bool started = QJniObject::callStaticMethod<jboolean>(
-        QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+        QStringLiteral("com/lotustuneremote/app/MainActivity")
             .toUtf8().constData(),
         "startYtmLogin",
         "(Ljava/lang/String;)Z",
@@ -2411,7 +2411,7 @@ bool Catalog::importSession(const QString &path)
         // The system picker hands out content:// URIs QFile cannot open:
         // stage the picked file into our private cache first (Java).
         const QJniObject j = QJniObject::callStaticObjectMethod(
-            QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+            QStringLiteral("com/lotustuneremote/app/MainActivity")
                 .toUtf8().constData(),
             "copyUriToCache",
             "(Ljava/lang/String;)Ljava/lang/String;",

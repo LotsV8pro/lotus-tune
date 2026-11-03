@@ -21,6 +21,8 @@ import json
 import os
 import sys
 import time
+import urllib.error
+import urllib.request
 
 CONFIG = os.path.join(
     os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lotus-tune"
@@ -73,8 +75,58 @@ def _stored_header():
         return ""
 
 
+def _cookies_txt_header():
+    """Cabecera Cookie a partir de cookies.txt: es lo que manda yt-dlp."""
+    parts = []
+    try:
+        with open(COOKIE_FILE, "r", encoding="utf-8") as f:
+            for ln in f:
+                if not ln.strip() or ln.startswith("#"):
+                    continue
+                cols = ln.rstrip("\n").split("\t")
+                if len(cols) >= 7:
+                    parts.append(f"{cols[5]}={cols[6]}")
+    except Exception:
+        return ""
+    return "; ".join(parts)
+
+
+def _session_state(header):
+    """Comprueba de verdad si la sesion guardada sigue valiendo.
+
+    Tener SAPISID no basta: YouTube contesta a una peticion de pagina hecha
+    con cookies caducadas (o con la misma sesion usada desde otra red/IP)
+    con un redirect a accounts.google.com/CookieMismatch. En ese caso yt-dlp
+    no puede bajar la pagina y las listas fallan aunque la extraccion
+    anonima funcione, asi que la app debe dejar de mandar esas cookies.
+
+    Devuelve "ok", "expired" o "unknown" (sin red, 429, 5xx...: la sesion no
+    se toca, porque el fallo puede ser de la red y no de las cookies).
+    """
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    req = urllib.request.Request(
+        "https://www.youtube.com/", headers={"Cookie": header, "User-Agent": UA}
+    )
+    try:
+        with urllib.request.build_opener(_NoRedirect).open(req, timeout=15) as resp:
+            return "ok" if resp.status < 400 else "unknown"
+    except urllib.error.HTTPError as exc:
+        loc = (exc.headers.get("Location") or "").lower()
+        if "cookiemismatch" in loc or "servicelogin" in loc or "accounts.google.com" in loc:
+            return "expired"
+        return "unknown"
+    except Exception:
+        return "unknown"
+
+
 def cmd_status():
-    header = _stored_header()
+    # cookies.txt es la fuente de verdad (lo que lee yt-dlp); el header del
+    # ytm_session.json se usa si el fichero Netscape no estuviera.
+    header = _cookies_txt_header() or _stored_header()
     if not header:
         try:
             with open(COOKIE_FILE, "r", encoding="utf-8") as f:
@@ -86,11 +138,14 @@ def cmd_status():
             header = "; ".join(names)
         except Exception:
             header = ""
-    if _usable(header):
-        out("STATUS ok")
-        return 0
-    out("STATUS error sin-sesion")
-    return 1
+    if not _usable(header):
+        out("STATUS error sin-sesion")
+        return 1
+    if _session_state(header) == "expired":
+        out("STATUS error sesion-caducada")
+        return 1
+    out("STATUS ok")
+    return 0
 
 
 def _domain_ok(domain):

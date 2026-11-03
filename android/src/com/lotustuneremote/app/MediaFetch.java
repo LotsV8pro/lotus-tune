@@ -9,7 +9,7 @@
  *
  * Estados: "idle" | "working" | "done" | "error:<motivo>"
  */
-package io.github.lotsv8pro.lotustune;
+package com.lotustuneremote.app;
 
 import java.io.File;
 import java.io.FileOutputStream;

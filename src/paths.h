@@ -103,7 +103,7 @@ inline QString libraryFile()
 inline QString cliLibDir()
 {
     const QJniObject dir = QJniObject::callStaticObjectMethod(
-        QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+        QStringLiteral("com/lotustuneremote/app/MainActivity")
             .toUtf8().constData(),
         "nativeLibDir",
         "()Ljava/lang/String;");

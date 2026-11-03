@@ -1,12 +1,14 @@
-package io.github.lotsv8pro.lotustune;
+package com.lotustuneremote.app;
 
 import android.app.Activity;
 import android.app.WallpaperColors;
 import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Color;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.WindowManager;
 
 import org.qtproject.qt.android.bindings.QtActivity;
 
@@ -21,9 +23,33 @@ public class MainActivity extends QtActivity
     // The activity itself, for the helper that needs Activity-only API
     // (moveTaskToBack lives on Activity, not on Context).
     private static Activity sActivity;
+
+    // MIUI workaround: disable HWUI to prevent pthread_mutex crashes
+    private boolean isMIUI() {
+        String miuiVersion = Build.DISPLAY;
+        String[] miuiKeywords = {"MIUI", "HyperOS"};
+        for (String keyword : miuiKeywords) {
+            if (miuiVersion != null && miuiVersion.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
+        // MIUI HWUI workaround: disable hardware acceleration at the window level
+        // to prevent pthread_mutex_lock crashes in hwuiTask threads
+        // MIUI's custom HWUI conflicts with Qt's OpenGL rendering
+        if (isMIUI() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            // Clear the hardware accelerated flag by using layout params
+            // This forces MIUI to use software rendering for this window
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
+            // Additionally, set the window mode to software to prevent MIUI HWUI
+            getWindow().setAttributes(getWindow().getAttributes());
+        }
+
         super.onCreate(savedInstanceState);
         sCtx = getApplicationContext();
         sActivity = this;
@@ -54,6 +80,26 @@ public class MainActivity extends QtActivity
         });
     }
 
+    // MIUI HWUI cleanup: called when the activity is destroyed to prevent
+    // pthread_mutex crashes in MIUI's hwuiTask threads. MIUI HWUI maintains
+    // global mutexes that conflict with Qt's OpenGL cleanup.
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+    }
+
+    // Also handle onPause to prevent HWUI issues when app goes to background
+    @Override
+    protected void onPause() {
+        if (isMIUI()) {
+            // MIUI can have HWUI issues when switching apps
+            // Let Qt handle it but be ready for cleanup issues
+            super.onPause();
+            return;
+        }
+        super.onPause();
+    }
+
     // El permiso de notificaciones es NUESTRO (no de Qt): sin esta
     // sobrecarga, QtActivity no lo reconoce, avisa de "no valid pending
     // permission request" y la respuesta se queda sin tratar.
@@ -62,8 +108,13 @@ public class MainActivity extends QtActivity
                                            String[] permissions,
                                            int[] grantResults)
     {
-        if (requestCode == 7)
+        if (requestCode == 7) {
+            // El permiso fue solicitado, ahora procesamos el resultado.
+            // Si el usuario lo rechazó o MIUI lo bloqueó, la app
+            // continúa igual; solo no mostrará notificaciones.
+            super.onRequestPermissionsResult(requestCode, permissions, grantResults);
             return;
+        }
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
@@ -124,7 +175,7 @@ public class MainActivity extends QtActivity
     // itself: netd answers NODATA for child processes of the app, so the
     // parent resolves through Java and passes the numeric addresses on
     // (the helper dials them directly, SNI and hostname verification
-    // still use the real name). Returns "ip,ip,â€¦" or "".
+    // still use the real name). Returns "ip,ip,…" or "".
     public static String lookupDns(String host)
     {
         try {

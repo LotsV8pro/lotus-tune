@@ -721,20 +721,28 @@ Item {
         // con el backend software, donde `MultiEffect` no dibuja nada y
         // el fondo salia plano. RoundedArt se encarga de la descarga, el
         // cache y de repintar cuando el C++ termina.
+        //
+        // Va como TARJETA, no a sangre: mismos margenes que los demas
+        // paneles (Theme.panelMargin) y radio Theme.rXl, redondeado en el
+        // C++ (el alfa lo pone rart, un `clip` de Rectangle no recorta las
+        // esquinas). El rectangulo que hacia de fondo llegaba cuadrado
+        // hasta los bordes de la pantalla y desentonaba con las islas.
         RoundedArt {
             id: listBgArt
             anchors.fill: parent
+            anchors.margins: Theme.panelMargin
             source: page.viewCover()
-            radiusSpec: 0
+            radiusSpec: Theme.rXl
             blur: 2
             opacity: 0.8
         }
         Rectangle {
-            anchors.fill: parent
+            anchors.fill: listBgArt
+            radius: Theme.rXl
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.30) }
-                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.62) }
-                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.94) }
+                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.40) }
+                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.70) }
+                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.95) }
             }
         }
     }
@@ -752,6 +760,11 @@ Item {
             Layout.fillHeight: true
             visible: page.showingTracks
             spacing: Theme.panelGap
+            // El fondo es una TARJETA con esquinas de Theme.rXl: sin aire
+            // dentro, la portada y la primera fila pisaban el arco de la
+            // esquina y parecia todo desplazado (el fondo iba a sangre
+            // antes de convertirlo en tarjeta).
+            Layout.margins: Theme.s3
 
             // ---- cabecera de la lista (referencia: Liner) --------------
             // Portada 168, titulo 30 en negrita, autor 18 y las pastillas
@@ -2379,6 +2392,27 @@ Item {
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 }
             }
+        }
+    }
+
+    // Fundido del borde inferior de la lista abierta: la ultima fila se
+    // cortaba a hueso justo en la esquina redondeada de la tarjeta y
+    // parecia que el contenido se salia del fondo. Se apaga hacia el
+    // mismo tono del velo (0.95 de Sys.bg) para que la lista "termine"
+    // suave en vez de con un tajo recto.
+    Rectangle {
+        z: 5
+        visible: page.showingTracks
+        height: Theme.s6
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.panelMargin + Theme.s3
+        anchors.rightMargin: Theme.panelMargin + Theme.s3
+        anchors.bottomMargin: Theme.panelMargin + Theme.s3
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.0) }
+            GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.97) }
         }
     }
 }

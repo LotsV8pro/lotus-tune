@@ -1,4 +1,5 @@
 #include <QtTest/QtTest>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -11,6 +12,8 @@
 
 #include "downloads.h"
 #include "player.h"
+#include "audiocache.h"
+#include "errortext.h"
 #include "appconfig.h"
 #include "catalog.h"
 #include "sources.h"
@@ -46,11 +49,15 @@ private slots:
     void testVideoIdOf();
     void testLikes();
     void testLyricsState();
+    void testLyricsTitleLines();
     void testParseLrc();
     void testLooksLikeCredit();
     void testLineIndexAt();
     void testWordTimings();
     void testParseTtml();
+    void testAudioCachePrune();
+    void testAudioCacheClear();
+    void testFriendlyNetError();
 };
 
 void TestLotusTune::initTestCase()
@@ -386,6 +393,35 @@ void TestLotusTune::testLyricsState()
     QVERIFY(lyrics.lines().isEmpty());
 }
 
+void TestLotusTune::testLyricsTitleLines()
+{
+    // The header (title + artist) is not sung: it is removed. The lines of
+    // the song that repeat the title ARE sung: they must survive, or the
+    // chorus disappears from the lyrics ("faltan frases").
+    QVector<Lyrics::LrcLine> lines;
+    auto add = [&lines](double t, const QString &text) {
+        Lyrics::LrcLine l;
+        l.time = t;
+        l.text = text;
+        lines.append(l);
+    };
+    add(0.0, "Three Days Grace - I Hate Everything About You");
+    add(12.0, "Every time we lie awake");
+    add(20.0, "I Hate Everything About You");
+    add(30.0, "Why can't I see?");
+    add(45.0, "I Hate Everything About You");
+
+    Lyrics::dropJunkLines(lines, "I Hate Everything About You",
+                          "Three Days Grace");
+
+    QCOMPARE(lines.size(), 4);
+    QCOMPARE(lines.at(0).text, QString("Every time we lie awake"));
+    // The chorus is kept, with its timings.
+    QCOMPARE(lines.at(1).time, 20.0);
+    QCOMPARE(lines.at(1).text, QString("I Hate Everything About You"));
+    QCOMPARE(lines.at(3).time, 45.0);
+}
+
 void TestLotusTune::testParseLrc()
 {
     // Basic LRC: exact timings and trimmed text.
@@ -619,6 +655,123 @@ void TestLotusTune::testParseTtml()
     QCOMPARE(lines.at(2).text, QStringLiteral("without words"));
     QVERIFY(lines.at(2).words.isEmpty());
     QVERIFY(!lines.at(2).secondary);
+}
+
+// ---------------------------------------------------------------------------
+// Cache de audio: tope de tamano y borrado LRU.
+// ---------------------------------------------------------------------------
+static QString makeAudioFile(const QString &dir, const QString &id,
+                             qint64 size, int hoursAgo)
+{
+    const QString path = dir + QStringLiteral("/audio_") + id
+                         + QStringLiteral(".bin");
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly))
+        return QString();
+    f.resize(size);
+    f.close();
+    QFile tf(path);
+    tf.open(QIODevice::ReadOnly);
+    tf.setFileTime(QDateTime::currentDateTime().addSecs(-hoursAgo * 3600),
+                   QFileDevice::FileModificationTime);
+    tf.close();
+    return path;
+}
+
+void TestLotusTune::testAudioCachePrune()
+{
+    AudioCache *cache = AudioCache::instance();
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const int oldLimit = cache->limitMB();
+    cache->setDirectoryForTest(dir.path());
+
+    const qint64 mb = 1024 * 1024;
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("a"), mb, 40).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("b"), mb, 30).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("c"), mb, 20).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("d"), mb, 10).isEmpty());
+    QCOMPARE(cache->files(), 4);
+    QCOMPARE(cache->bytes(), 4 * mb);
+
+    // Tope de 2 MB: se borran las mas antiguas hasta quedar por debajo.
+    cache->setLimitMB(2);
+    QCOMPARE(cache->prune(), 3);
+    QCOMPARE(cache->files(), 1);
+    QCOMPARE(cache->bytes(), mb);
+    QVERIFY(QFile::exists(dir.path() + QStringLiteral("/audio_d.bin")));
+
+    // La pista que suena no se borra aunque sea la mas antigua.
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("a"), mb, 40).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("b"), mb, 30).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("c"), mb, 20).isEmpty());
+    QCOMPARE(cache->prune(QStringLiteral("a")), 3);
+    QVERIFY(QFile::exists(dir.path() + QStringLiteral("/audio_a.bin")));
+
+    // Restos de descargas: los .part viejos se borran, los recientes no.
+    const QString oldPart = dir.path() + QStringLiteral("/audio_x.bin.part");
+    const QString newPart = dir.path() + QStringLiteral("/audio_y.bin.part");
+    QFile op(oldPart);
+    QVERIFY(op.open(QIODevice::WriteOnly));
+    op.write("x");
+    op.close();
+    QFile otf(oldPart);
+    otf.open(QIODevice::ReadOnly);
+    otf.setFileTime(QDateTime::currentDateTime().addSecs(-7200),
+                    QFileDevice::FileModificationTime);
+    otf.close();
+    QFile np(newPart);
+    QVERIFY(np.open(QIODevice::WriteOnly));
+    np.write("y");
+    np.close();
+    QCOMPARE(cache->prunePartials(), 1);
+    QVERIFY(!QFile::exists(oldPart));
+    QVERIFY(QFile::exists(newPart));
+
+    QVERIFY(!cache->summary().isEmpty());
+    cache->setLimitMB(oldLimit);
+    cache->setDirectoryForTest(QString());
+}
+
+void TestLotusTune::testAudioCacheClear()
+{
+    AudioCache *cache = AudioCache::instance();
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    cache->setDirectoryForTest(dir.path());
+    const qint64 mb = 1024 * 1024;
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("e"), mb, 1).isEmpty());
+    QVERIFY(!makeAudioFile(dir.path(), QStringLiteral("f"), mb, 1).isEmpty());
+    QCOMPARE(cache->clear(), 2);
+    QCOMPARE(cache->files(), 0);
+    QCOMPARE(cache->clear(), 0);
+    cache->setDirectoryForTest(QString());
+}
+
+// El usuario no debe ver "error:http403": cada fallo se traduce a algo que
+// pueda entender y accionar.
+void TestLotusTune::testFriendlyNetError()
+{
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("error:http403"))
+            .contains(QStringLiteral("403")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("error:http403"))
+            .contains(QStringLiteral("operador")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("video unavailable"))
+            .contains(QStringLiteral("disponible")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("Timed out"))
+            .contains(QStringLiteral("tardado")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("UnknownHost"))
+            .contains(QStringLiteral("conexion")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("HTTP 429"))
+            .contains(QStringLiteral("limitando")));
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("No space left"))
+            .contains(QStringLiteral("espacio")));
+    // Cancelar no es un error: no se le enseña nada al usuario.
+    QVERIFY(LotusText::friendlyNetError(QStringLiteral("cancelled")).isEmpty());
+
+    // Lo que no se reconoce se deja tal cual (mejor eso que un mensaje falso).
+    const QString other = QStringLiteral("algo raro del motor");
+    QCOMPARE(LotusText::friendlyNetError(other), other);
 }
 
 QTEST_MAIN(TestLotusTune)

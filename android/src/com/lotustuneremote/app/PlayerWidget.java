@@ -6,7 +6,7 @@
  *
  * Acciones: TOGGLE (play/pausa), NEXT, PREV, SHUFFLE, REPEAT, FAV.
  */
-package io.github.lotsv8pro.lotustune;
+package com.lotustuneremote.app;
 
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -20,17 +20,17 @@ import android.widget.RemoteViews;
 public class PlayerWidget extends AppWidgetProvider
 {
     public static final String ACTION_TOGGLE =
-        "io.github.lotsv8pro.lotustune.WIDGET_TOGGLE";
+        "com.lotustuneremote.app.WIDGET_TOGGLE";
     public static final String ACTION_NEXT =
-        "io.github.lotsv8pro.lotustune.WIDGET_NEXT";
+        "com.lotustuneremote.app.WIDGET_NEXT";
     public static final String ACTION_PREV =
-        "io.github.lotsv8pro.lotustune.WIDGET_PREV";
+        "com.lotustuneremote.app.WIDGET_PREV";
     public static final String ACTION_SHUFFLE =
-        "io.github.lotsv8pro.lotustune.WIDGET_SHUFFLE";
+        "com.lotustuneremote.app.WIDGET_SHUFFLE";
     public static final String ACTION_REPEAT =
-        "io.github.lotsv8pro.lotustune.WIDGET_REPEAT";
+        "com.lotustuneremote.app.WIDGET_REPEAT";
     public static final String ACTION_FAV =
-        "io.github.lotsv8pro.lotustune.WIDGET_FAV";
+        "com.lotustuneremote.app.WIDGET_FAV";
 
     // Buzon para el C++: la ultima accion pedida y su numero de secuencia.
     public static volatile String sAction = "";
