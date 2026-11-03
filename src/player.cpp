@@ -330,7 +330,7 @@ void Player::startMpv()
                    << "recompila el modulo Java (gradle) o reinstala";
     else
         QJniObject::callStaticMethod<void>(
-            "io/github/lotsv8pro/lotustune/PlayerWidget", "attach",
+            "com/lotustuneremote/app/PlayerWidget", "attach",
             "(Landroid/content/Context;)V", ltAndroidContext());
     if (ltWidgetJava() && !m_widgetPoll) {
         m_widgetPoll = new QTimer(this);
@@ -1396,6 +1396,7 @@ void Player::beginChain(const QString &url)
     m_apSig.clear();
     m_apSp.clear();
     m_apN.clear();
+    m_clientIdx = 0;
     if (m_chainTimer)
         m_chainTimer->start();
     resolveWithApi(url);
@@ -1440,6 +1441,37 @@ void Player::abortChain(const QString &why)
     emit stateChanged();
 }
 
+// Player clients, in the order they are tried. YouTube changes what each
+// one is allowed to answer every few weeks: TVHTML5 was the one that
+// handed out formats for months and today it replies "the page needs to
+// be reloaded" (or LOGIN_REQUIRED), while VISIONOS answers normally with
+// the same web session and needs no PO token. Keeping the list short
+// means a dead client costs one request, not a broken player.
+namespace {
+struct ClientProfile {
+    const char *name;
+    const char *version;
+    const char *clientId;   // X-Youtube-Client-Name
+    const char *ua;
+    const char *make;
+    const char *model;
+    const char *osName;
+    const char *osVersion;
+    bool needsSts;
+};
+const ClientProfile kClients[] = {
+    { "VISIONOS", "1.02", "101",
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 "
+      "(KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+      "Apple", "RealityDevice17,1", "visionOS", "26.5.23O471", false },
+    { "TVHTML5", "5.20260707", "7",
+      "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 "
+      "(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
+      "Samsung", "UKS9800", "Tizen", "2.4.0", true },
+};
+constexpr int kClientCount = int(sizeof(kClients) / sizeof(kClients[0]));
+}   // namespace
+
 void Player::resolveWithApi(const QString &url)
 {
     // The 11-character id of the video (the watch URL or the permalink).
@@ -1447,11 +1479,14 @@ void Player::resolveWithApi(const QString &url)
     if (id.size() < 11)
         return;
 
-    // TV client (the one yt-dlp plays with today): it answers with
-    // signatureCipher formats on its own, without cookies, once the
-    // player request carries the visitor id (scraped once from the watch
-    // page) and the signatureTimestamp of its own player build.
-    if (m_visitor.isEmpty() || m_sigTs.isEmpty() || m_playerJsText.isEmpty()) {
+    // The first client that is going to answer needs, at least, the
+    // visitor id scraped from the watch page and the player build (the
+    // solver's n transform). The sts only matters to the TV fallback.
+    const bool needSts = (m_clientIdx >= 0 && m_clientIdx < kClientCount)
+                             ? kClients[m_clientIdx].needsSts
+                             : true;
+    if (m_visitor.isEmpty() || m_playerJsText.isEmpty()
+        || (needSts && m_sigTs.isEmpty())) {
         m_apiPending = url;
         fetchBootPage(url);
         return;
@@ -1460,52 +1495,60 @@ void Player::resolveWithApi(const QString &url)
 }
 
 
+
 void Player::sendPlayerRequest(const QString &trackUrl)
 {
     // The id of THIS track (a bad id makes YouTube answer "unavailable").
     const QString id = videoIdOf(trackUrl);
     static const QUrl apiUrl(QStringLiteral(
         "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"));
-    static const char *kTvUa =
-        "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 "
-        "(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1";
+    if (m_clientIdx < 0 || m_clientIdx >= kClientCount)
+        m_clientIdx = 0;
+    const ClientProfile &cli = kClients[m_clientIdx];
+    const QByteArray ua(cli.ua);
 
-    QJsonObject tv;
-    tv[QStringLiteral("clientName")] = QStringLiteral("TVHTML5");
-    tv[QStringLiteral("clientVersion")] = QStringLiteral("5.20260707");
-    tv[QStringLiteral("deviceMake")] = QStringLiteral("Samsung");
-    tv[QStringLiteral("deviceModel")] = QStringLiteral("UKS9800");
-    tv[QStringLiteral("userAgent")] = QString::fromLatin1(kTvUa);
-    tv[QStringLiteral("osName")] = QStringLiteral("Tizen");
-    tv[QStringLiteral("osVersion")] = QStringLiteral("2.4.0");
-    tv[QStringLiteral("hl")] = QStringLiteral("en");
-    tv[QStringLiteral("timeZone")] = QStringLiteral("UTC");
-    tv[QStringLiteral("utcOffsetMinutes")] = 0;
+    QJsonObject client;
+    client[QStringLiteral("clientName")] = QString::fromLatin1(cli.name);
+    client[QStringLiteral("clientVersion")] = QString::fromLatin1(cli.version);
+    client[QStringLiteral("deviceMake")] = QString::fromLatin1(cli.make);
+    client[QStringLiteral("deviceModel")] = QString::fromLatin1(cli.model);
+    client[QStringLiteral("userAgent")] = QString::fromLatin1(cli.ua);
+    client[QStringLiteral("osName")] = QString::fromLatin1(cli.osName);
+    client[QStringLiteral("osVersion")] = QString::fromLatin1(cli.osVersion);
+    client[QStringLiteral("hl")] = QStringLiteral("en");
+    client[QStringLiteral("gl")] = QStringLiteral("US");
+    client[QStringLiteral("timeZone")] = QStringLiteral("UTC");
+    client[QStringLiteral("utcOffsetMinutes")] = 0;
+    if (!m_visitor.isEmpty())
+        client[QStringLiteral("visitorData")] = m_visitor;
+
     QJsonObject ctx;
-    ctx[QStringLiteral("client")] = tv;
-    ctx[QStringLiteral("user")] = QJsonObject();
+    ctx[QStringLiteral("client")] = client;
     QJsonObject body;
     body[QStringLiteral("videoId")] = id;
     body[QStringLiteral("context")] = ctx;
     body[QStringLiteral("contentCheckOk")] = true;
     body[QStringLiteral("racyCheckOk")] = true;
-    // The sts (read from the player JS) is what makes the player answer
-    // with formats instead of "El vídeo no está disponible".
-    QJsonObject cpc;
-    cpc[QStringLiteral("html5Preference")] = QStringLiteral("HTML5_PREF_WANTS");
-    cpc[QStringLiteral("signatureTimestamp")] = m_sigTs.toInt();
-    QJsonObject playbackContext;
-    playbackContext[QStringLiteral("contentPlaybackContext")] = cpc;
-    body[QStringLiteral("playbackContext")] = playbackContext;
+    if (cli.needsSts) {
+        // The sts (read from the player JS) is what makes the TV player
+        // answer with formats instead of "El vídeo no está disponible".
+        QJsonObject cpc;
+        cpc[QStringLiteral("html5Preference")] =
+            QStringLiteral("HTML5_PREF_WANTS");
+        cpc[QStringLiteral("signatureTimestamp")] = m_sigTs.toInt();
+        QJsonObject playbackContext;
+        playbackContext[QStringLiteral("contentPlaybackContext")] = cpc;
+        body[QStringLiteral("playbackContext")] = playbackContext;
+    }
 
     QNetworkRequest req(apiUrl);
     req.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     req.setTransferTimeout(20000);
-    req.setRawHeader("User-Agent", kTvUa);
+    req.setRawHeader("User-Agent", ua);
     req.setRawHeader("Origin", "https://www.youtube.com");
     req.setRawHeader("Referer", "https://www.youtube.com/");
-    req.setRawHeader("X-Youtube-Client-Name", "7");
-    req.setRawHeader("X-Youtube-Client-Version", "5.20260707");
+    req.setRawHeader("X-Youtube-Client-Name", cli.clientId);
+    req.setRawHeader("X-Youtube-Client-Version", cli.version);
     req.setRawHeader("X-Goog-Api-Format-Version", "1");
     if (!m_visitor.isEmpty())
         req.setRawHeader("X-Goog-Visitor-Id", m_visitor.toUtf8());
@@ -1517,9 +1560,9 @@ void Player::sendPlayerRequest(const QString &trackUrl)
         const int bar = session.indexOf(QLatin1Char('|'));
         req.setRawHeader("Authorization", session.left(bar).toUtf8());
         req.setRawHeader("Cookie", session.mid(bar + 1).toUtf8());
-        qInfo() << "[player] GetPlayer TV con sesión iniciada";
+        qInfo() << "[player] GetPlayer" << cli.name << "con sesión iniciada";
     } else {
-        qInfo() << "[player] GetPlayer TV anónimo (sin sesión)";
+        qInfo() << "[player] GetPlayer" << cli.name << "anónimo (sin sesión)";
     }
 
     if (!m_apiNet)
@@ -1629,20 +1672,23 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
         }
     }
 
-    // The best audio format with signatureCipher (WEB_REMIX serves it
-    // scrambled; the WebView solver decodes it). Preference for the AAC
-    // m4a (itag 140): the Android decoder (Media3) opens it always, while
-    // the opus/webm can fail on some devices.
+    // The best audio format. Two shapes arrive here:
+    //  - `signatureCipher` (url + s): the web clients sign the URL and the
+    //    WebView solver has to rebuild it.
+    //  - `url`: the app clients (VISIONOS and friends) hand a ready URL
+    //    that only needs the `n` throttle token transformed.
+    // Preference for the AAC m4a (itag 140): the Android decoder (Media3)
+    // opens it always, while the opus/webm can fail on some devices.
     const QJsonArray formats = streaming.value(QStringLiteral("adaptiveFormats")).toArray();
-    QString cipher;
-    QString opusCipher;
+    QJsonObject chosen;
+    QJsonObject chosenOpus;
     int bestBitrate = -1;
     int opusBitrate = -1;
     QStringList offered;
     for (const QJsonValue &fv : formats) {
         const QJsonObject f = fv.toObject();
-        const QString mine = f.value(QStringLiteral("signatureCipher")).toString();
-        if (mine.isEmpty())
+        if (f.value(QStringLiteral("signatureCipher")).toString().isEmpty()
+            && f.value(QStringLiteral("url")).toString().isEmpty())
             continue;
         const QString mime = f.value(QStringLiteral("mimeType")).toString();
         if (!mime.startsWith(QStringLiteral("audio/")))
@@ -1655,11 +1701,11 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
         if (mime.startsWith(QStringLiteral("audio/mp4"))) {
             if (bitrate > bestBitrate) {
                 bestBitrate = bitrate;
-                cipher = mine;
+                chosen = f;
             }
         } else if (bitrate > opusBitrate) {
             opusBitrate = bitrate;
-            opusCipher = mine;
+            chosenOpus = f;
         }
     }
     if (!offered.isEmpty())
@@ -1667,11 +1713,22 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     // m4a/AAC es el contenedor más compatible, pero si el nodo sirve un
     // opus claramente mejor (p. ej. 160k frente a 128k) se usa: se
     // reproduce desde fichero local y FFmpeg abre ambos.
-    if (!opusCipher.isEmpty() && opusBitrate > bestBitrate + bestBitrate / 10)
-        cipher = opusCipher;
-    else if (cipher.isEmpty())
-        cipher = opusCipher;
-    if (cipher.isEmpty()) {
+    if (!chosenOpus.isEmpty() && opusBitrate > bestBitrate + bestBitrate / 10)
+        chosen = chosenOpus;
+    else if (chosen.isEmpty())
+        chosen = chosenOpus;
+    if (chosen.isEmpty()) {
+        // YouTube rotates what each client is allowed to answer without
+        // warning: this one may have run dry. Try the next one on the same
+        // chain before giving up.
+        if (m_clientIdx + 1 < kClientCount) {
+            qInfo() << "[player] sin formatos con" << kClients[m_clientIdx].name
+                    << "→ se prueba" << kClients[m_clientIdx + 1].name;
+            ++m_clientIdx;
+            m_apiPending = url;
+            sendPlayerRequest(url);
+            return;
+        }
         // One boot refresh per track: the cached visitor can have gone
         // stale ("El vídeo no está disponible") — the page gives a new
         // token and the same request is retried once.
@@ -1680,12 +1737,14 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
                                     .value(QStringLiteral("status"))
                                     .toString();
         if (!m_retriedBoot && (pStatus == QStringLiteral("UNPLAYABLE")
-                               || pStatus == QStringLiteral("ERROR"))) {
+                               || pStatus == QStringLiteral("ERROR")
+                               || pStatus == QStringLiteral("LOGIN_REQUIRED"))) {
             m_retriedBoot = true;
             m_visitor.clear();
             m_sigTs.clear();
             m_apUrl.clear();
             m_apSig.clear();
+            m_clientIdx = 0;
             m_apiPending = url;
             qInfo() << "[player] la API rechazó la pista; renovando el boot";
             fetchBootPage(url);
@@ -1712,19 +1771,30 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     // the default decode mode would leave it → a stream url with NO
     // visible query.
     m_retriedBoot = false;
-    const QUrlQuery sc(cipher);
-    m_apUrl = sc.queryItemValue(QStringLiteral("url"), QUrl::FullyDecoded);
-    m_apSig = sc.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded);
-    m_apSp = sc.hasQueryItem(QStringLiteral("sp"))
-                 ? sc.queryItemValue(QStringLiteral("sp"), QUrl::FullyDecoded)
-                 : QStringLiteral("sig");
+    const QString cipher = chosen.value(QStringLiteral("signatureCipher")).toString();
+    if (!cipher.isEmpty()) {
+        const QUrlQuery sc(cipher);
+        m_apUrl = sc.queryItemValue(QStringLiteral("url"), QUrl::FullyDecoded);
+        m_apSig = sc.queryItemValue(QStringLiteral("s"), QUrl::FullyDecoded);
+        m_apSp = sc.hasQueryItem(QStringLiteral("sp"))
+                     ? sc.queryItemValue(QStringLiteral("sp"), QUrl::FullyDecoded)
+                     : QStringLiteral("sig");
+    } else {
+        // Ready URL from an app client: only the n parameter is missing.
+        m_apUrl = chosen.value(QStringLiteral("url")).toString();
+        m_apSig.clear();
+        m_apSp = QStringLiteral("sig");
+    }
     QUrlQuery uq(QUrl(m_apUrl).query());
     m_apN = uq.queryItemValue(QStringLiteral("n"));
-    if (m_apUrl.isEmpty() || m_apSig.isEmpty() || m_apN.isEmpty()) {
-        qWarning() << "[player] url/s/n incompletos en el formato (len cipher:"
-                   << cipher.size() << "| url:" << m_apUrl.size() << "| s:"
-                   << m_apSig.size() << "| n:" << m_apN.size() << ")";
-        abortChain(QStringLiteral("url/s/n incompletos"));
+    if (m_apUrl.isEmpty()) {
+        qWarning() << "[player] formato sin url (len cipher:" << cipher.size() << ")";
+        abortChain(QStringLiteral("formato sin url"));
+        return;
+    }
+    // No challenge at all (the URL already plays): nothing to solve.
+    if (m_apSig.isEmpty() && m_apN.isEmpty()) {
+        finishStream(m_apUrl);
         return;
     }
 
@@ -1797,12 +1867,29 @@ void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
     } else {
         m_playerJsId = m.captured(1);
     }
-    // TV build of the same player id: its challenge functions are the
-    // ones the TVHTML5 formats were signed with (the web player_ias
-    // build decodes them wrongly -> HTTP 403 when fetching).
-    QNetworkRequest jreq(QUrl(QStringLiteral("https://www.youtube.com/s/player/")
-                              + m_playerJsId
-                              + QStringLiteral("/tv-player-ias.vflset/tv-player-ias.js")));
+    // The solver must run the SAME build that signed the formats: the app
+    // clients (VISIONOS) sign with the page's regular player, while the
+    // old TV client used a tv-* build. The page tells us which one.
+    QString jsPath;
+    static const QRegularExpression jsPathRe(
+        QStringLiteral(R"re("js":"(.*?)")re"));
+    if (const QRegularExpressionMatch mj = jsPathRe.match(page); mj.hasMatch())
+        jsPath = mj.captured(1);
+    if (jsPath.isEmpty()) {
+        static const QRegularExpression jsUrlRe(
+            QStringLiteral(R"re("jsUrl":"(.*?)")re"));
+        if (const QRegularExpressionMatch mj = jsUrlRe.match(page); mj.hasMatch())
+            jsPath = mj.captured(1);
+    }
+    jsPath.replace(QStringLiteral("\\/"), QStringLiteral("/"));
+    jsPath.replace(QStringLiteral("\\u0026"), QStringLiteral("&"));
+    if (jsPath.isEmpty())
+        jsPath = QStringLiteral("/s/player/") + m_playerJsId
+                 + QStringLiteral("/player_ias.vflset/en_US/base.js");
+    QUrl jurl(jsPath);
+    if (jurl.isRelative())
+        jurl = QUrl(QStringLiteral("https://www.youtube.com") + jsPath);
+    QNetworkRequest jreq(jurl);
     jreq.setTransferTimeout(30000);
     jreq.setRawHeader(
         "User-Agent",
@@ -1858,10 +1945,10 @@ void Player::onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
 
 void Player::solveJsWithPlayerJs(const QString &trackUrl)
 {
-    // Empty challenges make the solver answer {"":null}: only a plain
-    // mistake of a racing chain can reach here — ignore it, the chain
-    // with the real challenges is already in flight.
-    if (m_apSig.isEmpty() || m_apN.isEmpty()) {
+    // The n challenge is always there (it throttles the stream); the s
+    // challenge only exists in the signatureCipher formats. A chain with
+    // neither is a plain mistake and has nothing to solve.
+    if (m_apN.isEmpty() && m_apSig.isEmpty()) {
         qWarning() << "[player] solve con retos vacíos; ignorado (s:"
                    << m_apSig.size() << "| n:" << m_apN.size() << ")";
         return;
@@ -1888,12 +1975,14 @@ void Player::solveJsWithPlayerJs(const QString &trackUrl)
     // a preprocessed form that is cached (memory + disk): the next solves
     // skip that parse.
     QJsonArray requests;
-    requests.append(QJsonObject{{QStringLiteral("type"),
-                                 QStringLiteral("sig")},
-                                {QStringLiteral("challenges"),
-                                 QJsonArray{m_apSig}}});
-    requests.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("n")},
-                                {QStringLiteral("challenges"), QJsonArray{m_apN}}});
+    if (!m_apSig.isEmpty())
+        requests.append(QJsonObject{{QStringLiteral("type"),
+                                     QStringLiteral("sig")},
+                                    {QStringLiteral("challenges"),
+                                     QJsonArray{m_apSig}}});
+    if (!m_apN.isEmpty())
+        requests.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("n")},
+                                    {QStringLiteral("challenges"), QJsonArray{m_apN}}});
 
     QJsonObject input;
     bool havePre = !m_preprocessed.isEmpty();
@@ -1923,7 +2012,7 @@ void Player::solveJsWithPlayerJs(const QString &trackUrl)
         connect(m_solverTimer, &QTimer::timeout, this, &Player::onSolverPoll);
     }
     QJniObject::callStaticMethod<void>(
-        "io/github/lotsv8pro/lotustune/WebViewSolver", "solve",
+        "com/lotustuneremote/app/WebViewSolver", "solve",
         "(Ljava/lang/String;)V",
         QJniObject::fromString(inputJson).object());
     m_solverTimer->start();
@@ -1958,7 +2047,7 @@ void Player::onSolverPoll()
     // The solver answers through a static Java field that we poll: no
     // Qt-side thread blocks on the WebView.
     QJniEnvironment env;
-    jclass cls = env.findClass("io/github/lotsv8pro/lotustune/WebViewSolver");
+    jclass cls = env.findClass("com/lotustuneremote/app/WebViewSolver");
     if (!cls) {
         m_solverTimer->stop();
         return;
@@ -1981,7 +2070,7 @@ void Player::onSolverPoll()
             if (m_solverWait % 25 == 0)
                 qInfo() << "[player] el solver sigue ocupado; se reintenta la petición";
             QJniObject::callStaticMethod<void>(
-                "io/github/lotsv8pro/lotustune/WebViewSolver", "solve",
+                "com/lotustuneremote/app/WebViewSolver", "solve",
                 "(Ljava/lang/String;)V",
                 QJniObject::fromString(m_solverInput).object());
         }
@@ -2025,7 +2114,8 @@ void Player::onSolverPoll()
         else
             nval = value;
     }
-    if (sig.isEmpty() || nval.isEmpty()) {
+    if ((!m_apSig.isEmpty() && sig.isEmpty())
+        || (!m_apN.isEmpty() && nval.isEmpty())) {
         qWarning() << "[player] el solver no devolvió s/n | respuestas:"
                    << resp.size() << "| sig vacía:" << sig.isEmpty()
                    << "| n vacía:" << nval.isEmpty()
@@ -2039,10 +2129,10 @@ void Player::onSolverPoll()
     if (!pp.isEmpty() && m_preprocessed.isEmpty())
         savePreprocessed(pp);
 
-    // The final url: the sp parameter carries the decoded signature and
-    // the n parameter the decoded throttle token.
+    // The final url: the sp parameter carries the decoded signature (web
+    // clients only) and the n parameter the decoded throttle token.
     QString finalUrl = m_apUrl;
-    {
+    if (!sig.isEmpty()) {
         QUrl u(finalUrl);
         QUrlQuery uq(u.query());
         QList<QPair<QString, QString> > items;
@@ -2057,8 +2147,17 @@ void Player::onSolverPoll()
         u.setQuery(uq);
         finalUrl = u.toString();
     }
-    finalUrl.replace(QLatin1String("n=") + m_apN,
-                     QLatin1String("n=") + nval);
+    if (!m_apN.isEmpty())
+        finalUrl.replace(QLatin1String("n=") + m_apN,
+                         QLatin1String("n=") + nval);
+    finishStream(finalUrl);
+}
+
+// Stores a ready stream url and hands it to the fetch (local file before
+// the player opens it). Shared by the solver path and the clients that
+// answer with a URL that needs no transformation.
+void Player::finishStream(const QString &finalUrl)
+{
     qInfo() << "[player] stream resuelto:" << m_apTrack.left(60) << "[" << m_playerJsId << "]";
 
     m_resolved.insert(m_apTrack, finalUrl);
@@ -2097,14 +2196,14 @@ void Player::onSolverPoll()
 static bool ltWidgetJava()
 {
     static const bool ok = QJniObject::isClassAvailable(
-        "io/github/lotsv8pro/lotustune/PlayerWidget");
+        "com/lotustuneremote/app/PlayerWidget");
     return ok;
 }
 
 static bool ltServiceJava()
 {
     static const bool ok = QJniObject::isClassAvailable(
-        "io/github/lotsv8pro/lotustune/AudioService");
+        "com/lotustuneremote/app/AudioService");
     return ok;
 }
 
@@ -2121,7 +2220,7 @@ void Player::setBackgroundPlayback(bool on)
     if (!ctx || !ltServiceJava())
         return;
     QJniObject::callStaticMethod<void>(
-        "io/github/lotsv8pro/lotustune/AudioService",
+        "com/lotustuneremote/app/AudioService",
         on ? "start" : "stop", "(Landroid/content/Context;)V", ctx);
 }
 
@@ -2138,7 +2237,7 @@ void Player::updateWidget(const QString &title, const QString &artist,
     // de la interfaz) y la usa en el aviso y en el widget.
     const QJniObject ju = QJniObject::fromString(artUrl.left(400));
     QJniObject::callStaticMethod<void>(
-        "io/github/lotsv8pro/lotustune/PlayerWidget", "update",
+        "com/lotustuneremote/app/PlayerWidget", "update",
         "(Ljava/lang/String;Ljava/lang/String;ZZIZLjava/lang/String;JJ)V",
         jt.object(), ja.object(), jboolean(playing), jboolean(shuffle),
         jint(repeat), jboolean(fav), ju.object(),
@@ -2146,7 +2245,7 @@ void Player::updateWidget(const QString &title, const QString &artist,
     jobject ctx = ltAndroidContext();
     if (ctx && ltServiceJava())
         QJniObject::callStaticMethod<void>(
-            "io/github/lotsv8pro/lotustune/AudioService", "refresh",
+            "com/lotustuneremote/app/AudioService", "refresh",
             "(Landroid/content/Context;)V", ctx);
 }
 
@@ -2155,15 +2254,15 @@ void Player::pollWidgetActions()
     if (!ltWidgetJava())
         return;
     const jint seq = QJniObject::callStaticMethod<jint>(
-        "io/github/lotsv8pro/lotustune/PlayerWidget", "pendingSeq", "()I");
+        "com/lotustuneremote/app/PlayerWidget", "pendingSeq", "()I");
     if (int(seq) == m_widgetSeq)
         return;
     m_widgetSeq = int(seq);
     const QJniObject act = QJniObject::callStaticObjectMethod(
-        "io/github/lotsv8pro/lotustune/PlayerWidget", "pendingAction",
+        "com/lotustuneremote/app/PlayerWidget", "pendingAction",
         "()Ljava/lang/String;");
     QJniObject::callStaticMethod<void>(
-        "io/github/lotsv8pro/lotustune/PlayerWidget", "clearAction", "()V");
+        "com/lotustuneremote/app/PlayerWidget", "clearAction", "()V");
     const QString a = act.isValid() ? act.toString() : QString();
     if (!a.isEmpty())
         emit widgetAction(a);
@@ -2218,7 +2317,7 @@ void Player::startAudioFetch(const QString &track, const QString &streamUrl,
     // usuario acaba de pedir: se cancela y empieza la suya.
     if (wanted && !m_fetching.isEmpty() && m_fetching != track) {
         QJniObject::callStaticMethod<void>(
-            "io/github/lotsv8pro/lotustune/MediaFetch", "cancel", "()V");
+            "com/lotustuneremote/app/MediaFetch", "cancel", "()V");
         qInfo() << "[player] precarga en curso cancelada (prioridad a la pista actual)";
         m_fetching.clear();
     }
@@ -2271,7 +2370,7 @@ void Player::startAudioFetch(const QString &track, const QString &streamUrl,
     // del sistema, el mismo de OkHttp/Media3/Chrome. Qt (OpenSSL) recibe
     // un 403 del nodo del operador con la misma url y los mismos headers.
     QJniObject::callStaticMethod<void>(
-        "io/github/lotsv8pro/lotustune/MediaFetch", "start",
+        "com/lotustuneremote/app/MediaFetch", "start",
         "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
         QJniObject::fromString(track).object(),
         QJniObject::fromString(streamUrl).object(),
@@ -2350,7 +2449,7 @@ void Player::pollAudioFetch()
     }
     const QString track = m_fetching;
     const QString status = QJniObject::callStaticObjectMethod(
-        "io/github/lotsv8pro/lotustune/MediaFetch", "status",
+        "com/lotustuneremote/app/MediaFetch", "status",
         "()Ljava/lang/String;").toString();
     if (status.isEmpty() || status == QLatin1String("working")
         || status == QLatin1String("idle"))

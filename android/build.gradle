@@ -32,12 +32,12 @@ dependencies {
 }
 
 android {
-    namespace 'io.github.lotsv8pro.lotustunetest'
+    namespace 'com.lotustuneremote.app'
     compileSdk 34
     ndkVersion "27.0.12077973"
 
     defaultConfig {
-        applicationId "io.github.lotsv8pro.lotustunetest"
+        applicationId "com.lotustuneremote.app"
         minSdk 24
         targetSdk 34
         // El mismo numero que CMakeLists (1.2.1 -> 10201): si baja, el

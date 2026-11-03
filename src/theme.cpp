@@ -38,7 +38,7 @@ static const char *kDefaults[][2] = {
 static QString androidSystemAccent()
 {
     const QJniObject jName = QJniObject::callStaticObjectMethod(
-        QStringLiteral("io/github/lotsv8pro/lotustune/MainActivity")
+        QStringLiteral("com/lotustuneremote/app/MainActivity")
             .toUtf8().constData(),
         "systemAccentColor",
         "()Ljava/lang/String;");
@@ -56,7 +56,7 @@ static QString androidSystemAccent()
 static int androidInsetPx(const char *method)
 {
     return int(QJniObject::callStaticMethod<jint>(
-        "io/github/lotsv8pro/lotustune/MainActivity", method, "()I"));
+        "com/lotustuneremote/app/MainActivity", method, "()I"));
 }
 #endif
 

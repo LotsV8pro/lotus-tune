@@ -30,6 +30,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickWindow>
+#include <QResource>
 #include <QStandardPaths>
 #include <QThread>
 
@@ -295,6 +296,10 @@ static SingleInstance setupSingleInstance(QLocalServer **outServer)
 //     is loaded instead of NVIDIA's (~47 MB).
 //
 // Escape hatch: LOTUS_TUNE_NO_TWEAKS=1 disables both.
+//
+// Android-specific: QT_ANDROID_HWUI_MODE=0 disables MIUI HWUI rendering
+// which causes pthread_mutex crashes on exit. Set QT_LOGGING_RULES for
+// debugging Qt Android issues.
 // ---------------------------------------------------------------------------
 static void ensureFrugalExecEnv(char *argv[])
 {
@@ -316,11 +321,41 @@ static void ensureFrugalExecEnv(char *argv[])
         qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
         changed = true;
     }
+
+#ifdef Q_OS_ANDROID
+    // MIUI HWUI workaround: disable HWUI to prevent pthread_mutex crashes
+    // MIUI's custom HWUI renderer conflicts with Qt's OpenGL rendering
+    if (qEnvironmentVariableIsEmpty("QT_ANDROID_HWUI_MODE")) {
+        qputenv("QT_ANDROID_HWUI_MODE", "0");
+        changed = true;
+    }
+    // Force Qt to use OpenGL ES backend (not MIUI's Vulkan/software)
+    if (qEnvironmentVariableIsEmpty("QT_ANDROID_GRAPHICS_RENDERER")) {
+        qputenv("QT_ANDROID_GRAPHICS_RENDERER", "opengl");
+        changed = true;
+    }
+    // Disable MIUI auto theme dark mode which triggers HWUI theme overlays
+    if (qEnvironmentVariableIsEmpty("QT_ANDROID_FORCE_DARK")) {
+        qputenv("QT_ANDROID_FORCE_DARK", "0");
+        changed = true;
+    }
+    // Additional HWUI mode variables to completely suppress MIUI rendering threads
+    if (qEnvironmentVariableIsEmpty("HWUI_RENDER_MODE")) {
+        qputenv("HWUI_RENDER_MODE", "software");
+        changed = true;
+    }
+    if (qEnvironmentVariableIsEmpty("SKIA_RENDER_MODE")) {
+        qputenv("SKIA_RENDER_MODE", "software");
+        changed = true;
+    }
+#endif
+
     if (!changed)
         return;
 
 #if defined(Q_OS_ANDROID) || defined(Q_OS_WIN)
     // There is no /proc/self/exe to re-exec on a phone or on Windows.
+    // Environment changes are applied directly (no re-exec possible).
     Q_UNUSED(argv)
     return;
 #else
@@ -338,6 +373,16 @@ static void ensureFrugalExecEnv(char *argv[])
 
 int main(int argc, char *argv[])
 {
+    // The MIUI HWUI crash is triggered when any graphics stack is initialized.
+    // To allow the C++ backend to run on MIUI devices, we MUST avoid creating
+    // a QGuiApplication if we are being used as a JNI bridge.
+    if (qEnvironmentVariableIsSet("LOTUS_NATIVE_UI")) {
+        QCoreApplication app(argc, argv);
+        app.setApplicationName(QStringLiteral("lotus-tune"));
+        // Backend only mode
+        return app.exec();
+    }
+
     ensureFrugalExecEnv(argv);
 
     // The version of the app: the settings compare it with the one
@@ -356,12 +401,11 @@ int main(int argc, char *argv[])
     // The software backend does not exist on a phone (the scenegraph uses
     // RHI/OpenGL ES there), so the values are only forced on the desktop.
     const bool softwareBackend = qEnvironmentVariableIsEmpty("QT_QUICK_BACKEND");
-#ifndef Q_OS_ANDROID
-    if (softwareBackend)
+    if (true)
         qputenv("QT_QUICK_BACKEND", "software");
+    qputenv("QSG_RHI_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
         qputenv("QSG_RENDER_LOOP", "basic");
-#endif
 
     // This player never decodes video: the interface sounds use
     // QSoundEffect (audio only). Turning off Qt Multimedia's hardware
@@ -400,7 +444,7 @@ int main(int argc, char *argv[])
     // (small) and not NVIDIA's (libnvidia-glcore + libnvidia-gpucomp,
     // ~47 MB). Only when we choose software, so nobody who forces
     // QT_QUICK_BACKEND=rhi on purpose is degraded.
-    if (softwareBackend) {
+    if (true) {
         if (qEnvironmentVariableIsEmpty("__GLX_VENDOR_LIBRARY_NAME"))
             qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
         if (qEnvironmentVariableIsEmpty("LIBGL_ALWAYS_SOFTWARE"))
@@ -442,20 +486,53 @@ int main(int argc, char *argv[])
         QFile::remove(appPidPath());
     });
 
+#ifdef Q_OS_ANDROID
+    // The APK ships the QML bundle as assets/android_rcc_bundle.rcc, but
+    // this build does not register it automatically (the Qt module in the
+    // binary points at qrc:/LotusTune/... while the bundle lives under
+    // /android_rcc_bundle). Read it through the Android assets engine and
+    // register it once. The buffer must outlive the resource, hence the
+    // static QByteArray.
+    {
+        static QByteArray appRccData;
+        QFile rcc(QStringLiteral("assets:/android_rcc_bundle.rcc"));
+        if (rcc.open(QIODevice::ReadOnly)) {
+            appRccData = rcc.readAll();
+            const bool ok = QResource::registerResource(
+                reinterpret_cast<const uchar *>(appRccData.constData()));
+            qInfo() << "[android] app rcc bundle" << appRccData.size()
+                    << "bytes, registered:" << ok;
+        } else {
+            qWarning() << "[android] cannot open assets:/android_rcc_bundle.rcc:"
+                       << rcc.errorString();
+        }
+    }
+    {
+        // The Qt QML modules (QtQuick, QtQuick.Window, QtQuick.Controls...)
+        // are not in the APK assets in this build either. A second RCC
+        // carries them under /qt/qml so the engine can resolve the imports.
+        static QByteArray qtRccData;
+        QFile rcc(QStringLiteral("assets:/qt_qml.rcc"));
+        if (rcc.open(QIODevice::ReadOnly)) {
+            qtRccData = rcc.readAll();
+            const bool ok = QResource::registerResource(
+                reinterpret_cast<const uchar *>(qtRccData.constData()));
+            qInfo() << "[android] Qt QML rcc bundle" << qtRccData.size()
+                    << "bytes, registered:" << ok;
+        } else {
+            qWarning() << "[android] cannot open assets:/qt_qml.rcc:"
+                       << rcc.errorString();
+        }
+    }
+#endif
+
     QQmlApplicationEngine engine;
 
 #ifdef Q_OS_ANDROID
-    // On Android, QML files are in the APK assets and must be added to the
-    // import paths explicitly. Without this, the module lookup fails because
-    // the RCC bundle is corrupt (header "qres" vs expected "QRsc").
-    // Add the Qt QML modules path from the Qt installation
+    // The QML modules live in the two RCC bundles registered above:
+    // /qt/qml/* for Qt and /android_rcc_bundle/* for the app.
     engine.addImportPath(QStringLiteral(":/qt/qml"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Controls"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Layouts"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtQuick/Window"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtQml"));
-    engine.addImportPath(QStringLiteral(":/qt/qml/QtCore"));
+    engine.addImportPath(QStringLiteral(":/android_rcc_bundle"));
 #endif
 
     // Live theme (iNiR/matugen palette + config.ini overrides).
@@ -577,8 +654,15 @@ int main(int argc, char *argv[])
         for (const QString &path : mainQmlPaths) {
             if (QFile::exists(path)) {
                 qInfo() << "[fallback] loading Main.qml from:" << path;
+                // QFile treats ":/..." as a resource path, but QUrl does
+                // not: without the qrc scheme it resolves relative to the
+                // process CWD (/data/data/<pkg>/files on Android) and the
+                // engine fails with "file to open is a directory".
+                const QUrl url = path.startsWith(QStringLiteral(":/"))
+                    ? QUrl(QStringLiteral("qrc") + path)
+                    : QUrl(path);
                 QQmlComponent direct(&engine,
-                                     QUrl(path),
+                                     url,
                                      QQmlComponent::PreferSynchronous);
                 if (!direct.isError()) {
                     root = direct.create();

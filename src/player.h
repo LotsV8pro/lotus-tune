@@ -169,8 +169,14 @@ private:
                          const QString &trackUrl);
     void solveJsWithPlayerJs(const QString &trackUrl);
     void onSolverPoll();
+    // Stores a ready stream url, starts the fetch and closes the chain.
+    void finishStream(const QString &finalUrl);
     // Challenge state for the solver chain.
     QString m_apTrack, m_apUrl, m_apSig, m_apSp, m_apN;
+    // Client tried in the player request (0 = the first of the list). The
+    // clients that YouTube accepts change every few weeks: when one stops
+    // returning formats the next one is tried on the same chain.
+    int m_clientIdx = 0;
     QString m_playerJsId, m_playerJsText;
     // TV bootstrap: the anonymous visitor id (header X-Goog-Visitor-Id,
     // scraped from the watch page once per session) and the signature

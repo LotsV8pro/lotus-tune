@@ -1,92 +1,87 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          package="io.github.lotsv8pro.lotustunetest">
-
-    <!-- The app talks to the YouTube Music API, to the image servers and to
-         the lyrics services: it needs the network. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" 
+    android:versionCode="10201" 
+    android:versionName="1.2.1" 
+    package="com.lotustuneremote.app">
+    
+    <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34"/>
+    
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.WAKE_LOCK"/>
-
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-
-    <application
+    
+    <application 
+        android:name=".LotusApplication"
+        android:theme="@android:style/Theme.NoTitleBar"
         android:label="LotusTune"
         android:icon="@drawable/ic_launcher"
-        android:versionCode="1"
-        android:versionName="1.0.0"
         android:allowBackup="true"
+        android:extractNativeLibs="true"
+        android:hardwareAccelerated="false"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
-        android:theme="@android:style/Theme.NoTitleBar"
-        android:extractNativeLibs="true">
-
-        <activity
-            android:name="io.github.lotsv8pro.lotustune.LotusLoginActivity"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:theme="@android:style/Theme.NoTitleBar"/>
-
-        <activity
-            android:name="io.github.lotsv8pro.lotustune.MainActivity"
+        android:versionCode="1"
+        android:versionName="1.0.0">
+        
+        <activity 
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:name="com.lotustuneremote.app.MainActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
             android:launchMode="singleTask"
-            android:screenOrientation="unspecified">
+            android:hardwareAccelerated="false"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-
-            <!-- Qt's app loader (QtLoader): name of the shared library
-                 built by CMake. Without it the loader cannot find
-                 liblotus-tune_arm64-v8a.so and the app cannot start. -->
-            <meta-data
-                android:name="android.app.lib_name"
-                android:value="lotus-tune"/>
-            <!-- The loader reads this bundle entry; with no meta-data at
-                 all Android leaves ApplicationInfo.metaData null and the
-                 loader NPEs (Bundle.containsKey on null). -->
-            <meta-data
-                android:name="android.app.background_running"
-                android:value="true"/>
-            <meta-data
-                android:name="android.app.extract_android_style"
-                android:value="minimal"/>
+            <meta-data android:name="android.app.lib_name" android:value="lotus-tune"/>
+            <meta-data android:name="android.app.background_running" android:value="true"/>
+            <meta-data android:name="android.app.extract_android_style" android:value="minimal"/>
         </activity>
-
-        <!-- File provider used by Qt (share sheets, save dialogs). -->
-        <provider
+        
+        <!-- In-app Google sign-in. Without this declaration startYtmLogin()
+             throws ActivityNotFoundException, the exception is swallowed and
+             the UI only says "No se pudo abrir la pestaña de Google". -->
+        <activity
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:name="com.lotustuneremote.app.LotusLoginActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"/>
+        
+        <activity 
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:name="com.lotustuneremote.app.NativeTestActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:hardwareAccelerated="false"/>
+        
+        <provider 
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.qtprovider"
             android:exported="false"
             android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/qtprovider_paths"/>
         </provider>
-    
-        <!-- Widget de reproduccion (pantalla de inicio). -->
-        <receiver
-            android:name="io.github.lotsv8pro.lotustune.PlayerWidget"
-            android:exported="false"
-            android:label="Lotus Tune">
+        
+        <receiver android:label="Lotus Tune"
+            android:name="com.lotustuneremote.app.PlayerWidget"
+            android:exported="true">
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
             </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_info" />
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info"/>
         </receiver>
-
-        <!-- Musica en segundo plano / pantalla apagada. -->
-        <service
-            android:name="io.github.lotsv8pro.lotustune.AudioService"
-            android:exported="false"
-            android:foregroundServiceType="mediaPlayback" />
+        
+        <service 
+            android:name="com.lotustuneremote.app.AudioService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback"/>
     </application>
 </manifest>
