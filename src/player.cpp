@@ -50,6 +50,11 @@ static QString videoIdOf(const QString &trackUrl);
 // streams ahead) advances up to 3x faster without changing priorities.
 namespace { constexpr int kMaxResolvers = 3; }
 
+// Ventana del preanuncio: cuanto se espera, como mucho, desde que la url de
+// audio se resuelve hasta pedirla. Con 0 se prueba en el acto (ver prueba
+// de 2026-11-03: los nodos entregaron el audio sin esperar).
+namespace { constexpr qint64 kPreannounceMs = 0; }
+
 Player::Player(QObject *parent)
     : QObject(parent)
 {
@@ -2314,16 +2319,20 @@ void Player::startAudioFetch(const QString &track, const QString &streamUrl,
     const bool wanted = !m_currentUrl.isEmpty()
                         && videoIdOf(track) == videoIdOf(m_currentUrl);
     // Una precarga de fondo en curso no debe retrasar la pista que el
-    // usuario acaba de pedir: se cancela y empieza la suya.
-    if (wanted && !m_fetching.isEmpty() && m_fetching != track) {
+    // usuario acaba de pedir: se cancela y empieza la suya. Se compara por
+    // id: la misma cancion pedida con otro host (music./www.) no debe
+    // cancelarse a si misma (las dos escriben el mismo fichero .part).
+    if (wanted && !m_fetching.isEmpty()) {
         QJniObject::callStaticMethod<void>(
             "com/lotustuneremote/app/MediaFetch", "cancel", "()V");
         qInfo() << "[player] precarga en curso cancelada (prioridad a la pista actual)";
         m_fetching.clear();
     }
     // Una descarga a la vez: la IP del 5G es compartida (CGNAT) y varias
-    // peticiones simultaneas al mismo nodo acaban en 403.
-    if (!m_fetching.isEmpty() || !m_audioQueue.isEmpty()) {
+    // peticiones simultaneas al mismo nodo acaban en 403. Si tras cancelar
+    // la precarga no queda ninguna en curso, la pista actual arranca YA:
+    // encolarla aqui dejaba la cola sin nadie que la vaciase (silencio).
+    if (!m_fetching.isEmpty()) {
         const bool isCurrent = !m_currentUrl.isEmpty()
                                && videoIdOf(track) == videoIdOf(m_currentUrl);
         int at = -1;
@@ -2342,17 +2351,16 @@ void Player::startAudioFetch(const QString &track, const QString &streamUrl,
         }
         return;
     }
-    // YouTube entrega la url de audio con una espera obligatoria (el
-    // preanuncio: los formatos vienen con available_at = resolucion + 6 s).
-    // Pedir el audio antes de que abra la ventana da 403 o deja la
-    // conexion colgada sin contestar (comprobado: la MISMA url baja 7 MB
-    // en 0,3 s en cuanto pasa). Si la url acaba de salir, se espera aqui
-    // en vez de gastar intentos y de enseñar un error que no es tal.
+    // Ventana del preanuncio (ver kPreannounceMs). Con 0 se pide el audio
+    // en el acto: probado el 2026-11-03 en este 5G, los nodos devuelven 206
+    // a la primera y el 403 de antes era el fallo de la cola de descargas
+    // (una precarga cancelada dejaba la cola sin nadie que la vaciase). Si
+    // algun dia vuelve el 403 inmediato, basta subir kPreannounceMs.
     if (m_resolvedAt.contains(track) && !m_fetchDeferred.contains(track)) {
         const qint64 at = m_resolvedAt.value(track);
         const qint64 ageMs =
             (QDateTime::currentMSecsSinceEpoch() / 1000 - at) * 1000;
-        const qint64 waitMs = 7000 - ageMs;
+        const qint64 waitMs = kPreannounceMs - ageMs;
         if (waitMs > 0) {
             m_fetchDeferred.insert(track);
             qInfo() << "[player] audio en espera" << waitMs
@@ -2445,6 +2453,10 @@ void Player::pollAudioFetch()
     if (m_fetching.isEmpty()) {
         if (m_fetchPoll)
             m_fetchPoll->stop();
+        // Red de seguridad: si se cancelo una descarga y quedo cola
+        // pendiente, alguien tiene que arrancarla.
+        if (!m_audioQueue.isEmpty())
+            QTimer::singleShot(0, this, &Player::pumpAudioQueue);
         return;
     }
     const QString track = m_fetching;
@@ -2478,12 +2490,10 @@ void Player::pollAudioFetch()
     if (tries < 4) {
         m_audioTries.insert(track, tries + 1);
         m_fetching.clear();
-        // YouTube publica la url de audio con una espera obligatoria (el
-        // preanuncio: los formatos traen available_at = ahora + 6 s).
-        // Pedirla antes da 403 SIEMPRE, aunque la url sea buena. Por eso
-        // las esperas se escalonan para que el intento que cuenta caiga
-        // pasados esos ~6 s, y no se avisa de error mientras se reintenta.
-        static const int waits[4] = { 2500, 6000, 10000, 15000 };
+        // Esperas escalonadas: si el 403 viene del nodo (IP del 5G
+        // compartida) o de una url que aun no vale, el reintento cae fuera
+        // de esa ventana sin enseñar un error que no es tal.
+        static const int waits[4] = { 5000, 4000, 10000, 15000 };
         const int wait = waits[qBound(0, tries, 3)];
         // La url de googlevideo va firmada con la IP (`ip=...`): al pasar
         // de wifi a datos (o al caducar el nodo) el 403 es PERMANENTE y

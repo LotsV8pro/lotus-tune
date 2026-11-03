@@ -806,6 +806,20 @@ QString subtitleOf(const Json &renderer)
 QString bestThumb(const Json &node)
 {
     const QJsonObject o = node.toObject();
+    // playlistPanelVideoRenderer (las radios) y los renderers compactos
+    // llevan la miniatura como una lista `thumbnails` directamente bajo
+    // `thumbnail`, sin musicThumbnailRenderer: esa forma se colaba y la
+    // pista se quedaba sin portada.
+    const QJsonArray flat =
+        o.value(QLatin1String("thumbnail"))
+            .toObject()
+            .value(QLatin1String("thumbnails"))
+            .toArray();
+    if (!flat.isEmpty()) {
+        // The API sorts low to high: the last one is the best.
+        return flat.at(flat.size() - 1).toObject()
+            .value(QLatin1String("url")).toString();
+    }
     Json renderer = o.value(QLatin1String("musicThumbnailRenderer"));
     if (!renderer.isObject())
         renderer = o.value(QLatin1String("thumbnailRenderer"))

@@ -17,6 +17,7 @@
 #include <QStandardPaths>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
 
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
@@ -686,6 +687,49 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     }
 }
 
+// YouTube siempre sirve una portada para un id de video, aunque la
+// respuesta que trajo la pista no la incluya (las radios de YouTube Music
+// llegan por playlistPanelVideoRenderer, que no lleva miniatura). Sin esto
+// la cabecera de una radio se quedaba con el icono de música y el fondo
+// dinámico en gris.
+static QString coverFromUrl(const QString &id, const QString &url)
+{
+    const QUrl u(url);
+    const QString host = u.host();
+    if (!host.contains(QLatin1String("youtube.com"))
+        && !host.contains(QLatin1String("youtu.be")))
+        return QString();          // SoundCloud y demas no usan i.ytimg
+    QString vid;
+    if (host.contains(QLatin1String("youtu.be")))
+        vid = u.path().mid(1).left(11);
+    if (vid.size() != 11) {
+        vid = QUrlQuery(u).queryItemValue(QStringLiteral("v"));
+        if (vid.size() != 11)
+            vid = id.trimmed();
+    }
+    if (vid.size() != 11)
+        return QString();
+    return QStringLiteral("https://i.ytimg.com/vi/") + vid
+           + QStringLiteral("/hqdefault.jpg");
+}
+
+// Completa las portadas que falten (listas antiguas en cache incluidas).
+static void fillMissingThumbs(QVariantList &list)
+{
+    for (QVariant &v : list) {
+        QVariantMap t = v.toMap();
+        if (!t.value(QStringLiteral("thumb")).toString().isEmpty())
+            continue;
+        const QString cover =
+            coverFromUrl(t.value(QStringLiteral("id")).toString(),
+                         t.value(QStringLiteral("url")).toString());
+        if (cover.isEmpty())
+            continue;
+        t.insert(QStringLiteral("thumb"), cover);
+        v = t;
+    }
+}
+
 // A YouTube Music radio is not a normal list: the "RDAMVM<videoId>"
 // identifier is only understood by yt-dlp (the internal API returns empty
 // and triggers the fallback, which is what made it take ~20 s) and the
@@ -733,6 +777,9 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         if (hit) {
             if (bgBusy)
                 cancelBackgroundFetch();
+            // Las listas guardadas antes de arreglar las portadas de las
+            // radios no traen miniatura: se completa al servirla.
+            fillMissingThumbs(cached);
             m_fastFallback.clear();
             m_fastFallbackTitle.clear();
             m_openPlaylistId.clear();
@@ -2055,6 +2102,8 @@ bool Catalog::handleOutput(const QByteArray &json)
             list.append(t);
     }
 
+    fillMissingThumbs(list);
+
     if (list.isEmpty()) {
         if (m_purpose == QLatin1String("search"))
             fail(QStringLiteral("Nada encontrado para «%1»").arg(m_pendingTitle));
@@ -2220,6 +2269,8 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
     t.insert(QStringLiteral("duration"), e.value(QStringLiteral("duration")).toDouble());
     t.insert(QStringLiteral("url"), url);
     t.insert(QStringLiteral("source"), source);
+    if (thumb.isEmpty())
+        thumb = coverFromUrl(id, url);
     t.insert(QStringLiteral("thumb"), thumb);
     // setVideoId of YouTube Music: it identifies the row of the track inside
     // the playlist it was in, needed to remove it with rmpl.

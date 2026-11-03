@@ -36,6 +36,12 @@ Item {
 
     property bool showingTracks: false
 
+    // Una radio (RDAMVM/RDCLAK, "start_radio") no es una lista con autor:
+    // la cabecera enseñaba el artista de la PRIMERA pista como si fuera el
+    // de la radio ("Radio de Calva Louise" → "VIOLENT VIRA").
+    readonly property bool viewIsRadio:
+        /(?:[?&]list=RD|start_radio=1)/.test(String(catalog.openListUrl || ""))
+
     function openTracks() { showingTracks = true; openDownloadFolder = "" }
     function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
 
@@ -366,6 +372,9 @@ Item {
     function viewArtistText() {
         if (page.localPlaylistOpen)
             return ""
+        // La radio no tiene autor propio: el de su primera pista no lo es.
+        if (page.viewIsRadio)
+            return "Radio · YouTube Music"
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }

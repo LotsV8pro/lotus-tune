@@ -3960,6 +3960,21 @@ Window {
                         }
 
                         SettingRow {
+                            label: "Sonidos de interfaz"
+                            desc: "Chasquido al pulsar botones, corazones y ajustes"
+                            Toggle {
+                                checked: sfx.enabled
+                                onToggled: {
+                                    sfx.enabled = !sfx.enabled
+                                    if (sfx.enabled)
+                                        sfx.play("toggle")
+                                    root.toast(sfx.enabled ? "Sonidos activados"
+                                                           : "Sonidos desactivados")
+                                }
+                            }
+                        }
+
+                        SettingRow {
                             label: "Color de acento"
                             desc: "Hexadecimal, por ejemplo #e3bae5"
                             RowLayout {
