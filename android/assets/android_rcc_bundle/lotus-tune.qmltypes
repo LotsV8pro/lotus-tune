@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<qmltypes version="Version 6.6.3">
+<qmlobject module="LotusTune" name="Main" elementName="Main" typeName="Main" version="1.0"/>
+<qmlobject module="LotusTune" name="Panel" elementName="Panel" typeName="Panel" version="1.0"/>
+<qmlobject module="LotusTune" name="Sidebar" elementName="Sidebar" typeName="Sidebar" version="1.0"/>
+<qmlobject module="LotusTune" name="BottomNav" elementName="BottomNav" typeName="BottomNav" version="1.0"/>
+<qmlobject module="LotusTune" name="TopBar" elementName="TopBar" typeName="TopBar" version="1.0"/>
+<qmlobject module="LotusTune" name="PlayerBar" elementName="PlayerBar" typeName="PlayerBar" version="1.0"/>
+<qmlobject module="LotusTune" name="RightPanel" elementName="RightPanel" typeName="RightPanel" version="1.0"/>
+<qmlobject module="LotusTune" name="QueueView" elementName="QueueView" typeName="QueueView" version="1.0"/>
+<qmlobject module="LotusTune" name="Glyph" elementName="Glyph" typeName="Glyph" version="1.0"/>
+<qmlobject module="LotusTune" name="LikeButton" elementName="LikeButton" typeName="LikeButton" version="1.0"/>
+<qmlobject module="LotusTune" name="LotusMark" elementName="LotusMark" typeName="LotusMark" version="1.0"/>
+<qmlobject module="LotusTune" name="LockedPanel" elementName="LockedPanel" typeName="LockedPanel" version="1.0"/>
+<qmlobject module="LotusTune" name="HomePage" elementName="HomePage" typeName="HomePage" version="1.0"/>
+<qmlobject module="LotusTune" name="ArtImage" elementName="ArtImage" typeName="ArtImage" version="1.0"/>
+<qmlobject module="LotusTune" name="HomeCard" elementName="HomeCard" typeName="HomeCard" version="1.0"/>
+<qmlobject module="LotusTune" name="RoundedArt" elementName="RoundedArt" typeName="RoundedArt" version="1.0"/>
+<qmlobject module="LotusTune" name="SearchPage" elementName="SearchPage" typeName="SearchPage" version="1.0"/>
+<qmlobject module="LotusTune" name="ArtistPage" elementName="ArtistPage" typeName="ArtistPage" version="1.0"/>
+<qmlobject module="LotusTune" name="LibraryPage" elementName="LibraryPage" typeName="LibraryPage" version="1.0"/>
+<qmlobject module="LotusTune" name="CoverTile" elementName="CoverTile" typeName="CoverTile" version="1.0"/>
+<qmlobject module="LotusTune" name="ContextMenu" elementName="ContextMenu" typeName="ContextMenu" version="1.0"/>
+<qmlobject module="LotusTune" name="PlaylistEditor" elementName="PlaylistEditor" typeName="PlaylistEditor" version="1.0"/>
+<qmlobject module="LotusTune" name="LyricsView" elementName="LyricsView" typeName="LyricsView" version="1.0"/>
+<qmlobject module="LotusTune" name="FullscreenLyrics" elementName="FullscreenLyrics" typeName="FullscreenLyrics" version="1.0"/>
+<qmlobject module="LotusTune" name="CinemaLeft" elementName="CinemaLeft" typeName="CinemaLeft" version="1.0"/>
+</qmltypes>

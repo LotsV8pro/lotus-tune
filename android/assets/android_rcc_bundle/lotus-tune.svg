@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Five-petal lotus, same geometry as qml/LotusMark.qml. Purple on a
+       transparent background (no plate). -->
+  <g fill="#A78BFA">
+    <g transform="translate(64,86) rotate(-70) scale(3.9)" opacity="0.48">
+      <path d="M0,0 C-5.4,-4 -4.3,-10.5 0,-13 C4.3,-10.5 5.4,-4 0,0 Z"/>
+    </g>
+    <g transform="translate(64,86) rotate(70) scale(3.9)" opacity="0.48">
+      <path d="M0,0 C-5.4,-4 -4.3,-10.5 0,-13 C4.3,-10.5 5.4,-4 0,0 Z"/>
+    </g>
+    <g transform="translate(64,86) rotate(-35) scale(3.9)" opacity="0.72">
+      <path d="M0,0 C-5.4,-4 -4.3,-10.5 0,-13 C4.3,-10.5 5.4,-4 0,0 Z"/>
+    </g>
+    <g transform="translate(64,86) rotate(35) scale(3.9)" opacity="0.72">
+      <path d="M0,0 C-5.4,-4 -4.3,-10.5 0,-13 C4.3,-10.5 5.4,-4 0,0 Z"/>
+    </g>
+    <g transform="translate(64,86) scale(3.9)">
+      <path d="M0,0 C-5.4,-4 -4.3,-10.5 0,-13 C4.3,-10.5 5.4,-4 0,0 Z"/>
+    </g>
+  </g>
+</svg>
