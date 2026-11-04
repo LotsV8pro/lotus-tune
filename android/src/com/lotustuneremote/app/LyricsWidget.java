@@ -24,10 +24,15 @@ import android.widget.RemoteViews;
 
 public class LyricsWidget extends AppWidgetProvider
 {
-    // Linea que se canta ahora y la siguiente (atenuada). El QML las empuja
-    // solo cuando cambia el indice, no en cada frame.
+    // Anterior, actual y siguiente. El QML las empuja solo cuando cambia
+    // el indice, no en cada frame.
+    public static volatile String sPrev = "";
     public static volatile String sLine = "";
     public static volatile String sNext = "";
+
+    // Ultima linea pintada. Solo cuando CAMBIA se lanza la animacion; los
+    // refrescos de la barra (cada segundo) no animan.
+    private static String sShownLine = null;
 
     private static Context sCtx = null;
 
@@ -38,9 +43,10 @@ public class LyricsWidget extends AppWidgetProvider
             sCtx = c.getApplicationContext();
     }
 
-    /** Par de lineas nuevo desde la app. */
-    public static void update(String line, String next)
+    /** Trio de lineas nuevo desde la app. */
+    public static void update(String prev, String line, String next)
     {
+        sPrev = prev == null ? "" : prev;
         sLine = line == null ? "" : line;
         sNext = next == null ? "" : next;
         render(sCtx);
@@ -87,15 +93,24 @@ public class LyricsWidget extends AppWidgetProvider
                             ? "Lotus Tune" : PlayerWidget.sTitle);
             v.setTextViewText(R.id.l_artist, PlayerWidget.sArtist);
 
+            String prev = sPrev == null ? "" : sPrev.trim();
             String line = sLine == null ? "" : sLine.trim();
             String next = sNext == null ? "" : sNext.trim();
             if (line.isEmpty())
                 line = PlayerWidget.sTitle.isEmpty()
                         ? "Sin letra" : "Sin letra para esta cancion";
-            if (next.isEmpty())
-                next = " ";
-            v.setTextViewText(R.id.l_line, line);
-            v.setTextViewText(R.id.l_next, next);
+            // Dos copias del bloque, rellenas las dos (asi el texto es
+            // correcto se pinte la que se pinte). Al cambiar de linea se
+            // pasa a la otra copia con showNext(), que siempre alterna:
+            // tanto si el host reutiliza el arbol (esta en 1) como si lo
+            // reinfla (esta en 0), el salto de 0->1 o 1->0 anima.
+            fill(v, R.id.l_prev_line, R.id.l_line, R.id.l_next,
+                 prev, line, next);
+            fill(v, R.id.l_prev_line2, R.id.l_line2, R.id.l_next2,
+                 prev, line, next);
+            if (sShownLine != null && !sShownLine.equals(line))
+                v.showNext(R.id.l_flip);
+            sShownLine = line;
 
             // Barra fina de progreso, como en el widget de reproduccion.
             final long dur = Math.max(1L, PlayerWidget.sDurMs);
@@ -147,6 +162,24 @@ public class LyricsWidget extends AppWidgetProvider
             v.setOnClickPendingIntent(R.id.l_head,
                     openApp(context));
             m.updateAppWidget(id, v);
+        }
+    }
+
+    /** Pinta el trio de lineas en una de las dos copias del bloque. */
+    private static void fill(RemoteViews v, int prevId, int lineId, int nextId,
+                             String prev, String line, String next)
+    {
+        v.setTextViewText(lineId, line);
+        v.setTextViewText(nextId, next);
+        // La anterior siempre ocupa su hueco (INVISIBLE, no GONE): si
+        // desapareciera, el bloque entero se desplazaria al cambiar de
+        // linea y el widget daria un salto.
+        if (prev.isEmpty()) {
+            v.setTextViewText(prevId, "");
+            v.setViewVisibility(prevId, View.INVISIBLE);
+        } else {
+            v.setViewVisibility(prevId, View.VISIBLE);
+            v.setTextViewText(prevId, prev);
         }
     }
 

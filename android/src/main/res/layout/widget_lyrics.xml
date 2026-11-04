@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget de LETRA: cabecera (caratula + titulo + artista), la linea que
-     se canta ahora en grande, la siguiente atenuada, barra de progreso y
-     los mismos controles que el widget de reproduccion.
+<!-- Widget de LETRA: cabecera (caratula + titulo + artista), barra de
+     progreso, los controles y, DEBAJO, la letra (anterior, actual y
+     siguiente). El bloque de letra lleva weight=1, asi que al estirar el
+     widget el espacio extra se lo queda la letra.
      Todo es RemoteViews (ImageView + TextViews). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -54,35 +55,6 @@
                 android:text="" />
         </LinearLayout>
     </LinearLayout>
-
-    <!-- Linea actual: lo unico que se lee de un vistazo. -->
-    <TextView
-        android:id="@+id/l_line"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="10dp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:textColor="#FFFFFFFF"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:shadowColor="#99000000"
-        android:shadowDx="0"
-        android:shadowDy="1"
-        android:shadowRadius="3"
-        android:text="" />
-
-    <!-- Linea siguiente, apagada. -->
-    <TextView
-        android:id="@+id/l_next"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textColor="#8AFFFFFF"
-        android:textSize="13sp"
-        android:text=" " />
 
     <ProgressBar
         android:id="@+id/l_progress"
@@ -162,4 +134,104 @@
             android:contentDescription="Aleatorio"
             android:src="@drawable/ic_w_shuffle" />
     </LinearLayout>
+
+    <!-- Letra debajo de los controles. Dos copias identicas dentro de un
+         ViewFlipper: al cambiar de linea se enseña la otra copia con un
+         fundido + deslizamiento (solo cuando cambia, no en cada refresco
+         de la barra). -->
+    <ViewFlipper
+        android:id="@+id/l_flip"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:inAnimation="@anim/lw_line_in"
+        android:animateFirstView="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
+        <TextView
+            android:id="@+id/l_prev_line"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#59FFFFFF"
+            android:textSize="12sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/l_line"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:shadowColor="#99000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/l_next"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#99FFFFFF"
+            android:textSize="13sp"
+            android:text=" " />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
+        <TextView
+            android:id="@+id/l_prev_line2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#59FFFFFF"
+            android:textSize="12sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/l_line2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:shadowColor="#99000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/l_next2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="#99FFFFFF"
+            android:textSize="13sp"
+            android:text=" " />
+        </LinearLayout>
+    </ViewFlipper>
 </LinearLayout>
