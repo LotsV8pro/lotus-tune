@@ -25,32 +25,24 @@ public class MainActivity extends QtActivity
     // (moveTaskToBack lives on Activity, not on Context).
     private static Activity sActivity;
 
-    // MIUI workaround: disable HWUI to prevent pthread_mutex crashes
-    private boolean isMIUI() {
-        String miuiVersion = Build.DISPLAY;
-        String[] miuiKeywords = {"MIUI", "HyperOS"};
-        for (String keyword : miuiKeywords) {
-            if (miuiVersion != null && miuiVersion.contains(keyword)) {
-                return true;
-            }
-        }
-        return false;
+    // MIUI / HyperOS. Ojo: en HyperOS 3 Build.DISPLAY ya NO lleva la palabra
+    // ("BP2A.250605.031.A3"), asi que mirar solo esa cadena daba siempre
+    // false y todo lo de MIUI quedaba muerto. Se mira el fabricante y las
+    // propiedades de la ROM.
+    private static boolean isMIUI()
+    {
+        if ("Xiaomi".equalsIgnoreCase(Build.MANUFACTURER)
+                || "Redmi".equalsIgnoreCase(Build.BRAND)
+                || "POCO".equalsIgnoreCase(Build.BRAND))
+            return true;
+        final String display = Build.DISPLAY;
+        return display != null
+                && (display.contains("MIUI") || display.contains("HyperOS"));
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
-        // MIUI HWUI workaround: disable hardware acceleration at the window level
-        // to prevent pthread_mutex_lock crashes in hwuiTask threads
-        // MIUI's custom HWUI conflicts with Qt's OpenGL rendering
-        if (isMIUI() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            // Clear the hardware accelerated flag by using layout params
-            // This forces MIUI to use software rendering for this window
-            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
-            // Additionally, set the window mode to software to prevent MIUI HWUI
-            getWindow().setAttributes(getWindow().getAttributes());
-        }
-
         super.onCreate(savedInstanceState);
         sCtx = getApplicationContext();
         sActivity = this;
@@ -136,6 +128,22 @@ public class MainActivity extends QtActivity
                     win.setAttributes(lp);
 
                     final float hz = bestHz;
+
+                    // MIUI/HyperOS no hace caso a la peticion de la app: su
+                    // framework emite su propio voto (PRIORITY_MIUI_REFRESH_RATE)
+                    // y deja la ventana en 60 Hz. Lo que si respeta es su
+                    // propio ajuste "miui_refresh_rate", asi que se escribe
+                    // ahi (necesita WRITE_SECURE_SETTINGS; sin el permiso la
+                    // excepcion se ignora y todo sigue igual).
+                    if (isMIUI()) {
+                        try {
+                            android.provider.Settings.Secure.putInt(
+                                act.getContentResolver(), "miui_refresh_rate",
+                                Math.round(hz));
+                        } catch (Throwable ignored) {
+                        }
+                    }
+
                     final View decor = win.getDecorView();
                     // La superficie de Qt se crea despues de onCreate: se
                     // engancha un callback para pedir la frecuencia en
