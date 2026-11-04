@@ -258,7 +258,8 @@ void Player::syncMediaProgress(double)
 {
 }
 
-void Player::updateLyricsWidget(const QString &, const QString &)
+void Player::updateLyricsWidget(const QString &, const QString &,
+                                const QString &)
 {
 }
 #endif
@@ -337,6 +338,57 @@ void Player::startMpv()
                     emit stateChanged();
                 });
     }
+    // Vigilante: cada segundo mira si la posicion avanza. En segundo plano
+    // el backend de Android a veces se queda mudo sin cambiar de estado
+    // (MIUI silenciaba la app por no tener el foco de audio). Si pasa, se
+    // reanuda; si aun asi sigue parado, se recarga la pista en el mismo
+    // punto. Tambien cierra el fin de pista que nunca avisa.
+    m_stallTimer.setInterval(1000);
+    connect(&m_stallTimer, &QTimer::timeout, this, [this] {
+        if (!m_playing || !m_hasFile || m_loading) {
+            m_stallTicks = 0;
+            m_stallPos = m_position;
+            return;
+        }
+        if (m_position > m_stallPos + 0.05 || m_position < m_stallPos - 0.05) {
+            m_stallTicks = 0;
+            m_stallPos = m_position;
+            return;
+        }
+        m_stallPos = m_position;
+        if (++m_stallTicks < 4)
+            return;
+        if (m_duration > 0.0 && m_position >= m_duration - 1.0) {
+            qInfo() << "[player] vigilante: fin de pista sin aviso";
+            androidEndOfTrack("vigilante-fin");
+            m_stallTicks = 0;
+            return;
+        }
+        if (m_stallTicks == 5) {
+            qWarning() << "[player] vigilante: audio parado en"
+                       << m_position << "s, reanudando";
+            // Un salto minimo fuerza al backend a rehacer el buffer sin
+            // que se note (50 ms).
+            m_androidPlayer->setPosition(qint64(m_position * 1000.0) + 50);
+            return;
+        }
+        if (m_stallTicks >= 10) {
+            const QUrl src = m_androidPlayer->source();
+            if (!src.isEmpty()) {
+                qWarning() << "[player] vigilante: recargando"
+                           << src.toString().left(120);
+                m_stallTicks = 0;
+                m_stallPos = m_position;
+                const qint64 at = qint64(m_position * 1000.0);
+                m_androidPlayer->setSource(src);
+                m_androidPlayer->setPosition(at);
+                m_androidPlayer->play();
+            } else {
+                m_stallTicks = 0;
+            }
+        }
+    });
+    m_stallTimer.start();
     // Widget + servicio de reproduccion en segundo plano. Si las clases
     // Java no estan en el APK se avisa y se sigue: la musica funciona
     // igual, solo faltan los controles externos.
@@ -2358,15 +2410,18 @@ void Player::updateWidget(const QString &title, const QString &artist,
             "(Landroid/content/Context;)V", ctx);
 }
 
-void Player::updateLyricsWidget(const QString &line, const QString &next)
+void Player::updateLyricsWidget(const QString &prev, const QString &line,
+                                const QString &next)
 {
     if (!ltLyricsWidgetJava())
         return;                         // APK sin el widget de letra
+    const QJniObject jp = QJniObject::fromString(prev.left(400));
     const QJniObject jl = QJniObject::fromString(line.left(400));
     const QJniObject jn = QJniObject::fromString(next.left(400));
     QJniObject::callStaticMethod<void>(
         "com/lotustuneremote/app/LyricsWidget", "update",
-        "(Ljava/lang/String;Ljava/lang/String;)V", jl.object(), jn.object());
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+        jp.object(), jl.object(), jn.object());
 }
 
 void Player::syncMediaProgress(double position)

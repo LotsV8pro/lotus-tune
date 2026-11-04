@@ -2967,6 +2967,7 @@ Window {
     // par actual/siguiente SOLO cuando cambia. El sondeo es barato porque
     // trabaja sobre las lineas ya cargadas.
     property string widgetLyricTrack: ""
+    property string widgetLyricPrev: ""
     property string widgetLyricLine: ""
     property string widgetLyricNext: ""
 
@@ -2975,10 +2976,12 @@ Window {
             return
         var lyr = (typeof lyrics !== "undefined") ? lyrics : null
         if (!lyr || !root.lyricsEnabled || !root.currentTitle) {
-            if (root.widgetLyricLine !== "" || root.widgetLyricNext !== "") {
+            if (root.widgetLyricLine !== "" || root.widgetLyricNext !== ""
+                    || root.widgetLyricPrev !== "") {
+                root.widgetLyricPrev = ""
                 root.widgetLyricLine = ""
                 root.widgetLyricNext = ""
-                player.updateLyricsWidget("", "")
+                player.updateLyricsWidget("", "", "")
             }
             return
         }
@@ -2989,6 +2992,7 @@ Window {
         var key = String(lyr.trackKey || "")
         var known = (key !== "" && key === track)
         var sameTrack = known
+        var prev = ""
         var line = ""
         var next = ""
         var arr = lyr.lines || []
@@ -3003,6 +3007,10 @@ Window {
             }
             if (idx >= 0) {
                 line = String(arr[idx].text || "")
+                // La anterior y la siguiente acompañan a la actual: asi se
+                // sigue la cancion aunque se mire el movil de reojo.
+                if (idx > 0)
+                    prev = String(arr[idx - 1].text || "")
                 if (idx + 1 < arr.length)
                     next = String(arr[idx + 1].text || "")
             } else {
@@ -3031,13 +3039,15 @@ Window {
         // cuando la peticion termina sin nada se queda en "sin letra".
         if (line === "" && (lyr.loading || !sameTrack))
             line = "Cargando letra…"
-        if (track === root.widgetLyricTrack && line === root.widgetLyricLine
+        if (track === root.widgetLyricTrack && prev === root.widgetLyricPrev
+                && line === root.widgetLyricLine
                 && next === root.widgetLyricNext)
             return
         root.widgetLyricTrack = track
+        root.widgetLyricPrev = prev
         root.widgetLyricLine = line
         root.widgetLyricNext = next
-        player.updateLyricsWidget(line, next)
+        player.updateLyricsWidget(prev, line, next)
     }
 
     Timer {

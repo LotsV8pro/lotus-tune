@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Linea nueva: entra con un fundido muy corto y un desplazamiento de
+     4 dp. La copia anterior se oculta al instante (el ViewFlipper no
+     lleva outAnimation), asi que nunca se ven dos textos superpuestos. -->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:anim/decelerate_interpolator">
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:duration="170" />
+    <translate
+        android:fromYDelta="4dp"
+        android:toYDelta="0"
+        android:duration="170" />
+</set>

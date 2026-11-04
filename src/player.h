@@ -89,9 +89,10 @@ public:
     // extrapolan entre refrescos, asi que basta con corregirla cada
     // segundo (no repinta el aviso entero).
     Q_INVOKABLE void syncMediaProgress(double position);
-    // Widget de la letra: la linea que se canta ahora y la siguiente. El
-    // QML solo lo llama cuando cambia el indice (no en cada frame).
-    Q_INVOKABLE void updateLyricsWidget(const QString &line, const QString &next);
+    // Widget de la letra: anterior, actual y siguiente. El QML solo lo
+    // llama cuando cambia el indice (no en cada frame).
+    Q_INVOKABLE void updateLyricsWidget(const QString &prev, const QString &line,
+                                        const QString &next);
     // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
     // --get-url with the same session/cookies as mpv) and caches it, so a
     // later load() gets the already resolved URL and starts almost
@@ -379,4 +380,12 @@ private:
     double m_hintDur = 0.0;    // duracion conocida por la interfaz
     int m_volume = 70;
     qint64 m_lastPosEmit = 0;
+
+    // Vigilante del reproductor de Android: si dice que esta sonando pero
+    // la posicion deja de avanzar (el backend se queda mudo en segundo
+    // plano), lo reanuda o recarga la pista. Tambien cierra el caso del
+    // fin de pista que nunca avisa.
+    QTimer m_stallTimer;
+    double m_stallPos = -1.0;
+    int m_stallTicks = 0;
 };

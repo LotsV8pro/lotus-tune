@@ -21,6 +21,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
@@ -37,6 +40,24 @@ public class AudioService extends Service
 
     private PowerManager.WakeLock sWake = null;
 
+    // Apagado con retardo: al acabar una pista el reproductor pasa un
+    // instante por "stopped" y si se paraba el servicio en ese hueco el
+    // proceso se quedaba sin primer plano (MIUI lo congela) y la pista
+    // siguiente no llegaba a sonar. Se deja un margen y se cancela si
+    // vuelve a arrancar.
+    // Foco de audio: sin el, MIUI (AudioHardening) silencia la musica en
+    // segundo plano ("background playback would be muted") y el
+    // reproductor se queda parado a los pocos cientos de milisegundos de
+    // empezar cada pista. Pidiendolo, la app es la duena del audio.
+    private static AudioManager sAudio = null;
+    private static AudioFocusRequest sFocusReq = null;
+    private static AudioManager.OnAudioFocusChangeListener sFocusListener = null;
+    private static boolean sPausedByLoss = false;
+
+    private static Handler sStopHandler = null;
+    private static Runnable sStopRunnable = null;
+    private static final long STOP_DELAY_MS = 15000L;
+
     // Estado compartido con PlayerWidget (mismo proceso).
     private static Context sApp = null;
     private static MediaSession sSession = null;
@@ -49,6 +70,7 @@ public class AudioService extends Service
     {
         if (c == null)
             return;
+        cancelStop();
         Intent i = new Intent(c, AudioService.class);
         if (Build.VERSION.SDK_INT >= 26)
             c.startForegroundService(i);
@@ -56,12 +78,35 @@ public class AudioService extends Service
             c.startService(i);
     }
 
-    /** Para el servicio cuando la reproduccion termina. */
+    /**
+     * Para el servicio cuando la reproduccion termina, pero con margen:
+     * entre el fin de una pista y el arranque de la siguiente el estado
+     * pasa por "stopped" y apagarlo ahi dejaba el proceso sin primer
+     * plano justo cuando mas falta hace.
+     */
     public static void stop(Context c)
     {
         if (c == null)
             return;
-        c.stopService(new Intent(c, AudioService.class));
+        final Context app = c.getApplicationContext();
+        if (sStopHandler == null)
+            sStopHandler = new Handler(Looper.getMainLooper());
+        cancelStop();
+        sStopRunnable = new Runnable() {
+            @Override public void run() {
+                sStopRunnable = null;
+                app.stopService(new Intent(app, AudioService.class));
+            }
+        };
+        sStopHandler.postDelayed(sStopRunnable, STOP_DELAY_MS);
+    }
+
+    private static void cancelStop()
+    {
+        if (sStopHandler != null && sStopRunnable != null) {
+            sStopHandler.removeCallbacks(sStopRunnable);
+            sStopRunnable = null;
+        }
     }
 
     static void refresh(Context c)
@@ -161,6 +206,70 @@ public class AudioService extends Service
         });
         s.setActive(true);
         sSession = s;
+    }
+
+    /** Pide el foco de audio (una vez; repetirlo es inofensivo). */
+    private static void ensureFocus(Context c)
+    {
+        AudioManager am = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
+        if (am == null)
+            return;
+        sAudio = am;
+        if (sFocusListener == null) {
+            sFocusListener = new AudioManager.OnAudioFocusChangeListener() {
+                @Override public void onAudioFocusChange(int change)
+                {
+                    if (change == AudioManager.AUDIOFOCUS_LOSS) {
+                        // Perdida definitiva (otra app pone musica): pausar
+                        // y no reanudar solos.
+                        sPausedByLoss = false;
+                        push("PAUSE");
+                    } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        // Llamada, aviso, video corto: pausar y reanudar
+                        // cuando nos devuelvan el foco.
+                        sPausedByLoss = true;
+                        push("PAUSE");
+                    } else if (change == AudioManager.AUDIOFOCUS_GAIN
+                               && sPausedByLoss) {
+                        sPausedByLoss = false;
+                        push("PLAY");
+                    }
+                }
+            };
+        }
+        if (Build.VERSION.SDK_INT >= 26) {
+            if (sFocusReq == null) {
+                sFocusReq = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build())
+                        .setOnAudioFocusChangeListener(
+                                sFocusListener, new Handler(Looper.getMainLooper()))
+                        .setWillPauseWhenDucked(true)
+                        .build();
+            }
+            am.requestAudioFocus(sFocusReq);
+        } else {
+            am.requestAudioFocus(sFocusListener, AudioManager.STREAM_MUSIC,
+                                 AudioManager.AUDIOFOCUS_GAIN);
+        }
+    }
+
+    private static void abandonFocus()
+    {
+        if (sAudio == null)
+            return;
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (sFocusReq != null)
+                    sAudio.abandonAudioFocusRequest(sFocusReq);
+            } else {
+                sAudio.abandonAudioFocus(sFocusListener);
+            }
+        } catch (Throwable ignore) {
+        }
+        sAudio = null;
     }
 
     private static void push(String a)
@@ -347,6 +456,7 @@ public class AudioService extends Service
     @Override
     public int onStartCommand(Intent intent, int flags, int startId)
     {
+        ensureFocus(this);
         updateSession();
         startForeground(NOTIF_ID, build(this));
         return START_STICKY;
@@ -355,6 +465,7 @@ public class AudioService extends Service
     @Override
     public void onDestroy()
     {
+        abandonFocus();
         if (sWake != null && sWake.isHeld())
             sWake.release();
         sWake = null;
