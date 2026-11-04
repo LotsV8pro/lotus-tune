@@ -34,6 +34,7 @@
 #include <QStandardPaths>
 #include <QThread>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QtQuick/QSGRendererInterface>
 
 // Contadores del medidor de frames (LOTUS_FRAME_LOG).
@@ -763,6 +764,55 @@ int main(int argc, char *argv[])
             }
             st->last = now;
         });
+        // Latencia dedo -> frame presentado: marca el instante del ultimo
+        // evento de entrada y lo compara con el primer frame que se pinta
+        // despues. Es lo que se nota al deslizar.
+        auto *inClock = new QElapsedTimer;
+        inClock->start();
+        auto *lastInput = new qint64(0);
+        auto *inSum = new double(0);
+        auto *inMax = new double(0);
+        auto *inN = new int(0);
+        class InputWatch : public QObject
+        {
+        public:
+            InputWatch(QElapsedTimer *c, qint64 *l) : m_c(c), m_last(l) {}
+            bool eventFilter(QObject *, QEvent *e) override
+            {
+                switch (e->type()) {
+                case QEvent::MouseButtonPress:
+                case QEvent::MouseMove:
+                case QEvent::TouchBegin:
+                case QEvent::TouchUpdate:
+                    *m_last = m_c->nsecsElapsed() / 1000;
+                    break;
+                default:
+                    break;
+                }
+                return false;
+            }
+        private:
+            QElapsedTimer *m_c;
+            qint64 *m_last;
+        };
+        g_mainWindow->installEventFilter(new InputWatch(inClock, lastInput));
+        QObject::connect(g_mainWindow, &QQuickWindow::frameSwapped,
+                         g_mainWindow, [inClock, lastInput, inSum, inMax, inN]() {
+            if (*lastInput <= 0)
+                return;
+            const double ms = double(inClock->nsecsElapsed() / 1000 - *lastInput) / 1000.0;
+            *lastInput = 0;
+            if (ms < 0 || ms > 400)
+                return;
+            *inSum += ms;
+            *inMax = qMax(*inMax, ms);
+            if (++(*inN) >= 60) {
+                qInfo("[input] n=%d avg=%.1f max=%.1f ms", *inN, *inSum / *inN, *inMax);
+                *inSum = *inMax = 0;
+                *inN = 0;
+            }
+        });
+
         qInfo() << "[frame] graphics api ="
                 << int(g_mainWindow->rendererInterface()->graphicsApi())
                 << "loop =" << qgetenv("QSG_RENDER_LOOP");

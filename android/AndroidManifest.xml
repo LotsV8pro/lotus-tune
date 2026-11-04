@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" 
-    android:versionCode="10203" 
-    android:versionName="1.2.3" 
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:versionCode="10204" 
+    android:versionName="1.2.4" 
     package="com.lotustuneremote.app">
     
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34"/>
@@ -12,6 +13,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Solo en MIUI/HyperOS: escribe su ajuste "miui_refresh_rate" para
+         que el panel no baje la app a 60 Hz. Se concede con
+         `adb shell pm grant com.lotustuneremote.app
+         android.permission.WRITE_SECURE_SETTINGS`. Sin el permiso la
+         app funciona igual (solo se queda en la frecuencia que le de
+         el sistema). -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions"/>
     
     <application 
         android:name=".LotusApplication"
@@ -50,7 +59,7 @@
             android:name="com.lotustuneremote.app.LotusLoginActivity"
             android:exported="false"
             android:launchMode="singleTop"
-            android:hardwareAccelerated="true"
+            android:hardwareAccelerated="false"
             android:windowSoftInputMode="adjustResize"/>
         
         <activity 
