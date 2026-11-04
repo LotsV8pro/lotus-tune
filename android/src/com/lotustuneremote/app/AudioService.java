@@ -82,6 +82,25 @@ public class AudioService extends Service
         });
     }
 
+    /**
+     * Solo la posicion de la sesion (cada segundo): la tarjeta de medios del
+     * sistema extrapola entre refrescos, asi que con esto la barra no se
+     * queda atras al cambiar de pista ni se adelanta al volver de segundo
+     * plano. No repinta el aviso.
+     */
+    static void syncPosition(Context c)
+    {
+        if (c == null)
+            return;
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            updateSession();
+            return;
+        }
+        new Handler(Looper.getMainLooper()).post(new Runnable() {
+            @Override public void run() { updateSession(); }
+        });
+    }
+
     private static void doRefresh(Context c)
     {
         sApp = c;
@@ -131,6 +150,14 @@ public class AudioService extends Service
             @Override public void onPause() { push("PAUSE"); }
             @Override public void onSkipToNext() { push("NEXT"); }
             @Override public void onSkipToPrevious() { push("PREV"); }
+            // Botones extra de las tarjetas de medios del sistema (MIUI,
+            // Samsung, coche...): llegan como acciones personalizadas.
+            @Override public void onCustomAction(String action, android.os.Bundle args)
+            {
+                android.util.Log.i("LotusTune", "[media] accion propia: " + action);
+                if (action != null)
+                    push(action);
+            }
         });
         s.setActive(true);
         sSession = s;
@@ -164,7 +191,14 @@ public class AudioService extends Service
                           | PlaybackState.ACTION_PAUSE
                           | PlaybackState.ACTION_PLAY_PAUSE
                           | PlaybackState.ACTION_SKIP_TO_NEXT
-                          | PlaybackState.ACTION_SKIP_TO_PREVIOUS);
+                          | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
+                // Acciones propias: la tarjeta de medios del sistema las
+                // pinta como botones (aleatorio y me gusta) en las ROM que
+                // las soportan; en las que no, se ignoran sin romper nada.
+                .addCustomAction(new PlaybackState.CustomAction.Builder(
+                        "SHUFFLE", "Aleatorio", R.drawable.ic_w_shuffle).build())
+                .addCustomAction(new PlaybackState.CustomAction.Builder(
+                        "FAV", "Me gusta", R.drawable.ic_w_heart_outline).build());
         // Sin posicion/duracion a proposito: asi el sistema no pinta una
         // barra de progreso que no se puede arrastrar.
         // Con velocidad 1 y una posicion valida el sistema extrapola solo:

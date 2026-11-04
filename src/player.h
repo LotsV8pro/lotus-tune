@@ -85,6 +85,13 @@ public:
                                   bool playing, bool shuffle, int repeat,
                                   bool fav, const QString &artUrl,
                                   double position, double duration);
+    // Solo la posicion: la tarjeta de medios del sistema y el widget la
+    // extrapolan entre refrescos, asi que basta con corregirla cada
+    // segundo (no repinta el aviso entero).
+    Q_INVOKABLE void syncMediaProgress(double position);
+    // Widget de la letra: la linea que se canta ahora y la siguiente. El
+    // QML solo lo llama cuando cambia el indice (no en cada frame).
+    Q_INVOKABLE void updateLyricsWidget(const QString &line, const QString &next);
     // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
     // --get-url with the same session/cookies as mpv) and caches it, so a
     // later load() gets the already resolved URL and starts almost
@@ -100,6 +107,18 @@ public:
      // on a context change (new list, shuffle, another track) so no old
      // resolutions are left blocking the new ones.
     Q_INVOKABLE void clearPrefetch();
+
+#ifdef Q_OS_ANDROID
+    // Resolves the direct audio URL of `url` for the DOWNLOADS panel (it is
+    // not played). It goes through the same WEB_REMIX + WebView-solver chain
+    // as playback, one at a time, and the answer arrives by signal. The URL
+    // is normalised (www.youtube.com) so it shares the stream cache with
+    // the player.
+    Q_INVOKABLE void resolveForDownload(const QString &url);
+    // Drops the pending download resolutions (the one in flight is also
+    // abandoned when it was requested only for a download).
+    Q_INVOKABLE void cancelDownloadResolve();
+#endif
 
     // Normalises the page URL: the music.youtube.com ones take ~1 s more
      // to resolve than the www.youtube.com ones (same video). Always
@@ -123,6 +142,12 @@ signals:
     // Accion pedida desde el widget de inicio o la notificacion
     // ("TOGGLE", "NEXT", "PREV", "SHUFFLE", "REPEAT", "FAV").
     void widgetAction(const QString &action);
+#ifdef Q_OS_ANDROID
+    // Answer to resolveForDownload(): the direct audio URL, or the reason
+    // why it could not be resolved.
+    void downloadStreamResolved(const QString &url, const QString &direct);
+    void downloadStreamFailed(const QString &url, const QString &why);
+#endif
 
 private:
     void startMpv();
@@ -248,8 +273,16 @@ private:
     // solver contestaba "busy" -> se abandonaba todo y la pista no sonaba.
     QString m_apWanted;
     // Arranca la cadena para `url` (una sola a la vez; si hay otra en
-    // vuelo, la deja apuntada en m_apWanted).
-    void beginChain(const QString &url);
+    // vuelo, la deja apuntada en m_apWanted). `forDownload` marca la cadena
+    // como pedida por el panel de descargas (no se reproduce nada).
+    void beginChain(const QString &url, bool forDownload = false);
+    // Cola de resoluciones pedidas por las descargas (una a la vez y solo
+    // cuando el reproductor no esta usando la cadena).
+    QStringList m_dlQueue;
+    // URL que la cadena en vuelo esta resolviendo PARA UNA DESCARGA ("" si
+    // la cadena es de reproduccion).
+    QString m_dlChainUrl;
+    void startNextDownloadResolve();
     // Cierra la cadena en curso y da paso a la siguiente / a la cola de
     // resoluciones. Todas las salidas (exito, error, timeout) pasan aqui.
     void endChain();

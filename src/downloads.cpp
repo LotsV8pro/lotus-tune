@@ -16,12 +16,18 @@
 #include <QStringList>
 #include <QStorageInfo>
 #include <QUrl>
+#include <QUrlQuery>
 
 #include <utility>
 
 #ifdef Q_OS_LINUX
 #include <signal.h>
 #include <sys/types.h>
+#endif
+
+#ifdef Q_OS_ANDROID
+#include "player.h"
+#include <QJniObject>
 #endif
 
 #include <QDebug>
@@ -45,6 +51,27 @@ bool isPartialName(const QString &name)
         || low.endsWith(QLatin1String(".tmp"))
         || low.contains(QLatin1String(".temp-"))
         || low.contains(QLatin1String(".part-frag"));
+}
+
+// Id de 11 caracteres de un video de YouTube (o "" si no lo es). Se usa
+// para emparejar la url que devuelve el reproductor con la pista pedida:
+// music.youtube.com y www.youtube.com son el mismo video.
+QString videoIdOfUrl(const QString &url)
+{
+    const QUrl u(url);
+    const QString host = u.host();
+    if (host.contains(QLatin1String("youtu.be"))) {
+        const QString p = u.path().mid(1);
+        if (p.size() >= 11)
+            return p.left(11);
+    }
+    const QString v = QUrlQuery(u).queryItemValue(QStringLiteral("v"));
+    if (v.size() == 11)
+        return v;
+    const QString tail = u.path().section(QLatin1Char('/'), -1);
+    if (tail.size() == 11 && !tail.contains(QLatin1Char('.')))
+        return tail;
+    return QString();
 }
 
 bool isAudioFile(const QString &path)
@@ -103,6 +130,19 @@ Downloads::Downloads(QObject *parent)
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this,
             [this](const QString &) { m_watchDebounce.start(); });
 
+#ifdef Q_OS_ANDROID
+    // Sondeo de la descarga Java (nunca bloquea el hilo de la UI).
+    m_androidPoll.setInterval(300);
+    connect(&m_androidPoll, &QTimer::timeout, this, &Downloads::androidPollTick);
+    // Helper nativo con las pistas de la lista: se lee entero al terminar.
+    m_androidList.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_androidList,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+        androidListFinished(code);
+    });
+#endif
+
     // Cleans orphan partial leftovers (from an aborted session) before the
     // first sync.
     sweepOrphans(kOrphanAgeSecs);
@@ -114,6 +154,9 @@ Downloads::Downloads(QObject *parent)
 Downloads::~Downloads()
 {
     stopScan();
+#ifdef Q_OS_ANDROID
+    androidAbort();
+#endif
     if (m_proc.state() != QProcess::NotRunning) {
         m_proc.kill();
         m_proc.waitForFinished(700);
@@ -140,6 +183,38 @@ void Downloads::setFolder(const QString &dir)
     emit changed();
     // The local library now lives in another folder: rescan.
     refreshLocal();
+}
+
+// El reproductor resuelve en Android la URL directa del audio (no hay
+// yt-dlp): sus respuestas llegan por señal y se emparejan por id de video.
+void Downloads::setPlayer(Player *player)
+{
+#ifdef Q_OS_ANDROID
+    m_player = player;
+    if (!m_player)
+        return;
+    connect(m_player, &Player::downloadStreamResolved, this,
+            [this](const QString &url, const QString &direct) {
+        if (m_current < 0 || m_androidResolving.isEmpty())
+            return;
+        if (videoIdOfUrl(url) != videoIdOfUrl(m_androidResolving))
+            return;
+        androidStartFetch(direct);
+    });
+    connect(m_player, &Player::downloadStreamFailed, this,
+            [this](const QString &url, const QString &why) {
+        if (m_current < 0 || m_androidResolving.isEmpty())
+            return;
+        if (videoIdOfUrl(url) != videoIdOfUrl(m_androidResolving))
+            return;
+        m_androidPoll.stop();
+        m_androidResolving.clear();
+        androidTrackFailed(QStringLiteral("No se pudo resolver el audio (%1).")
+                               .arg(why));
+    });
+#else
+    Q_UNUSED(player);
+#endif
 }
 
 int Downloads::activeProgress() const
@@ -316,6 +391,24 @@ void Downloads::pauseDownload(int index)
     if (j.state == QLatin1String("done"))
         return;
 
+#ifdef Q_OS_ANDROID
+    // Descarga de Android en curso: se corta la resolucion/descarga y el
+    // trabajo queda en pausa (los ficheros ya bajados se conservan).
+    if (index == m_current && m_busy) {
+        j.state = QStringLiteral("paused");
+        emit jobsChanged();
+        emit changed();
+        m_current = -1;
+        m_busy = false;
+        androidAbort();
+        emit jobsChanged();
+        emit changed();
+        emit activeProgressChanged();
+        startNext();
+        return;
+    }
+#endif
+
     if (index == m_current
         && m_proc.state() != QProcess::NotRunning) {
         // Running: the process is stopped (SIGINT: yt-dlp closes the .part
@@ -471,6 +564,13 @@ void Downloads::startNext()
         failJob(idx, QStringLiteral("Espacio insuficiente en disco (menos de 50 MB disponibles)."));
         return;
     }
+
+#ifdef Q_OS_ANDROID
+    // En Android no hay yt-dlp: las pistas las da el helper nativo, la URL
+    // directa la resuelve el reproductor y los bytes los baja MediaDownload.
+    startAndroidJob(idx);
+    return;
+#endif
 
     // -o relative to -P home (the app's folder):
     //   playlist -> <name>/<index><title>.<ext>
@@ -847,6 +947,24 @@ void Downloads::cancelAll()
             setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));
     }
 
+#ifdef Q_OS_ANDROID
+    if (m_current >= 0) {
+        const int idx = m_current;
+        const QString dir = m_jobs.at(idx).folder.isEmpty()
+            ? m_folder
+            : m_folder + QLatin1Char('/') + m_jobs.at(idx).folder;
+        m_current = -1;
+        m_busy = false;
+        androidAbort();
+        removePartials(dir);
+        setJob(idx, QStringLiteral("error"), QStringLiteral("Cancelado"));
+        emit jobsChanged();
+        emit changed();
+        emit activeProgressChanged();
+        return;
+    }
+#endif
+
     if (m_proc.state() != QProcess::NotRunning) {
         // finishJob() will clean the partial leftovers of the running
          // job.
@@ -856,6 +974,386 @@ void Downloads::cancelAll()
     emit jobsChanged();
     emit changed();
 }
+
+#ifdef Q_OS_ANDROID
+// --------------------------------------------------------- Android ----
+// Sin yt-dlp: 1) el helper nativo devuelve las pistas de la lista,
+// 2) Player resuelve la URL directa (misma cadena que la reproduccion),
+// 3) MediaDownload (Java) baja los bytes con el stack HTTP del sistema.
+// El diseño de carpetas es el mismo que el de escritorio
+// (<lista>/<NN><titulo>.<ext> + .lotus-list.json + .lotus-archive.txt).
+
+void Downloads::startAndroidJob(int index)
+{
+    if (index < 0 || index >= m_jobs.size())
+        return;
+    Job &j = m_jobs[index];
+
+    QString dir = m_folder;
+    if (j.playlist) {
+        const QString seg = uniqueListFolder(safeSegment(j.name), j.url);
+        j.folder = seg;
+        dir = m_folder + QLatin1Char('/') + seg;
+        if (!QDir().mkpath(dir)) {
+            failJob(index, QStringLiteral("No se pudo crear la carpeta «%1». "
+                                          "Comprueba los permisos.").arg(dir));
+            return;
+        }
+        if (!QFileInfo(dir).isWritable()) {
+            failJob(index, QStringLiteral("La carpeta de descargas no tiene "
+                                          "permiso de escritura: %1").arg(dir));
+            return;
+        }
+        // Marca de identidad de la lista (nombre original + url): permite
+        // emparejarla despues (desinstalar, abrir...) aunque cambie el
+        // nombre visible.
+        QJsonObject meta;
+        meta.insert(QStringLiteral("name"), j.name);
+        meta.insert(QStringLiteral("url"), j.url);
+        QFile mf(dir + QStringLiteral("/.lotus-list.json"));
+        if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
+    } else if (!QDir().mkpath(m_folder)
+               || !QFileInfo(m_folder).isWritable()) {
+        failJob(index, QStringLiteral("No se puede escribir en la carpeta de "
+                                      "descargas: %1").arg(m_folder));
+        return;
+    }
+
+    m_androidDir = dir;
+    m_androidTracks.clear();
+    m_androidIndex = 0;
+    m_androidRetries = 0;
+    m_androidResolveTicks = 0;
+    m_androidResolving.clear();
+    m_androidFetchId.clear();
+    m_androidOutPath.clear();
+    m_androidDone.clear();
+
+    // Fichero de pistas ya bajadas (reanudar sin repetir lo que ya esta).
+    m_androidArchive = j.playlist
+        ? dir + QStringLiteral("/.lotus-archive.txt") : QString();
+    if (!m_androidArchive.isEmpty()) {
+        QFile af(m_androidArchive);
+        if (af.open(QIODevice::ReadOnly)) {
+            const QList<QByteArray> lines = af.readAll().split('\n');
+            for (const QByteArray &lb : lines) {
+                const QString id = QString::fromUtf8(lb).trimmed();
+                if (id.size() == 11)
+                    m_androidDone.insert(id);
+            }
+        }
+    }
+
+    const QString cli = AppPaths::pythonProgram();
+    if (cli.isEmpty() || !QFile::exists(cli)) {
+        failJob(index, QStringLiteral("Falta el asistente nativo (libytmcli.so)."));
+        return;
+    }
+    QStringList args{
+        QStringLiteral("-J"),
+        QStringLiteral("--no-warnings"),
+        QStringLiteral("--ignore-errors"),
+        QStringLiteral("--no-plugin-dirs"),
+        QStringLiteral("--flat-playlist"),
+        j.playlist ? QStringLiteral("--playlist-end=500")
+                   : QStringLiteral("--playlist-end=1"),
+    };
+    const QString cookies = AppPaths::cookiesFile();
+    if (QFile::exists(cookies)
+        && (j.url.contains(QLatin1String("youtube.com"))
+            || j.url.contains(QLatin1String("youtu.be")))) {
+        args << QStringLiteral("--cookies") << cookies;
+    }
+    args << j.url;
+
+    // El hijo no resuelve DNS (netd le contesta NODATA): el padre resuelve
+    // por Java y le pasa las IPs, igual que hace Catalog.
+    const QJniObject ips = QJniObject::callStaticObjectMethod(
+        QStringLiteral("com/lotustuneremote/app/MainActivity")
+            .toUtf8().constData(),
+        "lookupDns", "(Ljava/lang/String;)Ljava/lang/String;",
+        QJniObject::fromString(QStringLiteral("music.youtube.com")).object());
+    if (ips.isValid())
+        qputenv("LTM_DNS_IPS", ips.toString().toUtf8());
+
+    m_androidList.setProgram(cli);
+    m_androidList.setArguments(args);
+    m_androidList.start();
+    if (!m_androidList.waitForStarted(3000)) {
+        failJob(index, QStringLiteral("No se pudo ejecutar el asistente de "
+                                      "descargas."));
+    }
+}
+
+void Downloads::androidListFinished(int code)
+{
+    if (m_current < 0)
+        return;   // cancelado: la respuesta ya no interesa
+    const int idx = m_current;
+
+    const QByteArray out = m_androidList.readAllStandardOutput();
+    if (code != 0) {
+        QString err = QString::fromUtf8(m_androidList.readAllStandardError()).trimmed();
+        if (err.isEmpty())
+            err = QStringLiteral("No se pudo leer la lista (código %1).").arg(code);
+        failJob(idx, friendlyError(err));
+        return;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(out).object();
+    const QJsonArray entries = root.value(QStringLiteral("entries")).toArray();
+    m_androidTracks.clear();
+    m_androidTracks.reserve(entries.size());
+    for (const QJsonValue &v : entries) {
+        const QJsonObject o = v.toObject();
+        const QString id = o.value(QStringLiteral("id")).toString();
+        const QString title = o.value(QStringLiteral("title")).toString();
+        if (id.size() != 11 || title.isEmpty())
+            continue;
+        AndroidTrack t;
+        t.id = id;
+        t.title = title;
+        t.artist = o.value(QStringLiteral("channel")).toString();
+        if (t.artist.isEmpty())
+            t.artist = o.value(QStringLiteral("artist")).toString();
+        t.url = o.value(QStringLiteral("url")).toString();
+        if (t.url.isEmpty())
+            t.url = QStringLiteral("https://www.youtube.com/watch?v=") + id;
+        t.thumb = o.value(QStringLiteral("thumbnail")).toString();
+        t.duration = o.value(QStringLiteral("duration")).toDouble();
+        m_androidTracks.append(t);
+    }
+    if (m_androidTracks.isEmpty()) {
+        failJob(idx, QStringLiteral("La lista está vacía o no se pudo leer "
+                                    "ninguna pista."));
+        return;
+    }
+    qInfo() << "[downloads] lista con" << m_androidTracks.size() << "pistas";
+    m_androidIndex = 0;
+    m_plTotal = m_androidTracks.size();
+    m_plItem = 0;
+    androidNextTrack();
+}
+
+// Pide al reproductor la URL directa de la pista actual (una cada vez).
+void Downloads::androidNextTrack()
+{
+    if (m_current < 0)
+        return;
+    m_androidResolving.clear();
+    m_androidFetchId.clear();
+    m_androidOutPath.clear();
+    // Reanudar: salta lo que ya esta en el fichero de archivo.
+    while (m_androidIndex < m_androidTracks.size()
+           && m_androidDone.contains(m_androidTracks.at(m_androidIndex).id)) {
+        ++m_androidIndex;
+    }
+    if (m_androidIndex >= m_androidTracks.size()) {
+        m_androidPoll.stop();
+        finishJob(0);
+        return;
+    }
+    const AndroidTrack &t = m_androidTracks.at(m_androidIndex);
+    m_plTotal = m_androidTracks.size();
+    m_plItem = m_androidIndex + 1;
+    m_jobs[m_current].progress =
+        qBound(0, int(double(m_androidIndex) / double(m_plTotal) * 100.0), 100);
+    emit jobsChanged();
+    emit activeProgressChanged();
+    if (!m_player) {
+        failJob(m_current, QStringLiteral("El reproductor no está disponible "
+                                          "para resolver el audio."));
+        return;
+    }
+    m_androidResolving = Player::normalizeUrl(t.url);
+    m_androidResolveTicks = 0;
+    m_androidPoll.start();
+    m_player->resolveForDownload(t.url);
+}
+
+// URL directa resuelta: se baja con el stack HTTP del sistema.
+void Downloads::androidStartFetch(const QString &direct)
+{
+    if (m_current < 0 || m_androidIndex >= m_androidTracks.size())
+        return;
+    const AndroidTrack &t = m_androidTracks.at(m_androidIndex);
+
+    if (!QJniObject::isClassAvailable("com/lotustuneremote/app/MediaDownload")) {
+        androidTrackFailed(QStringLiteral("Esta versión de la app no trae el "
+                                          "descargador. Reinstálala."));
+        return;
+    }
+
+    // Extension segun el mime del stream (los dos formatos estan en la
+    // lista de extensiones de audio de la biblioteca local).
+    const bool webm = direct.contains(QLatin1String("audio%2Fwebm"))
+                      || direct.contains(QLatin1String("audio/webm"))
+                      || direct.contains(QLatin1String("webm"));
+    const QString ext = webm ? QStringLiteral("webm") : QStringLiteral("m4a");
+
+    QString base;
+    if (m_jobs[m_current].playlist) {
+        base = QStringLiteral("%1").arg(m_androidIndex + 1, 2, 10,
+                                        QLatin1Char('0'))
+               + safeSegment(t.title);
+    } else {
+        base = t.artist.isEmpty()
+            ? safeSegment(t.title)
+            : safeSegment(t.artist + QStringLiteral(" - ") + t.title);
+    }
+    if (base.isEmpty())
+        base = t.id;
+    if (base.size() > 100)
+        base = base.left(100);
+    QString path = m_androidDir + QLatin1Char('/') + base
+                   + QLatin1Char('.') + ext;
+    for (int n = 2; QFileInfo::exists(path); ++n) {
+        path = m_androidDir + QLatin1Char('/') + base
+               + QStringLiteral(" (%1).").arg(n) + ext;
+        if (n > 50)
+            break;
+    }
+    m_androidOutPath = path;
+    m_androidFetchId = t.id;
+    m_androidRetries = 0;
+
+    QJniObject::callStaticMethod<void>(
+        "com/lotustuneremote/app/MediaDownload", "start",
+        "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
+        QJniObject::fromString(t.id).object(),
+        QJniObject::fromString(direct).object(),
+        QJniObject::fromString(path).object());
+    qInfo() << "[downloads] bajando" << t.id << t.title;
+    m_androidPoll.start();
+}
+
+void Downloads::androidPollTick()
+{
+    if (m_current < 0) {
+        m_androidPoll.stop();
+        return;
+    }
+    // Esperando a que el reproductor resuelva la URL.
+    if (!m_androidResolving.isEmpty() && m_androidFetchId.isEmpty()) {
+        if (++m_androidResolveTicks > 120) {   // ~36 s
+            m_androidPoll.stop();
+            m_androidResolving.clear();
+            androidTrackFailed(QStringLiteral("No se pudo resolver el audio de "
+                                              "la pista (tiempo agotado)."));
+        }
+        return;
+    }
+    if (m_androidFetchId.isEmpty()) {
+        m_androidPoll.stop();
+        return;
+    }
+    const QString status = QJniObject::callStaticObjectMethod(
+        "com/lotustuneremote/app/MediaDownload", "status",
+        "()Ljava/lang/String;").toString();
+    if (status.isEmpty() || status == QLatin1String("working")
+        || status == QLatin1String("idle")) {
+        const qint64 bytes = QJniObject::callStaticMethod<jlong>(
+            "com/lotustuneremote/app/MediaDownload", "bytes", "()J");
+        const qint64 total = QJniObject::callStaticMethod<jlong>(
+            "com/lotustuneremote/app/MediaDownload", "total", "()J");
+        if (total > 0) {
+            m_plTotal = m_androidTracks.size();
+            m_plItem = m_androidIndex + 1;
+            updateProgress(double(bytes) / double(total));
+        }
+        return;
+    }
+    m_androidPoll.stop();
+
+    if (status == QLatin1String("done")) {
+        const QFileInfo fi(m_androidOutPath);
+        if (!fi.isFile() || fi.size() < 4096) {
+            androidTrackFailed(QStringLiteral("El archivo descargado llegó vacío."));
+            return;
+        }
+        writeTrackInfo(m_androidOutPath, m_androidTracks.at(m_androidIndex));
+        const QString id = m_androidTracks.at(m_androidIndex).id;
+        m_androidDone.insert(id);
+        if (!m_androidArchive.isEmpty()) {
+            QFile af(m_androidArchive);
+            if (af.open(QIODevice::Append))
+                af.write(id.toUtf8() + '\n');
+        }
+        ++m_androidIndex;
+        m_androidRetries = 0;
+        m_androidResolving.clear();
+        m_androidFetchId.clear();
+        m_plTotal = m_androidTracks.size();
+        m_plItem = m_androidIndex + 1;
+        updateProgress(0.0);
+        androidNextTrack();
+        return;
+    }
+
+    // Fallo (403 transitorio del nodo, red...): se reintenta unas veces
+    // antes de dar la pista por perdida.
+    qWarning() << "[downloads] fallo de descarga:" << status;
+    if (m_androidRetries < 3) {
+        ++m_androidRetries;
+        m_androidFetchId.clear();
+        m_androidResolving.clear();
+        QTimer::singleShot(1500, this, [this]() {
+            if (m_current >= 0)
+                androidNextTrack();
+        });
+        return;
+    }
+    androidTrackFailed(QStringLiteral("No se pudo descargar la pista (%1).")
+                           .arg(status));
+}
+
+void Downloads::androidTrackFailed(const QString &message)
+{
+    if (m_current < 0)
+        return;
+    androidAbort();
+    failJob(m_current, message);
+}
+
+void Downloads::androidAbort()
+{
+    m_androidPoll.stop();
+    if (m_androidList.state() != QProcess::NotRunning) {
+        m_androidList.kill();
+        m_androidList.waitForFinished(500);
+    }
+    if (!m_androidFetchId.isEmpty()) {
+        if (QJniObject::isClassAvailable("com/lotustuneremote/app/MediaDownload")) {
+            QJniObject::callStaticMethod<void>(
+                "com/lotustuneremote/app/MediaDownload", "cancel", "()V");
+        }
+        m_androidFetchId.clear();
+    }
+    // El orden importa: se limpia primero lo que identifica la pista para
+    // que el aviso de "resolucion abandonada" del reproductor no vuelva a
+    // entrar aqui (bucle).
+    m_androidResolving.clear();
+    m_androidOutPath.clear();
+    if (m_player)
+        m_player->cancelDownloadResolve();
+}
+
+void Downloads::writeTrackInfo(const QString &path, const AndroidTrack &t) const
+{
+    QJsonObject o;
+    o.insert(QStringLiteral("title"), t.title);
+    if (!t.artist.isEmpty())
+        o.insert(QStringLiteral("artist"), t.artist);
+    if (t.duration > 0.0)
+        o.insert(QStringLiteral("duration"), t.duration);
+    if (!t.thumb.isEmpty())
+        o.insert(QStringLiteral("thumbnail"), t.thumb);
+    o.insert(QStringLiteral("id"), t.id);
+    QFile f(path + QStringLiteral(".info.json"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
+#endif   // Q_OS_ANDROID
 
 // ------------------------------------------------------------- local ----
 

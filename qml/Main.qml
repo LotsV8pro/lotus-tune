@@ -798,6 +798,26 @@ Window {
         toast(play ? "Cargando la lista para reproducir…" : "Cargando la lista…")
     }
 
+    // Is `url` the list that is ALREADY loaded? Then entering it again does
+    // not touch the network, does not show "Cargando…" and does not rebuild
+    // the view: it just opens it, instant, with the scroll where it was.
+    // It is what makes the "Me gusta" tab open at once after the first time.
+    function listAlreadyOpen(url) {
+        return String(catalog.openListUrl || "") === String(url)
+               && catalog.tracks.length > 0
+    }
+
+    // "Me gusta" = YouTube Music's LM list.
+    function openLiked() {
+        const lm = "https://music.youtube.com/playlist?list=LM"
+        if (listAlreadyOpen(lm)) {
+            openTracksView()
+            return
+        }
+        beginOpenList(false)
+        catalog.openUrl(lm, "Me gusta")
+    }
+
     // Shows the tracks view of the open list. It is called when the
     // tracks are ALREADY loaded: a single jump to the album, without
     // going through the Library cover.
@@ -2688,12 +2708,8 @@ Window {
                     onSettingsRequested: root.toggleSettings()
                     onNowPlayingRequested: root.openFullscreenLyrics()
                     // "Liked": opens YouTube Music's LM list without
-                    // playing it.
-                    onLikedRequested: {
-                        root.beginOpenList(false)
-                        catalog.openUrl("https://music.youtube.com/playlist?list=LM",
-                                        "Me gusta")
-                    }
+                    // playing it (instant if it is already loaded).
+                    onLikedRequested: root.openLiked()
                     // "Downloads": the Library with the "Downloaded" tab
                     // active (it is clear you are in Downloads).
                     onDownloadsRequested: {
@@ -2937,16 +2953,98 @@ Window {
                 }
                 root.navTo(p)
             }
-            onLikedRequested: {
-                root.beginOpenList(false)
-                catalog.openUrl("https://music.youtube.com/playlist?list=LM",
-                                "Me gusta")
-            }
+            onLikedRequested: root.openLiked()
             onDownloadsRequested: {
                 libPage.libraryTab = 4
                 root.navTo("library")
             }
         }
+    }
+
+    // ---- widget de la letra -------------------------------------------
+    // El widget de letra no sabe nada de tiempos: aqui se busca la linea
+    // activa (la misma `lineIndexAt` que usa la vista) y se le empuja el
+    // par actual/siguiente SOLO cuando cambia. El sondeo es barato porque
+    // trabaja sobre las lineas ya cargadas.
+    property string widgetLyricTrack: ""
+    property string widgetLyricLine: ""
+    property string widgetLyricNext: ""
+
+    function refreshLyricsWidget() {
+        if (typeof player.updateLyricsWidget !== "function")
+            return
+        var lyr = (typeof lyrics !== "undefined") ? lyrics : null
+        if (!lyr || !root.lyricsEnabled || !root.currentTitle) {
+            if (root.widgetLyricLine !== "" || root.widgetLyricNext !== "") {
+                root.widgetLyricLine = ""
+                root.widgetLyricNext = ""
+                player.updateLyricsWidget("", "")
+            }
+            return
+        }
+        var track = root.currentArtist + " - " + root.currentTitle
+        // Las lineas que hay en memoria pueden ser de la pista ANTERIOR
+        // (el cambio de cancion es inmediato, la letra tarda un poco):
+        // mientras no sean de esta, no se pintan.
+        var key = String(lyr.trackKey || "")
+        var known = (key !== "" && key === track)
+        var sameTrack = known
+        var line = ""
+        var next = ""
+        var arr = lyr.lines || []
+        if (sameTrack && lyr.hasSynced && arr.length > 0) {
+            // El mismo ajuste fino que la vista (cada pista tiene el suyo).
+            var pos = Number(player.position || 0) + Number(lyr.offset || 0)
+            var idx = -1
+            if (typeof lyr.lineIndexAt === "function") {
+                var r = lyr.lineIndexAt(pos)
+                if (typeof r === "number" && r >= 0 && r < arr.length)
+                    idx = r
+            }
+            if (idx >= 0) {
+                line = String(arr[idx].text || "")
+                if (idx + 1 < arr.length)
+                    next = String(arr[idx + 1].text || "")
+            } else {
+                // Antes de la primera linea (intro instrumental): un
+                // simbolo y, como "siguiente", lo primero que se cantara.
+                line = "♪"
+                next = String(arr[0].text || "")
+            }
+        } else if (sameTrack && lyr.hasLyrics && lyr.plain) {
+            // Letra sin tiempos: se enseñan las dos primeras lineas.
+            var rows = String(lyr.plain).split("\n")
+            for (var i = 0; i < rows.length; i++) {
+                var t = rows[i].trim()
+                if (t === "")
+                    continue
+                if (line === "")
+                    line = t
+                else if (next === "") {
+                    next = t
+                    break
+                }
+            }
+        }
+        // Sin lineas todavia: si la letra esta en camino (o aun no se ha
+        // pedido porque el motor no sabia la duracion), se dice; solo
+        // cuando la peticion termina sin nada se queda en "sin letra".
+        if (line === "" && (lyr.loading || !sameTrack))
+            line = "Cargando letra…"
+        if (track === root.widgetLyricTrack && line === root.widgetLyricLine
+                && next === root.widgetLyricNext)
+            return
+        root.widgetLyricTrack = track
+        root.widgetLyricLine = line
+        root.widgetLyricNext = next
+        player.updateLyricsWidget(line, next)
+    }
+
+    Timer {
+        interval: 250
+        repeat: true
+        running: true
+        onTriggered: root.refreshLyricsWidget()
     }
 
     // ---- widget de inicio / notificacion -----------------------------
@@ -2959,6 +3057,20 @@ Window {
                             player.playing, root.shuffle,
                             root.repeatMode, root.currentLiked,
                             root.currentThumb, player.position, player.duration)
+    }
+
+    // La tarjeta de medios del sistema (y el widget) extrapolan la barra
+    // desde la ultima posicion que se les dio: sin refrescarla, al cambiar
+    // de pista o al volver de segundo plano la barra se quedaba atras o se
+    // adelantaba. Una vez por segundo basta y no repinta el aviso.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: player.playing && player.duration > 0
+        onTriggered: {
+            if (typeof player.syncMediaProgress === "function")
+                player.syncMediaProgress(player.position)
+        }
     }
 
     Connections {

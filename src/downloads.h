@@ -11,6 +11,7 @@
 #include <QVector>
 
 class QDirIterator;
+class Player;
 
 // Downloads to disk + local library, exposed to QML as `downloads`.
 //
@@ -58,6 +59,9 @@ public:
 
     // Root downloads folder (configurable and persisted in QSettings).
     Q_INVOKABLE void setFolder(const QString &dir);
+    // Reproductor: en Android las descargas resuelven la URL directa del
+    // audio con la misma cadena que la reproduccion (no hay yt-dlp).
+    void setPlayer(Player *player);
     // ~/.local/share/lotus-tune/descargas
     Q_INVOKABLE QString defaultFolder() const;
 
@@ -151,6 +155,47 @@ private:
 
     // Sweep, on startup, of orphan leftovers older than `ageSecs`.
     void sweepOrphans(qint64 ageSecs);
+
+#ifdef Q_OS_ANDROID
+    // ---- Descargas en Android (sin yt-dlp) ------------------------------
+    // 1) el helper nativo (libytmcli.so) devuelve las pistas de la lista;
+    // 2) Player resuelve la URL directa de cada pista (misma cadena que la
+    //    reproduccion: WEB_REMIX + solver del WebView);
+    // 3) MediaDownload (Java) baja los bytes con el stack HTTP del sistema.
+    struct AndroidTrack {
+        QString id;
+        QString title;
+        QString artist;
+        QString url;
+        QString thumb;
+        double duration = 0.0;
+    };
+    void startAndroidJob(int index);
+    void androidListFinished(int code);
+    void androidNextTrack();
+    void androidStartFetch(const QString &direct);
+    void androidPollTick();
+    void androidTrackFailed(const QString &message);
+    // Cancela lo que haya en vuelo (helper, resolucion o descarga).
+    void androidAbort();
+    // Escribe la ficha de la pista para que la biblioteca local enseñe
+    // titulo, artista, duracion y portada.
+    void writeTrackInfo(const QString &path, const AndroidTrack &t) const;
+
+    Player *m_player = nullptr;
+    QProcess m_androidList;
+    QVector<AndroidTrack> m_androidTracks;
+    int m_androidIndex = 0;
+    QString m_androidDir;
+    QString m_androidResolving;    // pista pedida a Player (url normalizada)
+    QString m_androidFetchId;      // id de la descarga Java en curso
+    QString m_androidOutPath;      // fichero final de la pista en curso
+    QString m_androidArchive;      // .lotus-archive.txt del trabajo
+    QSet<QString> m_androidDone;   // ids ya descargados (reanudar)
+    int m_androidRetries = 0;
+    int m_androidResolveTicks = 0;
+    QTimer m_androidPoll;
+#endif
 
     QProcess m_proc;
     QVector<Job> m_jobs;

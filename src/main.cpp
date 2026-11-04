@@ -616,6 +616,9 @@ int main(int argc, char *argv[])
 
     // YouTube downloads (yt-dlp) + local library.
     Downloads downloads;
+    // On a phone there is no yt-dlp: the downloader asks the player for the
+    // direct audio URL (same resolution chain as playback).
+    downloads.setPlayer(&player);
     engine.rootContext()->setContextProperty(QStringLiteral("downloads"), &downloads);
 
     // The new versions of the app are published in the repository: the
