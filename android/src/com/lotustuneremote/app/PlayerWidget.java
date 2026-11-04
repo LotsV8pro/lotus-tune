@@ -73,6 +73,17 @@ public class PlayerWidget extends AppWidgetProvider
         sRepeat = repeat;
         sFav = fav;
         render(sCtx);
+        // El widget de letra pinta titulo, artista, caratula y botones
+        // desde este mismo estado: se repinta a la vez.
+        LyricsWidget.render(sCtx);
+    }
+
+    /** Solo la posicion (cada segundo): la barra del widget avanza. */
+    public static void progress(long posMs)
+    {
+        sPosMs = Math.max(0, posMs);
+        render(sCtx);
+        LyricsWidget.render(sCtx);   // su barra tambien avanza
     }
 
     public static String pendingAction()
@@ -101,39 +112,57 @@ public class PlayerWidget extends AppWidgetProvider
     public void onReceive(Context context, Intent intent)
     {
         sCtx = context.getApplicationContext();
-        final String a = intent.getAction();
-        if (a != null) {
-            if (a.equals(ACTION_TOGGLE)) {
-                sPlaying = !sPlaying;      // respuesta inmediata en el widget
-                sAction = "TOGGLE";
-                sSeq++;
-                render(sCtx);
-            } else if (a.equals(ACTION_NEXT)) {
-                sAction = "NEXT";
-                sSeq++;
-            } else if (a.equals(ACTION_PREV)) {
-                sAction = "PREV";
-                sSeq++;
-            } else if (a.equals(ACTION_SHUFFLE)) {
-                sAction = "SHUFFLE";
-                sSeq++;
-            } else if (a.equals(ACTION_REPEAT)) {
-                sAction = "REPEAT";
-                sSeq++;
-            } else if (a.equals(ACTION_FAV)) {
-                sAction = "FAV";
-                sSeq++;
-            }
-        }
+        dispatch(sCtx, intent.getAction());
         super.onReceive(context, intent);
     }
 
-    private static PendingIntent pending(Context c, String action, int code)
+    /**
+     * Una accion de CUALQUIERA de los dos widgets (reproduccion o letra):
+     * deja la peticion en el buzon del C++ y repinta ambos, para que el
+     * play/pausa y el corazon cambien a la vez en los dos.
+     */
+    static void dispatch(Context c, String a)
+    {
+        if (a == null)
+            return;
+        if (a.equals(ACTION_TOGGLE)) {
+            sPlaying = !sPlaying;      // respuesta inmediata en el widget
+            sAction = "TOGGLE";
+            sSeq++;
+        } else if (a.equals(ACTION_NEXT)) {
+            sAction = "NEXT";
+            sSeq++;
+        } else if (a.equals(ACTION_PREV)) {
+            sAction = "PREV";
+            sSeq++;
+        } else if (a.equals(ACTION_SHUFFLE)) {
+            sAction = "SHUFFLE";
+            sSeq++;
+        } else if (a.equals(ACTION_REPEAT)) {
+            sAction = "REPEAT";
+            sSeq++;
+        } else if (a.equals(ACTION_FAV)) {
+            sAction = "FAV";
+            sSeq++;
+        } else {
+            return;
+        }
+        render(c);
+        LyricsWidget.render(c);
+    }
+
+    /** PendingIntent de una accion, reutilizable por los dos widgets. */
+    static PendingIntent intentFor(Context c, String action, int code)
     {
         Intent i = new Intent(c, PlayerWidget.class);
         i.setAction(action);
         return PendingIntent.getBroadcast(c, code, i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private static PendingIntent pending(Context c, String action, int code)
+    {
+        return intentFor(c, action, code);
     }
 
     static void render(Context context)
@@ -158,6 +187,12 @@ public class PlayerWidget extends AppWidgetProvider
             v.setTextViewText(R.id.w_title,
                               sTitle.isEmpty() ? "Lotus Tune" : sTitle);
             v.setTextViewText(R.id.w_artist, sArtist);
+            // Barra de progreso: el launcher no la anima sola, la app la
+            // empuja cada segundo (Player::syncMediaProgress).
+            final long dur = Math.max(1L, sDurMs);
+            int prog = (int) Math.min(1000L,
+                    Math.max(0L, sPosMs * 1000L / dur));
+            v.setProgressBar(R.id.w_progress, 1000, prog, false);
             // Iconos vectoriales: los glifos de texto (corazon, flechas
             // del aleatorio) no existen en todas las fuentes y el widget
             // salia sin like ni aleatorio.

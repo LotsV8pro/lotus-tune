@@ -20,6 +20,7 @@
 static jobject ltAndroidContext();
 static bool ltWidgetJava();
 static bool ltServiceJava();
+static bool ltLyricsWidgetJava();
 // Duracion real del audio descargado (definida mas abajo).
 static qint64 localAudioDurationMs(const QString &path);
 // Id del video de una url de YouTube (definida mas abajo).
@@ -38,6 +39,7 @@ static QString videoIdOf(const QString &trackUrl);
 #include <QStandardPaths>
 
 #include <algorithm>
+#include <utility>
 
 #include <QDebug>
 
@@ -251,6 +253,14 @@ void Player::updateWidget(const QString &, const QString &, bool, bool, int,
                           bool, const QString &, double, double)
 {
 }
+
+void Player::syncMediaProgress(double)
+{
+}
+
+void Player::updateLyricsWidget(const QString &, const QString &)
+{
+}
 #endif
 
 void Player::startMpv()
@@ -336,6 +346,10 @@ void Player::startMpv()
     else
         QJniObject::callStaticMethod<void>(
             "com/lotustuneremote/app/PlayerWidget", "attach",
+            "(Landroid/content/Context;)V", ltAndroidContext());
+    if (ltLyricsWidgetJava())
+        QJniObject::callStaticMethod<void>(
+            "com/lotustuneremote/app/LyricsWidget", "attach",
             "(Landroid/content/Context;)V", ltAndroidContext());
     if (ltWidgetJava() && !m_widgetPoll) {
         m_widgetPoll = new QTimer(this);
@@ -1386,17 +1400,23 @@ static qint64 localAudioDurationMs(const QString &path)
 // de un solo carril. Si hay otra, la pista pedida queda apuntada y entra en
 // cuanto acabe; si es la misma, no se toca nada (reintentarla solo daba
 // "solver busy").
-void Player::beginChain(const QString &url)
+void Player::beginChain(const QString &url, bool forDownload)
 {
     if (url.isEmpty() || m_resolved.contains(url))
         return;
-    if (m_apTrack == url)
+    if (m_apTrack == url) {
+        // Ya se esta resolviendo: si la pide una descarga, se apunta para
+        // avisarle al terminar (la cadena es la misma).
+        if (forDownload && !m_dlQueue.contains(url))
+            m_dlQueue.append(url);
         return;
+    }
     if (!m_apTrack.isEmpty()) {
         m_apWanted = url;
         qInfo() << "[player] resolucion en espera (cadena ocupada):" << url;
         return;
     }
+    m_dlChainUrl = forDownload ? url : QString();
     m_apTrack = url;
     m_apUrl.clear();
     m_apSig.clear();
@@ -1421,13 +1441,62 @@ void Player::endChain()
     m_apSig.clear();
     m_apSp.clear();
     m_apN.clear();
+    m_dlChainUrl.clear();
     if (!m_apWanted.isEmpty()) {
         const QString next = m_apWanted;
         m_apWanted.clear();
         QTimer::singleShot(0, this, [this, next]() { beginChain(next); });
+    } else if (!m_dlQueue.isEmpty()) {
+        // Nadie del reproductor la esta usando: turno de las descargas.
+        QTimer::singleShot(0, this, &Player::startNextDownloadResolve);
     }
     // Fuera de esta pila: los trabajos en espera pueden arrancar ya.
     QTimer::singleShot(0, this, &Player::resolveQueue);
+}
+
+// ---- Resolucion de streams para el panel de descargas -------------------
+// La cadena (WEB_REMIX + solver) es de un solo carril: las descargas se
+// encolan detras de la reproduccion y se resuelven de una en una.
+void Player::resolveForDownload(const QString &url)
+{
+    const QString u = normalizeUrl(url);
+    if (u.isEmpty() || videoIdOf(u).size() < 11)
+        return;
+    for (const QString &q : std::as_const(m_dlQueue))
+        if (videoIdOf(q) == videoIdOf(u))
+            return;
+    if (m_resolved.contains(u)) {
+        const QString direct = m_resolved.value(u);
+        QTimer::singleShot(0, this, [this, u, direct]() {
+            emit downloadStreamResolved(u, direct);
+        });
+        return;
+    }
+    m_dlQueue.append(u);
+    if (m_apTrack.isEmpty())
+        startNextDownloadResolve();
+}
+
+void Player::startNextDownloadResolve()
+{
+    if (!m_apTrack.isEmpty() || m_dlQueue.isEmpty())
+        return;
+    const QString next = m_dlQueue.takeFirst();
+    if (m_resolved.contains(next)) {
+        const QString direct = m_resolved.value(next);
+        QTimer::singleShot(0, this, [this, next, direct]() {
+            emit downloadStreamResolved(next, direct);
+        });
+        return;
+    }
+    beginChain(next, /*forDownload=*/true);
+}
+
+void Player::cancelDownloadResolve()
+{
+    m_dlQueue.clear();
+    if (!m_dlChainUrl.isEmpty())
+        abortChain(QStringLiteral("descarga cancelada"));
 }
 
 // Abandona la cadena de resolucion en curso y deja el estado limpio para
@@ -1439,9 +1508,14 @@ void Player::abortChain(const QString &why)
     if (!m_apTrack.isEmpty() || m_chainJob)
         qWarning() << "[player] resolucion abandonada:" << why;
     m_loading = false;
+    const QString failed = m_apTrack;
+    const bool wasDownload = !m_dlChainUrl.isEmpty()
+        && videoIdOf(m_dlChainUrl) == videoIdOf(failed);
     ResolveJob *job = m_chainJob;
     m_chainJob = nullptr;
     endChain();
+    if (wasDownload)
+        emit downloadStreamFailed(failed, why);
     if (job)
         onResolveFinished(job, 1);
     emit stateChanged();
@@ -2176,6 +2250,28 @@ void Player::finishStream(const QString &finalUrl)
     const QString doneTrack = m_apTrack;
     ResolveJob *job = m_chainJob;
     m_chainJob = nullptr;
+    // Una cadena pedida por el panel de descargas no reproduce nada: se
+    // entrega la URL y se libera el carril. Si ademas el usuario esta
+    // pidiendo esa misma pista, se hace tambien la reproduccion normal.
+    bool dlChain = !m_dlChainUrl.isEmpty()
+        && videoIdOf(m_dlChainUrl) == videoIdOf(doneTrack);
+    // Una descarga que pidio esta misma pista mientras la cadena la estaba
+    // resolviendo para el reproductor: se le entrega ahora.
+    for (int i = m_dlQueue.size() - 1; i >= 0; --i) {
+        if (videoIdOf(m_dlQueue.at(i)) == videoIdOf(doneTrack)) {
+            m_dlQueue.removeAt(i);
+            dlChain = true;
+        }
+    }
+    const bool playbackWants = !job && !m_currentUrl.isEmpty()
+        && videoIdOf(m_currentUrl) == videoIdOf(doneTrack);
+    m_dlChainUrl.clear();
+    if (dlChain)
+        emit downloadStreamResolved(doneTrack, finalUrl);
+    if (dlChain && !playbackWants) {
+        endChain();
+        return;
+    }
     // El "cargando" se marca ANTES de lanzar la descarga: si el audio ya
     // estaba en cache, startAudioFetch reproduce en el acto y su
     // m_loading=false quedaba pisado por esta linea (la barra se quedaba
@@ -2210,6 +2306,13 @@ static bool ltServiceJava()
 {
     static const bool ok = QJniObject::isClassAvailable(
         "com/lotustuneremote/app/AudioService");
+    return ok;
+}
+
+static bool ltLyricsWidgetJava()
+{
+    static const bool ok = QJniObject::isClassAvailable(
+        "com/lotustuneremote/app/LyricsWidget");
     return ok;
 }
 
@@ -2255,6 +2358,31 @@ void Player::updateWidget(const QString &title, const QString &artist,
             "(Landroid/content/Context;)V", ctx);
 }
 
+void Player::updateLyricsWidget(const QString &line, const QString &next)
+{
+    if (!ltLyricsWidgetJava())
+        return;                         // APK sin el widget de letra
+    const QJniObject jl = QJniObject::fromString(line.left(400));
+    const QJniObject jn = QJniObject::fromString(next.left(400));
+    QJniObject::callStaticMethod<void>(
+        "com/lotustuneremote/app/LyricsWidget", "update",
+        "(Ljava/lang/String;Ljava/lang/String;)V", jl.object(), jn.object());
+}
+
+void Player::syncMediaProgress(double position)
+{
+    if (!ltWidgetJava())
+        return;
+    const qint64 ms = qint64(position * 1000.0);
+    QJniObject::callStaticMethod<void>(
+        "com/lotustuneremote/app/PlayerWidget", "progress", "(J)V", jlong(ms));
+    jobject ctx = ltAndroidContext();
+    if (ctx && ltServiceJava())
+        QJniObject::callStaticMethod<void>(
+            "com/lotustuneremote/app/AudioService", "syncPosition",
+            "(Landroid/content/Context;)V", ctx);
+}
+
 void Player::pollWidgetActions()
 {
     if (!ltWidgetJava())
@@ -2270,8 +2398,10 @@ void Player::pollWidgetActions()
     QJniObject::callStaticMethod<void>(
         "com/lotustuneremote/app/PlayerWidget", "clearAction", "()V");
     const QString a = act.isValid() ? act.toString() : QString();
-    if (!a.isEmpty())
+    if (!a.isEmpty()) {
+        qInfo() << "[widget] accion:" << a;
         emit widgetAction(a);
+    }
 }
 
 // The stream download (QMediaPlayer plays the local file): the HTTP url
