@@ -15,6 +15,9 @@ Rectangle {
     property string thumb: ""
     property bool downloadable: false
     property bool removable: false
+    // The list is already downloaded (it has its folder in Downloads): a
+    // tick is shown on the cover, without having to hover or open it.
+    property bool downloaded: false
 
     signal clicked()          // click on the card -> OPEN the list
     signal playClicked()      // click on the floating play button -> PLAY
@@ -71,6 +74,27 @@ Rectangle {
                     visible: tile.thumb === ""
                     kind: "music"
                     color: Theme.tDim(Sys.bg, Sys.text)
+                }
+                // Downloaded list: tick always visible (top left, so it
+                // does not collide with the action buttons on the right).
+                Rectangle {
+                    id: doneBadge
+                    visible: tile.downloaded
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: Theme.s2
+                    width: 24
+                    height: 24
+                    radius: Theme.rPill
+                    color: Sys.accent
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 14
+                        height: 14
+                        kind: "check"
+                        color: Theme.onAccent(Sys.accent)
+                        weight: 2
+                    }
                 }
                 Rectangle {            // floating play button (over the mouse)
                     id: playBadge
