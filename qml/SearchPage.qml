@@ -497,13 +497,16 @@ Item {
                     required property int index
                     required property var modelData
 
+                    // Artist rows have no track buttons.
+                    readonly property bool isArtist: rrow.modelData.kind === "artist"
+
                     width: ListView.view.width
                     // The source headers are a short row; the tracks,
-                    // a normal row.
+                    // a normal row (the same as the playlist rows).
                     height: rrow.modelData.secHead ? 30 : Theme.rowH
-                    radius: Theme.rLg
+                    radius: Theme.rMd
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
-                           ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
+                           ? Theme.hover(Sys.bg) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     // ---- source header (YT, SoundCloud, …) --------------------
@@ -609,6 +612,7 @@ Item {
                                              page.enqueueRequested(rrow.modelData)
                     }
 
+                    // ---- track row: same layout as the playlist view --------
                     RowLayout {
                         visible: !rrow.modelData.secHead
                         anchors.fill: parent
@@ -617,80 +621,103 @@ Item {
                         spacing: Theme.s3
                         transform: Translate { x: rrow.dx }
 
-                        Rectangle {
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 34
+                        // Position in the results (as in the playlist view).
+                        Text {
                             Layout.alignment: Qt.AlignVCenter
-                            radius: Theme.rMd
-                            clip: true
-                            color: Sys.surface
-
-                            RoundedArt {
-                                anchors.fill: parent
-                                source: rrow.modelData.thumb || ""
-                                visible: String(rrow.modelData.thumb || "") !== ""
-                                radiusSpec: Theme.rMd
+                            Layout.preferredWidth: 24
+                            visible: !rrow.isArtist
+                            text: {
+                                const n = Number(rrow.modelData.ti)
+                                const v = (isNaN(n) ? rrow.index : n) + 1
+                                return v < 10 ? "0" + v : String(v)
                             }
-                            Glyph {
-                                anchors.centerIn: parent
-                                width: 15
-                                height: 15
-                                visible: !rrow.modelData.thumb
-                                kind: rrowMouse.containsMouse ? "play" : "music"
-                                color: rrowMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                            }
+                            color: Theme.tFaint(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tMd
+                            horizontalAlignment: Text.AlignRight
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 0
-                            RowLayout {
+                            spacing: 1
+                            Text {
                                 Layout.fillWidth: true
-                                spacing: Theme.s1
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: rrow.modelData.title || ""
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tBase
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                                LikeButton {
-                                    id: rrowLike
-                                    interactive: catalog.loginState === "ok"
-                                                 && catalog.videoIdOf(
-                                                        rrow.modelData.url) !== ""
-                                    revealed: rrowMouse.containsMouse
-                                    liked: {
-                                        const rev = catalog.likedRevision
-                                        if (!rrow.modelData)
-                                            return false
-                                        if (catalog.likedReady)
-                                            return catalog.isLiked(rrow.modelData.url)
-                                        return rrow.modelData.liked === true
-                                    }
-                                    onToggled: {
-                                        if (rrow.modelData)
-                                            catalog.toggleLiked(rrow.modelData.url,
-                                                                rrowLike.liked)
-                                    }
-                                }
+                                text: rrow.modelData.title || ""
+                                color: Sys.text
+                                font.pixelSize: Theme.tLg
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
                             }
                             Text {
                                 Layout.fillWidth: true
                                 text: rrow.modelData.artist || ""
                                 color: Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.tMd
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
                             }
                         }
 
+                        // Heart: the same button as in the playlist rows.
+                        LikeButton {
+                            id: rrowLike
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: !rrow.isArtist
+                            interactive: catalog.loginState === "ok"
+                                         && catalog.videoIdOf(
+                                                rrow.modelData.url) !== ""
+                            revealed: rrowMouse.containsMouse
+                            liked: {
+                                const rev = catalog.likedRevision
+                                if (!rrow.modelData)
+                                    return false
+                                if (catalog.likedReady)
+                                    return catalog.isLiked(rrow.modelData.url)
+                                return rrow.modelData.liked === true
+                            }
+                            onToggled: {
+                                if (rrow.modelData)
+                                    catalog.toggleLiked(rrow.modelData.url,
+                                                        rrowLike.liked)
+                            }
+                        }
+
                         Text {
                             Layout.alignment: Qt.AlignVCenter
+                            visible: !rrow.isArtist
                             text: Theme.mmss(rrow.modelData.duration)
                             color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tSm
+                            font.pixelSize: Theme.tMd
+                        }
+
+                        // Track menu (⋮): the same as in the playlist rows.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            visible: !rrow.isArtist
+                            radius: Theme.rXl
+                            color: rrowMoreMa.containsMouse ? Theme.hover(Sys.bg)
+                                                            : "transparent"
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 15; height: 15
+                                kind: "ellipsis"
+                                color: rrowMoreMa.containsMouse
+                                       ? Theme.accentOn(Sys.accent, Sys.bg)
+                                       : Theme.tDim(Sys.bg, Sys.text)
+                            }
+                            MouseArea {
+                                id: rrowMoreMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: (mouse) => {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const p = rrowMoreMa.mapToItem(null, mouse.x, mouse.y)
+                                    page.trackContextRequested(rrow.modelData, p.x, p.y)
+                                }
+                            }
                         }
                     }
                 }

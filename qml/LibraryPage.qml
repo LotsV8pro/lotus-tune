@@ -286,6 +286,33 @@ Item {
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
     // Downloaded lists (one folder = one list) and loose tracks.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
+
+    // Is this library cover already downloaded? (it has its folder in
+    // Downloads). It matches by the list URL and, as a fallback, by the
+    // sanitised name (older downloads without URL in their metadata).
+    function isDownloaded(c) {
+        if (!c || typeof downloads === "undefined")
+            return false
+        const fs = page.dlFolders
+        const u = String(c.url || "")
+        if (u !== "") {
+            for (let i = 0; i < fs.length; i++)
+                if (String(fs[i].url || "") === u)
+                    return true
+        }
+        const nm = String(c.name || "")
+        if (nm !== "") {
+            const want = downloads.listFolderName(nm)
+            for (let j = 0; j < fs.length; j++) {
+                const f = String(fs[j].folder || "")
+                if (f === "" || f === undefined)
+                    continue
+                if (f === want || f === nm || String(fs[j].name || "") === nm)
+                    return true
+            }
+        }
+        return false
+    }
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
 
@@ -2364,6 +2391,9 @@ Item {
                         thumb: modelData.thumb || ""
                         removable: (modelData.savedIndex || -1) >= 0
                         downloadable: !!modelData.url
+                        // Tick on the cover if this list is already
+                        // downloaded.
+                        downloaded: page.isDownloaded(modelData)
 
                         // Click on the card -> OPEN the list.
                         onClicked: {
