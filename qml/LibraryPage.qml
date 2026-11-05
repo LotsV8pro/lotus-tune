@@ -287,18 +287,18 @@ Item {
     // Downloaded lists (one folder = one list) and loose tracks.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
 
-    // Is this library cover already downloaded? (it has its folder in
-    // Downloads). It matches by the list URL and, as a fallback, by the
-    // sanitised name (older downloads without URL in their metadata).
-    function isDownloaded(c) {
+    // Folder of a downloaded list (empty if that cover is not downloaded).
+    // It matches by the list URL and, as a fallback, by the sanitised name
+    // (older downloads without URL in their metadata).
+    function downloadedFolder(c) {
         if (!c || typeof downloads === "undefined")
-            return false
+            return ""
         const fs = page.dlFolders
         const u = String(c.url || "")
         if (u !== "") {
             for (let i = 0; i < fs.length; i++)
                 if (String(fs[i].url || "") === u)
-                    return true
+                    return String(fs[i].folder || "")
         }
         const nm = String(c.name || "")
         if (nm !== "") {
@@ -308,10 +308,16 @@ Item {
                 if (f === "" || f === undefined)
                     continue
                 if (f === want || f === nm || String(fs[j].name || "") === nm)
-                    return true
+                    return f
             }
         }
-        return false
+        return ""
+    }
+
+    // Is this library cover already downloaded? (it has its folder in
+    // Downloads).
+    function isDownloaded(c) {
+        return page.downloadedFolder(c) !== ""
     }
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
@@ -2410,6 +2416,12 @@ Item {
                             if (typeof downloads !== "undefined")
                                 downloads.downloadPlaylist(modelData.url || "",
                                                            modelData.name || "")
+                        }
+                        // Tick pressed: ask before deleting the files.
+                        onUninstallRequested: {
+                            const f = page.downloadedFolder(modelData)
+                            if (f !== "")
+                                page.uninstallListRequested(f, modelData.name || "")
                         }
                         onRemoveRequested: {
                             if ((modelData.savedIndex || -1) >= 0)
