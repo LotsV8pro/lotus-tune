@@ -101,25 +101,9 @@ Item {
     }
 
     function quickPicks() {
-        const out = []
-        if (Theme.touch) {
-            // Phone grid: the playlists are the first part (they are what
-            // gets opened) and then the loose tracks.
-            const lists = page.recentLists(5)
-            for (var j = 0; j < lists.length; j++)
-                out.push(lists[j])
-            const tracks = page.recentTracks()
-            for (var i = 0; i < tracks.length; i++)
-                out.push(tracks[i])
-        } else {
-            const tracks = page.recentTracks()
-            for (var i = 0; i < tracks.length; i++)
-                out.push(tracks[i])
-            const lists = page.recentLists(5)
-            for (var j = 0; j < lists.length; j++)
-                out.push(lists[j])
-        }
-        return out
+        // Only lists (playlists / albums / "me gusta"): a quick access
+        // opens something to listen to, it is not a single song.
+        return page.recentLists(10)
     }
 
     // Same trick as with the recommended ones: the model of the

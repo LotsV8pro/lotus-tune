@@ -86,7 +86,9 @@ public:
     // results arrive group by group, in the order of the registry. It is
     // what the launcher (Ctrl+Space) and the Search page use: there is
     // no need to pick a source before searching.
-    Q_INVOKABLE void searchAll(const QString &query);
+    // `everySource` false = only the fast one (YouTube Music): what the
+    // predictive search needs while typing. Enter asks for all of them.
+    Q_INVOKABLE void searchAll(const QString &query, bool everySource = true);
     Q_INVOKABLE void openPlaylist(int savedIndex);
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
     // YouTube Music self radio for a videoId (what the app itself puts
@@ -107,6 +109,10 @@ public:
     // Full discography of an artist (albums, singles, EPs...), newest
     // first: artistReady(browseId, albums).
     Q_INVOKABLE void fetchArtist(const QString &browseId);
+    // The artist's whole page in sections (songs, albums, singles, radios,
+    // similar artists) plus the full discography for "Play all":
+    // artistPageReady(browseId, page).
+    Q_INVOKABLE void fetchArtistPage(const QString &browseId);
     // Tracks of an album or single: albumTracksReady(browseId, tracks).
     Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
     // Resolves the main track of an artist to seed their radio
@@ -191,6 +197,9 @@ signals:
     void artistsReady(const QVariantList &artists);
     // Discography received (see fetchArtist()).
     void artistReady(const QString &browseId, const QVariantList &albums);
+    // Artist page received (see fetchArtistPage()): `page` carries name,
+    // thumb, songs, albums, singles, radios, similar and discography.
+    void artistPageReady(const QString &browseId, const QVariantMap &page);
     // Album/single tracks received (see fetchAlbumTracks()).
     void albumTracksReady(const QString &browseId, const QVariantList &tracks);
     // An artist's main track resolved (see resolveArtistRadio()); `track` is

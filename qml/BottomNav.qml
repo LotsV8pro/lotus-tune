@@ -63,7 +63,9 @@ Item {
     Panel {
         anchors.fill: parent
         radius: 12
-        color: Theme.alpha(Sys.text, 0.05)
+        // Solid: the tab bar floats over the pages (and over the artist
+        // page), so the content must not show through it.
+        color: Sys.surface
         borderWidth: 0
 
         RowLayout {

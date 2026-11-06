@@ -9,6 +9,10 @@ Netscape) y consulta la API interna de YouTube Music (InnerTube) para:
   artist <browseId> [nombre]    discografía del artista: álbums y sencillos, del
                                 más nuevo primero (el nombre filtra los carruseles
                                 de discos de otros artistas de la misma página)
+  artistpage <browseId> [nombre]
+                                página del artista por secciones: canciones,
+                                álbumes, singles, radios y artistas similares,
+                                más la discografía completa
   album <browseId>              pistas de un álbum o sencillo
   toptrack <artista>            pista principal del artista (semilla de radio)
   alternate <artista\ttítulo\texcluirId> [dur]
@@ -190,6 +194,21 @@ def browse(browse_id, anon=False):
 
 
 # -------------------------------------------------------------- parsing ----
+
+def _square_thumb(url, size=544):
+    """Recorta la URL de googleusercontent a un cuadrado del tamano pedido.
+
+    La cabecera del artista trae una BANDA (2880x1200) que en la ficha
+    redonda sale deformada o no carga; con -p el CDN la recorta al centro.
+    """
+    u = str(url or "").strip()
+    if not u:
+        return ""
+    if "googleusercontent.com" not in u:
+        return u
+    base = u.split("=")[0]
+    return "%s=w%d-h%d-p-l90-rj" % (base, size, size)
+
 
 def _best_thumb(node):
     """URL de mayor resolución disponible en un thumbnailRenderer/thumbnail."""
@@ -721,6 +740,213 @@ def artist_discography(browse_id, artist_name=""):
     return albums[:80]
 
 
+# ---- artist page (the sections the app paints) -----------------------------
+# The artist page (UC…/MPC…) is a pile of shelves: "Canciones más escuchadas"
+# (musicShelfRenderer with playable rows), "Álbumes", "Singles y EPs",
+# "Radios"/"Listas de reproducción de X" and "Puede que también te guste"
+# (similar artists). The discography (MPAD…) is asked separately because it
+# is the complete list of releases, which the shelves cut to 10.
+
+def _plain_text(node):
+    """Texto plano de un nodo {runs|simpleText} (títulos de sección)."""
+    if isinstance(node, str):
+        return node.strip()
+    if isinstance(node, dict):
+        runs = node.get("runs") or []
+        if runs:
+            return "".join(r.get("text", "") for r in runs).strip()
+        if node.get("simpleText"):
+            return str(node["simpleText"]).strip()
+        for key in ("title", "text"):
+            if key in node:
+                t = _plain_text(node[key])
+                if t:
+                    return t
+    return ""
+
+
+def _section_title(renderer):
+    """Título de una estantería: en la cabecera (carrusel) o en el shelf."""
+    hdr = renderer.get("header")
+    if isinstance(hdr, dict):
+        basic = hdr.get("musicCarouselShelfBasicHeaderRenderer") or {}
+        t = _plain_text(basic.get("title"))
+        if t:
+            return t
+    return _plain_text(renderer.get("title"))
+
+
+def _section_kind(title):
+    """Traduce el título de la estantería a una clave de la app."""
+    t = _norm(title)
+    if "cancion" in t or "escuchad" in t or t.startswith("song") \
+            or "most played" in t or "popular" in t:
+        return "songs"
+    if "single" in t or t.endswith(" eps") or " ep " in (" " + t + " "):
+        return "singles"
+    if "album" in t:
+        return "albums"
+    if "radio" in t:
+        return "radios"
+    if "lista" in t or "playlist" in t:
+        return "playlists"
+    if "video" in t or "videoclip" in t:
+        return "videos"
+    if "guste" in t or "similar" in t or "relacionad" in t or "fans" in t:
+        return "similar"
+    return "other"
+
+
+def _shelves(resp):
+    """Estanterías de la respuesta EN ORDEN (el de la página)."""
+    out = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key in ("musicShelfRenderer", "musicCarouselShelfRenderer"):
+                r = node.get(key)
+                if isinstance(r, dict):
+                    out.append(r)
+            for k, v in node.items():
+                if k not in ("musicShelfRenderer", "musicCarouselShelfRenderer"):
+                    walk(v)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(resp)
+    return out
+
+
+def _two_rows(shelf):
+    for c in shelf.get("contents") or []:
+        if isinstance(c, dict):
+            r = c.get("musicTwoRowItemRenderer")
+            if isinstance(r, dict):
+                yield r
+
+
+def _release_of(renderer):
+    """Álbum/sencillo de una tarjeta de dos filas."""
+    bid = _browse_id_of(renderer)
+    title = _title_of(renderer) or _flex_text(renderer, 0)
+    if not bid or not title:
+        return None
+    sub = _subtitle_of(renderer)
+    return {
+        "title": title,
+        "browseId": bid,
+        "thumb": _best_thumb(renderer),
+        "subtitle": sub,
+        "year": _year_of(sub),
+    }
+
+
+def _similar_of(renderer):
+    """Artista de una tarjeta de dos filas (canal UC… o página MPC…)."""
+    bid = _browse_id_of(renderer)
+    if not bid or not bid.startswith(("UC", "MPC")):
+        return None
+    name = _title_of(renderer) or _flex_text(renderer, 0)
+    if not name:
+        return None
+    return {
+        "name": name,
+        "browseId": bid,
+        "thumb": _best_thumb(renderer),
+        "subtitle": _subtitle_of(renderer),
+    }
+
+
+def _list_of(renderer):
+    """Playlist/radio (VL…) de una tarjeta: la app la abre por su id."""
+    bid = _browse_id_of(renderer)
+    title = _title_of(renderer) or _flex_text(renderer, 0)
+    if not bid or not bid.startswith("VL") or not title:
+        return None
+    return {
+        "title": title,
+        "id": bid[2:],            # sin el prefijo VL (id de playlist)
+        "thumb": _best_thumb(renderer),
+        "subtitle": _subtitle_of(renderer),
+    }
+
+
+def artist_page(browse_id, artist_name=""):
+    """Página del artista en secciones: canciones, álbumes, singles, radios y
+    artistas similares, más la discografía completa (para «Reproducir todo»)."""
+    bid = (browse_id or "").strip()
+    if not bid:
+        return {}
+    resp = browse(bid, anon=True)
+    page = {
+        "name": artist_name or "",
+        "thumb": "",
+        "subtitle": "",
+        "songs": [],
+        "albums": [],
+        "singles": [],
+        "radios": [],
+        "similar": [],
+        "discography": [],
+    }
+    # Cabecera (nombre y retrato buenos: los de la búsqueda vienen pequeños).
+    h = _find_key(resp, "musicImmersiveHeaderRenderer")
+    if not isinstance(h, dict):
+        h = _find_key(resp, "musicVisualHeaderRenderer")
+    if isinstance(h, dict):
+        nm = _plain_text(h.get("title"))
+        if nm:
+            page["name"] = nm
+        th = _square_thumb(_best_thumb(h))
+        if th:
+            page["thumb"] = th
+    songs_seen = set()
+    for shelf in _shelves(resp):
+        kind = _section_kind(_section_title(shelf))
+        if kind == "songs":
+            for c in shelf.get("contents") or []:
+                r = (c or {}).get("musicResponsiveListItemRenderer") or {}
+                t = _track_of(r) if r else None
+                if t and t["id"] not in songs_seen:
+                    songs_seen.add(t["id"])
+                    page["songs"].append(t)
+        elif kind in ("albums", "singles"):
+            bucket = page[kind]
+            have = {x["browseId"] for x in bucket}
+            for r in _two_rows(shelf):
+                it = _release_of(r)
+                if it and it["browseId"] not in have:
+                    have.add(it["browseId"])
+                    bucket.append(it)
+        elif kind in ("radios", "playlists"):
+            have = {x["id"] for x in page["radios"]}
+            for r in _two_rows(shelf):
+                it = _list_of(r)
+                if it and it["id"] not in have:
+                    have.add(it["id"])
+                    page["radios"].append(it)
+        elif kind == "similar":
+            have = {x["browseId"] for x in page["similar"]}
+            for r in _two_rows(shelf):
+                it = _similar_of(r)
+                if it and it["browseId"] not in have:
+                    have.add(it["browseId"])
+                    page["similar"].append(it)
+    page["songs"] = page["songs"][:10]
+    page["albums"] = page["albums"][:20]
+    page["singles"] = page["singles"][:20]
+    page["radios"] = page["radios"][:20]
+    page["similar"] = page["similar"][:20]
+    try:
+        page["discography"] = artist_discography(bid, page["name"])
+    except Exception:
+        # La página ya sirve: si la discografía falla, «Reproducir todo»
+        # usará los álbumes y singles de las estanterías.
+        page["discography"] = []
+    return page
+
+
 def _nav_artist(renderer):
     """Artista de la columna 1 que tenga enlace a canal/página de artista (UC/MPC).
 
@@ -1120,6 +1346,13 @@ def cmd_artist(browse_id, name=""):
     return 0
 
 
+def cmd_artistpage(browse_id, name=""):
+    page = artist_page(browse_id, name)
+    json.dump(page, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_album(browse_id):
     tracks = album_tracks(browse_id)
     json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
@@ -1302,6 +1535,11 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta el browseId del artista")
             return cmd_artist(args[1], " ".join(args[2:]) if len(args) > 2 else "")
+        if cmd == "artistpage":
+            if len(args) < 2:
+                raise YtmError("falta el browseId del artista")
+            return cmd_artistpage(args[1],
+                                  " ".join(args[2:]) if len(args) > 2 else "")
         if cmd == "album":
             if len(args) < 2:
                 raise YtmError("falta el browseId del álbum")

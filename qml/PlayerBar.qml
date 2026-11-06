@@ -114,6 +114,12 @@ Rectangle {
     implicitHeight: Theme.playerBarH
     color: "transparent"
 
+    // The bar is a floating CARD that hugs its controls instead of a
+    // full-width band. On the desktop it keeps air on both sides; on the
+    // phone it lines up with the tab bar (same width, same corner) and
+    // floats a step above it, so the two read as one stack.
+    readonly property int pillW: compact ? width : Math.min(width, 720)
+
     // La barra SIGUE al dedo al tirar hacia arriba: el gesto se ve, no
     // solo se intuye. Sin Behavior durante el arrastre (iria con retraso
     // respecto al dedo); al soltar vuelve sola con una animacion corta.
@@ -180,8 +186,8 @@ Rectangle {
     // para buscar.
     MouseArea {
         id: barDrag
-        anchors.fill: parent
-        anchors.margins: -6            // un poco de aire tambien fuera
+        // Only the pill: the transparent air around it belongs to the page.
+        anchors.fill: island
         property real startY: 0
         property real startX: 0
         property bool dragging: false
@@ -255,7 +261,15 @@ Rectangle {
     // ---- floating island ---------------------------------------------
     Panel {
         id: island
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: bar.pillW
+        // Rounded card (same language as the tab bar), not a capsule.
+        radius: bar.compact ? Theme.rLg : Theme.rPanel
+        // Solid: the pill is the dark surface itself, it does not frost the
+        // washed artwork behind it (no blurred backdrop).
+        color: Sys.surface
         // The content is clipped to the island's corners: the progress
         // line on top follows the rounding instead of sticking out.
         clipContent: true
@@ -598,7 +612,7 @@ Rectangle {
                         active: bar.shuffle
                         // Narrow windows: shuffle/repeat give their room to
                         // the title (the transport stays the essential one).
-                        visible: !bar.compact && bar.width >= 560
+                        visible: !bar.compact && island.width >= 560
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("toggle")
@@ -640,7 +654,7 @@ Rectangle {
                         id: repBtn
                         kind: "repeat"
                         active: bar.repeatMode !== 0
-                        visible: !bar.compact && bar.width >= 560
+                        visible: !bar.compact && island.width >= 560
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("toggle")
@@ -715,7 +729,7 @@ Rectangle {
                             // On the phone the slider is meaningless (touch has
                             // no hover nor drag precision and the transport
                             // needs the room): it stays desktop-only.
-                            visible: bar.width >= 620 && !Theme.touch
+                            visible: island.width >= 620 && !Theme.touch
 
                     Glyph {
                         Layout.alignment: Qt.AlignVCenter
@@ -793,8 +807,8 @@ Rectangle {
                     // Cover: tap opens the full screen player.
                     Item {
                         Layout.alignment: Qt.AlignVCenter
-                        width: 44
-                        height: 44
+                        width: 40
+                        height: 40
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.rSm
