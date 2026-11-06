@@ -782,9 +782,9 @@ Item {
             anchors.fill: listBgArt
             radius: Theme.rXl
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.40) }
-                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.70) }
-                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.95) }
+                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.34) }
+                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.58) }
+                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.80) }
             }
         }
     }
@@ -1230,6 +1230,10 @@ Item {
                 reuseItems: true
                 cacheBuffer: 800
                 spacing: 0
+                // Room at the end so the last row comes out from under the
+                // bottom edge of the card (before, it was cut and a black
+                // gradient was painted over it: that band looked dirty).
+                bottomMargin: Theme.s6
                 boundsBehavior: Flickable.StopAtBounds
                 // Open list: it already cooks its first tracks so the click
                 // on the header sounds right away.
@@ -2446,24 +2450,4 @@ Item {
         }
     }
 
-    // Fundido del borde inferior de la lista abierta: la ultima fila se
-    // cortaba a hueso justo en la esquina redondeada de la tarjeta y
-    // parecia que el contenido se salia del fondo. Se apaga hacia el
-    // mismo tono del velo (0.95 de Sys.bg) para que la lista "termine"
-    // suave en vez de con un tajo recto.
-    Rectangle {
-        z: 5
-        visible: page.showingTracks
-        height: Theme.s6
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.leftMargin: Theme.panelMargin + Theme.s3
-        anchors.rightMargin: Theme.panelMargin + Theme.s3
-        anchors.bottomMargin: Theme.panelMargin + Theme.s3
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.0) }
-            GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.97) }
-        }
-    }
 }

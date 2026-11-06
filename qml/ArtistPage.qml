@@ -106,41 +106,53 @@ Item {
         }
     }
 
+    // ---- back: floats over the page -----------------------------------
+    // It is not part of the header any more: it does not take room from
+    // the artist (which starts at the left margin, lower down, with the
+    // button above it).
+    Rectangle {
+        z: 3
+        width: Theme.touch ? 44 : 38
+        height: width
+        radius: width / 2
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: Theme.s5
+        anchors.topMargin: Theme.s5
+        // A dark disc behind the arrow so it reads over any artwork.
+        color: Theme.alpha(Sys.bg, backMa.containsMouse ? 0.90 : 0.55)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+        Glyph {
+            anchors.centerIn: parent
+            width: 18
+            height: 18
+            kind: "back"
+            color: Sys.text
+        }
+        MouseArea {
+            id: backMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                page.backRequested()
+            }
+        }
+    }
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.s5
+        // The artist sits below the floating back button, not next to it.
+        anchors.topMargin: Theme.s5 + (Theme.touch ? 44 : 38) + Theme.s3
         spacing: Theme.s3
 
-        // ---- header: back + portrait + name + actions ---------------------
+        // ---- header: portrait + name + actions ----------------------------
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.s3
-
-            Rectangle {
-                Layout.alignment: Qt.AlignTop
-                width: 36
-                height: 36
-                radius: Theme.rMd
-                color: backMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
-                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                Glyph {
-                    anchors.centerIn: parent
-                    width: 18
-                    height: 18
-                    kind: "back"
-                    color: Sys.text
-                }
-                MouseArea {
-                    id: backMa
-                    anchors.fill: parent
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        if (typeof sfx !== "undefined") sfx.play("tap")
-                        page.backRequested()
-                    }
-                }
-            }
 
             Rectangle {
                 Layout.preferredWidth: Theme.touch ? 84 : 104

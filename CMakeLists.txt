@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 
 project(lotus-tune
-    VERSION 1.2.10
+    VERSION 1.2.11
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
