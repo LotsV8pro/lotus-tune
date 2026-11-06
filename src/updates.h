@@ -33,6 +33,8 @@ public:
     QString url() const { return m_url; }
     QString notes() const { return m_notes; }
     QString error() const { return m_error; }
+    // The name of the file that belongs to this platform.
+    QString assetName() const { return m_asset; }
     QString currentVersion() const;
 
     // Asks the repository for the last release.
@@ -49,4 +51,6 @@ private:
     QString m_url;
     QString m_notes;
     QString m_error;
+    QString m_asset;
+    QString m_page;
 };

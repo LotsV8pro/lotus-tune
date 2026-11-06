@@ -70,6 +70,29 @@ QStringList usable(const QStringList &candidates)
     return real;
 }
 
+// Is it YouTube's "no cover" grey frame? A BLACK-AND-WHITE photo is not:
+// some artists and albums only have B&W artwork and it was being thrown
+// away (the slot stayed empty). The placeholder is a flat grey block, so
+// what gives it away is the (lack of) contrast, not the colour.
+bool flatGrey(const QImage &img)
+{
+    if (!img.allGray())
+        return false;
+    const QImage s = img.scaled(32, 32, Qt::IgnoreAspectRatio,
+                                Qt::SmoothTransformation)
+                        .convertToFormat(QImage::Format_RGB32);
+    int lo = 255, hi = 0;
+    for (int y = 0; y < s.height(); ++y) {
+        const QRgb *row = reinterpret_cast<const QRgb *>(s.constScanLine(y));
+        for (int x = 0; x < s.width(); ++x) {
+            const int v = qGray(row[x]);
+            lo = qMin(lo, v);
+            hi = qMax(hi, v);
+        }
+    }
+    return (hi - lo) < 12;
+}
+
 } // namespace
 
 RoundedArt::RoundedArt(QObject *parent)
@@ -233,7 +256,7 @@ void RoundedArt::tryNext(const QString &key, int index)
         // used now — never a black-and-white placeholder though (for
         // those the slot keeps its gradient). The job is marked as
         // failed so the next request tries it again.
-        if (fallback.isNull() || fallback.allGray()) {
+        if (fallback.isNull() || flatGrey(fallback)) {
             {
                 QMutexLocker lock(&m_mutex);
                 auto it = m_jobs.find(key);
@@ -284,10 +307,9 @@ void RoundedArt::tryNext(const QString &key, int index)
             return;
         }
         // The YouTube cascade sometimes answers with a 120x90 grey frame
-        // or a black-and-white placeholder instead of the real cover:
-        // they are kept as a fallback (better than an empty slot) and the
-        // next candidate is tried first.
-        if (src.allGray() || src.width() < 100 || src.height() < 100) {
+        // instead of the real cover: it is kept as a fallback (better than
+        // an empty slot) and the next candidate is tried first.
+        if (flatGrey(src) || src.width() < 100 || src.height() < 100) {
             {
                 QMutexLocker lock(&m_mutex);
                 auto it = m_jobs.find(key);

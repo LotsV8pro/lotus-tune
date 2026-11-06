@@ -1,17 +1,18 @@
 import QtQuick
 import "theme.js" as Theme
 
-// Tarjeta de artista (resultados de Buscar): la misma voz que las tarjetas
-// de la Biblioteca — portada cuadrada redondeada + nombre + subtitulo —,
-// pero sin botones de descarga ni de reproduccion: al pulsar se abre el
-// artista. Se usa en la fila horizontal de "Artistas" (modo Canciones) y
-// en la rejilla del modo Artistas.
+// Tarjeta de portada (la voz comun de toda la app): portada cuadrada
+// redondeada + titulo + subtitulo, sin botones. Se usa para artistas en
+// Buscar (fila y rejilla) y para albumes, singles, radios y artistas
+// similares en la pagina del artista.
 Item {
     id: card
 
     property string name: ""
     property string subtitle: ""
     property string thumb: ""
+    // Icon drawn when there is no cover: music, disc, radio, list...
+    property string glyph: "music"
 
     signal clicked()
 
@@ -55,7 +56,7 @@ Item {
             width: Math.round(coverBox.width * 0.28)
             height: width
             visible: card.thumb === ""
-            kind: "music"
+            kind: card.glyph
             color: Theme.tDim(Sys.bg, Sys.text)
         }
     }

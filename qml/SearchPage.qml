@@ -33,6 +33,11 @@ Item {
     readonly property var flatResults: {
         const out = []
         let ti = 0
+        // The artists rail travels as the first row (not as the ListView
+        // header: on Android the header kept its height but the rows were
+        // laid out over it, so the cards never showed).
+        if (!page.artistMode && page.artistResults.length > 0)
+            out.push({ secHead: true, sec: "", note: "", artistsRail: true })
         const groups = catalog.resultsBySource
         for (let i = 0; i < groups.length; i++) {
             const g = groups[i]
@@ -113,6 +118,10 @@ Item {
     property int retryCount: 0
     property string lastQuery: ""       // last query sent (it avoids repeating it)
     property string pendingQuery: ""    // query waiting for the backend to be free
+    // True only for the search that comes from Enter / a chip / "search the
+    // artist": that one queries every source. The predictive one (typing
+    // pause) only asks the fast source, like the phone does.
+    property bool explicitSearch: false
 
     // Only place that calls catalog.search()/searchArtists(): centralising
     // the busy check here avoids the "operation in progress" error. If the
@@ -146,8 +155,10 @@ Item {
         pendingQuery = ""
         page.lastQuery = q
         results.positionViewAtBeginning()   // every new search starts at the top
-        // All the sources at once: there is no need to pick one before searching.
-        catalog.searchAll(q)
+        // While typing only the fast source answers; Enter queries them
+        // all (see runSearch).
+        catalog.searchAll(q, page.explicitSearch)
+        page.explicitSearch = false
         // And in parallel the artists (they run in their own backend process):
         // they show up as a section at the top of the list, without having to
         // change the mode.
@@ -163,6 +174,7 @@ Item {
             return
         page.lastQuery = ""       // Enter relaunches it even if it repeats the query
         pushHistory(q)
+        page.explicitSearch = true
         dispatchSearch(q)
     }
 
@@ -474,50 +486,6 @@ Item {
                     reuseItems: true
                     cacheBuffer: 600
 
-                    // Artists rail (songs mode): the artist results are
-                    // cards, not rows, and they scroll away with the list.
-                    header: Column {
-                        width: results.width
-                        spacing: Theme.s2
-                        visible: page.artistResults.length > 0
-                        // Invisible must also mean "no room": otherwise the
-                        // list keeps a blank gap when there are no artists.
-                        height: visible ? implicitHeight : 0
-
-                        Text {
-                            leftPadding: Theme.s1
-                            text: "ARTISTAS"
-                            color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tXs
-                            font.weight: Font.DemiBold
-                            font.letterSpacing: 1.4
-                            opacity: 0.85
-                        }
-                        ListView {
-                            id: artistRail
-                            width: parent.width
-                            height: artistRail.cardW + Theme.cardLineH(Theme.tMd)
-                                    + Theme.cardLineH(Theme.tSm) + Theme.s1
-                            orientation: ListView.Horizontal
-                            spacing: Theme.s3
-                            clip: true
-                            model: page.artistResults
-                            boundsBehavior: Flickable.StopAtBounds
-                            readonly property int cardW: Theme.touch ? 112 : 132
-
-                            delegate: ArtistCard {
-                                required property var modelData
-                                width: artistRail.cardW
-                                height: artistRail.height
-                                name: modelData.name || ""
-                                subtitle: modelData.subtitle || ""
-                                thumb: modelData.thumb || ""
-                                onClicked: page.artistRequested(modelData)
-                            }
-                        }
-                        Item { width: 1; height: Theme.s2 }
-                    }
-
                 // When new results arrive, it cooks the first tracks: a
                 // click on the list header sounds right away. It cooks
                 // a few of them (not only the first) because, without
@@ -540,11 +508,14 @@ Item {
 
                     // Artist rows have no track buttons.
                     readonly property bool isArtist: rrow.modelData.kind === "artist"
+                    // First row: the artists of the search, as cover cards.
+                    readonly property bool isRail: rrow.modelData.artistsRail === true
 
                     width: ListView.view.width
                     // The source headers are a short row; the tracks,
                     // a normal row (the same as the playlist rows).
-                    height: rrow.modelData.secHead ? 30 : Theme.rowH
+                    height: isRail ? railCol.implicitHeight
+                                   : (rrow.modelData.secHead ? 30 : Theme.rowH)
                     radius: Theme.rMd
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
                            ? Theme.hover(Sys.bg) : "transparent"
@@ -770,6 +741,52 @@ Item {
                             }
                         }
                     }
+
+                    // ---- artists rail (first row of the list) -----------
+                    // Cover cards: tap opens the artist page.
+                    Column {
+                        id: railCol
+                        visible: rrow.isRail
+                        width: parent.width
+                        spacing: Theme.s2
+                        z: 2
+
+                        Text {
+                            width: parent.width
+                            leftPadding: Theme.s1
+                            topPadding: Theme.s1
+                            text: "ARTISTAS"
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tXs
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 1.4
+                            opacity: 0.85
+                        }
+                        ListView {
+                            id: artistRail
+                            width: parent.width
+                            height: artistRail.cardW + Theme.cardLineH(Theme.tMd)
+                                    + Theme.cardLineH(Theme.tSm) + Theme.s1
+                            orientation: ListView.Horizontal
+                            spacing: Theme.s3
+                            clip: true
+                            interactive: false
+                            model: page.artistResults
+                            boundsBehavior: Flickable.StopAtBounds
+                            readonly property int cardW: Theme.touch ? 112 : 132
+
+                            delegate: CoverCard {
+                                required property var modelData
+                                width: artistRail.cardW
+                                height: artistRail.height
+                                name: modelData.name || ""
+                                subtitle: modelData.subtitle || ""
+                                thumb: modelData.thumb || ""
+                                onClicked: page.artistRequested(modelData)
+                            }
+                        }
+                        Item { width: 1; height: Theme.s2 }
+                    }
                 }
                 }
 
@@ -791,7 +808,7 @@ Item {
                     cellHeight: cellWidth + Theme.cardLineH(Theme.tMd)
                                 + Theme.cardLineH(Theme.tSm) + Theme.s1
 
-                    delegate: ArtistCard {
+                    delegate: CoverCard {
                         required property var modelData
                         width: artistGrid.cellWidth - artistGrid.gap
                         height: artistGrid.cellHeight - artistGrid.gap

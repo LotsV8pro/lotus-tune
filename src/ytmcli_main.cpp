@@ -1631,18 +1631,11 @@ void collectAlbums(const Json &node, QJsonArray *found, QSet<QString> *seen)
 
 // python artist_discography: the page MPAD lists ALL the recordings in a
 // single reply (the UC…/MPC… one truncates to carousels of 10).
-QJsonArray artistDiscography(const QString &bidIn)
+QJsonArray discographyOf(const Json &resp)
 {
-    QString bid = bidIn.trimmed();
-    if (bid.isEmpty())
-        return {};
-    if (!bid.startsWith(QLatin1String("MPAD")))
-        bid = QStringLiteral("MPAD") + bid;
-    const NetResult r = browseJson(bid);
-    dieOnNet(r);
     QJsonArray found;
     QSet<QString> seen;
-    collectAlbums(r.obj, &found, &seen);
+    collectAlbums(resp, &found, &seen);
     // newest first (year 0 last), alphabetical within the same year like
     // python's sort((-year, title.lower())).
     found = sortJsonObjects(found,
@@ -1664,6 +1657,341 @@ QJsonArray artistDiscography(const QString &bidIn)
     if (found.size() > 80)
         return jsonMid(found, 0, 80);
     return found;
+}
+
+QJsonArray artistDiscography(const QString &bidIn)
+{
+    QString bid = bidIn.trimmed();
+    if (bid.isEmpty())
+        return {};
+    if (!bid.startsWith(QLatin1String("MPAD")))
+        bid = QStringLiteral("MPAD") + bid;
+    const NetResult r = browseJson(bid);
+    dieOnNet(r);
+    return discographyOf(r.obj);
+}
+
+// ---- artist page: the sections the app paints (python artist_page) --------
+// The artist page (UC…/MPC…) is a pile of shelves: "Canciones más
+// escuchadas" (playable rows), "Álbumes", "Singles y EPs", "Radios" and
+// "Puede que también te guste". The discography (MPAD…) is asked separately
+// because it is the complete list of releases, which the shelves cut to 10.
+
+// python _plain_text.
+QString plainText(const Json &node)
+{
+    if (node.isString())
+        return node.toString().trimmed();
+    if (!node.isObject())
+        return QString();
+    const QJsonObject o = node.toObject();
+    if (o.value(QLatin1String("runs")).isArray()) {
+        const QJsonArray runs = o.value(QLatin1String("runs")).toArray();
+        if (!runs.isEmpty()) {
+            QString out;
+            for (const auto &r : runs)
+                out += r.toObject().value(QLatin1String("text")).toString();
+            return out.trimmed();
+        }
+    }
+    if (o.value(QLatin1String("simpleText")).isString()) {
+        const QString t =
+            o.value(QLatin1String("simpleText")).toString().trimmed();
+        if (!t.isEmpty())
+            return t;
+    }
+    for (const QString &key :
+         {QStringLiteral("title"), QStringLiteral("text")}) {
+        if (o.contains(key)) {
+            const QString t = plainText(o.value(key));
+            if (!t.isEmpty())
+                return t;
+        }
+    }
+    return QString();
+}
+
+// python _square_thumb: the immersive header carries a BANNER (2880x1200);
+// its square crop is YouTube's grey placeholder, so the CDN is asked for a
+// centred square instead.
+QString squareThumb(const QString &url, int size = 544)
+{
+    const QString u = url.trimmed();
+    if (u.isEmpty() || !u.contains(QLatin1String("googleusercontent.com")))
+        return u;
+    const QString base = u.left(u.indexOf(QLatin1Char('=')));
+    return QStringLiteral("%1=w%2-h%2-p-l90-rj").arg(base).arg(size);
+}
+
+// python _section_title.
+QString sectionTitle(const Json &renderer)
+{
+    const QJsonObject o = renderer.toObject();
+    const Json hdr = o.value(QLatin1String("header"));
+    if (hdr.isObject()) {
+        const QString t = plainText(
+            hdr.toObject()
+                .value(QLatin1String("musicCarouselShelfBasicHeaderRenderer"))
+                .toObject()
+                .value(QLatin1String("title")));
+        if (!t.isEmpty())
+            return t;
+    }
+    return plainText(o.value(QLatin1String("title")));
+}
+
+// python _section_kind: the shelf title becomes a key the app understands.
+QString sectionKind(const QString &title)
+{
+    const QString t = norm(title);
+    if (t.contains(QLatin1String("cancion"))
+        || t.contains(QLatin1String("escuchad"))
+        || t.startsWith(QLatin1String("song"))
+        || t.contains(QLatin1String("most played"))
+        || t.contains(QLatin1String("popular")))
+        return QStringLiteral("songs");
+    if (t.contains(QLatin1String("single"))
+        || t.endsWith(QLatin1String(" eps"))
+        || (QStringLiteral(" ") + t + QStringLiteral(" "))
+               .contains(QLatin1String(" ep ")))
+        return QStringLiteral("singles");
+    if (t.contains(QLatin1String("album")))
+        return QStringLiteral("albums");
+    if (t.contains(QLatin1String("radio")))
+        return QStringLiteral("radios");
+    if (t.contains(QLatin1String("lista"))
+        || t.contains(QLatin1String("playlist")))
+        return QStringLiteral("playlists");
+    if (t.contains(QLatin1String("video"))
+        || t.contains(QLatin1String("videoclip")))
+        return QStringLiteral("videos");
+    if (t.contains(QLatin1String("guste"))
+        || t.contains(QLatin1String("similar"))
+        || t.contains(QLatin1String("relacionad"))
+        || t.contains(QLatin1String("fans")))
+        return QStringLiteral("similar");
+    return QStringLiteral("other");
+}
+
+// python _shelves: every shelf of the reply, in page order.
+QJsonArray shelves(const Json &node)
+{
+    QJsonArray out;
+    if (node.isObject()) {
+        const QJsonObject o = node.toObject();
+        for (const QString &key :
+             {QStringLiteral("musicShelfRenderer"),
+              QStringLiteral("musicCarouselShelfRenderer")}) {
+            const Json r = o.value(key);
+            if (r.isObject())
+                out.append(r);
+        }
+        for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+            if (it.key() == QLatin1String("musicShelfRenderer")
+                || it.key() == QLatin1String("musicCarouselShelfRenderer"))
+                continue;
+            const QJsonArray inner = shelves(it.value());
+            for (const auto &v : inner)
+                out.append(v);
+        }
+    } else if (node.isArray()) {
+        const QJsonArray a = node.toArray();
+        for (const auto &item : a) {
+            const QJsonArray inner = shelves(item);
+            for (const auto &v : inner)
+                out.append(v);
+        }
+    }
+    return out;
+}
+
+// python _two_rows.
+QJsonArray twoRows(const Json &shelf)
+{
+    QJsonArray out;
+    for (const auto &c :
+         shelf.toObject().value(QLatin1String("contents")).toArray()) {
+        const Json r =
+            c.toObject().value(QLatin1String("musicTwoRowItemRenderer"));
+        if (r.isObject())
+            out.append(r);
+    }
+    return out;
+}
+
+// python _release_of: album / single card to the app's shape.
+QJsonObject releaseOf(const Json &renderer)
+{
+    const QString bid = browseIdOf(renderer);
+    QString title = titleOf(renderer);
+    if (title.isEmpty())
+        title = flexText(renderer, 0);
+    if (bid.isEmpty() || title.isEmpty())
+        return {};
+    const QString sub = subtitleOf(renderer);
+    return QJsonObject{
+        {QLatin1String("title"), title},
+        {QLatin1String("browseId"), bid},
+        {QLatin1String("thumb"), bestThumb(renderer)},
+        {QLatin1String("subtitle"), sub},
+        {QLatin1String("year"), yearOf(sub)},
+    };
+}
+
+// python _similar_of: artist card (channel UC… or artist page MPC…).
+QJsonObject similarOf(const Json &renderer)
+{
+    const QString bid = browseIdOf(renderer);
+    if (!bid.startsWith(QLatin1String("UC"))
+        && !bid.startsWith(QLatin1String("MPC")))
+        return {};
+    QString name = titleOf(renderer);
+    if (name.isEmpty())
+        name = flexText(renderer, 0);
+    if (name.isEmpty())
+        return {};
+    return QJsonObject{
+        {QLatin1String("name"), name},
+        {QLatin1String("browseId"), bid},
+        {QLatin1String("thumb"), bestThumb(renderer)},
+        {QLatin1String("subtitle"), subtitleOf(renderer)},
+    };
+}
+
+// python _list_of: playlist / radio card (VL…), opened by its id.
+QJsonObject listOf(const Json &renderer)
+{
+    const QString bid = browseIdOf(renderer);
+    if (!bid.startsWith(QLatin1String("VL")))
+        return {};
+    QString title = titleOf(renderer);
+    if (title.isEmpty())
+        title = flexText(renderer, 0);
+    if (title.isEmpty())
+        return {};
+    return QJsonObject{
+        {QLatin1String("title"), title},
+        {QLatin1String("id"), bid.mid(2)},
+        {QLatin1String("thumb"), bestThumb(renderer)},
+        {QLatin1String("subtitle"), subtitleOf(renderer)},
+    };
+}
+
+// python artist_page.
+QJsonObject artistPage(const QString &bidIn, const QString &artistName)
+{
+    const QString bid = bidIn.trimmed();
+    if (bid.isEmpty())
+        return {};
+    const NetResult r = browseJson(bid);
+    dieOnNet(r);
+    QJsonObject page;
+    page.insert(QLatin1String("name"), artistName);
+    page.insert(QLatin1String("thumb"), QString());
+    page.insert(QLatin1String("subtitle"), QString());
+    for (const QString &key : {QStringLiteral("songs"),
+                               QStringLiteral("albums"),
+                               QStringLiteral("singles"),
+                               QStringLiteral("radios"),
+                               QStringLiteral("similar"),
+                               QStringLiteral("discography")})
+        page.insert(key, QJsonArray());
+
+    // Header: the name and the good portrait (the search ones are small).
+    Json h = vfind(r.obj, QStringLiteral("musicImmersiveHeaderRenderer"));
+    if (!h.isObject())
+        h = vfind(r.obj, QStringLiteral("musicVisualHeaderRenderer"));
+    if (h.isObject()) {
+        const QJsonObject ho = h.toObject();
+        const QString nm = plainText(ho.value(QLatin1String("title")));
+        if (!nm.isEmpty())
+            page.insert(QLatin1String("name"), nm);
+        const QString th = squareThumb(bestThumb(h));
+        if (!th.isEmpty())
+            page.insert(QLatin1String("thumb"), th);
+    }
+
+    QJsonArray songs, albums, singles, radios, similar;
+    QSet<QString> songsSeen, albumsSeen, singlesSeen, radiosSeen, similarSeen;
+    for (const auto &sv : shelves(r.obj)) {
+        const QJsonObject shelf = sv.toObject();
+        const QString kind = sectionKind(sectionTitle(shelf));
+        if (kind == QLatin1String("songs")) {
+            for (const auto &c :
+                 shelf.value(QLatin1String("contents")).toArray()) {
+                const Json row =
+                    c.toObject().value(
+                        QLatin1String("musicResponsiveListItemRenderer"));
+                if (!row.isObject())
+                    continue;
+                const QJsonObject t = trackOf(row);
+                const QString id = t.value(QLatin1String("id")).toString();
+                if (id.isEmpty() || songsSeen.contains(id))
+                    continue;
+                songsSeen.insert(id);
+                songs.append(t);
+            }
+        } else if (kind == QLatin1String("albums")
+                   || kind == QLatin1String("singles")) {
+            QJsonArray *bucket = kind == QLatin1String("albums")
+                                     ? &albums : &singles;
+            QSet<QString> *have = kind == QLatin1String("albums")
+                                      ? &albumsSeen : &singlesSeen;
+            for (const auto &rv : twoRows(shelf)) {
+                const QJsonObject it = releaseOf(rv);
+                const QString id = it.value(QLatin1String("browseId")).toString();
+                if (id.isEmpty() || have->contains(id))
+                    continue;
+                have->insert(id);
+                bucket->append(it);
+            }
+        } else if (kind == QLatin1String("radios")
+                   || kind == QLatin1String("playlists")) {
+            for (const auto &rv : twoRows(shelf)) {
+                const QJsonObject it = listOf(rv);
+                const QString id = it.value(QLatin1String("id")).toString();
+                if (id.isEmpty() || radiosSeen.contains(id))
+                    continue;
+                radiosSeen.insert(id);
+                radios.append(it);
+            }
+        } else if (kind == QLatin1String("similar")) {
+            for (const auto &rv : twoRows(shelf)) {
+                const QJsonObject it = similarOf(rv);
+                const QString id =
+                    it.value(QLatin1String("browseId")).toString();
+                if (id.isEmpty() || similarSeen.contains(id))
+                    continue;
+                similarSeen.insert(id);
+                similar.append(it);
+            }
+        }
+    }
+    if (songs.size() > 10)
+        songs = jsonMid(songs, 0, 10);
+    if (albums.size() > 20)
+        albums = jsonMid(albums, 0, 20);
+    if (singles.size() > 20)
+        singles = jsonMid(singles, 0, 20);
+    if (radios.size() > 20)
+        radios = jsonMid(radios, 0, 20);
+    if (similar.size() > 20)
+        similar = jsonMid(similar, 0, 20);
+    page.insert(QLatin1String("songs"), songs);
+    page.insert(QLatin1String("albums"), albums);
+    page.insert(QLatin1String("singles"), singles);
+    page.insert(QLatin1String("radios"), radios);
+    page.insert(QLatin1String("similar"), similar);
+
+    // "Play all" runs over the COMPLETE discography (MPAD). If it fails the
+    // page still works: the app falls back to the shelf albums and singles.
+    QString mpad = bid;
+    if (!mpad.startsWith(QLatin1String("MPAD")))
+        mpad = QStringLiteral("MPAD") + mpad;
+    const NetResult dr = browseJson(mpad);
+    if (dr.ok)
+        page.insert(QLatin1String("discography"), discographyOf(dr.obj));
+    return page;
 }
 
 // python album_tracks.
@@ -2082,7 +2410,7 @@ int main(int argc, char *argv[])
     // this binary finds the first known command in argv.
     static const QSet<QString> kCommands{
         "library",    "search",   "artists",  "artist",
-        "album",      "alternate", "toptrack", "playlist",
+        "artistpage", "album",     "alternate", "toptrack", "playlist",
         "playlistinfo", "rate",   "addpl",    "rmpl",
         "movepl",     "createpl", "renamepl", "setplpriv",
         "deletepl",
@@ -2135,6 +2463,12 @@ int main(int argc, char *argv[])
                 die(QStringLiteral("falta el browseId del artista"));
             printObj(QJsonObject{
                 {QLatin1String("albums"), artistDiscography(rest.first())}});
+            return 0;
+        }
+        if (cmd == QLatin1String("artistpage")) {
+            if (rest.isEmpty())
+                die(QStringLiteral("falta el browseId del artista"));
+            printObj(artistPage(rest.first(), QString()));
             return 0;
         }
         if (cmd == QLatin1String("album")) {

@@ -104,7 +104,7 @@ var topBarH = touch ? 52 : 52
 // Phone bar: two rows (cover/title/heart + transport). The height has to
 // fit 20 (progress) + 44 (cover/title row) + 44 (play button) + 4 (bottom
 // margin) = 112; with 104 the play button was left half cut by the island.
-var playerBarH = touch ? 112 : 64
+var playerBarH = touch ? 104 : 64
 var sidePanelMin = touch ? 252 : 300
 
 // Bottom padding for the system gesture zone. Android's

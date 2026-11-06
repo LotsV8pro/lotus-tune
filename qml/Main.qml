@@ -1567,6 +1567,9 @@ Window {
     // shuffle shuffles the whole queue once it is complete.
     property bool artistOpen: false
     property var artistCur: null           // { name, browseId, thumb }
+    // Sections of the open artist page (songs, albums, singles, radios,
+    // similar) + the full discography for "Play all".
+    property var artistPageData: ({})
     property var artistAlbums: []
     property bool artistBusy: false
     // What the app expects from the albums: "" none, "all", "shuffle",
@@ -1583,9 +1586,10 @@ Window {
             return
         root.artistCur = a
         root.artistAlbums = []
+        root.artistPageData = ({})
         root.artistBusy = true
         root.artistOpen = true
-        catalog.fetchArtist(a.browseId)
+        catalog.fetchArtistPage(a.browseId)
     }
 
     // Info of the playing track for the context menus of the bar and of
@@ -1644,19 +1648,52 @@ Window {
                 pick = list[0]
             root.openArtist(pick)
         }
+
+        // The artist page arrived: it fills the sections. The discography
+        // (complete, not cut to the page shelves) is what "Play all" walks;
+        // if it did not arrive, the albums + singles of the page do.
+        function onArtistPageReady(browseId, page) {
+            if (!root.artistCur
+                    || String(root.artistCur.browseId || "") !== String(browseId))
+                return
+            const d = page || ({})
+            root.artistPageData = d
+            const disc = (d.discography && d.discography.length) ? d.discography : []
+            const al = (d.albums && d.albums.length) ? d.albums : []
+            const sg = (d.singles && d.singles.length) ? d.singles : []
+            root.artistAlbums = disc.length ? disc : al.concat(sg)
+            root.artistBusy = false
+        }
     }
 
     function closeArtist() {
         root.artistOpen = false
     }
 
-    // "Play all" / "Shuffle" over the loaded discography.
-    function artistPlayAll(albums, random) {
-        const list = albums || []
+    // Air that the artist page has to leave at the bottom so the playback
+    // bar keeps showing (its rounded island with the blur, not only the
+    // transport): the page ends right above it. On the phone the tab bar
+    // stays visible too.
+    function artistBottomInset() {
+        let inset = Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        if (root.isPhone)
+            inset += bottomNav.height + Theme.panelGap
+        if (playBar.visible)
+            inset += playBar.height + Theme.panelGap
+        return inset
+    }
+
+    // "Play all" / "Shuffle" over the loaded discography. The list arrives
+    // newest first; `oldestFirst` reverses it. Shuffle adds everything and
+    // then shuffles the queue, so it is the whole artist in random order.
+    function artistPlayAll(albums, random, oldestFirst) {
+        let list = (albums || []).slice()
         if (list.length === 0) {
             root.toast("Este artista no tiene discos que reproducir")
             return
         }
+        if (oldestFirst)
+            list.reverse()
         root.artistWant = random ? "aleatorio" : "todo"
         root.artistStarted = false
         root.artistAdded = 0
@@ -2699,6 +2736,11 @@ Window {
                 Sidebar {
                     id: sidebar
                     anchors.fill: parent
+                    // The rail runs to the bottom of the window: the
+                    // playback pill floats over it instead of leaving a
+                    // strip of background under the rail.
+                    anchors.bottomMargin: -(bottomDock.implicitHeight
+                                            + Theme.panelGap)
                     page: root.activeNavId()
                     trackTitle: root.currentTitle
                     trackArtist: root.currentArtist
@@ -2905,70 +2947,100 @@ Window {
             }
         }
 
-        PlayerBar {
-            id: playBar
-            // Floating on the phone: it only appears when there is
-            // really something playing or resolving; the desktop keeps
-            // the always-standing dock.
-            visible: !root.isPhone || player.playing || player.loading
-                     || root.currentVideoId !== ""
+        // The playback bar and the phone tab bar live in their own dock on
+        // top of everything (bottomDock, below): the artist page fills the
+        // whole window and the pill floats over it, covering the content.
+        Item {
+            id: bottomSpacer
             Layout.fillWidth: true
-            playing: player.playing
-            loading: player.loading
-            position: player.position
-            duration: player.duration
-            title: root.currentTitle
-            artist: root.currentArtist
-            currentThumb: root.currentThumb
-            volume: player.volume
-            shuffle: root.shuffle
-            repeatMode: root.repeatMode
-            onToggle: root.togglePlay()
-            onNextRequested: root.next()
-            onPrevRequested: root.prev()
-            onShuffleToggled: root.toggleShuffle()
-            onRepeatToggled: root.toggleRepeat()
-            onLyricsRequested: root.openFullscreenLyrics()
-            onQueueRequested: root.togglePanel(0)
-            onLyricsPanelRequested: root.togglePanel(1)
-            // Swipe up on the progress line: the cinema mode (the same
-            // full screen the "L"/"F" keys and the side panel open).
-            onCinemaRequested: root.openFullscreenLyrics()
-            onSeekRequested: (secs) => player.seek(secs)
-            onVolumeWanted: (v) => player.setVolume(v)
-            videoId: root.currentVideoId
-            liked: root.currentLiked
-            // Highlight of the queue button while the panel shows the queue.
-            queueOpen: root.panelOpen && root.panelTab === 0
-            canInteract: catalog.loginState === "ok"
-            onLikeRequested: root.toggleLike()
-            onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
-            onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
-            onArtistRequested: (name) => root.openArtistByName(name)
+            Layout.preferredHeight: bottomDock.implicitHeight
         }
+    }
 
-        // ---- phone-only bottom navigation --------------------------------
-        // The desktop rail moves to a bottom tab bar for thumb reach; the
-        // playback bar stays above it (mini-player over tab bar, like any
-        // mobile music app). Same signals the rail exposes.
-        BottomNav {
-            id: bottomNav
-            visible: root.isPhone
-            Layout.fillWidth: true
-            page: root.activeNavId()
-            onNavigate: (p) => {
-                if (p === "library") {
-                    if (libPage.libraryTab === 4)
-                        libPage.libraryTab = 0
-                }
-                root.navTo(p)
+    // ---- dock: playback bar (+ phone tab bar) ---------------------------
+    // Its own layer above the pages AND above the artist page: the dark
+    // pill floats over whatever is underneath (the artist page scrolls
+    // behind it). Modals that must win over the bar hide it.
+    ColumnLayout {
+        id: bottomDock
+        z: 66
+        // Always on: the playback pill (and the phone tab bar) never
+        // disappear, whatever is open on top of it.
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.panelMargin
+        anchors.rightMargin: Theme.panelMargin
+        anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        spacing: Theme.panelGap
+
+    PlayerBar {
+        id: playBar
+        // Floating on the phone: it only appears when there is
+        // really something playing or resolving; the desktop keeps
+        // the always-standing dock.
+        visible: !root.isPhone || player.playing || player.loading
+                 || root.currentVideoId !== ""
+        Layout.fillWidth: true
+        // The pill floats above the tab bar with a bit of air between the
+        // two (phone only: on the desktop there is no tab bar under it).
+        Layout.bottomMargin: root.isPhone ? Theme.s3 : 0
+        playing: player.playing
+        loading: player.loading
+        position: player.position
+        duration: player.duration
+        title: root.currentTitle
+        artist: root.currentArtist
+        currentThumb: root.currentThumb
+        volume: player.volume
+        shuffle: root.shuffle
+        repeatMode: root.repeatMode
+        onToggle: root.togglePlay()
+        onNextRequested: root.next()
+        onPrevRequested: root.prev()
+        onShuffleToggled: root.toggleShuffle()
+        onRepeatToggled: root.toggleRepeat()
+        onLyricsRequested: root.openFullscreenLyrics()
+        onQueueRequested: root.togglePanel(0)
+        onLyricsPanelRequested: root.togglePanel(1)
+        // Swipe up on the progress line: the cinema mode (the same
+        // full screen the "L"/"F" keys and the side panel open).
+        onCinemaRequested: root.openFullscreenLyrics()
+        onSeekRequested: (secs) => player.seek(secs)
+        onVolumeWanted: (v) => player.setVolume(v)
+        videoId: root.currentVideoId
+        liked: root.currentLiked
+        // Highlight of the queue button while the panel shows the queue.
+        queueOpen: root.panelOpen && root.panelTab === 0
+        canInteract: catalog.loginState === "ok"
+        onLikeRequested: root.toggleLike()
+        onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
+        onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
+        onArtistRequested: (name) => root.openArtistByName(name)
+    }
+
+    // ---- phone-only bottom navigation --------------------------------
+    // The desktop rail moves to a bottom tab bar for thumb reach; the
+    // playback bar stays above it (mini-player over tab bar, like any
+    // mobile music app). Same signals the rail exposes.
+    BottomNav {
+        id: bottomNav
+        visible: root.isPhone
+        Layout.fillWidth: true
+        page: root.activeNavId()
+        onNavigate: (p) => {
+            if (p === "library") {
+                if (libPage.libraryTab === 4)
+                    libPage.libraryTab = 0
             }
-            onLikedRequested: root.openLiked()
-            onDownloadsRequested: {
-                libPage.libraryTab = 4
-                root.navTo("library")
-            }
+            root.navTo(p)
         }
+        onLikedRequested: root.openLiked()
+        onDownloadsRequested: {
+            libPage.libraryTab = 4
+            root.navTo("library")
+        }
+    }
     }
 
     // ---- widget de la letra -------------------------------------------
@@ -4918,14 +4990,38 @@ Window {
     ArtistPage {
         id: artistOverlay
         anchors.fill: parent
+        // It fills the whole window (the washed background goes edge to
+        // edge); the playback pill floats on top and the last section is
+        // given room to scroll clear of it.
+        bottomInset: root.artistBottomInset()
+        washSource: washImg.source
         z: 64
         visible: root.artistOpen
         artist: root.artistCur
-        albums: root.artistAlbums
+        pageData: root.artistPageData
         busy: root.artistBusy
         onBackRequested: root.closeArtist()
-        onPlayAllRequested: (random) => root.artistPlayAll(root.artistAlbums, random)
+        onPlayAllRequested: (random, oldestFirst) =>
+            root.artistPlayAll(root.artistAlbums, random, oldestFirst)
         onAlbumPlayRequested: (album) => root.artistPlayAlbum(album)
+        // Top songs: that one plays and the rest of the section follows.
+        onSongPlayRequested: (list, index) => root.playTracks(list, index)
+        // "Radio de <artist>": the existing artist radio (top track + radio).
+        onRadioRequested: root.startArtistRadio({ artist: root.artistCur
+                                                  ? String(root.artistCur.name || "")
+                                                  : "" })
+        // A playlist/radio of their page: it opens as a list, no autoplay.
+        onListRequested: (id, name) => {
+            if (String(id) === "")
+                return
+            root.beginOpenList(false)
+            catalog.openUrl("https://music.youtube.com/playlist?list=" + id, name)
+        }
+        // Similar artist: another artist page, replacing this one.
+        onSimilarRequested: (a) => {
+            root.artistOpen = false
+            root.openArtist(a)
+        }
     }
 
     // ---- startup splash ------------------------------------------------

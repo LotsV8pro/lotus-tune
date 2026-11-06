@@ -174,6 +174,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 if (mode.isEmpty())
                     return;   // cancelled by a new request: it is ignored
                 QVariantList list;
+                QVariantMap page;
                 if (code == 0) {
                     const QJsonDocument doc = QJsonDocument::fromJson(out);
                     const QJsonObject root = doc.object();
@@ -213,6 +214,79 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                                      o.value(QStringLiteral("year")).toInt());
                             list.append(a);
                         }
+                    } else if (mode == QLatin1String("artistpage")) {
+                        page.insert(QStringLiteral("name"),
+                                    root.value(QStringLiteral("name")).toString());
+                        page.insert(QStringLiteral("thumb"),
+                                    root.value(QStringLiteral("thumb")).toString());
+                        page.insert(QStringLiteral("subtitle"),
+                                    root.value(QStringLiteral("subtitle")).toString());
+                        QVariantList songs;
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("songs")).toArray())
+                            songs.append(normalize(v.toObject().toVariantMap()));
+                        page.insert(QStringLiteral("songs"), songs);
+                        // Releases (albums / singles / the full discography)
+                        // share the same shape as the artistReady() ones.
+                        const auto releases = [](const QJsonArray &arr) {
+                            QVariantList out;
+                            for (const QJsonValue &v : arr) {
+                                const QJsonObject o = v.toObject();
+                                QVariantMap a;
+                                a.insert(QStringLiteral("title"),
+                                         o.value(QStringLiteral("title")).toString());
+                                a.insert(QStringLiteral("browseId"),
+                                         o.value(QStringLiteral("browseId")).toString());
+                                a.insert(QStringLiteral("thumb"),
+                                         o.value(QStringLiteral("thumb")).toString());
+                                a.insert(QStringLiteral("subtitle"),
+                                         o.value(QStringLiteral("subtitle")).toString());
+                                a.insert(QStringLiteral("year"),
+                                         o.value(QStringLiteral("year")).toInt());
+                                out.append(a);
+                            }
+                            return out;
+                        };
+                        page.insert(QStringLiteral("albums"),
+                                    releases(root.value(QStringLiteral("albums")).toArray()));
+                        page.insert(QStringLiteral("singles"),
+                                    releases(root.value(QStringLiteral("singles")).toArray()));
+                        page.insert(QStringLiteral("discography"),
+                                    releases(root.value(QStringLiteral("discography")).toArray()));
+                        QVariantList radios;
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("radios")).toArray()) {
+                            const QJsonObject o = v.toObject();
+                            QVariantMap r;
+                            r.insert(QStringLiteral("title"),
+                                     o.value(QStringLiteral("title")).toString());
+                            r.insert(QStringLiteral("id"),
+                                     o.value(QStringLiteral("id")).toString());
+                            r.insert(QStringLiteral("thumb"),
+                                     o.value(QStringLiteral("thumb")).toString());
+                            r.insert(QStringLiteral("subtitle"),
+                                     o.value(QStringLiteral("subtitle")).toString());
+                            radios.append(r);
+                        }
+                        page.insert(QStringLiteral("radios"), radios);
+                        QVariantList similar;
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("similar")).toArray()) {
+                            const QJsonObject o = v.toObject();
+                            if (o.value(QStringLiteral("browseId")).toString().isEmpty())
+                                continue;
+                            QVariantMap a;
+                            a.insert(QStringLiteral("name"),
+                                     o.value(QStringLiteral("name")).toString());
+                            a.insert(QStringLiteral("browseId"),
+                                     o.value(QStringLiteral("browseId")).toString());
+                            a.insert(QStringLiteral("thumb"),
+                                     o.value(QStringLiteral("thumb")).toString());
+                            a.insert(QStringLiteral("subtitle"),
+                                     o.value(QStringLiteral("subtitle")).toString());
+                            similar.append(a);
+                        }
+                        page.insert(QStringLiteral("similar"), similar);
                     } else if (mode == QLatin1String("album")) {
                         for (const QJsonValue &v :
                              root.value(QStringLiteral("entries")).toArray())
@@ -225,6 +299,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit artistsReady(list);
                 else if (mode == QLatin1String("artist"))
                     emit artistReady(arg, list);
+                else if (mode == QLatin1String("artistpage"))
+                    emit artistPageReady(arg, page);
                 else if (mode == QLatin1String("album"))
                     emit albumTracksReady(arg, list);
                 else if (mode == QLatin1String("toptrack"))
@@ -953,7 +1029,7 @@ void Catalog::searchInSource(const QString &source, const QString &query)
 // One source is queried after the other (each search is a process) and the
 // groups fill up: the interface sees each source's results as they
 // arrive, without waiting for the last one.
-void Catalog::searchAll(const QString &query)
+void Catalog::searchAll(const QString &query, bool everySource)
 {
     const QString q = query.trimmed();
     if (q.isEmpty())
@@ -976,11 +1052,15 @@ void Catalog::searchAll(const QString &query)
     m_resultsQuery = q;
 
     // All the sources of the registry, in their order (YouTube Music first).
+    // While typing only the first one is queried: the others go through
+    // yt-dlp (~2.7 s each) and the keyboard cannot wait for them.
     const QVariantList all = m_sources->list();
     for (const QVariant &v : all) {
         const QString id = v.toMap().value(QStringLiteral("id")).toString();
         if (!id.isEmpty())
             m_multiQueue << id;
+        if (!everySource && !m_multiQueue.isEmpty())
+            break;
     }
     emit changed();
     nextMultiSource();
@@ -1144,6 +1224,17 @@ void Catalog::fetchArtist(const QString &browseId)
     }
     runArtist({ytmApiPath(), QStringLiteral("artist"), id},
               QStringLiteral("artist"), id);
+}
+
+void Catalog::fetchArtistPage(const QString &browseId)
+{
+    const QString id = browseId.trimmed();
+    if (id.isEmpty()) {
+        emit artistPageReady(id, {});
+        return;
+    }
+    runArtist({ytmApiPath(), QStringLiteral("artistpage"), id},
+              QStringLiteral("artistpage"), id);
 }
 
 void Catalog::fetchAlbumTracks(const QString &browseId)
