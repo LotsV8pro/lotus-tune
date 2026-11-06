@@ -226,8 +226,11 @@ public class AudioService extends Service
                         push("PAUSE");
                     } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
                         // Llamada, aviso, video corto: pausar y reanudar
-                        // cuando nos devuelvan el foco.
-                        sPausedByLoss = true;
+                        // cuando nos devuelvan el foco, PERO solo si de
+                        // verdad estaba sonando. Si el usuario lo habia
+                        // pausado a mano, al volver del video se queda en
+                        // pausa (antes se reanudaba solo).
+                        sPausedByLoss = PlayerWidget.sPlaying;
                         push("PAUSE");
                     } else if (change == AudioManager.AUDIOFOCUS_GAIN
                                && sPausedByLoss) {
