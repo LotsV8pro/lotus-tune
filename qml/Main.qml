@@ -943,6 +943,16 @@ Window {
     }
     // Ctrl+L: same as L and F. This one IS allowed with the search box
     // focused: Ctrl+L writes nothing, so it does not interfere.
+    // Ctrl+K: search (the hint shown in Home actually does something).
+    Shortcut {
+        sequence: "Ctrl+K"
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.navTo("search")
+            searchPage.focusField()
+        }
+    }
+
     Shortcut {
         sequence: "Ctrl+L"
         enabled: true

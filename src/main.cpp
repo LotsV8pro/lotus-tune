@@ -724,6 +724,11 @@ int main(int argc, char *argv[])
         }
         root = direct.create();
 #endif
+    } else {
+        // The module loaded: create the root object from it. Without this
+        // branch the desktop build exited right away with a null root
+        // (the fallback only ran when the module itself failed).
+        root = component.create();
     }
     if (!root) {
         dumpErrors(component);

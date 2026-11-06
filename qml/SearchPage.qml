@@ -33,17 +33,6 @@ Item {
     readonly property var flatResults: {
         const out = []
         let ti = 0
-        // The artists first ("ARTISTS" section): there are few of them and
-        // that is what people look for when typing an artist name.
-        if (!page.artistMode && page.artistResults && page.artistResults.length > 0) {
-            out.push({ secHead: true, sec: "Artistas", note: "" })
-            for (let a = 0; a < page.artistResults.length && a < 3; a++) {
-                const ar = page.artistResults[a]
-                out.push({ secHead: false, kind: "artist", map: ar,
-                           title: ar.name || "", artist: ar.subtitle || "",
-                           thumb: ar.thumb || "", url: "" })
-            }
-        }
         const groups = catalog.resultsBySource
         for (let i = 0; i < groups.length; i++) {
             const g = groups[i]
@@ -220,6 +209,13 @@ Item {
             if (page.artistMode)
                 artistList.positionViewAtBeginning()
         }
+    }
+
+    // Ctrl+K (advertised in Home): jumps to Search with the field focused
+    // and ready to type, without clearing what was already there.
+    function focusField() {
+        input.forceActiveFocus()
+        input.selectAll()
     }
 
     // External API (History chips in Home): it fills the field and searches.
@@ -477,6 +473,51 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     reuseItems: true
                     cacheBuffer: 600
+
+                    // Artists rail (songs mode): the artist results are
+                    // cards, not rows, and they scroll away with the list.
+                    header: Column {
+                        width: results.width
+                        spacing: Theme.s2
+                        visible: page.artistResults.length > 0
+                        // Invisible must also mean "no room": otherwise the
+                        // list keeps a blank gap when there are no artists.
+                        height: visible ? implicitHeight : 0
+
+                        Text {
+                            leftPadding: Theme.s1
+                            text: "ARTISTAS"
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tXs
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 1.4
+                            opacity: 0.85
+                        }
+                        ListView {
+                            id: artistRail
+                            width: parent.width
+                            height: artistRail.cardW + Theme.cardLineH(Theme.tMd)
+                                    + Theme.cardLineH(Theme.tSm) + Theme.s1
+                            orientation: ListView.Horizontal
+                            spacing: Theme.s3
+                            clip: true
+                            model: page.artistResults
+                            boundsBehavior: Flickable.StopAtBounds
+                            readonly property int cardW: Theme.touch ? 112 : 132
+
+                            delegate: ArtistCard {
+                                required property var modelData
+                                width: artistRail.cardW
+                                height: artistRail.height
+                                name: modelData.name || ""
+                                subtitle: modelData.subtitle || ""
+                                thumb: modelData.thumb || ""
+                                onClicked: page.artistRequested(modelData)
+                            }
+                        }
+                        Item { width: 1; height: Theme.s2 }
+                    }
+
                 // When new results arrive, it cooks the first tracks: a
                 // click on the list header sounds right away. It cooks
                 // a few of them (not only the first) because, without
@@ -621,19 +662,28 @@ Item {
                         spacing: Theme.s3
                         transform: Translate { x: rrow.dx }
 
-                        // Position in the results (as in the playlist view).
-                        Text {
+                        // Thumbnail: the search is a "browse" view, so the
+                        // cover helps to recognise the track at a glance.
+                        Rectangle {
                             Layout.alignment: Qt.AlignVCenter
-                            Layout.preferredWidth: 24
-                            visible: !rrow.isArtist
-                            text: {
-                                const n = Number(rrow.modelData.ti)
-                                const v = (isNaN(n) ? rrow.index : n) + 1
-                                return v < 10 ? "0" + v : String(v)
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
+                            radius: Theme.rMd
+                            color: Theme.sAlt(Sys.bg, Sys.text)
+                            clip: true
+                            RoundedArt {
+                                anchors.fill: parent
+                                source: rrow.modelData.thumb || ""
+                                radiusSpec: Theme.rMd
                             }
-                            color: Theme.tFaint(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tMd
-                            horizontalAlignment: Text.AlignRight
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 16
+                                height: 16
+                                visible: String(rrow.modelData.thumb || "") === ""
+                                kind: "music"
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                            }
                         }
 
                         ColumnLayout {
@@ -723,90 +773,32 @@ Item {
                 }
                 }
 
-                // ---- artists (artists mode) ----------------------------------
-                ListView {
-                    id: artistList
+                // ---- artists (artists mode): cards in a grid ----------------
+                GridView {
+                    id: artistGrid
                     anchors.fill: parent
                     anchors.margins: Theme.s2
                     visible: page.artistMode
                     clip: true
                     model: page.artistResults
-                    spacing: Theme.s1
                     boundsBehavior: Flickable.StopAtBounds
+                    // GridView has no "spacing": the air is the gap left
+                    // between the cell and the card.
+                    readonly property int gap: Theme.s3
+                    readonly property int cols: Theme.touch ? 3
+                                               : Math.max(3, Math.floor(width / 168))
+                    cellWidth: Math.floor(width / cols)
+                    cellHeight: cellWidth + Theme.cardLineH(Theme.tMd)
+                                + Theme.cardLineH(Theme.tSm) + Theme.s1
 
-                    delegate: Rectangle {
-                        id: arow
-                        required property int index
+                    delegate: ArtistCard {
                         required property var modelData
-
-                        width: ListView.view.width
-                        height: 64
-                        radius: Theme.rLg
-                        color: arowMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                        MouseArea {
-                            id: arowMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (typeof sfx !== "undefined") sfx.play("tap")
-                                page.artistRequested(arow.modelData)
-                            }
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.s3
-                            anchors.rightMargin: Theme.s3
-                            spacing: Theme.s3
-
-                            Rectangle {
-                                Layout.preferredWidth: 44
-                                Layout.preferredHeight: 44
-                                Layout.alignment: Qt.AlignVCenter
-                                radius: 22
-                                clip: true
-                                color: Sys.surface
-                                RoundedArt {
-                                    anchors.fill: parent
-                                    source: arow.modelData.thumb || ""
-                                    visible: String(arow.modelData.thumb || "") !== ""
-                                    radiusSpec: 22
-                                }
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    width: 18
-                                    height: 18
-                                    visible: !arow.modelData.thumb
-                                    kind: "music"
-                                    color: Theme.tDim(Sys.bg, Sys.text)
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: arow.modelData.name || ""
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tBase
-                                    font.weight: Font.DemiBold
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: arow.modelData.subtitle || ""
-                                    color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                            }
-                        }
+                        width: artistGrid.cellWidth - artistGrid.gap
+                        height: artistGrid.cellHeight - artistGrid.gap
+                        name: modelData.name || ""
+                        subtitle: modelData.subtitle || ""
+                        thumb: modelData.thumb || ""
+                        onClicked: page.artistRequested(modelData)
                     }
                 }
             }
