@@ -2726,71 +2726,11 @@ Window {
 
             Item {
                 id: sideCol
-                // Phone: the rail moves to a bottom bar (BottomNav); the
-                // desktop keeps the side column. The instance stays alive
-                // so its handlers keep working.
-                visible: !root.isPhone
+                // The rail is painted on its own layer (sideDock, below):
+                // this is only the empty strip that keeps the pages clear
+                // of it. Phone: the rail moves to a bottom bar (BottomNav).
                 Layout.preferredWidth: root.isPhone ? 0 : sidebar.railWidth
                 Layout.fillHeight: true
-
-                Sidebar {
-                    id: sidebar
-                    anchors.fill: parent
-                    // The rail runs to the bottom of the window: the
-                    // playback pill floats over it instead of leaving a
-                    // strip of background under the rail.
-                    anchors.bottomMargin: -(bottomDock.implicitHeight
-                                            + Theme.panelGap)
-                    page: root.activeNavId()
-                    trackTitle: root.currentTitle
-                    trackArtist: root.currentArtist
-                    trackThumb: root.currentThumb
-                    playing: player.playing
-                    engineStatus: player.engineStatus
-                    onNavigate: (p) => {
-                        // "Library" leaves "Downloads" behind: it goes
-                        // back to the "Songs" tab so the click really
-                        // takes you to the Library.
-                        if (p === "library") {
-                            if (libPage.libraryTab === 4)
-                                libPage.libraryTab = 0
-                        }
-                        root.navTo(p)
-                    }
-                    onSettingsRequested: root.toggleSettings()
-                    onNowPlayingRequested: root.openFullscreenLyrics()
-                    // "Liked": opens YouTube Music's LM list without
-                    // playing it (instant if it is already loaded).
-                    onLikedRequested: root.openLiked()
-                    // "Downloads": the Library with the "Downloaded" tab
-                    // active (it is clear you are in Downloads).
-                    onDownloadsRequested: {
-                        libPage.libraryTab = 4
-                        root.navTo("library")
-                    }
-                    // Click on a list: it opens and, when it arrives, it
-                    // is shown directly (without jumping to the Library
-                    // nor playing it).
-                    onPlaylistRequested: (i) => {
-                        root.beginOpenList(false)
-                        catalog.openPlaylist(i)
-                    }
-                    onYtmlistRequested: (url, name) => {
-                        root.beginOpenList(false)
-                        catalog.openUrl(url, name)
-                    }
-                    onYtmlistContextRequested: (item, x, y) => {
-                        root.showContextMenu(root.playlistMenuItems({
-                            id: item.id || root.listIdOf(item.url),
-                            name: item.name || "",
-                            url: item.url || "",
-                            owned: item.owned === true
-                        }), x, y)
-                    }
-                    onPlaylistContextRequested: (item, x, y) => {
-                        root.showContextMenu(root.savedPlaylistMenuItems(item, item.index), x, y)
-                    }
-                }
             }
 
             ColumnLayout {
@@ -2954,6 +2894,82 @@ Window {
             id: bottomSpacer
             Layout.fillWidth: true
             Layout.preferredHeight: bottomDock.implicitHeight
+        }
+    }
+
+    // ---- dock: side rail ------------------------------------------------
+    // Its own layer above the pages (and above the artist page), exactly
+    // like the playback pill: the rail is always there. Only a page that
+    // really covers the whole window on purpose (settings, the launcher)
+    // goes over it.
+    Item {
+        id: sideDock
+        z: 66
+        visible: !root.isPhone
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.panelMargin
+        anchors.topMargin: Theme.panelMargin
+        // Air at the bottom too: the rail is a rounded island, it does not
+        // run glued to the edge of the window.
+        anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        width: sidebar.railWidth
+
+        Sidebar {
+            id: sidebar
+            anchors.fill: parent
+            // The rail is an island: it ends with air above the window
+            // edge, like the playback pill.
+            page: root.activeNavId()
+            trackTitle: root.currentTitle
+            trackArtist: root.currentArtist
+            trackThumb: root.currentThumb
+            playing: player.playing
+            engineStatus: player.engineStatus
+            onNavigate: (p) => {
+                // "Library" leaves "Downloads" behind: it goes
+                // back to the "Songs" tab so the click really
+                // takes you to the Library.
+                if (p === "library") {
+                    if (libPage.libraryTab === 4)
+                        libPage.libraryTab = 0
+                }
+                root.navTo(p)
+            }
+            onSettingsRequested: root.toggleSettings()
+            onNowPlayingRequested: root.openFullscreenLyrics()
+            // "Liked": opens YouTube Music's LM list without
+            // playing it (instant if it is already loaded).
+            onLikedRequested: root.openLiked()
+            // "Downloads": the Library with the "Downloaded" tab
+            // active (it is clear you are in Downloads).
+            onDownloadsRequested: {
+                libPage.libraryTab = 4
+                root.navTo("library")
+            }
+            // Click on a list: it opens and, when it arrives, it
+            // is shown directly (without jumping to the Library
+            // nor playing it).
+            onPlaylistRequested: (i) => {
+                root.beginOpenList(false)
+                catalog.openPlaylist(i)
+            }
+            onYtmlistRequested: (url, name) => {
+                root.beginOpenList(false)
+                catalog.openUrl(url, name)
+            }
+            onYtmlistContextRequested: (item, x, y) => {
+                root.showContextMenu(root.playlistMenuItems({
+                    id: item.id || root.listIdOf(item.url),
+                    name: item.name || "",
+                    url: item.url || "",
+                    owned: item.owned === true
+                }), x, y)
+            }
+            onPlaylistContextRequested: (item, x, y) => {
+                root.showContextMenu(root.savedPlaylistMenuItems(item, item.index), x, y)
+            }
         }
     }
 
@@ -4990,6 +5006,10 @@ Window {
     ArtistPage {
         id: artistOverlay
         anchors.fill: parent
+        // The rail is a dock on top (z 66) and is always visible: the page
+        // starts to its right instead of sliding under it.
+        anchors.leftMargin: root.isPhone ? 0
+                            : sidebar.railWidth + Theme.panelGap
         // It fills the whole window (the washed background goes edge to
         // edge); the playback pill floats on top and the last section is
         // given room to scroll clear of it.

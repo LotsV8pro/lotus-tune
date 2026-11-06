@@ -73,7 +73,9 @@ Item {
     Panel {
         anchors.fill: parent
         radius: 12
-        color: Theme.alpha(Sys.text, 0.05)
+        // Solid: the rail is a floating island over the pages, so the
+        // content must not show through it.
+        color: Sys.surface
         borderWidth: 0
 
         ColumnLayout {
