@@ -104,7 +104,7 @@ var topBarH = touch ? 52 : 52
 // Phone bar: two rows (cover/title/heart + transport). The height has to
 // fit 20 (progress) + 44 (cover/title row) + 44 (play button) + 4 (bottom
 // margin) = 112; with 104 the play button was left half cut by the island.
-var playerBarH = touch ? 112 : 64
+var playerBarH = touch ? 104 : 64
 var sidePanelMin = touch ? 252 : 300
 
 // Bottom padding for the system gesture zone. Android's
@@ -249,6 +249,25 @@ function accentOn(accent, bg) {
             c = mix(accent, "#000000", Math.min(0.72, 0.20 * (i + 1)))
     }
     return c
+}
+
+// Text colour `c` (usually a dimmed tone) forced to clear 4.5:1 over `bg`.
+// It walks towards the most readable extreme (near white or near black)
+// keeping the hue: a "quiet" secondary tone that stops being decorative
+// and disappears over a washed-out artwork.
+function readableOn(c, bg) {
+    if (!_rgba(c))
+        return onAccent(bg)
+    if (contrast(c, bg) >= 4.5)
+        return c
+    var target = onAccent(bg)
+    var out = c
+    for (var i = 1; i <= 6; i++) {
+        out = mix(c, target, Math.min(1, i * 0.18))
+        if (contrast(out, bg) >= 4.5)
+            return out
+    }
+    return target
 }
 
 // Soft tint of `c` laid over `base` (used to wash the player bar with the

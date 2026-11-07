@@ -231,6 +231,20 @@ Canvas {
             ctx.lineTo(X(14.4), Y(13.4))
             ctx.stroke()
             break
+        case "note":
+            // Eighth note: local files with no cover of their own.
+            ctx.beginPath()
+            ctx.ellipse(X(5.4), Y(13.2), 2.5 * u, 1.9 * u, -0.35, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.beginPath()
+            ctx.moveTo(X(7.9), Y(13.2))
+            ctx.lineTo(X(7.9), Y(5))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(7.9), Y(5))
+            ctx.quadraticCurveTo(X(12.6), Y(5.6), X(12.6), Y(8.4))
+            ctx.stroke()
+            break
         case "pause":
             ctx.beginPath()
             ctx.rect(X(5), Y(3.5), 3.2 * u, 11 * u)

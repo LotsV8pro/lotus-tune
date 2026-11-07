@@ -31,15 +31,25 @@ Item {
     // requested again and repainted).
     property string artUrl: ""
 
+    // Guard against re-entry: the C++ side no longer emits `ready` from
+    // inside the url request, but a refresh running twice in the same
+    // turn was the source of a "Maximum call stack size exceeded" loop.
+    property bool _refreshing: false
+
     function refresh() {
+        if (art._refreshing)
+            return
+        art._refreshing = true
         const w = Math.round(art.width)
         const h = Math.round(art.height)
         if (!art.source || art.source.length === 0 || w <= 0 || h <= 0) {
             art.artUrl = ""
+            art._refreshing = false
             return
         }
         art.artUrl = rart.urlBlurred([art.source], w, h, art.radius,
                                      Screen.devicePixelRatio, art.blur)
+        art._refreshing = false
     }
 
     onSourceChanged: refresh()
@@ -52,12 +62,17 @@ Item {
 
     // When the C++ side finishes cropping, the URL is requested again (it
     // already has the new version) and the artwork shows up.
+    //
+    // Solo se reacciona mientras ESTA tarjeta espera su imagen. Antes se
+    // comparaba la clave (un SHA1) en cada portada de la app por cada
+    // "ready": con una lista en scroll eso son cientos de hashes por
+    // segundo en el hilo de la GUI (tirones). Si ya hay URL no hay nada
+    // que hacer: los cambios de tamano/radio llaman a refresh() ellos
+    // mismos.
     Connections {
         target: rart
         function onReady(key) {
-            if (key === rart.keyBlurred([art.source], Math.round(art.width),
-                                        Math.round(art.height), art.radius,
-                                        Screen.devicePixelRatio, art.blur))
+            if (art.artUrl.length === 0 && art.source.length > 0)
                 art.refresh()
         }
     }

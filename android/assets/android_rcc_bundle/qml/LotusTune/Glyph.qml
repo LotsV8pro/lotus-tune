@@ -5,10 +5,12 @@ import QtQuick
 Canvas {
     id: g
 
-    // Immediate and not the default (cooperative): the cooperative one
-    // paints the canvas in tiles and an icon that falls on the border of
-    // a tile comes out cut in half.
-    renderStrategy: Canvas.Immediate
+    // Canvas.Image (the default): the icon is rasterised ONCE into a
+    // texture and only repainted when the kind/colour/size change.
+    // Canvas.Immediate paints it again on EVERY frame, which kept the
+    // whole window rendering non stop (60 fps even idle, ~5 % CPU for
+    // nothing) and left less CPU for the rest of the interface.
+    renderStrategy: Canvas.Image
 
     property string kind: "home"
     property color color: "#ffffff"
@@ -227,6 +229,20 @@ Canvas {
             ctx.lineTo(X(3.6), Y(15))
             ctx.lineTo(X(14.4), Y(15))
             ctx.lineTo(X(14.4), Y(13.4))
+            ctx.stroke()
+            break
+        case "note":
+            // Eighth note: local files with no cover of their own.
+            ctx.beginPath()
+            ctx.ellipse(X(5.4), Y(13.2), 2.5 * u, 1.9 * u, -0.35, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.beginPath()
+            ctx.moveTo(X(7.9), Y(13.2))
+            ctx.lineTo(X(7.9), Y(5))
+            ctx.stroke()
+            ctx.beginPath()
+            ctx.moveTo(X(7.9), Y(5))
+            ctx.quadraticCurveTo(X(12.6), Y(5.6), X(12.6), Y(8.4))
             ctx.stroke()
             break
         case "pause":

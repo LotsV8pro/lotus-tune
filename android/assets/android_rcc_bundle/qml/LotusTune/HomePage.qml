@@ -101,25 +101,9 @@ Item {
     }
 
     function quickPicks() {
-        const out = []
-        if (Theme.touch) {
-            // Phone grid: the playlists are the first part (they are what
-            // gets opened) and then the loose tracks.
-            const lists = page.recentLists(5)
-            for (var j = 0; j < lists.length; j++)
-                out.push(lists[j])
-            const tracks = page.recentTracks()
-            for (var i = 0; i < tracks.length; i++)
-                out.push(tracks[i])
-        } else {
-            const tracks = page.recentTracks()
-            for (var i = 0; i < tracks.length; i++)
-                out.push(tracks[i])
-            const lists = page.recentLists(5)
-            for (var j = 0; j < lists.length; j++)
-                out.push(lists[j])
-        }
-        return out
+        // Only lists (playlists / albums / "me gusta"): a quick access
+        // opens something to listen to, it is not a single song.
+        return page.recentLists(10)
     }
 
     // Same trick as with the recommended ones: the model of the
@@ -306,7 +290,8 @@ Item {
             seen[artist] = true
             out.push({ kind: "radio", title: "Radio de " + artist,
                        sub: t.title || "Tus favoritos", icon: "radio",
-                       trackId: page.videoId(t.url), thumb: t.thumb || "" })
+                       trackId: page.videoId(t.url), thumb: t.thumb || "",
+                       artist: artist })
         }
         const rec = catalog.recent
         for (var j = 0; j < rec.length && out.length < 10; j++) {
@@ -317,7 +302,21 @@ Item {
             seen[artist] = true
             out.push({ kind: "radio", title: "Radio de " + artist,
                        sub: t.title || "Mix de YouTube", icon: "radio",
-                       trackId: page.videoId(t.url), thumb: t.thumb || "" })
+                       trackId: page.videoId(t.url), thumb: t.thumb || "",
+                       artist: artist })
+        }
+        // The face of the radio is the artist, like on YouTube Music (not
+        // the cover of its first track). The photo is looked up in the
+        // background the first time and cached from then on.
+        for (var k = 0; k < out.length; k++) {
+            const d = out[k]
+            if (d.kind !== "radio" || !d.artist)
+                continue
+            const face = catalog.artistThumb(d.artist)
+            if (face)
+                d.thumb = face
+            else
+                catalog.ensureArtistThumb(d.artist)
         }
         return out
     }
@@ -421,6 +420,11 @@ Item {
     Connections {
         target: catalog
         function onLibraryChanged() { if (page.visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() } }
+        // An artist photo arrived: the card of their radio takes it.
+        function onArtistThumbReady(name, thumb) {
+            if (page.visible && thumb)
+                refreshRecCards()
+        }
     }
 
     // ---- YouTube radios (mood / genre) ------------------------------------
@@ -905,8 +909,8 @@ Item {
                         subtitle: modelData.sub
                         icon: modelData.icon
                         badge: modelData.kind === "liked" ? "YT" : "RADIO"
-                        // The radio plays over a seed track: its cover
-                        // (in a big thumbnail) is the one presides over the card.
+                        // A radio shows the photo of its artist (its face on
+                        // YouTube Music), not the cover of the first track.
                         thumb: modelData.thumb
                                || (modelData.trackId
                                    ? "https://i.ytimg.com/vi/" + modelData.trackId

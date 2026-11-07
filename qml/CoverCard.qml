@@ -14,7 +14,14 @@ Item {
     // Icon drawn when there is no cover: music, disc, radio, list...
     property string glyph: "music"
 
+    // Hover actions (play / download) for the album and single cards. On
+    // touch there is no hover: they are always visible there.
+    property bool showActions: false
+    property bool downloaded: false
+
     signal clicked()
+    signal playClicked()
+    signal downloadClicked()
 
     readonly property bool hovered: hover.hovered
 
@@ -58,6 +65,75 @@ Item {
             visible: card.thumb === ""
             kind: card.glyph
             color: Theme.tDim(Sys.bg, Sys.text)
+        }
+    }
+
+    // ---- actions (on hover; always on touch) ---------------------------
+    // Play: it plays the album right away, without opening its list.
+    // Small and tucked in the bottom right corner (Spotify style): it does
+    // not cover the artwork and it does not fight the download arrow of
+    // the top right corner.
+    Rectangle {
+        id: playBtn
+        z: 2
+        anchors.right: coverBox.right
+        anchors.bottom: coverBox.bottom
+        anchors.rightMargin: Theme.s1
+        anchors.bottomMargin: Theme.s1
+        width: Theme.touch ? 32 : 34
+        height: width
+        radius: width / 2
+        visible: card.showActions && (hover.hovered || Theme.touch)
+        color: playMa.containsMouse ? Qt.darker(Sys.accent, 1.10) : Sys.accent
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Glyph {
+            anchors.centerIn: parent
+            width: Math.round(playBtn.width * 0.42)
+            height: width
+            kind: "play"
+            color: Sys.bg
+        }
+        MouseArea {
+            id: playMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                card.playClicked()
+            }
+        }
+    }
+
+    // Download the whole album (one folder = one record).
+    Rectangle {
+        z: 2
+        anchors.right: coverBox.right
+        anchors.top: coverBox.top
+        anchors.rightMargin: Theme.s1
+        anchors.topMargin: Theme.s1
+        width: 30
+        height: 30
+        radius: 15
+        visible: card.showActions && (hover.hovered || Theme.touch)
+        color: dlMa.containsMouse ? Theme.hover(Sys.bg) : Theme.alpha(Sys.bg, 0.72)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Glyph {
+            anchors.centerIn: parent
+            width: 15
+            height: 15
+            kind: card.downloaded ? "check" : "download"
+            color: card.downloaded ? Sys.accent : Sys.text
+        }
+        MouseArea {
+            id: dlMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                card.downloadClicked()
+            }
         }
     }
 

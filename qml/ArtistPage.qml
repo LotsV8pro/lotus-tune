@@ -35,6 +35,13 @@ Item {
     // discography arrives newest first, so the app reverses it when asked.
     signal playAllRequested(bool random, bool oldestFirst)
     signal albumPlayRequested(var album)
+    // Click on the cover of a record: it OPENS its track list (it does not
+    // start playing). The play button of the card is the one that sounds.
+    signal albumOpenRequested(var album)
+    // Download one album / single (a whole record) or the complete
+    // discography of the artist.
+    signal albumDownloadRequested(var album)
+    signal discographyDownloadRequested()
     // A song of the "Canciones" section: `list` is the whole section so the
     // rest keeps playing after it.
     signal songPlayRequested(var list, int index)
@@ -75,6 +82,19 @@ Item {
     readonly property int cardW: Theme.touch ? 108 : 128
     readonly property int railH: cardW + Theme.cardLineH(Theme.tMd)
                                   + Theme.cardLineH(Theme.tSm) + Theme.s1
+
+    // Is this record already in the Downloads library? (the download
+    // button shows a check instead of the arrow).
+    function isDownloaded(album) {
+        if (typeof downloads === "undefined" || !album)
+            return false
+        const seg = downloads.listFolderName(String(album.title || ""))
+        const fs = downloads.folders || []
+        for (var i = 0; i < fs.length; i++)
+            if (String(fs[i].folder || "") === seg)
+                return true
+        return false
+    }
 
     // Swallows the clicks: nothing behind (content, bar) should react.
     MouseArea {
@@ -285,6 +305,57 @@ Item {
                     }
                 }
 
+                // Download the whole discography (one folder per record).
+                // It is asked album by album in the background; when
+                // everything is queued the toast says how many records.
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s2
+
+                    Rectangle {
+                        Layout.alignment: Qt.AlignVCenter
+                        width: discLabel.implicitWidth + Theme.pillHPad * 2 + 22
+                        height: Theme.pillH
+                        radius: Theme.rPill
+                        color: discMa.containsMouse
+                               ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
+                        border.width: 1
+                        border.color: Theme.alpha(Sys.text, 0.18)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s1
+                            Glyph {
+                                width: 13
+                                height: 13
+                                kind: "download"
+                                color: page.busy ? Theme.alpha(Sys.text, 0.4)
+                                                 : Sys.accent
+                            }
+                            Text {
+                                id: discLabel
+                                text: "Descargar discografía"
+                                color: page.busy ? Theme.tDim(Sys.bg, Sys.text)
+                                                 : Sys.text
+                                font.pixelSize: Theme.tSm
+                            }
+                        }
+                        MouseArea {
+                            id: discMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: !page.busy
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.discographyDownloadRequested()
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
                 // Release order of "Reproducir todo": newest first (what a
                 // discography usually wants) or oldest first.
                 Rectangle {
@@ -421,6 +492,38 @@ Item {
                 onClicked: {
                     if (typeof sfx !== "undefined") sfx.play("tap")
                     page.oldestFirst = !page.oldestFirst
+                }
+            }
+        }
+
+        // Phone: download the whole discography (its own row: there is no
+        // room next to the other buttons).
+        Rectangle {
+            visible: Theme.touch
+            Layout.fillWidth: true
+            Layout.preferredHeight: 42
+            radius: Theme.rPill
+            color: discPhoneMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text)
+                                             : "transparent"
+            border.width: 1
+            border.color: Theme.alpha(Sys.text, 0.28)
+            RowLayout {
+                anchors.centerIn: parent
+                spacing: Theme.s2
+                Glyph { width: 15; height: 15; kind: "download"; color: Sys.accent }
+                Text {
+                    text: "Descargar discografía"
+                    color: Sys.text
+                    font.pixelSize: Theme.tMd
+                }
+            }
+            MouseArea {
+                id: discPhoneMa
+                anchors.fill: parent
+                enabled: !page.busy
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    page.discographyDownloadRequested()
                 }
             }
         }
@@ -588,7 +691,11 @@ Item {
                             subtitle: String(modelData.subtitle || "")
                             thumb: String(modelData.thumb || "")
                             glyph: "disc"
-                            onClicked: page.albumPlayRequested(modelData)
+                            showActions: true
+                            downloaded: page.isDownloaded(modelData)
+                            onClicked: page.albumOpenRequested(modelData)
+                            onPlayClicked: page.albumPlayRequested(modelData)
+                            onDownloadClicked: page.albumDownloadRequested(modelData)
                         }
                     }
                 }
@@ -627,7 +734,11 @@ Item {
                             subtitle: String(modelData.subtitle || "")
                             thumb: String(modelData.thumb || "")
                             glyph: "disc"
-                            onClicked: page.albumPlayRequested(modelData)
+                            showActions: true
+                            downloaded: page.isDownloaded(modelData)
+                            onClicked: page.albumOpenRequested(modelData)
+                            onPlayClicked: page.albumPlayRequested(modelData)
+                            onDownloadClicked: page.albumDownloadRequested(modelData)
                         }
                     }
                 }

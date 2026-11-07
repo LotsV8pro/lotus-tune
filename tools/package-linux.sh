@@ -12,6 +12,13 @@ BUILD="${1:-$ROOT/build}"
 DIST="$ROOT/dist"
 NAME="lotus-tune"
 VERSION="$(sed -n 's/.*project(lotus-tune\s*\(.*\)\s*VERSION \([0-9.]*\).*/\2/p' "$ROOT/CMakeLists.txt" | head -1)"
+# `project()` is written multi-line (VERSION on its own line): the one-line
+# pattern above does not match it, and everything was packaged as 1.0.0.
+if [ -z "$VERSION" ]; then
+    VERSION="$(grep -A4 'project(lotus-tune' "$ROOT/CMakeLists.txt" \
+        | sed -n 's/^[[:space:]]*VERSION[[:space:]]*\([0-9][0-9.]*\).*/\1/p' \
+        | head -1)"
+fi
 [ -n "$VERSION" ] || VERSION="1.0.0"
 
 if [ ! -x "$BUILD/lotus-tune" ]; then

@@ -33,6 +33,11 @@ Item {
     property real coverSize: 220
     // Escritorio: todo alineado a la izquierda. Movil: centrado.
     property bool centered: false
+    // Tinta legible sobre el lavado del cinema: el cinema la calcula con el
+    // color medio de la portada (caratula clara -> texto oscuro). Los
+    // valores por defecto son la paleta normal, para quien no las pase.
+    property color ink: Sys.text
+    property color inkDim: Theme.tDim(Sys.bg, Sys.text)
 
     signal toggleRequested()
     signal nextRequested()
@@ -107,7 +112,7 @@ Item {
                 Layout.fillWidth: false
                 Layout.preferredWidth: Math.min(implicitWidth, Math.max(40, cl.width - 32))
                 text: cl.title.length ? cl.title : "—"
-                color: Sys.text
+                color: cl.ink
                 font.pixelSize: Theme.t2xl
                 font.weight: Font.Bold
                 horizontalAlignment: cl.centered ? Text.AlignHCenter : Text.AlignLeft
@@ -124,7 +129,7 @@ Item {
                     width: 19; height: 19
                     kind: cl.liked ? "heart" : "heart-outline"
                     color: cl.liked ? Theme.accentOn(Sys.accent, Sys.bg)
-                                    : Theme.tDim(Sys.bg, Sys.text)
+                                    : cl.inkDim
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
                 MouseArea {
@@ -145,7 +150,7 @@ Item {
             id: clArtist
             Layout.fillWidth: true
             text: cl.artist.length ? cl.artist : "—"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: cl.inkDim
             font.pixelSize: Theme.tBase
             font.underline: clArtistHover.hovered
             horizontalAlignment: cl.centered ? Text.AlignHCenter : Text.AlignLeft
@@ -184,7 +189,7 @@ Item {
                 width: parent.width
                 height: 4
                 radius: Theme.rMd
-                color: Theme.alpha(Sys.text, 0.18)
+                color: Theme.alpha(cl.ink, 0.18)
             }
             Rectangle {
                 anchors.verticalCenter: parent.verticalCenter
@@ -227,13 +232,13 @@ Item {
             Layout.fillWidth: true
             Text {
                 text: Theme.mmss(seekRow.scrub >= 0 ? seekRow.scrub : cl.position)
-                color: Theme.tFaint(Sys.bg, Sys.text)
+                color: Theme.alpha(cl.ink, 0.60)
                 font.pixelSize: Theme.tXs
             }
             Item { Layout.fillWidth: true }
             Text {
                 text: Theme.mmss(cl.duration)
-                color: Theme.tFaint(Sys.bg, Sys.text)
+                color: Theme.alpha(cl.ink, 0.60)
                 font.pixelSize: Theme.tXs
             }
         }
@@ -263,7 +268,7 @@ Item {
                     width: 19; height: 19
                     kind: "shuffle"
                     color: cl.shuffleOn ? Theme.accentOn(Sys.accent, Sys.bg)
-                                        : Theme.tDim(Sys.bg, Sys.text)
+                                        : cl.inkDim
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
                 MouseArea {
@@ -284,7 +289,7 @@ Item {
                     anchors.centerIn: parent
                     width: 24; height: 24
                     kind: "prev"
-                    color: Sys.text
+                    color: cl.ink
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -328,7 +333,7 @@ Item {
                     anchors.centerIn: parent
                     width: 24; height: 24
                     kind: "next"
-                    color: Sys.text
+                    color: cl.ink
                 }
                 MouseArea {
                     anchors.fill: parent
@@ -360,7 +365,7 @@ Item {
                     width: 19; height: 19
                     kind: "repeat"
                     color: cl.repeatVal > 0 ? Theme.accentOn(Sys.accent, Sys.bg)
-                                            : Theme.tDim(Sys.bg, Sys.text)
+                                            : cl.inkDim
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
                 Rectangle {
@@ -408,7 +413,7 @@ Item {
                     width: 16; height: 16
                     kind: cl.volume > 0 ? "volume" : "volume-x"
                     weight: 1.6
-                    color: Theme.tDim(Sys.bg, Sys.text)
+                    color: cl.inkDim
                 }
 
                 Rectangle {

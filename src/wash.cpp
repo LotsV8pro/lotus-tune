@@ -97,6 +97,31 @@ Wash::Wash(QObject *parent)
 {
 }
 
+// ---------------------------------------------------------------------------
+// Average colour of the veil. It is sampled (every few pixels): the image is
+// a 480 px blur already, so a coarse grid gives exactly the tone the eye
+// sees behind the text.
+// ---------------------------------------------------------------------------
+static QColor averageColor(const QImage &img)
+{
+    if (img.isNull())
+        return QColor();
+    const int step = qMax(1, img.width() / 32);
+    qint64 r = 0, g = 0, b = 0, n = 0;
+    for (int y = 0; y < img.height(); y += step) {
+        for (int x = 0; x < img.width(); x += step) {
+            const QRgb p = img.pixel(x, y);
+            r += qRed(p);
+            g += qGreen(p);
+            b += qBlue(p);
+            ++n;
+        }
+    }
+    if (n == 0)
+        return QColor();
+    return QColor(int(r / n), int(g / n), int(b / n));
+}
+
 void Wash::setSource(const QUrl &url)
 {
     if (url.isEmpty() || url == m_wanted)
@@ -135,6 +160,7 @@ void Wash::setSource(const QUrl &url)
         if (blurred.isNull())
             return;
         m_image = blurred;
+        m_average = averageColor(blurred);
         ++m_serial;
         emit changed();
     });

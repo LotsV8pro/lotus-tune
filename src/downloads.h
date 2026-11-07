@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QFileSystemWatcher>
+#include <QHash>
 #include <QObject>
 #include <QProcess>
 #include <QSet>
@@ -21,10 +22,10 @@ class Player;
 // local library.
 //
 // Audio only and without re-encoding: the best already compressed audio
-// track is chosen (m4a/opus) and the video, the embedded thumbnail and
-// `.info.json` are dropped, so each download takes the least possible
-// space. It is resumable (`--continue`) and does not download again what
-// is already there.
+// track is chosen (m4a/opus, preferring the compact Opus variant) and the
+// video, the embedded thumbnail and `.info.json` are dropped, so each
+// download takes the least possible space. It is resumable (`--continue`)
+// and does not download again what is already there.
 //
 // Job map:   { name, url, playlist, folder, progress (0..100), state:
 //              "queued|downloading|done|error", error }
@@ -150,8 +151,21 @@ private:
      // subfolders discovered in the last scan (auto sync when files
      // change).
     void updateWatchDirs();
-    QVariantMap makeLocalTrack(const QString &path) const;
+    QVariantMap makeLocalTrack(const QString &path,
+                               const QVariantMap &meta) const;
     QString artistForPath(const QString &dir) const;
+
+    // ---- metadata of the downloaded lists -------------------------------
+    // The files only carry the audio: the title/artist/duration/cover of
+    // every track is taken from the list itself (one yt-dlp call for the
+    // whole list) and cached in `<list>/.lotus-meta.json`. That way the
+    // library shows the real data - and the same as on Android - without
+    // extra files per track and without touching the audio.
+    static QVariantMap readFolderMeta(const QString &dir);
+    static void writeFolderMeta(const QString &dir, const QVariantMap &map);
+    void queueFolderMeta();
+    void startNextFolderMeta();
+    void finishFolderMeta(int code);
 
     // Sweep, on startup, of orphan leftovers older than `ageSecs`.
     void sweepOrphans(qint64 ageSecs);
@@ -220,6 +234,16 @@ private:
     QVariantList m_scanItems;
     QTimer m_scanTimer;
     QSet<QString> m_scanDirs;      // folders seen in the scan in progress
+
+    // Per-folder metadata (index -> {title, artist, duration, thumb}),
+    // loaded once per scan, and the queue of folders still to fetch.
+    QHash<QString, QVariantMap> m_folderMeta;
+    QSet<QString> m_metaLoaded;    // folders whose cache was read this scan
+    QSet<QString> m_metaTried;     // folders already requested this session
+    QStringList m_metaQueue;
+    QProcess m_metaProc;
+    QString m_metaFolder;          // folder being fetched right now
+    bool m_metaWrote = false;      // something was cached: rescan at the end
 
     // Auto sync: it watches the downloads folder (and its subfolders) and
      // rescans with a small debounce when something changes on disk.

@@ -95,6 +95,10 @@ Window {
     // own block, under "MUSIC". `launcherQ` is the query in flight.
     property var launcherMusic: []
     property string launcherQ: ""
+    // A search is on its way (typing, waiting for the catalogue to be free
+    // or the sources answering): the launcher shows "Buscando…" instead of
+    // "Sin resultados".
+    property bool launcherSearching: false
     property bool followSys: true
     property var launcherRows: []
 
@@ -559,7 +563,9 @@ Window {
         launcherOpen = false
         launcherMusic = []
         launcherQ = ""
+        launcherSearching = false
         launcherSearch.stop()
+        launcherRetry.stop()
         if (launchInput)
             launchInput.focus = false
     }
@@ -645,7 +651,12 @@ Window {
     function curState() {
         return { p: page,
                  t: (page === "library" ? libPage.showingTracks : false),
-                 f: (page === "library" ? libPage.openDownloadFolder : "") }
+                 f: (page === "library" ? libPage.openDownloadFolder : ""),
+                 // The artist page is an overlay, not a page: without this
+                 // flag, going back from a record opened on the artist page
+                 // landed on the search that was behind it, not on the
+                 // artist.
+                 a: root.artistOpen }
     }
     function applyState(s) {
         if (!s) return
@@ -654,6 +665,8 @@ Window {
             libPage.openDownloadFolder = String(s.f || "")
             libPage.showingTracks = !!s.t
         }
+        if (s.a !== undefined)
+            root.artistOpen = !!s.a
     }
 
     // Navigates to `p` storing the current page in the stack (force: store
@@ -705,6 +718,13 @@ Window {
 
     // Root navigation (side rail / Home): we store where we came from.
     function navTo(p) {
+        // A rail/bottom-nav click leaves whatever overlay was on top: the
+        // artist page, the cinema or the side panel. Without this, pressing
+        // "Inicio" while the artist page was open did nothing: the page
+        // behind was already "home" and the overlay kept covering it.
+        root.artistOpen = false
+        root.fsLyricsOpen = false
+        root.panelOpen = false
         if (p === "library")
             libPage.showPlaylists()
         pushPage(p)
@@ -747,6 +767,11 @@ Window {
             return
         }
         if (page !== "home") {
+            // If we arrived here from inside the app (a record opened on
+            // an artist page, a list), back returns exactly there: the
+            // artist page comes back instead of jumping to Inicio.
+            if (root.navBack())
+                return
             // Leave the library in a clean state so the next visit does
             // not land inside a forgotten list.
             if (page === "library" && libPage.showingTracks)
@@ -826,6 +851,11 @@ Window {
         if (!(page === "library" && libPage.showingTracks))
             pushPage("library", true)   // it stores the page you came from
         libPage.openTracks()
+        // The record was opened from the artist page: the overlay hides
+        // (its state stays in memory) so the list is visible. The pushed
+        // state keeps `artistOpen`, so going back brings the artist back.
+        if (root.artistOpen)
+            root.artistOpen = false
     }
 
     property int preMuteVolume: 70
@@ -963,6 +993,17 @@ Window {
     }
 
     // ---- launcher data ---------------------------------------------------
+    // Enter in the palette: the query goes to the Search page (the full
+    // general search, every source, with filters and artist cards).
+    function launcherSubmit() {
+        const q = String(launchInput ? launchInput.text : "").trim()
+        if (q.length < 2)
+            return
+        closeLauncher()
+        root.navTo("search")
+        searchPage.startSearch(q)
+    }
+
     function launcherActivate(row) {
         if (!row)
             return
@@ -1062,6 +1103,15 @@ Window {
                 out.push({ h: false, kind: "music", i: g.i,
                            t: g.title || "", s: g.artist || "" })
             }
+            // Still waiting for the sources: it says so instead of
+            // pretending there is nothing (the local rows alone made the
+            // launcher look like a "recent" finder).
+            if (q.length >= 3 && root.launcherSearching
+                    && launcherMusic.length === 0) {
+                out.push({ h: true, t: "MÚSICA" })
+                out.push({ h: false, kind: "searching", t: "Buscando…",
+                           s: "YouTube Music, SoundCloud, Spotify y Tidal" })
+            }
         }
         launcherRows = out
     }
@@ -1077,13 +1127,66 @@ Window {
             const q = launchInput.text.trim()
             if (q.length < 3) {
                 root.launcherMusic = []
+                root.launcherSearching = false
+                launcherRetry.stop()
                 return
             }
             root.launcherQ = q
             // All the sources at once: there is no need to pick one
             // before searching (and the launcher does not redirect to
             // Search: it searches right here).
+            //
+            // `searchAll` REJECTS the request while the catalogue is busy
+            // (a list still loading, a prefetch, the previous search): the
+            // launcher ended up showing only the local rows -sources, saved
+            // lists, recent-, i.e. "it only finds what was already played".
+            // Now the query waits instead of being dropped.
+            root.launcherSearching = true
+            launcherGiveUp.restart()
+            if (catalog.busy) {
+                launcherRetry.restart()
+                return
+            }
             catalog.searchAll(q)
+        }
+    }
+
+    // A search that never answers does not leave the launcher saying
+    // "Buscando…" for ever (a dead network, a blocked source).
+    Timer {
+        id: launcherGiveUp
+        interval: 15000
+        onTriggered: {
+            if (!root.launcherSearching)
+                return
+            // Still busy (a long list loading/prefetching): keep waiting,
+            // the query is not lost.
+            if (catalog.busy) {
+                restart()
+                return
+            }
+            root.launcherSearching = false
+            if (launchInput)
+                root.buildLauncher(launchInput.text)
+        }
+    }
+
+    // While the catalogue is busy the search waits here and is fired as
+    // soon as it is free (the launcher is not left empty).
+    Timer {
+        id: launcherRetry
+        interval: 500
+        repeat: true
+        onTriggered: {
+            if (!root.launcherOpen || !root.launcherSearching) {
+                stop()
+                return
+            }
+            if (catalog.busy)
+                return
+            stop()
+            if (root.launcherQ.length >= 3)
+                catalog.searchAll(root.launcherQ)
         }
     }
 
@@ -1129,6 +1232,8 @@ Window {
                                url: songs[i].url, src: String(g.id || "") })
             }
             root.launcherMusic = out
+            root.launcherSearching = false
+            launcherRetry.stop()
             if (launchInput)
                 root.buildLauncher(launchInput.text)
         }
@@ -1686,6 +1791,52 @@ Window {
     // "Play all" / "Shuffle" over the loaded discography. The list arrives
     // newest first; `oldestFirst` reverses it. Shuffle adds everything and
     // then shuffles the queue, so it is the whole artist in random order.
+    // ---- downloading albums / the whole discography ---------------------
+    // Every record has an audio list on YouTube Music (OLAK5uy…) that yt-dlp
+    // can enumerate. It is resolved one album at a time in the background
+    // (Catalog::fetchAlbumPlaylist) and then queued in Downloads.
+    property var albumDlQueue: []
+    property int albumDlTotal: 0
+    property int albumDlDone: 0
+
+    function downloadAlbums(list) {
+        if (typeof downloads === "undefined") {
+            root.toast("Las descargas no están disponibles aquí")
+            return
+        }
+        const clean = []
+        for (var i = 0; i < (list || []).length; i++) {
+            const a = list[i]
+            if (!a || String(a.browseId || "") === "")
+                continue
+            clean.push({ browseId: String(a.browseId),
+                         title: String(a.title || "") })
+        }
+        if (clean.length === 0) {
+            root.toast("No hay discos que descargar")
+            return
+        }
+        root.albumDlQueue = clean
+        root.albumDlTotal = clean.length
+        root.albumDlDone = 0
+        root.toast(clean.length === 1
+                   ? "Preparando «" + clean[0].title + "»…"
+                   : "Preparando " + clean.length + " discos…")
+        root.nextAlbumDownload()
+    }
+
+    function nextAlbumDownload() {
+        if (root.albumDlQueue.length === 0) {
+            if (root.albumDlTotal > 1 && root.albumDlDone > 0)
+                root.toast(root.albumDlDone + " discos en la cola de descargas")
+            root.albumDlTotal = 0
+            root.albumDlDone = 0
+            return
+        }
+        const a = root.albumDlQueue[0]
+        catalog.fetchAlbumPlaylist(a.browseId, a.title)
+    }
+
     function artistPlayAll(albums, random, oldestFirst) {
         let list = (albums || []).slice()
         if (list.length === 0) {
@@ -1712,6 +1863,23 @@ Window {
         root.artistWantBrowse = String(album.browseId)
         root.artistStarted = false
         root.artistAdded = 0
+        catalog.fetchAlbumTracks(root.artistWantBrowse)
+    }
+
+    // Click on the cover of a record (artist page): it OPENS the album's
+    // track list without playing it. It reuses the `album` request the
+    // play button already does (the tracks of the record) and shows them
+    // as the open list, so it works on Android too: the audio-list request
+    // the download uses needs the python helper, which is not there.
+    property string albumOpenName: ""
+
+    function artistOpenAlbum(album) {
+        if (!album || String(album.browseId || "") === "")
+            return
+        root.albumOpenName = String(album.title || "")
+        root.artistWant = "open"
+        root.artistWantBrowse = String(album.browseId)
+        root.beginOpenList(false)
         catalog.fetchAlbumTracks(root.artistWantBrowse)
     }
 
@@ -2459,6 +2627,29 @@ Window {
             if (info.privacy)
                 root.editorPrivate = (String(info.privacy).toUpperCase() === "PRIVATE")
         }
+        // One record of the album download queue is ready: it is handed to
+        // yt-dlp as the album's audio list and the next one is asked for.
+        function onAlbumPlaylistReady(browseId, playlistId, name) {
+            if (root.albumDlQueue.length === 0
+                || String(root.albumDlQueue[0].browseId) !== String(browseId))
+                return
+            if (String(playlistId) !== "" && typeof downloads !== "undefined") {
+                downloads.downloadPlaylist(
+                    "https://music.youtube.com/playlist?list=" + playlistId,
+                    String(name || root.albumDlQueue[0].title || "Álbum"))
+                root.albumDlDone++
+            }
+            root.albumDlQueue.shift()
+            root.nextAlbumDownload()
+        }
+        function onAlbumPlaylistFailed(browseId, name) {
+            if (root.albumDlQueue.length === 0
+                || String(root.albumDlQueue[0].browseId) !== String(browseId))
+                return
+            root.toast("No se pudo preparar «" + String(name || "el disco") + "»")
+            root.albumDlQueue.shift()
+            root.nextAlbumDownload()
+        }
         // Answer to the replacement search of a track whose video died:
         // the queue row is replaced with the new video and that same row
         // is played. The user's queue is fixed in place (their local
@@ -2637,9 +2828,27 @@ Window {
                     root.artistWant = ""
                     root.artistWantBrowse = ""
                     root.toast("Ese álbum no trae pistas reproducibles")
+                } else if (root.artistWant === "open") {
+                    root.artistWant = ""
+                    root.artistWantBrowse = ""
+                    root.albumOpenName = ""
+                    root.listLoading = false
+                    root.pendingPlay = false
+                    root.toast("Ese álbum no trae pistas")
                 } else {
                     root.artistAdvance()
                 }
+                return
+            }
+            if (root.artistWant === "open") {
+                // Cover of a record: the list is painted, nothing sounds.
+                // `showTracks` emits tracksReady and the usual handler
+                // opens the view (pendingPlay is false).
+                const openName = root.albumOpenName
+                root.albumOpenName = ""
+                root.artistWant = ""
+                root.artistWantBrowse = ""
+                catalog.showTracks(tracks, openName)
                 return
             }
             if (!root.artistStarted) {
@@ -2849,6 +3058,21 @@ Window {
                                 // view).
                                 root.pushPage("library", true)
                                 libPage.openDownloadPlaylist(folder)
+                            }
+                            // Play everything downloaded: the order the files
+                            // arrived in (or the newest first) or shuffled.
+                            onDownloadsPlayRequested: (random, newestFirst) => {
+                                const list = (libPage.dlLocalAll || []).slice()
+                                if (list.length === 0) {
+                                    root.toast("No hay descargas que reproducir")
+                                    return
+                                }
+                                if (newestFirst)
+                                    list.reverse()
+                                if (random)
+                                    root.shuffleTracks(list)
+                                else
+                                    root.playTracks(list, 0)
                             }
                         }
                     }
@@ -4881,11 +5105,27 @@ Window {
                             font.pixelSize: Theme.tBase
                             clip: true
                             text: ""
-                            onTextChanged: { root.buildLauncher(text); launcherSearch.restart() }
+                            onTextChanged: {
+                                // Results of the previous query are not
+                                // kept on screen: they made the launcher
+                                // look like it only found what had already
+                                // been played.
+                                if (String(catalog.resultsQuery || "")
+                                        !== String(text).trim()) {
+                                    root.launcherMusic = []
+                                    root.launcherSearching =
+                                        String(text).trim().length >= 3
+                                }
+                                root.buildLauncher(text)
+                                launcherSearch.restart()
+                            }
                             Keys.onEscapePressed: root.closeLauncher()
+                            // Enter: the full search (Search page).
+                            Keys.onReturnPressed: root.launcherSubmit()
+                            Keys.onEnterPressed: root.launcherSubmit()
                         }
                         Text {
-                            text: "Esc"
+                            text: "↵ busca · Esc"
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.bold: true
@@ -4911,6 +5151,7 @@ Window {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.s2
                             visible: root.launcherRows.length === 0
+                                     && !root.launcherSearching
                             text: "Sin resultados"
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
@@ -5024,6 +5265,12 @@ Window {
         onPlayAllRequested: (random, oldestFirst) =>
             root.artistPlayAll(root.artistAlbums, random, oldestFirst)
         onAlbumPlayRequested: (album) => root.artistPlayAlbum(album)
+        // Cover of a record: it opens its track list, it does not play.
+        onAlbumOpenRequested: (album) => root.artistOpenAlbum(album)
+        // Download the record (hover button of the card) or the whole
+        // discography (its button in the header).
+        onAlbumDownloadRequested: (album) => root.downloadAlbums([album])
+        onDiscographyDownloadRequested: () => root.downloadAlbums(root.artistAlbums)
         // Top songs: that one plays and the rest of the section follows.
         onSongPlayRequested: (list, index) => root.playTracks(list, index)
         // "Radio de <artist>": the existing artist radio (top track + radio).

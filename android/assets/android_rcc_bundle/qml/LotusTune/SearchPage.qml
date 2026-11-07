@@ -33,17 +33,11 @@ Item {
     readonly property var flatResults: {
         const out = []
         let ti = 0
-        // The artists first ("ARTISTS" section): there are few of them and
-        // that is what people look for when typing an artist name.
-        if (!page.artistMode && page.artistResults && page.artistResults.length > 0) {
-            out.push({ secHead: true, sec: "Artistas", note: "" })
-            for (let a = 0; a < page.artistResults.length && a < 3; a++) {
-                const ar = page.artistResults[a]
-                out.push({ secHead: false, kind: "artist", map: ar,
-                           title: ar.name || "", artist: ar.subtitle || "",
-                           thumb: ar.thumb || "", url: "" })
-            }
-        }
+        // The artists rail travels as the first row (not as the ListView
+        // header: on Android the header kept its height but the rows were
+        // laid out over it, so the cards never showed).
+        if (!page.artistMode && page.artistResults.length > 0)
+            out.push({ secHead: true, sec: "", note: "", artistsRail: true })
         const groups = catalog.resultsBySource
         for (let i = 0; i < groups.length; i++) {
             const g = groups[i]
@@ -124,6 +118,10 @@ Item {
     property int retryCount: 0
     property string lastQuery: ""       // last query sent (it avoids repeating it)
     property string pendingQuery: ""    // query waiting for the backend to be free
+    // True only for the search that comes from Enter / a chip / "search the
+    // artist": that one queries every source. The predictive one (typing
+    // pause) only asks the fast source, like the phone does.
+    property bool explicitSearch: false
 
     // Only place that calls catalog.search()/searchArtists(): centralising
     // the busy check here avoids the "operation in progress" error. If the
@@ -157,8 +155,10 @@ Item {
         pendingQuery = ""
         page.lastQuery = q
         results.positionViewAtBeginning()   // every new search starts at the top
-        // All the sources at once: there is no need to pick one before searching.
-        catalog.searchAll(q)
+        // While typing only the fast source answers; Enter queries them
+        // all (see runSearch).
+        catalog.searchAll(q, page.explicitSearch)
+        page.explicitSearch = false
         // And in parallel the artists (they run in their own backend process):
         // they show up as a section at the top of the list, without having to
         // change the mode.
@@ -174,6 +174,7 @@ Item {
             return
         page.lastQuery = ""       // Enter relaunches it even if it repeats the query
         pushHistory(q)
+        page.explicitSearch = true
         dispatchSearch(q)
     }
 
@@ -220,6 +221,13 @@ Item {
             if (page.artistMode)
                 artistList.positionViewAtBeginning()
         }
+    }
+
+    // Ctrl+K (advertised in Home): jumps to Search with the field focused
+    // and ready to type, without clearing what was already there.
+    function focusField() {
+        input.forceActiveFocus()
+        input.selectAll()
     }
 
     // External API (History chips in Home): it fills the field and searches.
@@ -477,6 +485,7 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     reuseItems: true
                     cacheBuffer: 600
+
                 // When new results arrive, it cooks the first tracks: a
                 // click on the list header sounds right away. It cooks
                 // a few of them (not only the first) because, without
@@ -497,13 +506,19 @@ Item {
                     required property int index
                     required property var modelData
 
+                    // Artist rows have no track buttons.
+                    readonly property bool isArtist: rrow.modelData.kind === "artist"
+                    // First row: the artists of the search, as cover cards.
+                    readonly property bool isRail: rrow.modelData.artistsRail === true
+
                     width: ListView.view.width
                     // The source headers are a short row; the tracks,
-                    // a normal row.
-                    height: rrow.modelData.secHead ? 30 : Theme.rowH
-                    radius: Theme.rLg
+                    // a normal row (the same as the playlist rows).
+                    height: isRail ? railCol.implicitHeight
+                                   : (rrow.modelData.secHead ? 30 : Theme.rowH)
+                    radius: Theme.rMd
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
-                           ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
+                           ? Theme.hover(Sys.bg) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     // ---- source header (YT, SoundCloud, …) --------------------
@@ -609,6 +624,7 @@ Item {
                                              page.enqueueRequested(rrow.modelData)
                     }
 
+                    // ---- track row: same layout as the playlist view --------
                     RowLayout {
                         visible: !rrow.modelData.secHead
                         anchors.fill: parent
@@ -617,169 +633,189 @@ Item {
                         spacing: Theme.s3
                         transform: Translate { x: rrow.dx }
 
+                        // Thumbnail: the search is a "browse" view, so the
+                        // cover helps to recognise the track at a glance.
                         Rectangle {
-                            Layout.preferredWidth: 34
-                            Layout.preferredHeight: 34
                             Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 40
+                            Layout.preferredHeight: 40
                             radius: Theme.rMd
+                            color: Theme.sAlt(Sys.bg, Sys.text)
                             clip: true
-                            color: Sys.surface
-
                             RoundedArt {
                                 anchors.fill: parent
                                 source: rrow.modelData.thumb || ""
-                                visible: String(rrow.modelData.thumb || "") !== ""
                                 radiusSpec: Theme.rMd
                             }
                             Glyph {
                                 anchors.centerIn: parent
-                                width: 15
-                                height: 15
-                                visible: !rrow.modelData.thumb
-                                kind: rrowMouse.containsMouse ? "play" : "music"
-                                color: rrowMouse.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                                width: 16
+                                height: 16
+                                visible: String(rrow.modelData.thumb || "") === ""
+                                kind: "music"
+                                color: Theme.tDim(Sys.bg, Sys.text)
                             }
                         }
 
                         ColumnLayout {
                             Layout.fillWidth: true
-                            spacing: 0
-                            RowLayout {
+                            spacing: 1
+                            Text {
                                 Layout.fillWidth: true
-                                spacing: Theme.s1
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: rrow.modelData.title || ""
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tBase
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                                LikeButton {
-                                    id: rrowLike
-                                    interactive: catalog.loginState === "ok"
-                                                 && catalog.videoIdOf(
-                                                        rrow.modelData.url) !== ""
-                                    revealed: rrowMouse.containsMouse
-                                    liked: {
-                                        const rev = catalog.likedRevision
-                                        if (!rrow.modelData)
-                                            return false
-                                        if (catalog.likedReady)
-                                            return catalog.isLiked(rrow.modelData.url)
-                                        return rrow.modelData.liked === true
-                                    }
-                                    onToggled: {
-                                        if (rrow.modelData)
-                                            catalog.toggleLiked(rrow.modelData.url,
-                                                                rrowLike.liked)
-                                    }
-                                }
+                                text: rrow.modelData.title || ""
+                                color: Sys.text
+                                font.pixelSize: Theme.tLg
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
                             }
                             Text {
                                 Layout.fillWidth: true
                                 text: rrow.modelData.artist || ""
                                 color: Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.tMd
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
                             }
                         }
 
+                        // Heart: the same button as in the playlist rows.
+                        LikeButton {
+                            id: rrowLike
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: !rrow.isArtist
+                            interactive: catalog.loginState === "ok"
+                                         && catalog.videoIdOf(
+                                                rrow.modelData.url) !== ""
+                            revealed: rrowMouse.containsMouse
+                            liked: {
+                                const rev = catalog.likedRevision
+                                if (!rrow.modelData)
+                                    return false
+                                if (catalog.likedReady)
+                                    return catalog.isLiked(rrow.modelData.url)
+                                return rrow.modelData.liked === true
+                            }
+                            onToggled: {
+                                if (rrow.modelData)
+                                    catalog.toggleLiked(rrow.modelData.url,
+                                                        rrowLike.liked)
+                            }
+                        }
+
                         Text {
                             Layout.alignment: Qt.AlignVCenter
+                            visible: !rrow.isArtist
                             text: Theme.mmss(rrow.modelData.duration)
                             color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tSm
+                            font.pixelSize: Theme.tMd
                         }
+
+                        // Track menu (⋮): the same as in the playlist rows.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 26
+                            Layout.preferredHeight: 26
+                            visible: !rrow.isArtist
+                            radius: Theme.rXl
+                            color: rrowMoreMa.containsMouse ? Theme.hover(Sys.bg)
+                                                            : "transparent"
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 15; height: 15
+                                kind: "ellipsis"
+                                color: rrowMoreMa.containsMouse
+                                       ? Theme.accentOn(Sys.accent, Sys.bg)
+                                       : Theme.tDim(Sys.bg, Sys.text)
+                            }
+                            MouseArea {
+                                id: rrowMoreMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: (mouse) => {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const p = rrowMoreMa.mapToItem(null, mouse.x, mouse.y)
+                                    page.trackContextRequested(rrow.modelData, p.x, p.y)
+                                }
+                            }
+                        }
+                    }
+
+                    // ---- artists rail (first row of the list) -----------
+                    // Cover cards: tap opens the artist page.
+                    Column {
+                        id: railCol
+                        visible: rrow.isRail
+                        width: parent.width
+                        spacing: Theme.s2
+                        z: 2
+
+                        Text {
+                            width: parent.width
+                            leftPadding: Theme.s1
+                            topPadding: Theme.s1
+                            text: "ARTISTAS"
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tXs
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 1.4
+                            opacity: 0.85
+                        }
+                        ListView {
+                            id: artistRail
+                            width: parent.width
+                            height: artistRail.cardW + Theme.cardLineH(Theme.tMd)
+                                    + Theme.cardLineH(Theme.tSm) + Theme.s1
+                            orientation: ListView.Horizontal
+                            spacing: Theme.s3
+                            clip: true
+                            interactive: false
+                            model: page.artistResults
+                            boundsBehavior: Flickable.StopAtBounds
+                            readonly property int cardW: Theme.touch ? 112 : 132
+
+                            delegate: CoverCard {
+                                required property var modelData
+                                width: artistRail.cardW
+                                height: artistRail.height
+                                name: modelData.name || ""
+                                subtitle: modelData.subtitle || ""
+                                thumb: modelData.thumb || ""
+                                onClicked: page.artistRequested(modelData)
+                            }
+                        }
+                        Item { width: 1; height: Theme.s2 }
                     }
                 }
                 }
 
-                // ---- artists (artists mode) ----------------------------------
-                ListView {
-                    id: artistList
+                // ---- artists (artists mode): cards in a grid ----------------
+                GridView {
+                    id: artistGrid
                     anchors.fill: parent
                     anchors.margins: Theme.s2
                     visible: page.artistMode
                     clip: true
                     model: page.artistResults
-                    spacing: Theme.s1
                     boundsBehavior: Flickable.StopAtBounds
+                    // GridView has no "spacing": the air is the gap left
+                    // between the cell and the card.
+                    readonly property int gap: Theme.s3
+                    readonly property int cols: Theme.touch ? 3
+                                               : Math.max(3, Math.floor(width / 168))
+                    cellWidth: Math.floor(width / cols)
+                    cellHeight: cellWidth + Theme.cardLineH(Theme.tMd)
+                                + Theme.cardLineH(Theme.tSm) + Theme.s1
 
-                    delegate: Rectangle {
-                        id: arow
-                        required property int index
+                    delegate: CoverCard {
                         required property var modelData
-
-                        width: ListView.view.width
-                        height: 64
-                        radius: Theme.rLg
-                        color: arowMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                        MouseArea {
-                            id: arowMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (typeof sfx !== "undefined") sfx.play("tap")
-                                page.artistRequested(arow.modelData)
-                            }
-                        }
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Theme.s3
-                            anchors.rightMargin: Theme.s3
-                            spacing: Theme.s3
-
-                            Rectangle {
-                                Layout.preferredWidth: 44
-                                Layout.preferredHeight: 44
-                                Layout.alignment: Qt.AlignVCenter
-                                radius: 22
-                                clip: true
-                                color: Sys.surface
-                                RoundedArt {
-                                    anchors.fill: parent
-                                    source: arow.modelData.thumb || ""
-                                    visible: String(arow.modelData.thumb || "") !== ""
-                                    radiusSpec: 22
-                                }
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    width: 18
-                                    height: 18
-                                    visible: !arow.modelData.thumb
-                                    kind: "music"
-                                    color: Theme.tDim(Sys.bg, Sys.text)
-                                }
-                            }
-
-                            ColumnLayout {
-                                Layout.fillWidth: true
-                                spacing: 0
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: arow.modelData.name || ""
-                                    color: Sys.text
-                                    font.pixelSize: Theme.tBase
-                                    font.weight: Font.DemiBold
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: arow.modelData.subtitle || ""
-                                    color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
-                                    elide: Text.ElideRight
-                                    maximumLineCount: 1
-                                }
-                            }
-                        }
+                        width: artistGrid.cellWidth - artistGrid.gap
+                        height: artistGrid.cellHeight - artistGrid.gap
+                        name: modelData.name || ""
+                        subtitle: modelData.subtitle || ""
+                        thumb: modelData.thumb || ""
+                        onClicked: page.artistRequested(modelData)
                     }
                 }
             }

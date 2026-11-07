@@ -46,6 +46,28 @@ Item {
     // Real background colour of the panel; the edges fade into it.
     property color edgeColor: Sys.surface
 
+    // ---- readable ink -------------------------------------------------
+    // The REALLY visible colour behind the lines: the panel/veil (with its
+    // own opacity) over the blurred artwork. From it the view picks a
+    // near-white or a near-black ink, so the lyrics do not vanish into a
+    // light cover (before they were always `Sys.text`: invisible over a
+    // white wash).
+    readonly property color bgBehind: {
+        if (typeof wash === "undefined" || !wash.valid)
+            return edgeColor
+        const a = Math.max(0, Math.min(1, edgeColor.a))
+        return Theme.alpha(Theme.mix(wash.average, edgeColor, a), 1)
+    }
+    readonly property color ink: Theme.onAccent(lv.bgBehind)
+    // Soft tone for the lines that are not being sung. It is "dimmed" but
+    // never below 4.5:1: over a mid-tone wash a plain tDim turned into
+    // grey soup.
+    readonly property color inkDim: Theme.readableOn(Theme.tDim(lv.bgBehind, lv.ink),
+                                                     lv.bgBehind)
+    // Soft halo of the opposite tone: over a mid-tone (washed out) cover it
+    // is what keeps every line legible without drawing boxes.
+    readonly property color inkHalo: Theme.alpha(Theme.onAccent(lv.ink), 0.35)
+
     // Guarded references so the view still renders before the backend registers
     // the context properties.
     readonly property var lyr: (typeof lyrics !== "undefined") ? lyrics : null
@@ -408,13 +430,13 @@ Item {
             width: 24
             height: 24
             kind: "disc"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: lv.inkDim
             weight: 1.5
         }
         Text {
             Layout.fillWidth: true
             text: "Buscando letra…"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: lv.inkDim
             font.pixelSize: Theme.tBase
             horizontalAlignment: Text.AlignHCenter
         }
@@ -485,9 +507,16 @@ Item {
                     text: modelData.text || ""
                     textFormat: Text.PlainText
                     color: rrow.instrumental
-                           ? Theme.alpha(Theme.tDim(Sys.bg, Sys.text), 0.75)
-                           : (active ? Theme.mix(Sys.text, Sys.accent, 0.14)
-                                     : Theme.tDim(Sys.bg, Sys.text))
+                           ? lv.inkDim
+                           : (active
+                              ? Theme.readableOn(
+                                    Theme.mix(lv.ink, Sys.accent, 0.14),
+                                    lv.bgBehind)
+                              : lv.inkDim)
+                    // A soft halo in the opposite tone: the last line of
+                    // defence when the wash is mid-tone.
+                    style: Text.Outline
+                    styleColor: lv.inkHalo
                     font.pixelSize: active ? lv.lineSize + lv.activeBoost
                                             : lv.lineSize
                     font.weight: active ? Font.DemiBold : Font.Normal
@@ -592,7 +621,7 @@ Item {
             y: 12
             width: plainLabel.width
             text: "SIN LETRA SINCRONIZADA"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: lv.inkDim
             font.pixelSize: Theme.tXs
             font.bold: true
             font.letterSpacing: 1.4
@@ -604,7 +633,7 @@ Item {
             x: Math.max(24, (plainFlick.width - width) / 2)
             y: 36
             text: lv.plainText
-            color: Sys.text
+            color: lv.ink
             font.pixelSize: Math.max(15, lv.lineSize - 1)
             lineHeight: 1.55
             horizontalAlignment: Text.AlignLeft
@@ -625,13 +654,13 @@ Item {
             width: 28
             height: 28
             kind: "mic"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: lv.inkDim
             weight: 1.3
         }
         Text {
             Layout.fillWidth: true
             text: lv.showError ? lv.errorText : "Sin letra sincronizada"
-            color: lv.showError ? Sys.danger : Sys.text
+            color: lv.showError ? Theme.accentOn(Sys.danger, lv.bgBehind) : lv.ink
             font.pixelSize: Theme.tLg
             font.weight: Font.DemiBold
             horizontalAlignment: Text.AlignHCenter
@@ -640,7 +669,7 @@ Item {
         Text {
             Layout.fillWidth: true
             text: lv.showError ? "No encontramos la letra de esta canción." : "Buscando la letra…"
-            color: Theme.tDim(Sys.bg, Sys.text)
+            color: lv.inkDim
             font.pixelSize: Theme.tMd
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere

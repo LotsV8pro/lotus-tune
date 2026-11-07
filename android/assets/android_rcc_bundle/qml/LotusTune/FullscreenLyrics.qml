@@ -143,6 +143,22 @@ Rectangle {
     // palette: now it is the palette accent mixed over the background.
     readonly property color veilColor: Theme.sAccent(Sys.bg, Sys.accent, 0.10)
 
+    // ---- ink of the cinema ------------------------------------------------
+    // The veil below is drawn at 0.66 over the blurred artwork, so the
+    // really visible background is the artwork's average mixed with that
+    // veil. From it the chrome (title, artist, transport icons) and the
+    // lyrics pick a near-white or a near-black tone: over the white cover
+    // of "A Little Piece of Heaven" white text used to vanish.
+    readonly property color bgBehind: {
+        const a = 0.66
+        const base = (typeof wash !== "undefined" && wash.valid)
+                     ? wash.average : Sys.bg
+        return Theme.alpha(Theme.mix(base, fl.veilColor, a), 1)
+    }
+    readonly property color ink: Theme.onAccent(fl.bgBehind)
+    readonly property color inkDim: Theme.readableOn(
+        Theme.tDim(fl.bgBehind, fl.ink), fl.bgBehind)
+
     // ---- artwork wash -----------------------------------------------------
     // The cinema mode is an overlay on top of the app: it needs its own
     // opaque background, otherwise the page behind shows through while
@@ -286,6 +302,8 @@ Rectangle {
                 Layout.alignment: Qt.AlignVCenter
                 Layout.preferredWidth: content.leftW
 
+                ink: fl.ink
+                inkDim: fl.inkDim
                 title: fl.title
                 artist: fl.artist
                 thumb: fl.thumb
@@ -321,7 +339,7 @@ Rectangle {
                 lineSize: Math.max(20, Math.min(30, Math.round(content.height / 32)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: 860
-                edgeColor: fl.veilColor
+                edgeColor: Theme.alpha(fl.veilColor, 0.66)
                 leftAlign: true
                 duetSides: true
                 pinFrac: 0.36
@@ -342,6 +360,8 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
 
+                ink: fl.ink
+                inkDim: fl.inkDim
                 title: fl.title
                 artist: fl.artist
                 thumb: fl.thumb
@@ -374,7 +394,7 @@ Rectangle {
                 lineSize: Math.max(20, Math.min(28, Math.round(content.height / 34)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: Math.min(content.width * 0.86, 720)
-                edgeColor: fl.veilColor
+                edgeColor: Theme.alpha(fl.veilColor, 0.66)
                 leftAlign: false
                 duetSides: true
                 pinFrac: 0.34
@@ -399,7 +419,7 @@ Rectangle {
         height: 38
         radius: Theme.rMd
         color: exitMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
-                                    : Theme.alpha(Sys.text, 0.08)
+                                    : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
         scale: exitMa.pressed ? 0.94 : 1
         Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
@@ -408,7 +428,7 @@ Rectangle {
             width: 16
             height: 16
             kind: "x"
-            color: Sys.text
+            color: fl.ink
             weight: 1.9
         }
         MouseArea {
@@ -434,7 +454,7 @@ Rectangle {
         height: 38
         radius: Theme.rMd
         color: queueMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
-                                     : Theme.alpha(Sys.text, 0.08)
+                                     : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
         scale: queueMa.pressed ? 0.94 : 1
         Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
@@ -443,7 +463,7 @@ Rectangle {
             width: 19
             height: 19
             kind: "queue"
-            color: Sys.text
+            color: fl.ink
             weight: 1.8
         }
         MouseArea {
