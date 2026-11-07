@@ -52,6 +52,60 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Catalog::savePlaylistCache);
     loadPlaylistCache();
 
+    // Artist photos for the radio cards: read from disk and fetched one at
+    // a time in the background (only the first time each artist).
+    {
+        QFile f(facesFile());
+        if (f.open(QIODevice::ReadOnly)) {
+            const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+            for (auto it = o.begin(); it != o.end(); ++it)
+                m_artistFaces.insert(it.key(), it.value().toString());
+        }
+    }
+    m_faceProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_faceProc,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+        const QString name = m_faceName;
+        m_faceName.clear();
+        QString thumb;
+        if (code == 0) {
+            const QByteArray out = m_faceProc.readAllStandardOutput();
+            const QJsonArray artists = QJsonDocument::fromJson(out).object()
+                                           .value(QStringLiteral("artists")).toArray();
+            const QString key = faceKey(name);
+            for (const QJsonValue &v : artists) {
+                const QJsonObject a = v.toObject();
+                const QString an = a.value(QStringLiteral("name")).toString();
+                const QString th = a.value(QStringLiteral("thumb")).toString();
+                if (th.isEmpty())
+                    continue;
+                if (faceKey(an) == key) {
+                    thumb = th;
+                    break;
+                }
+                if (thumb.isEmpty())
+                    thumb = th;   // first result: the best match
+            }
+            if (!thumb.isEmpty()) {
+                // The helper returns 120 px: the cards are bigger.
+                thumb.replace(QLatin1String("=w120-h120"), QLatin1String("=w544-h544"));
+                thumb.replace(QLatin1String("=s120"), QLatin1String("=s544"));
+            }
+        }
+        if (!name.isEmpty()) {
+            // Only a real answer is cached (a failure - offline, for
+            // example - is retried the next time).
+            if (code == 0) {
+                m_artistFaces.insert(faceKey(name), thumb);
+                saveFaces();
+                if (!thumb.isEmpty())
+                    emit artistThumbReady(name, thumb);
+            }
+        }
+        startNextFace();
+    });
+
     // Real in-app YT Music login state: the Netscape cookies.txt written by the
     // embedded WebKit login window (tools/ytm_login.py) is the source of truth.
     if (ytmLoggedIn())
@@ -306,6 +360,46 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 else if (mode == QLatin1String("toptrack"))
                     emit artistTopTrackResolved(arg, m_topTrack);
             });
+
+    // Album audio list (m_albumInfoProc): one request at a time, asked by
+    // the download buttons. A failure (offline, restricted album) also
+    // answers, so the UI queue can carry on with the next album.
+    m_albumInfoProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_albumInfoProc,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+        m_albumInfoTimer.stop();
+        const QByteArray out = m_albumInfoProc.readAllStandardOutput();
+        const QString id = m_albumInfoId;
+        const QString name = m_albumInfoName;
+        m_albumInfoId.clear();
+        m_albumInfoName.clear();
+        if (id.isEmpty())
+            return;   // there was no request in flight
+        QString pid;
+        if (code == 0)
+            pid = QJsonDocument::fromJson(out).object()
+                      .value(QStringLiteral("playlistId")).toString();
+        if (pid.isEmpty())
+            emit albumPlaylistFailed(id, name);
+        else
+            emit albumPlaylistReady(id, pid, name);
+    });
+    m_albumInfoTimer.setSingleShot(true);
+    m_albumInfoTimer.setInterval(25000);
+    connect(&m_albumInfoTimer, &QTimer::timeout, this, [this] {
+        if (m_albumInfoId.isEmpty())
+            return;
+        const QString id = m_albumInfoId;
+        const QString name = m_albumInfoName;
+        m_albumInfoId.clear();
+        m_albumInfoName.clear();
+        if (m_albumInfoProc.state() != QProcess::NotRunning) {
+            m_albumInfoProc.kill();
+            m_albumInfoProc.waitForFinished(200);
+        }
+        emit albumPlaylistFailed(id, name);
+    });
 
     // Alternative video (m_altProc): the JSON that ytm_api.py returns is
     // already a whole track; it is normalised like a search track, but with
@@ -1246,6 +1340,50 @@ void Catalog::fetchAlbumTracks(const QString &browseId)
     }
     runArtist({ytmApiPath(), QStringLiteral("album"), id},
               QStringLiteral("album"), id);
+}
+
+// Shows `tracks` as the open list (no URL involved). It is the answer to
+// the `album` request used by the artist page to open a record: the
+// tracks are already there, so nothing else is asked and it works on
+// Android too (the python `albuminfo` used for the download does not).
+void Catalog::showTracks(const QVariantList &tracks, const QString &title)
+{
+    // No URL: reopening this list by URL is not possible, but the list is
+    // not "already open" either (it must be rebuilt from the same tracks).
+    m_openListUrl.clear();
+    m_tracks = tracks;
+    m_tracksTitle = title.trimmed().isEmpty()
+                        ? QStringLiteral("Álbum") : title;
+    emit tracksReady(m_tracks, m_tracksTitle);
+    emit changed();
+}
+
+// Audio list of an album (OLAK5uy…): the download of a whole record asks
+// ytm_api.py for it and then hands it to yt-dlp like any other list.
+void Catalog::fetchAlbumPlaylist(const QString &browseId, const QString &name)
+{
+    const QString id = browseId.trimmed();
+    const QString title = name.trimmed();
+    if (id.isEmpty()) {
+        emit albumPlaylistFailed(id, title);
+        return;
+    }
+    // One request at a time: the discography asks for the next album when
+    // the previous answer arrives. A new request replaces the one in
+    // flight (its answer is ignored: the ids are emptied first).
+    if (m_albumInfoProc.state() != QProcess::NotRunning) {
+        m_albumInfoId.clear();
+        m_albumInfoName.clear();
+        m_albumInfoProc.kill();
+        m_albumInfoProc.waitForFinished(200);
+    }
+    m_albumInfoTimer.stop();
+    m_albumInfoId = id;
+    m_albumInfoName = title;
+    m_albumInfoProc.setProgram(AppPaths::pythonProgram());
+    m_albumInfoProc.setArguments({ytmApiPath(), QStringLiteral("albuminfo"), id});
+    m_albumInfoProc.start();
+    m_albumInfoTimer.start();
 }
 
 // The artist's main track (the most played one): it is the best seed for
@@ -2597,4 +2735,58 @@ bool Catalog::importSession(const QString &path)
     // to restart the app.
     setLoginState(ytmLoggedIn() ? QStringLiteral("ok") : QString());
     return true;
+}
+
+// ---- photos of the artists (the face of their radio) ---------------------
+
+QString Catalog::facesFile()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+           + QStringLiteral("/artistfaces.json");
+}
+
+QString Catalog::faceKey(const QString &name)
+{
+    return name.trimmed().toLower();
+}
+
+QString Catalog::artistThumb(const QString &name) const
+{
+    return m_artistFaces.value(faceKey(name));
+}
+
+void Catalog::ensureArtistThumb(const QString &name)
+{
+    const QString clean = name.trimmed();
+    if (clean.isEmpty())
+        return;
+    // Known already (even if it has no photo: that is also an answer).
+    if (m_artistFaces.contains(faceKey(clean)))
+        return;
+    if (m_faceName == clean || m_faceQueue.contains(clean))
+        return;
+    if (m_faceQueue.size() >= 24)      // the home deck asks for 10 at most
+        return;
+    m_faceQueue.append(clean);
+    startNextFace();
+}
+
+void Catalog::startNextFace()
+{
+    if (m_faceProc.state() != QProcess::NotRunning || m_faceQueue.isEmpty())
+        return;
+    m_faceName = m_faceQueue.takeFirst();
+    m_faceProc.setProgram(AppPaths::pythonProgram());
+    m_faceProc.setArguments({ytmApiPath(), QStringLiteral("artists"), m_faceName});
+    m_faceProc.start();
+}
+
+void Catalog::saveFaces() const
+{
+    QJsonObject o;
+    for (auto it = m_artistFaces.cbegin(); it != m_artistFaces.cend(); ++it)
+        o.insert(it.key(), it.value());
+    QFile f(facesFile());
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
 }

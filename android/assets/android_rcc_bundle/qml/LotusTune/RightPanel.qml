@@ -14,6 +14,10 @@ Item {
     property int tab: 0                 // 0 = queue, 1 = lyrics
     property var queueModel: null
     property int queueIndex: -1
+    // The panel is on screen (the app owns that state): the bars of the
+    // queue only animate then, never while it is closed.
+    property bool open: false
+    property bool playing: false
 
     signal closeRequested()
     // The app owns the state of the tab.
@@ -138,6 +142,8 @@ Item {
                     Layout.fillHeight: true
                     tracks: panel.queueModel
                     currentIndex: panel.queueIndex
+                    barsAnimate: panel.open && panel.tab === 0
+                                 && panel.playing
                     onTrackActivated: (i) => panel.trackActivated(i)
                     onTrackContextRequested: (t, x, y) => panel.trackContextRequested(t, x, y)
                 }

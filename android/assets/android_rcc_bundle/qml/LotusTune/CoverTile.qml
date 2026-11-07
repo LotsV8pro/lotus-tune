@@ -15,10 +15,15 @@ Rectangle {
     property string thumb: ""
     property bool downloadable: false
     property bool removable: false
+    // The list is already downloaded (it has its folder in Downloads): a
+    // tick is shown on the cover, without having to hover or open it.
+    property bool downloaded: false
 
     signal clicked()          // click on the card -> OPEN the list
     signal playClicked()      // click on the floating play button -> PLAY
     signal downloadRequested()
+    // The list is downloaded: asks to uninstall it (deletes its files).
+    signal uninstallRequested()
     signal removeRequested()
     // Right click on the card: context menu (x/y in window coordinates).
     signal contextRequested(real x, real y)
@@ -187,10 +192,15 @@ Rectangle {
         spacing: Theme.s1
         visible: (tileHover.hovered || tileMa.containsMouse
                   || dlMa.containsMouse || rmMa.containsMouse || Theme.touch)
-            && (tile.downloadable || tile.removable)
+            && (tile.downloadable || tile.downloaded || tile.removable)
 
+        // Mismo boton para las dos cosas: si la lista no esta descargada
+        // muestra la flecha de descarga; si ya lo esta, un tick en el mismo
+        // sitio y con el mismo estilo. Al pulsar el tick se pregunta si se
+        // quiere desinstalar.
         Rectangle {
-            visible: tile.downloadable
+            id: dlBtn
+            visible: tile.downloadable || tile.downloaded
             width: 30
             height: 30
             radius: Theme.rPill
@@ -201,8 +211,12 @@ Rectangle {
                 anchors.centerIn: parent
                 width: 15
                 height: 15
-                kind: "download"
-                color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                kind: tile.downloaded ? "check" : "download"
+                color: tile.downloaded
+                       ? Theme.accentOn(Sys.accent, Sys.bg)
+                       : (dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg)
+                                             : Theme.tDim(Sys.bg, Sys.text))
+                weight: tile.downloaded ? 2 : 1
             }
             MouseArea {
                 id: dlMa
@@ -211,7 +225,10 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
                     if (typeof sfx !== "undefined") sfx.play("tap")
-                    tile.downloadRequested()
+                    if (tile.downloaded)
+                        tile.uninstallRequested()
+                    else
+                        tile.downloadRequested()
                 }
             }
         }

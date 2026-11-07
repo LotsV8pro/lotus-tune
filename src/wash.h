@@ -21,12 +21,16 @@ class Wash : public QObject
     Q_OBJECT
     Q_PROPERTY(int serial READ serial NOTIFY changed)
     Q_PROPERTY(bool valid READ valid NOTIFY changed)
+    // Average colour of the blurred veil: the lyrics pick a light or a dark
+    // ink from it, so they stay readable over any artwork.
+    Q_PROPERTY(QColor average READ average NOTIFY changed)
 
 public:
     explicit Wash(QObject *parent = nullptr);
 
     int serial() const { return m_serial; }
     bool valid() const { return !m_image.isNull(); }
+    QColor average() const { return m_average; }
 
     // Changes the source image (the track's thumbnail). Empty = no change
     // of the stored image; the QML decides to hide the wash.
@@ -46,6 +50,7 @@ signals:
 private:
     QNetworkAccessManager *m_net;
     QImage m_image;
+    QColor m_average;
     QUrl m_wanted;
     int m_serial = 0;
 };

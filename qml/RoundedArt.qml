@@ -31,15 +31,25 @@ Item {
     // requested again and repainted).
     property string artUrl: ""
 
+    // Guard against re-entry: the C++ side no longer emits `ready` from
+    // inside the url request, but a refresh running twice in the same
+    // turn was the source of a "Maximum call stack size exceeded" loop.
+    property bool _refreshing: false
+
     function refresh() {
+        if (art._refreshing)
+            return
+        art._refreshing = true
         const w = Math.round(art.width)
         const h = Math.round(art.height)
         if (!art.source || art.source.length === 0 || w <= 0 || h <= 0) {
             art.artUrl = ""
+            art._refreshing = false
             return
         }
         art.artUrl = rart.urlBlurred([art.source], w, h, art.radius,
                                      Screen.devicePixelRatio, art.blur)
+        art._refreshing = false
     }
 
     onSourceChanged: refresh()

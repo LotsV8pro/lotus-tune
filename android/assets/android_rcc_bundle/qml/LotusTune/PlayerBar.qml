@@ -68,6 +68,42 @@ Rectangle {
 
     property bool scrubbing: false
     property real scrubPos: 0
+
+    // ---- posicion pintada (suave) ------------------------------------
+    // El motor entrega la posicion a saltos (en Android cada ~100 ms, en
+    // escritorio aun menos a menudo): pintarla tal cual hace que la linea
+    // avance a tirones. `shownPosition` la desliza a la frecuencia de la
+    // pantalla y cada aviso del motor solo corrige la deriva, asi que la
+    // barra se mueve continua incluso a 60 Hz.
+    property real shownPosition: 0
+    property bool _shownSynced: false
+
+    function syncShownPosition() {
+        if (bar.scrubbing)
+            return
+        // Salto directo: primer valor, pausa o un cambio grande (seek o
+        // pista nueva). Si no, correccion repartida en varios frames.
+        if (!bar._shownSynced || !bar.playing
+            || Math.abs(bar.position - bar.shownPosition) > 1.0) {
+            bar.shownPosition = bar.position
+            bar._shownSynced = true
+            return
+        }
+        bar.shownPosition += (bar.position - bar.shownPosition) * 0.35
+    }
+    onPositionChanged: syncShownPosition()
+    onPlayingChanged: syncShownPosition()
+    Component.onCompleted: syncShownPosition()
+
+    // Avanza sola entre avisos del motor, con el tiempo real de cada frame
+    // (nada de sumar un valor fijo: se adapta a 60/120/165 Hz).
+    FrameAnimation {
+        running: bar.playing && bar.duration > 0 && !bar.scrubbing
+        onTriggered: {
+            const p = bar.shownPosition + frameTime
+            bar.shownPosition = Math.min(bar.duration, p)
+        }
+    }
     // How far the finger has travelled up while pulling. Kept private:
     // nothing in the bar reacts to it (the gesture must stay invisible).
     property real pull: 0
@@ -77,6 +113,12 @@ Rectangle {
     // Island height: the bar measures exactly what its surface does.
     implicitHeight: Theme.playerBarH
     color: "transparent"
+
+    // The bar is a floating CARD that hugs its controls instead of a
+    // full-width band. On the desktop it keeps air on both sides; on the
+    // phone it lines up with the tab bar (same width, same corner) and
+    // floats a step above it, so the two read as one stack.
+    readonly property int pillW: compact ? width : Math.min(width, 720)
 
     // La barra SIGUE al dedo al tirar hacia arriba: el gesto se ve, no
     // solo se intuye. Sin Behavior durante el arrastre (iria con retraso
@@ -144,8 +186,8 @@ Rectangle {
     // para buscar.
     MouseArea {
         id: barDrag
-        anchors.fill: parent
-        anchors.margins: -6            // un poco de aire tambien fuera
+        // Only the pill: the transparent air around it belongs to the page.
+        anchors.fill: island
         property real startY: 0
         property real startX: 0
         property bool dragging: false
@@ -219,7 +261,15 @@ Rectangle {
     // ---- floating island ---------------------------------------------
     Panel {
         id: island
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: bar.pillW
+        // Rounded card (same language as the tab bar), not a capsule.
+        radius: bar.compact ? Theme.rLg : Theme.rPanel
+        // Solid: the pill is the dark surface itself, it does not frost the
+        // washed artwork behind it (no blurred backdrop).
+        color: Sys.surface
         // The content is clipped to the island's corners: the progress
         // line on top follows the rounding instead of sticking out.
         clipContent: true
@@ -240,7 +290,7 @@ Rectangle {
                 spacing: Theme.s2
 
                 Text {
-                    text: Theme.mmss(bar.scrubbing ? bar.scrubPos : bar.position)
+                    text: Theme.mmss(bar.scrubbing ? bar.scrubPos : bar.shownPosition)
                     color: Theme.tFaint(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                     Layout.preferredWidth: 34
@@ -256,7 +306,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignVCenter
 
                     readonly property real ratio: bar.duration > 0
-                        ? Math.min(1, (bar.scrubbing ? bar.scrubPos : bar.position) / bar.duration) : 0
+                        ? Math.min(1, (bar.scrubbing ? bar.scrubPos : bar.shownPosition) / bar.duration) : 0
 
                     // Track.
                     Rectangle {
@@ -562,7 +612,7 @@ Rectangle {
                         active: bar.shuffle
                         // Narrow windows: shuffle/repeat give their room to
                         // the title (the transport stays the essential one).
-                        visible: !bar.compact && bar.width >= 560
+                        visible: !bar.compact && island.width >= 560
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("toggle")
@@ -604,7 +654,7 @@ Rectangle {
                         id: repBtn
                         kind: "repeat"
                         active: bar.repeatMode !== 0
-                        visible: !bar.compact && bar.width >= 560
+                        visible: !bar.compact && island.width >= 560
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("toggle")
@@ -679,7 +729,7 @@ Rectangle {
                             // On the phone the slider is meaningless (touch has
                             // no hover nor drag precision and the transport
                             // needs the room): it stays desktop-only.
-                            visible: bar.width >= 620 && !Theme.touch
+                            visible: island.width >= 620 && !Theme.touch
 
                     Glyph {
                         Layout.alignment: Qt.AlignVCenter
@@ -757,8 +807,8 @@ Rectangle {
                     // Cover: tap opens the full screen player.
                     Item {
                         Layout.alignment: Qt.AlignVCenter
-                        width: 44
-                        height: 44
+                        width: 40
+                        height: 40
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.rSm
@@ -843,13 +893,27 @@ Rectangle {
                 }
 
                 // Transport: centred, big enough for a thumb, with air on
-                // both sides so the three buttons never touch the edges.
+                // both sides. Aleatorio y repetir van AQUI tambien en el
+                // movil: son los dos controles que faltaban en la barra y
+                // no hay otro sitio donde esten a mano.
                 RowLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 42
-                    spacing: Theme.s5
+                    Layout.preferredHeight: 44
+                    spacing: Theme.s3
 
                     Item { Layout.fillWidth: true }
+
+                    BarButton {
+                        kind: "shuffle"
+                        active: bar.shuffle
+                        diameter: 40
+                        glyph: 20
+                        onTapped: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("toggle")
+                            bar.shuffleToggled()
+                        }
+                    }
 
                     BarButton {
                         kind: "prev"
@@ -893,6 +957,35 @@ Rectangle {
                         onTapped: {
                             if (typeof sfx !== 'undefined') sfx.play('tap')
                             bar.nextRequested()
+                        }
+                    }
+
+                    BarButton {
+                        kind: "repeat"
+                        active: bar.repeatMode !== 0
+                        diameter: 40
+                        glyph: 20
+                        onTapped: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("toggle")
+                            bar.repeatToggled()
+                        }
+                        // Modo "repetir la cancion": una "1" pequeña en la
+                        // esquina, igual que en la barra de escritorio.
+                        Rectangle {
+                            visible: bar.repeatMode === 2
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            width: 12; height: 12
+                            radius: 6
+                            color: Sys.accent
+                            Text {
+                                anchors.centerIn: parent
+                                text: "1"
+                                color: Theme.onAccent(Sys.accent)
+                                font.pixelSize: 7
+                                font.weight: Font.Bold
+                            }
                         }
                     }
 

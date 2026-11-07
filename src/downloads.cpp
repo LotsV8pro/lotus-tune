@@ -19,6 +19,7 @@
 #include <QUrlQuery>
 
 #include <utility>
+#include <algorithm>
 
 #ifdef Q_OS_LINUX
 #include <signal.h>
@@ -92,8 +93,7 @@ constexpr qint64 kOrphanAgeSecs = 6 * 3600;
 
 Downloads::Downloads(QObject *parent)
     : QObject(parent)
-{
-    // Folder persisted by the user; if there is none, the default one.
+{    // Folder persisted by the user; if there is none, the default one.
     const QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
     QString saved = s.value(QStringLiteral("downloadFolder")).toString().trimmed();
     // A value inherited from old test runs (temp folders like
@@ -118,6 +118,16 @@ Downloads::Downloads(QObject *parent)
     // it does not freeze the UI with big libraries.
     m_scanTimer.setInterval(2);
     connect(&m_scanTimer, &QTimer::timeout, this, &Downloads::scanChunk);
+
+#ifndef Q_OS_ANDROID
+    // Metadata of the downloaded lists (one small yt-dlp call per list,
+    // cached in the list folder). Separate from the download process so it
+    // never interferes with it.
+    m_metaProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_metaProc,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) { finishFolderMeta(code); });
+#endif
 
     // Auto sync: any change on disk (files added/removed) rescans the
     // local library after a short silence, with no user intervention.
@@ -161,6 +171,10 @@ Downloads::~Downloads()
         m_proc.kill();
         m_proc.waitForFinished(700);
     }
+    if (m_metaProc.state() != QProcess::NotRunning) {
+        m_metaProc.kill();
+        m_metaProc.waitForFinished(700);
+    }
 }
 
 QString Downloads::defaultFolder() const
@@ -175,6 +189,10 @@ void Downloads::setFolder(const QString &dir)
         return;
     m_folder = clean;
     QDir().mkpath(m_folder);
+    m_metaQueue.clear();
+    m_metaFolder.clear();
+    m_folderMeta.clear();
+    m_metaLoaded.clear();
 
     QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
     s.setValue(QStringLiteral("downloadFolder"), m_folder);
@@ -624,13 +642,15 @@ void Downloads::startNext()
          // there is no need to "move" files when it finishes.
         QStringLiteral("-P"), QStringLiteral("home:") + m_folder,
         QStringLiteral("-P"), QStringLiteral("temp:") + m_folder,
-        // Tidal style: Opus with an efficient compression (better than m4a,
-         // higher quality).
+        // Compact but good: the 70-96 kbps Opus variant of YouTube Music
+        // (the same master, ~50 % smaller than the 160 kbps one) and, if
+        // there is none, the best compressed track. When the source is
+        // already Opus it is copied, without re-encoding.
         QStringLiteral("-f"),
-        QStringLiteral("bestaudio[ext=opus]/bestaudio/best"),
+        QStringLiteral("bestaudio[ext=opus][abr<=96]/bestaudio[ext=opus]/bestaudio/best"),
         QStringLiteral("--extract-audio"),
         QStringLiteral("--audio-format"), QStringLiteral("opus"),
-        QStringLiteral("--audio-quality"), QStringLiteral("0"),
+        QStringLiteral("--audio-quality"), QStringLiteral("5"),
         QStringLiteral("--embed-metadata"),
         // Without embedded thumbnail and without `.info.json`: less weight, less
         // post-processing and without depending on mutagen.
@@ -1393,6 +1413,12 @@ QVariantList Downloads::folders() const
                 break;
             }
         }
+        // The cover of the list itself (the one it has on YouTube Music),
+        // not the cover of its first track.
+        const QVariantMap meta = readFolderMeta(m_folder + QLatin1Char('/') + f);
+        const QString listThumb = meta.value(QStringLiteral("_thumb")).toString();
+        if (!listThumb.isEmpty())
+            thumb = listThumb;
         QVariantMap m;
         m.insert(QStringLiteral("name"), f);
         m.insert(QStringLiteral("folder"), f);
@@ -1415,7 +1441,8 @@ QVariantList Downloads::folders() const
     return out;
 }
 
-QVariantMap Downloads::makeLocalTrack(const QString &path) const
+QVariantMap Downloads::makeLocalTrack(const QString &path,
+                                      const QVariantMap &meta) const
 {
     const QFileInfo fi(path);
     // Top level folder under the root = a downloaded list ("Neon &
@@ -1432,6 +1459,10 @@ QVariantMap Downloads::makeLocalTrack(const QString &path) const
     t.insert(QStringLiteral("url"),
              QUrl::fromLocalFile(fi.absoluteFilePath()).toString());
     t.insert(QStringLiteral("source"), QStringLiteral("local"));
+    // When the file arrived (its modification time): "play all" on the
+    // Downloads page plays them in this order (or the reverse).
+    t.insert(QStringLiteral("addedAt"),
+             fi.lastModified().toMSecsSinceEpoch());
 
     // Compatibility with old libraries: if a sibling `.info.json` exists
      // (from versions that did write it), the track is enriched with its
@@ -1472,6 +1503,60 @@ QVariantMap Downloads::makeLocalTrack(const QString &path) const
             t.insert(QStringLiteral("thumb"), thumb);
         break;
     }
+
+    // Metadata of the list (title, real artist, duration and cover): the
+    // audio file only carries the sound. It is matched by the number the
+    // file starts with ("03Crossed The Line" -> the 3rd track of the
+    // list), and by title if the list moved things around.
+    if (!meta.isEmpty()) {
+        const QString base = fi.completeBaseName();
+        static const QRegularExpression prefixRe(QStringLiteral("^(\\d{1,4})"));
+        const auto hit = prefixRe.match(base);
+        if (hit.hasMatch()) {
+            const QString rest = base.mid(hit.capturedLength());
+            auto matches = [&rest](const QVariantMap &cand) {
+                const QString title = cand.value(QStringLiteral("title"))
+                                          .toString();
+                if (title.isEmpty())
+                    return false;
+                auto norm = [](const QString &s) {
+                    QString out = s.toLower();
+                    out.remove(QRegularExpression(
+                        QStringLiteral("[^\\p{L}\\p{N}]+")));
+                    return out;
+                };
+                const QString a = norm(title);
+                const QString b = norm(rest);
+                return !a.isEmpty() && a == b;
+            };
+            QVariantMap entry = meta.value(hit.captured(1)).toMap();
+            if (!entry.isEmpty() && !matches(entry))
+                entry.clear();
+            if (entry.isEmpty()) {
+                for (auto it = meta.cbegin(); it != meta.cend(); ++it) {
+                    const QVariantMap cand = it.value().toMap();
+                    if (!cand.isEmpty() && matches(cand)) {
+                        entry = cand;
+                        break;
+                    }
+                }
+            }
+            if (!entry.isEmpty()) {
+                if (entry.contains(QStringLiteral("title")))
+                    t.insert(QStringLiteral("title"),
+                             entry.value(QStringLiteral("title")));
+                if (entry.contains(QStringLiteral("artist")))
+                    t.insert(QStringLiteral("artist"),
+                             entry.value(QStringLiteral("artist")));
+                if (entry.contains(QStringLiteral("duration")))
+                    t.insert(QStringLiteral("duration"),
+                             entry.value(QStringLiteral("duration")));
+                if (entry.contains(QStringLiteral("thumb")))
+                    t.insert(QStringLiteral("thumb"),
+                             entry.value(QStringLiteral("thumb")));
+            }
+        }
+    }
     return t;
 }
 
@@ -1481,6 +1566,8 @@ void Downloads::refreshLocal()
     stopScan();
     m_scanItems.clear();
     m_scanDirs.clear();
+    m_folderMeta.clear();
+    m_metaLoaded.clear();
     m_localBusy = true;
     emit libraryChanged();
     startScan();
@@ -1523,19 +1610,279 @@ void Downloads::scanChunk()
     while (processed < 60 && m_scan->hasNext()) {
         const QString path = m_scan->next();
         ++processed;
-        m_scanDirs.insert(QFileInfo(path).absolutePath());
-        if (isAudioFile(path))
-            m_scanItems.append(makeLocalTrack(path));
+        const QFileInfo fi(path);
+        m_scanDirs.insert(fi.absolutePath());
+        if (!isAudioFile(path))
+            continue;
+        // Metadata of the list this file belongs to (read once per scan).
+        const QString rel = QDir(m_folder).relativeFilePath(fi.absolutePath());
+        const QString folder = (rel.isEmpty() || rel == QLatin1String("."))
+            ? QString() : rel.section(QLatin1Char('/'), 0, 0);
+        if (!m_metaLoaded.contains(folder)) {
+            m_metaLoaded.insert(folder);
+            m_folderMeta.insert(folder, readFolderMeta(fi.absolutePath()));
+        }
+        m_scanItems.append(makeLocalTrack(path, m_folderMeta.value(folder)));
     }
 
     if (!m_scan->hasNext()) {
         stopScan();
+        // Download order is the order the files arrived in (modification
+        // time), not the alphabetical one of the folder walk.
+        std::stable_sort(m_scanItems.begin(), m_scanItems.end(),
+                         [](const QVariant &a, const QVariant &b) {
+            return a.toMap().value(QStringLiteral("addedAt")).toLongLong()
+                 < b.toMap().value(QStringLiteral("addedAt")).toLongLong();
+        });
         m_local = m_scanItems;
         m_scanItems.clear();
         m_localBusy = false;
         updateWatchDirs();
         emit libraryChanged();
+        // Lists downloaded before this cache existed (or lists that grew)
+        // get their metadata fetched now, in the background.
+        queueFolderMeta();
     }
+}
+
+// ---- metadata of the downloaded lists -----------------------------------
+
+QVariantMap Downloads::readFolderMeta(const QString &dir)
+{
+    QVariantMap out;
+    QFile f(dir + QStringLiteral("/.lotus-meta.json"));
+    if (!f.open(QIODevice::ReadOnly))
+        return out;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    // constBegin/constEnd: QJsonObject did not grow cbegin/cend until
+    // much later, and the Android toolchain is Qt 6.6.
+    for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+        // Control keys: "_files" (how many tracks the cache covers) and
+        // "_failedAt" (when it could not be fetched).
+        if (it.key().startsWith(QLatin1Char('_'))) {
+            out.insert(it.key(), it.value().toVariant());
+            continue;
+        }
+        if (!it.value().isObject())
+            continue;
+        const QJsonObject e = it.value().toObject();
+        QVariantMap t;
+        const QString title = e.value(QStringLiteral("title")).toString().trimmed();
+        if (!title.isEmpty())
+            t.insert(QStringLiteral("title"), title);
+        const QString artist = e.value(QStringLiteral("artist")).toString().trimmed();
+        if (!artist.isEmpty())
+            t.insert(QStringLiteral("artist"), artist);
+        const double dur = e.value(QStringLiteral("duration")).toDouble();
+        if (dur > 0.0)
+            t.insert(QStringLiteral("duration"), dur);
+        const QString thumb = e.value(QStringLiteral("thumb")).toString();
+        if (!thumb.isEmpty())
+            t.insert(QStringLiteral("thumb"), thumb);
+        if (!t.isEmpty())
+            out.insert(it.key(), t);
+    }
+    return out;
+}
+
+void Downloads::writeFolderMeta(const QString &dir, const QVariantMap &map)
+{
+    QJsonObject o;
+    for (auto it = map.cbegin(); it != map.cend(); ++it) {
+        if (it.key().startsWith(QLatin1Char('_'))) {
+            o.insert(it.key(), QJsonValue::fromVariant(it.value()));
+            continue;
+        }
+        const QVariantMap t = it.value().toMap();
+        if (t.isEmpty())
+            continue;
+        QJsonObject e;
+        if (t.contains(QStringLiteral("title")))
+            e.insert(QStringLiteral("title"),
+                     t.value(QStringLiteral("title")).toString());
+        if (t.contains(QStringLiteral("artist")))
+            e.insert(QStringLiteral("artist"),
+                     t.value(QStringLiteral("artist")).toString());
+        if (t.contains(QStringLiteral("duration")))
+            e.insert(QStringLiteral("duration"),
+                     t.value(QStringLiteral("duration")).toDouble());
+        if (t.contains(QStringLiteral("thumb")))
+            e.insert(QStringLiteral("thumb"),
+                     t.value(QStringLiteral("thumb")).toString());
+        o.insert(it.key(), e);
+    }
+    QFile f(dir + QStringLiteral("/.lotus-meta.json"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+}
+
+void Downloads::queueFolderMeta()
+{
+#ifdef Q_OS_ANDROID
+    // Android has no yt-dlp: its downloads write the data of every track
+    // in a `.info.json` next to it, so there is nothing to fetch.
+    return;
+#else
+    if (m_busy || m_folder.isEmpty())
+        return;   // yt-dlp is downloading: this can wait
+    QHash<QString, int> count;
+    for (const QVariant &v : std::as_const(m_local)) {
+        const QString f = v.toMap().value(QStringLiteral("folder")).toString();
+        if (!f.isEmpty())
+            count[f] += 1;
+    }
+    for (auto it = count.cbegin(); it != count.cend(); ++it) {
+        const QString &folder = it.key();
+        if (m_metaQueue.contains(folder) || m_metaFolder == folder)
+            continue;
+        const QString dir = m_folder + QLatin1Char('/') + folder;
+        const QVariantMap meta = readFolderMeta(dir);
+        const int cachedFiles = meta.value(QStringLiteral("_files")).toInt();
+        if (cachedFiles >= it.value()
+            || (cachedFiles == 0 && meta.size() >= it.value()))
+            continue;   // cached with (at least) every track of the folder
+        QFile lf(dir + QStringLiteral("/.lotus-list.json"));
+        if (!lf.open(QIODevice::ReadOnly))
+            continue;
+        const QJsonObject list = QJsonDocument::fromJson(lf.readAll()).object();
+        if (list.value(QStringLiteral("url")).toString().trimmed().isEmpty())
+            continue;
+        // A failure less than a day old is not retried (offline, private
+        // list...): no reason to hammer it on every scan.
+        QFile mf(dir + QStringLiteral("/.lotus-meta.json"));
+        if (mf.open(QIODevice::ReadOnly)) {
+            const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
+            const qint64 when = qint64(o.value(QStringLiteral("_failedAt"))
+                                          .toDouble());
+            if (when > 0
+                && QDateTime::currentSecsSinceEpoch() - when < 24 * 3600)
+                continue;
+        }
+        m_metaQueue.append(folder);
+    }
+    startNextFolderMeta();
+#endif
+}
+
+void Downloads::startNextFolderMeta()
+{
+#ifdef Q_OS_ANDROID
+    return;
+#else
+    if (m_metaProc.state() != QProcess::NotRunning || m_metaQueue.isEmpty())
+        return;
+    m_metaFolder = m_metaQueue.takeFirst();
+    const QString dir = m_folder + QLatin1Char('/') + m_metaFolder;
+    QFile lf(dir + QStringLiteral("/.lotus-list.json"));
+    QString url;
+    if (lf.open(QIODevice::ReadOnly))
+        url = QJsonDocument::fromJson(lf.readAll()).object()
+                  .value(QStringLiteral("url")).toString().trimmed();
+    if (url.isEmpty()) {
+        m_metaFolder.clear();
+        startNextFolderMeta();
+        return;
+    }
+    QStringList args{
+        QStringLiteral("--no-config"),
+        QStringLiteral("--no-warnings"),
+        QStringLiteral("--flat-playlist"),
+        QStringLiteral("--dump-single-json"),
+    };
+    const QString cookies = AppPaths::cookiesFile();
+    if (QFile::exists(cookies)
+        && (url.contains(QLatin1String("youtube.com"))
+            || url.contains(QLatin1String("youtu.be"))))
+        args << QStringLiteral("--cookies") << cookies;
+    args << url;
+    m_metaProc.setProgram(QStringLiteral("yt-dlp"));
+    m_metaProc.setArguments(args);
+    m_metaProc.start();
+#endif
+}
+
+void Downloads::finishFolderMeta(int code)
+{
+#ifdef Q_OS_ANDROID
+    Q_UNUSED(code)
+    return;
+#else
+    const QString dir = m_folder + QLatin1Char('/') + m_metaFolder;
+    const QByteArray out = m_metaProc.readAllStandardOutput();
+    QVariantMap map;
+    if (code == 0 && !out.isEmpty()) {
+        const QJsonObject o = QJsonDocument::fromJson(out).object();
+        const QJsonArray entries = o.value(QStringLiteral("entries")).toArray();
+        int idx = 0;
+        for (const QJsonValue &v : entries) {
+            ++idx;
+            const QJsonObject e = v.toObject();
+            if (e.isEmpty())
+                continue;
+            const QString title = e.value(QStringLiteral("title"))
+                                      .toString().trimmed();
+            if (title.isEmpty())
+                continue;
+            QVariantMap t;
+            t.insert(QStringLiteral("title"), title);
+            QString artist = e.value(QStringLiteral("artist")).toString().trimmed();
+            if (artist.isEmpty())
+                artist = e.value(QStringLiteral("uploader")).toString().trimmed();
+            if (artist.isEmpty())
+                artist = e.value(QStringLiteral("channel")).toString().trimmed();
+            if (!artist.isEmpty())
+                t.insert(QStringLiteral("artist"), artist);
+            const double dur = e.value(QStringLiteral("duration")).toDouble();
+            if (dur > 0.0)
+                t.insert(QStringLiteral("duration"), dur);
+            const QJsonArray thumbs = e.value(QStringLiteral("thumbnails")).toArray();
+            for (int i = thumbs.size() - 1; i >= 0; --i) {
+                const QString u = thumbs.at(i).toObject()
+                                      .value(QStringLiteral("url")).toString();
+                if (!u.isEmpty()) {
+                    t.insert(QStringLiteral("thumb"), u);
+                    break;
+                }
+            }
+            map.insert(QString::number(idx), t);
+        }
+        // Cover of the list itself (its own on YouTube Music): the folder
+        // card shows it instead of the cover of the first track.
+        const QJsonArray listThumbs = o.value(QStringLiteral("thumbnails")).toArray();
+        for (int i = listThumbs.size() - 1; i >= 0; --i) {
+            const QString u = listThumbs.at(i).toObject()
+                                  .value(QStringLiteral("url")).toString();
+            if (!u.isEmpty()) {
+                map.insert(QStringLiteral("_thumb"), u);
+                break;
+            }
+        }
+    }
+    if (!map.isEmpty()) {
+        // Number of audio files the cache was built for: if the list grows
+        // (more tracks downloaded) it is fetched again; if some file of the
+        // folder is not part of the list, it is not retried for ever.
+        map.insert(QStringLiteral("_files"), countAudioFiles(dir));
+        writeFolderMeta(dir, map);
+        m_metaWrote = true;
+        qInfo() << "[downloads] metadata of" << m_metaFolder << ":"
+                << map.size() - 1 << "tracks";
+    } else if (!m_metaFolder.isEmpty()) {
+        QVariantMap failed;
+        failed.insert(QStringLiteral("_failedAt"),
+                      QDateTime::currentSecsSinceEpoch());
+        writeFolderMeta(dir, failed);
+        qInfo() << "[downloads] no metadata for" << m_metaFolder;
+    }
+    m_metaFolder.clear();
+    startNextFolderMeta();
+    if (m_metaQueue.isEmpty() && m_metaProc.state() == QProcess::NotRunning
+        && m_metaWrote) {
+        // Now the library can show titles, artists, durations and covers.
+        m_metaWrote = false;
+        refreshLocal();
+    }
+#endif
 }
 
 void Downloads::updateWatchDirs()

@@ -2241,6 +2241,39 @@ QJsonObject playlistInfoObj(const QString &listId)
     };
 }
 
+// python album_playlist_id: la lista de audio (OLAK5uy…) que YouTube Music
+// crea para un disco. Es lo que necesita yt-dlp para descargarlo entero.
+QString albumPlaylistId(const QString &browseId)
+{
+    const NetResult r = browseJson(browseId);
+    dieOnNet(r);
+    const QStringList headerKeys{
+        QStringLiteral("musicResponsiveHeaderRenderer"),
+        QStringLiteral("musicDetailHeaderRenderer"),
+    };
+    for (const QString &key : headerKeys) {
+        const Json header = vfind(r.obj, key);
+        if (!header.isObject())
+            continue;
+        const QJsonArray buttons = header.toObject()
+                                       .value(QLatin1String("buttons")).toArray();
+        for (const QJsonValue &b : buttons) {
+            const QJsonObject play = b.toObject()
+                                         .value(QLatin1String("musicPlayButtonRenderer"))
+                                         .toObject();
+            const QString pid = play.value(QLatin1String("playNavigationEndpoint"))
+                                    .toObject()
+                                    .value(QLatin1String("watchPlaylistEndpoint"))
+                                    .toObject()
+                                    .value(QLatin1String("playlistId"))
+                                    .toString();
+            if (pid.startsWith(QLatin1String("OLAK5uy_")))
+                return pid;
+        }
+    }
+    return {};
+}
+
 // python alternate_track: a reproducible alternative for a dead track.
 QJsonObject alternateTrack(const QString &artist, const QString &title,
                            const QString &exclude, double duration)
@@ -2411,7 +2444,7 @@ int main(int argc, char *argv[])
     static const QSet<QString> kCommands{
         "library",    "search",   "artists",  "artist",
         "artistpage", "album",     "alternate", "toptrack", "playlist",
-        "playlistinfo", "rate",   "addpl",    "rmpl",
+        "playlistinfo", "albuminfo", "rate",   "addpl",    "rmpl",
         "movepl",     "createpl", "renamepl", "setplpriv",
         "deletepl",
     };
@@ -2521,6 +2554,15 @@ int main(int argc, char *argv[])
             if (rest.isEmpty())
                 die(QStringLiteral("falta el id de la playlist"));
             printObj(playlistInfoObj(rest.first()));
+            return 0;
+        }
+        if (cmd == QLatin1String("albuminfo")) {
+            if (rest.isEmpty())
+                die(QStringLiteral("falta el browseId del álbum"));
+            printObj(QJsonObject{
+                {QLatin1String("id"), rest.first()},
+                {QLatin1String("playlistId"), albumPlaylistId(rest.first())},
+            });
             return 0;
         }
         if (cmd == QLatin1String("rate")) {

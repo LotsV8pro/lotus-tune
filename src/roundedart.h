@@ -87,6 +87,11 @@ private:
 
     void start(const QString &key);
     void tryNext(const QString &key, int index);
+    // `ready` is NEVER emitted from inside url()/urlBlurred(): the QML
+    // handler calls refresh() again and the synchronous re-entry ended in
+    // a "Maximum call stack size exceeded" loop (the whole UI froze with
+    // a job that was instantly ready from the original-image cache).
+    void emitReadyLater(const QString &key);
     // Crops to the centre at the requested size and applies the mask.
     static QImage process(const QImage &src, int boxW, int boxH, int radius,
                            qreal scale, int blur = 0);

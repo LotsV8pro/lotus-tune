@@ -251,6 +251,25 @@ function accentOn(accent, bg) {
     return c
 }
 
+// Text colour `c` (usually a dimmed tone) forced to clear 4.5:1 over `bg`.
+// It walks towards the most readable extreme (near white or near black)
+// keeping the hue: a "quiet" secondary tone that stops being decorative
+// and disappears over a washed-out artwork.
+function readableOn(c, bg) {
+    if (!_rgba(c))
+        return onAccent(bg)
+    if (contrast(c, bg) >= 4.5)
+        return c
+    var target = onAccent(bg)
+    var out = c
+    for (var i = 1; i <= 6; i++) {
+        out = mix(c, target, Math.min(1, i * 0.18))
+        if (contrast(out, bg) >= 4.5)
+            return out
+    }
+    return target
+}
+
 // Soft tint of `c` laid over `base` (used to wash the player bar with the
 // current accent without any image sampling).
 function tint(base, c, amount) { return mix(base, c, amount) }

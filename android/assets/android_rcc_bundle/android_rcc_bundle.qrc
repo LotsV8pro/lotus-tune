@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <RCC version="1.0">
-<qresource prefix="/LotusTune">
+<qresource prefix="/android_rcc_bundle">
+<file>lotus-tune.svg</file>
+<file>lotus-tune.qmltypes</file>
 <file>qmldir</file>
 <file>qml/LotusTune/Main.qml</file>
 <file>qml/LotusTune/Panel.qml</file>
@@ -18,6 +20,7 @@
 <file>qml/LotusTune/HomePage.qml</file>
 <file>qml/LotusTune/ArtImage.qml</file>
 <file>qml/LotusTune/HomeCard.qml</file>
+<file>qml/LotusTune/CoverCard.qml</file>
 <file>qml/LotusTune/RoundedArt.qml</file>
 <file>qml/LotusTune/SearchPage.qml</file>
 <file>qml/LotusTune/ArtistPage.qml</file>

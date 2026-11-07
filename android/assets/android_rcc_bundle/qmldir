@@ -1,6 +1,5 @@
 module LotusTune
 typeinfo lotus-tune.qmltypes
-prefer :/LotusTune/
 Main 1.0 qml/LotusTune/Main.qml
 Panel 1.0 qml/LotusTune/Panel.qml
 Sidebar 1.0 qml/LotusTune/Sidebar.qml
@@ -16,6 +15,7 @@ LockedPanel 1.0 qml/LotusTune/LockedPanel.qml
 HomePage 1.0 qml/LotusTune/HomePage.qml
 ArtImage 1.0 qml/LotusTune/ArtImage.qml
 HomeCard 1.0 qml/LotusTune/HomeCard.qml
+CoverCard 1.0 qml/LotusTune/CoverCard.qml
 RoundedArt 1.0 qml/LotusTune/RoundedArt.qml
 SearchPage 1.0 qml/LotusTune/SearchPage.qml
 ArtistPage 1.0 qml/LotusTune/ArtistPage.qml

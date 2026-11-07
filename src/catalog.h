@@ -115,6 +115,16 @@ public:
     Q_INVOKABLE void fetchArtistPage(const QString &browseId);
     // Tracks of an album or single: albumTracksReady(browseId, tracks).
     Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
+    // Shows `tracks` as the open list without going through any URL. The
+    // artist page uses it to open a record: those tracks already came with
+    // the `album` request, so it also works on Android, where the python
+    // `albuminfo` helper (fetchAlbumPlaylist) is not available.
+    Q_INVOKABLE void showTracks(const QVariantList &tracks,
+                                const QString &title);
+    // Audio list (OLAK5uy…) of an album/single, to download the whole
+    // record with yt-dlp: albumPlaylistReady(browseId, playlistId, name).
+    Q_INVOKABLE void fetchAlbumPlaylist(const QString &browseId,
+                                        const QString &name);
     // Resolves the main track of an artist to seed their radio
     // ("Radio of the artist" in the context menu): it emits
     // artistTopTrackResolved.
@@ -127,6 +137,12 @@ public:
                                       const QString &failedVideoId,
                                       double duration);
     Q_INVOKABLE void syncLiked();
+    // Photo of an artist, for the "Radio de <artista>" cards (the face of
+    // the radio on YouTube Music, not the cover of its first track). It is
+    // cached on disk; the first time it is asked for, it is looked up in
+    // the background and artistThumbReady() is emitted.
+    Q_INVOKABLE QString artistThumb(const QString &name) const;
+    Q_INVOKABLE void ensureArtistThumb(const QString &name);
     // Empties the in-memory cache of already loaded lists: the next open
     // of each one queries the network again (useful to "refresh").
     Q_INVOKABLE void invalidatePlaylistCache();
@@ -188,6 +204,8 @@ public:
 signals:
     void changed();
     void libraryChanged();
+    // Artist photo resolved for the radio cards (see ensureArtistThumb()).
+    void artistThumbReady(const QString &name, const QString &thumb);
     // A track list finished loading and should replace the queue.
     void tracksReady(const QVariantList &tracks, const QString &title);
     // YouTube Music's radio (autoplay) arrived: `tracks` is what follows the
@@ -202,6 +220,12 @@ signals:
     void artistPageReady(const QString &browseId, const QVariantMap &page);
     // Album/single tracks received (see fetchAlbumTracks()).
     void albumTracksReady(const QString &browseId, const QVariantList &tracks);
+    // Album/single audio list resolved (see fetchAlbumPlaylist()): with
+    // `playlistId` the UI can enqueue the download of the whole record.
+    void albumPlaylistReady(const QString &browseId, const QString &playlistId,
+                            const QString &name);
+    // It could not be resolved (offline, restricted album...).
+    void albumPlaylistFailed(const QString &browseId, const QString &name);
     // An artist's main track resolved (see resolveArtistRadio()); `track` is
     // empty if it could not be resolved (the UI falls back to the track's
     // radio).
@@ -369,6 +393,13 @@ private:
     QProcess m_artistProc;     // one-shot artists/discography/albums (ytm_api.py)
     QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (empty: cancelled)
     QString m_artistArg;       // data returned in the signal
+    // Audio list of an album, to download it whole. Own process: the
+    // discography download asks for one album after another without
+    // stepping on the artist navigation.
+    QProcess m_albumInfoProc;
+    QString m_albumInfoId;
+    QString m_albumInfoName;
+    QTimer m_albumInfoTimer;
     QVariantMap m_topTrack;    // resolved main track (artist radio)
     // Alternative video for a track whose video died: its own process so
     // it does not step on the artist navigation that may be in flight.
@@ -382,6 +413,16 @@ private:
     QString m_plSetId;         // pending setVideoId (remove from a list)
     QProcess m_likedProc;      // one-shot "liked" (LM) for the state of the rows
     QTimer m_likedTimer;       // timeout for liked fetch
+    // Artist photos for the radio cards, cached on disk (asked once).
+    QProcess m_faceProc;
+    QString m_faceName;        // artist being looked up right now
+    QStringList m_faceQueue;
+    QHash<QString, QString> m_artistFaces;   // normalised name -> url ("" = none)
+
+    static QString facesFile();
+    static QString faceKey(const QString &name);
+    void startNextFace();
+    void saveFaces() const;
     QSet<QString> m_likedIds;  // videoIds in "liked"
     QVariantList m_likedTracks;  // "liked" with its artist and title
     // Local path (downloaded file) -> YouTube videoId, resolved once by

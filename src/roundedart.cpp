@@ -203,6 +203,12 @@ QImage RoundedArt::image(const QString &key) const
     return it->image;
 }
 
+void RoundedArt::emitReadyLater(const QString &key)
+{
+    QMetaObject::invokeMethod(this, [this, key]() { emit ready(key); },
+                              Qt::QueuedConnection);
+}
+
 void RoundedArt::start(const QString &key)
 {
     bool done = false;
@@ -226,7 +232,7 @@ void RoundedArt::start(const QString &key)
     }
     if (done)
     if (done)
-        emit ready(key);
+        emitReadyLater(key);
     tryNext(key, 0);
 }
 
@@ -264,7 +270,7 @@ void RoundedArt::tryNext(const QString &key, int index)
                     it->failed = true;
             }
             // The QML asks for the url again: the job starts over.
-            emit ready(key);
+            emitReadyLater(key);
             return;
         }
         const QImage img = process(fallback, boxW, boxH, radius, scale, blur);
@@ -277,7 +283,7 @@ void RoundedArt::tryNext(const QString &key, int index)
             it->done = true;
             it->version++;
         }
-        emit ready(key);
+        emitReadyLater(key);
         return;
     }
 
@@ -343,7 +349,7 @@ void RoundedArt::tryNext(const QString &key, int index)
             it->done = true;
             it->version++;
         }
-        emit ready(key);
+        emitReadyLater(key);
     });
 }
 

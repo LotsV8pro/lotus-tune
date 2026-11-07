@@ -1158,6 +1158,10 @@ def playlist_info(list_id):
         "privacy": (_find_key(editable, "privacy") or "") if owned else "",
         "owned": owned,
         "count": count,
+        # Portada de la lista (la que se ve en YouTube Music): la usa la
+        # biblioteca de descargas para la tarjeta de la lista, en vez de la
+        # portada de su primera pista.
+        "thumb": _best_thumb(header) if isinstance(header, dict) else "",
     }
 
 
@@ -1353,9 +1357,39 @@ def cmd_artistpage(browse_id, name=""):
     return 0
 
 
+def album_playlist_id(browse_id):
+    """Id de la lista de audio (OLAK5uy…) de un álbum/sencillo.
+
+    Es la lista que YouTube Music genera para el disco: la que yt-dlp sabe
+    enumerar y descargar entera (una carpeta = un disco)."""
+    data = browse(browse_id, anon=True)
+    for key in ("musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer"):
+        header = _find_key(data, key)
+        if not isinstance(header, dict):
+            continue
+        for button in header.get("buttons") or []:
+            play = (button or {}).get("musicPlayButtonRenderer") or {}
+            endpoint = play.get("playNavigationEndpoint") or {}
+            pid = (endpoint.get("watchPlaylistEndpoint") or {}).get("playlistId") or ""
+            if pid.startswith("OLAK5uy_"):
+                return pid
+    # Álbumes sin botón de reproducción en la cabecera: primera lista de
+    # audio que aparezca en la respuesta.
+    m = re.search(r"OLAK5uy_[A-Za-z0-9_-]{20,}", json.dumps(data))
+    return m.group(0) if m else ""
+
+
 def cmd_album(browse_id):
     tracks = album_tracks(browse_id)
     json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_albuminfo(browse_id):
+    json.dump({"id": browse_id,
+               "playlistId": album_playlist_id(browse_id)},
+              sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
 
@@ -1544,6 +1578,10 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta el browseId del álbum")
             return cmd_album(args[1])
+        if cmd == "albuminfo":
+            if len(args) < 2:
+                raise YtmError("falta el browseId del álbum")
+            return cmd_albuminfo(args[1])
         if cmd == "alternate":
             if len(args) < 2:
                 raise YtmError("falta la pista (artista\\ttítulo\\texcluir)")

@@ -95,6 +95,10 @@ Window {
     // own block, under "MUSIC". `launcherQ` is the query in flight.
     property var launcherMusic: []
     property string launcherQ: ""
+    // A search is on its way (typing, waiting for the catalogue to be free
+    // or the sources answering): the launcher shows "Buscando…" instead of
+    // "Sin resultados".
+    property bool launcherSearching: false
     property bool followSys: true
     property var launcherRows: []
 
@@ -559,7 +563,9 @@ Window {
         launcherOpen = false
         launcherMusic = []
         launcherQ = ""
+        launcherSearching = false
         launcherSearch.stop()
+        launcherRetry.stop()
         if (launchInput)
             launchInput.focus = false
     }
@@ -645,7 +651,12 @@ Window {
     function curState() {
         return { p: page,
                  t: (page === "library" ? libPage.showingTracks : false),
-                 f: (page === "library" ? libPage.openDownloadFolder : "") }
+                 f: (page === "library" ? libPage.openDownloadFolder : ""),
+                 // The artist page is an overlay, not a page: without this
+                 // flag, going back from a record opened on the artist page
+                 // landed on the search that was behind it, not on the
+                 // artist.
+                 a: root.artistOpen }
     }
     function applyState(s) {
         if (!s) return
@@ -654,6 +665,8 @@ Window {
             libPage.openDownloadFolder = String(s.f || "")
             libPage.showingTracks = !!s.t
         }
+        if (s.a !== undefined)
+            root.artistOpen = !!s.a
     }
 
     // Navigates to `p` storing the current page in the stack (force: store
@@ -705,6 +718,13 @@ Window {
 
     // Root navigation (side rail / Home): we store where we came from.
     function navTo(p) {
+        // A rail/bottom-nav click leaves whatever overlay was on top: the
+        // artist page, the cinema or the side panel. Without this, pressing
+        // "Inicio" while the artist page was open did nothing: the page
+        // behind was already "home" and the overlay kept covering it.
+        root.artistOpen = false
+        root.fsLyricsOpen = false
+        root.panelOpen = false
         if (p === "library")
             libPage.showPlaylists()
         pushPage(p)
@@ -747,6 +767,11 @@ Window {
             return
         }
         if (page !== "home") {
+            // If we arrived here from inside the app (a record opened on
+            // an artist page, a list), back returns exactly there: the
+            // artist page comes back instead of jumping to Inicio.
+            if (root.navBack())
+                return
             // Leave the library in a clean state so the next visit does
             // not land inside a forgotten list.
             if (page === "library" && libPage.showingTracks)
@@ -798,6 +823,26 @@ Window {
         toast(play ? "Cargando la lista para reproducir…" : "Cargando la lista…")
     }
 
+    // Is `url` the list that is ALREADY loaded? Then entering it again does
+    // not touch the network, does not show "Cargando…" and does not rebuild
+    // the view: it just opens it, instant, with the scroll where it was.
+    // It is what makes the "Me gusta" tab open at once after the first time.
+    function listAlreadyOpen(url) {
+        return String(catalog.openListUrl || "") === String(url)
+               && catalog.tracks.length > 0
+    }
+
+    // "Me gusta" = YouTube Music's LM list.
+    function openLiked() {
+        const lm = "https://music.youtube.com/playlist?list=LM"
+        if (listAlreadyOpen(lm)) {
+            openTracksView()
+            return
+        }
+        beginOpenList(false)
+        catalog.openUrl(lm, "Me gusta")
+    }
+
     // Shows the tracks view of the open list. It is called when the
     // tracks are ALREADY loaded: a single jump to the album, without
     // going through the Library cover.
@@ -806,6 +851,11 @@ Window {
         if (!(page === "library" && libPage.showingTracks))
             pushPage("library", true)   // it stores the page you came from
         libPage.openTracks()
+        // The record was opened from the artist page: the overlay hides
+        // (its state stays in memory) so the list is visible. The pushed
+        // state keeps `artistOpen`, so going back brings the artist back.
+        if (root.artistOpen)
+            root.artistOpen = false
     }
 
     property int preMuteVolume: 70
@@ -923,6 +973,16 @@ Window {
     }
     // Ctrl+L: same as L and F. This one IS allowed with the search box
     // focused: Ctrl+L writes nothing, so it does not interfere.
+    // Ctrl+K: search (the hint shown in Home actually does something).
+    Shortcut {
+        sequence: "Ctrl+K"
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.navTo("search")
+            searchPage.focusField()
+        }
+    }
+
     Shortcut {
         sequence: "Ctrl+L"
         enabled: true
@@ -933,6 +993,17 @@ Window {
     }
 
     // ---- launcher data ---------------------------------------------------
+    // Enter in the palette: the query goes to the Search page (the full
+    // general search, every source, with filters and artist cards).
+    function launcherSubmit() {
+        const q = String(launchInput ? launchInput.text : "").trim()
+        if (q.length < 2)
+            return
+        closeLauncher()
+        root.navTo("search")
+        searchPage.startSearch(q)
+    }
+
     function launcherActivate(row) {
         if (!row)
             return
@@ -1032,6 +1103,15 @@ Window {
                 out.push({ h: false, kind: "music", i: g.i,
                            t: g.title || "", s: g.artist || "" })
             }
+            // Still waiting for the sources: it says so instead of
+            // pretending there is nothing (the local rows alone made the
+            // launcher look like a "recent" finder).
+            if (q.length >= 3 && root.launcherSearching
+                    && launcherMusic.length === 0) {
+                out.push({ h: true, t: "MÚSICA" })
+                out.push({ h: false, kind: "searching", t: "Buscando…",
+                           s: "YouTube Music, SoundCloud, Spotify y Tidal" })
+            }
         }
         launcherRows = out
     }
@@ -1047,13 +1127,66 @@ Window {
             const q = launchInput.text.trim()
             if (q.length < 3) {
                 root.launcherMusic = []
+                root.launcherSearching = false
+                launcherRetry.stop()
                 return
             }
             root.launcherQ = q
             // All the sources at once: there is no need to pick one
             // before searching (and the launcher does not redirect to
             // Search: it searches right here).
+            //
+            // `searchAll` REJECTS the request while the catalogue is busy
+            // (a list still loading, a prefetch, the previous search): the
+            // launcher ended up showing only the local rows -sources, saved
+            // lists, recent-, i.e. "it only finds what was already played".
+            // Now the query waits instead of being dropped.
+            root.launcherSearching = true
+            launcherGiveUp.restart()
+            if (catalog.busy) {
+                launcherRetry.restart()
+                return
+            }
             catalog.searchAll(q)
+        }
+    }
+
+    // A search that never answers does not leave the launcher saying
+    // "Buscando…" for ever (a dead network, a blocked source).
+    Timer {
+        id: launcherGiveUp
+        interval: 15000
+        onTriggered: {
+            if (!root.launcherSearching)
+                return
+            // Still busy (a long list loading/prefetching): keep waiting,
+            // the query is not lost.
+            if (catalog.busy) {
+                restart()
+                return
+            }
+            root.launcherSearching = false
+            if (launchInput)
+                root.buildLauncher(launchInput.text)
+        }
+    }
+
+    // While the catalogue is busy the search waits here and is fired as
+    // soon as it is free (the launcher is not left empty).
+    Timer {
+        id: launcherRetry
+        interval: 500
+        repeat: true
+        onTriggered: {
+            if (!root.launcherOpen || !root.launcherSearching) {
+                stop()
+                return
+            }
+            if (catalog.busy)
+                return
+            stop()
+            if (root.launcherQ.length >= 3)
+                catalog.searchAll(root.launcherQ)
         }
     }
 
@@ -1099,6 +1232,8 @@ Window {
                                url: songs[i].url, src: String(g.id || "") })
             }
             root.launcherMusic = out
+            root.launcherSearching = false
+            launcherRetry.stop()
             if (launchInput)
                 root.buildLauncher(launchInput.text)
         }
@@ -1537,6 +1672,9 @@ Window {
     // shuffle shuffles the whole queue once it is complete.
     property bool artistOpen: false
     property var artistCur: null           // { name, browseId, thumb }
+    // Sections of the open artist page (songs, albums, singles, radios,
+    // similar) + the full discography for "Play all".
+    property var artistPageData: ({})
     property var artistAlbums: []
     property bool artistBusy: false
     // What the app expects from the albums: "" none, "all", "shuffle",
@@ -1553,9 +1691,10 @@ Window {
             return
         root.artistCur = a
         root.artistAlbums = []
+        root.artistPageData = ({})
         root.artistBusy = true
         root.artistOpen = true
-        catalog.fetchArtist(a.browseId)
+        catalog.fetchArtistPage(a.browseId)
     }
 
     // Info of the playing track for the context menus of the bar and of
@@ -1614,19 +1753,98 @@ Window {
                 pick = list[0]
             root.openArtist(pick)
         }
+
+        // The artist page arrived: it fills the sections. The discography
+        // (complete, not cut to the page shelves) is what "Play all" walks;
+        // if it did not arrive, the albums + singles of the page do.
+        function onArtistPageReady(browseId, page) {
+            if (!root.artistCur
+                    || String(root.artistCur.browseId || "") !== String(browseId))
+                return
+            const d = page || ({})
+            root.artistPageData = d
+            const disc = (d.discography && d.discography.length) ? d.discography : []
+            const al = (d.albums && d.albums.length) ? d.albums : []
+            const sg = (d.singles && d.singles.length) ? d.singles : []
+            root.artistAlbums = disc.length ? disc : al.concat(sg)
+            root.artistBusy = false
+        }
     }
 
     function closeArtist() {
         root.artistOpen = false
     }
 
-    // "Play all" / "Shuffle" over the loaded discography.
-    function artistPlayAll(albums, random) {
-        const list = albums || []
+    // Air that the artist page has to leave at the bottom so the playback
+    // bar keeps showing (its rounded island with the blur, not only the
+    // transport): the page ends right above it. On the phone the tab bar
+    // stays visible too.
+    function artistBottomInset() {
+        let inset = Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        if (root.isPhone)
+            inset += bottomNav.height + Theme.panelGap
+        if (playBar.visible)
+            inset += playBar.height + Theme.panelGap
+        return inset
+    }
+
+    // "Play all" / "Shuffle" over the loaded discography. The list arrives
+    // newest first; `oldestFirst` reverses it. Shuffle adds everything and
+    // then shuffles the queue, so it is the whole artist in random order.
+    // ---- downloading albums / the whole discography ---------------------
+    // Every record has an audio list on YouTube Music (OLAK5uy…) that yt-dlp
+    // can enumerate. It is resolved one album at a time in the background
+    // (Catalog::fetchAlbumPlaylist) and then queued in Downloads.
+    property var albumDlQueue: []
+    property int albumDlTotal: 0
+    property int albumDlDone: 0
+
+    function downloadAlbums(list) {
+        if (typeof downloads === "undefined") {
+            root.toast("Las descargas no están disponibles aquí")
+            return
+        }
+        const clean = []
+        for (var i = 0; i < (list || []).length; i++) {
+            const a = list[i]
+            if (!a || String(a.browseId || "") === "")
+                continue
+            clean.push({ browseId: String(a.browseId),
+                         title: String(a.title || "") })
+        }
+        if (clean.length === 0) {
+            root.toast("No hay discos que descargar")
+            return
+        }
+        root.albumDlQueue = clean
+        root.albumDlTotal = clean.length
+        root.albumDlDone = 0
+        root.toast(clean.length === 1
+                   ? "Preparando «" + clean[0].title + "»…"
+                   : "Preparando " + clean.length + " discos…")
+        root.nextAlbumDownload()
+    }
+
+    function nextAlbumDownload() {
+        if (root.albumDlQueue.length === 0) {
+            if (root.albumDlTotal > 1 && root.albumDlDone > 0)
+                root.toast(root.albumDlDone + " discos en la cola de descargas")
+            root.albumDlTotal = 0
+            root.albumDlDone = 0
+            return
+        }
+        const a = root.albumDlQueue[0]
+        catalog.fetchAlbumPlaylist(a.browseId, a.title)
+    }
+
+    function artistPlayAll(albums, random, oldestFirst) {
+        let list = (albums || []).slice()
         if (list.length === 0) {
             root.toast("Este artista no tiene discos que reproducir")
             return
         }
+        if (oldestFirst)
+            list.reverse()
         root.artistWant = random ? "aleatorio" : "todo"
         root.artistStarted = false
         root.artistAdded = 0
@@ -1645,6 +1863,23 @@ Window {
         root.artistWantBrowse = String(album.browseId)
         root.artistStarted = false
         root.artistAdded = 0
+        catalog.fetchAlbumTracks(root.artistWantBrowse)
+    }
+
+    // Click on the cover of a record (artist page): it OPENS the album's
+    // track list without playing it. It reuses the `album` request the
+    // play button already does (the tracks of the record) and shows them
+    // as the open list, so it works on Android too: the audio-list request
+    // the download uses needs the python helper, which is not there.
+    property string albumOpenName: ""
+
+    function artistOpenAlbum(album) {
+        if (!album || String(album.browseId || "") === "")
+            return
+        root.albumOpenName = String(album.title || "")
+        root.artistWant = "open"
+        root.artistWantBrowse = String(album.browseId)
+        root.beginOpenList(false)
         catalog.fetchAlbumTracks(root.artistWantBrowse)
     }
 
@@ -2392,6 +2627,29 @@ Window {
             if (info.privacy)
                 root.editorPrivate = (String(info.privacy).toUpperCase() === "PRIVATE")
         }
+        // One record of the album download queue is ready: it is handed to
+        // yt-dlp as the album's audio list and the next one is asked for.
+        function onAlbumPlaylistReady(browseId, playlistId, name) {
+            if (root.albumDlQueue.length === 0
+                || String(root.albumDlQueue[0].browseId) !== String(browseId))
+                return
+            if (String(playlistId) !== "" && typeof downloads !== "undefined") {
+                downloads.downloadPlaylist(
+                    "https://music.youtube.com/playlist?list=" + playlistId,
+                    String(name || root.albumDlQueue[0].title || "Álbum"))
+                root.albumDlDone++
+            }
+            root.albumDlQueue.shift()
+            root.nextAlbumDownload()
+        }
+        function onAlbumPlaylistFailed(browseId, name) {
+            if (root.albumDlQueue.length === 0
+                || String(root.albumDlQueue[0].browseId) !== String(browseId))
+                return
+            root.toast("No se pudo preparar «" + String(name || "el disco") + "»")
+            root.albumDlQueue.shift()
+            root.nextAlbumDownload()
+        }
         // Answer to the replacement search of a track whose video died:
         // the queue row is replaced with the new video and that same row
         // is played. The user's queue is fixed in place (their local
@@ -2570,9 +2828,27 @@ Window {
                     root.artistWant = ""
                     root.artistWantBrowse = ""
                     root.toast("Ese álbum no trae pistas reproducibles")
+                } else if (root.artistWant === "open") {
+                    root.artistWant = ""
+                    root.artistWantBrowse = ""
+                    root.albumOpenName = ""
+                    root.listLoading = false
+                    root.pendingPlay = false
+                    root.toast("Ese álbum no trae pistas")
                 } else {
                     root.artistAdvance()
                 }
+                return
+            }
+            if (root.artistWant === "open") {
+                // Cover of a record: the list is painted, nothing sounds.
+                // `showTracks` emits tracksReady and the usual handler
+                // opens the view (pendingPlay is false).
+                const openName = root.albumOpenName
+                root.albumOpenName = ""
+                root.artistWant = ""
+                root.artistWantBrowse = ""
+                catalog.showTracks(tracks, openName)
                 return
             }
             if (!root.artistStarted) {
@@ -2659,70 +2935,11 @@ Window {
 
             Item {
                 id: sideCol
-                // Phone: the rail moves to a bottom bar (BottomNav); the
-                // desktop keeps the side column. The instance stays alive
-                // so its handlers keep working.
-                visible: !root.isPhone
+                // The rail is painted on its own layer (sideDock, below):
+                // this is only the empty strip that keeps the pages clear
+                // of it. Phone: the rail moves to a bottom bar (BottomNav).
                 Layout.preferredWidth: root.isPhone ? 0 : sidebar.railWidth
                 Layout.fillHeight: true
-
-                Sidebar {
-                    id: sidebar
-                    anchors.fill: parent
-                    page: root.activeNavId()
-                    trackTitle: root.currentTitle
-                    trackArtist: root.currentArtist
-                    trackThumb: root.currentThumb
-                    playing: player.playing
-                    engineStatus: player.engineStatus
-                    onNavigate: (p) => {
-                        // "Library" leaves "Downloads" behind: it goes
-                        // back to the "Songs" tab so the click really
-                        // takes you to the Library.
-                        if (p === "library") {
-                            if (libPage.libraryTab === 4)
-                                libPage.libraryTab = 0
-                        }
-                        root.navTo(p)
-                    }
-                    onSettingsRequested: root.toggleSettings()
-                    onNowPlayingRequested: root.openFullscreenLyrics()
-                    // "Liked": opens YouTube Music's LM list without
-                    // playing it.
-                    onLikedRequested: {
-                        root.beginOpenList(false)
-                        catalog.openUrl("https://music.youtube.com/playlist?list=LM",
-                                        "Me gusta")
-                    }
-                    // "Downloads": the Library with the "Downloaded" tab
-                    // active (it is clear you are in Downloads).
-                    onDownloadsRequested: {
-                        libPage.libraryTab = 4
-                        root.navTo("library")
-                    }
-                    // Click on a list: it opens and, when it arrives, it
-                    // is shown directly (without jumping to the Library
-                    // nor playing it).
-                    onPlaylistRequested: (i) => {
-                        root.beginOpenList(false)
-                        catalog.openPlaylist(i)
-                    }
-                    onYtmlistRequested: (url, name) => {
-                        root.beginOpenList(false)
-                        catalog.openUrl(url, name)
-                    }
-                    onYtmlistContextRequested: (item, x, y) => {
-                        root.showContextMenu(root.playlistMenuItems({
-                            id: item.id || root.listIdOf(item.url),
-                            name: item.name || "",
-                            url: item.url || "",
-                            owned: item.owned === true
-                        }), x, y)
-                    }
-                    onPlaylistContextRequested: (item, x, y) => {
-                        root.showContextMenu(root.savedPlaylistMenuItems(item, item.index), x, y)
-                    }
-                }
             }
 
             ColumnLayout {
@@ -2735,7 +2952,10 @@ Window {
                     Layout.preferredHeight: Theme.topBarH
                     title: root.pageTitle()
                     subtitle: root.pageSubtitle()
-                    showBack: root.navStack.length > 0
+                    // Inicio is the default place: no back arrow there, even
+                    // if the stack still has steps (there is nothing above
+                    // Home to go back to).
+                    showBack: root.page !== "home" && root.navStack.length > 0
                     onBackRequested: root.navBack()
                     onLauncherRequested: root.toggleLauncher()
                     onSettingsRequested: root.toggleSettings()
@@ -2839,6 +3059,21 @@ Window {
                                 root.pushPage("library", true)
                                 libPage.openDownloadPlaylist(folder)
                             }
+                            // Play everything downloaded: the order the files
+                            // arrived in (or the newest first) or shuffled.
+                            onDownloadsPlayRequested: (random, newestFirst) => {
+                                const list = (libPage.dlLocalAll || []).slice()
+                                if (list.length === 0) {
+                                    root.toast("No hay descargas que reproducir")
+                                    return
+                                }
+                                if (newestFirst)
+                                    list.reverse()
+                                if (random)
+                                    root.shuffleTracks(list)
+                                else
+                                    root.playTracks(list, 0)
+                            }
                         }
                     }
                 }
@@ -2864,6 +3099,8 @@ Window {
                 onTabRequested: (t) => root.panelTab = t
                 queueModel: queue
                 queueIndex: root.queueIndex
+                open: root.panelOpen
+                playing: player.playing
                 onCloseRequested: root.panelOpen = false
                 onTrackActivated: (i) => {
                     root.queueIndex = i
@@ -2874,74 +3111,272 @@ Window {
             }
         }
 
-        PlayerBar {
-            id: playBar
-            // Floating on the phone: it only appears when there is
-            // really something playing or resolving; the desktop keeps
-            // the always-standing dock.
-            visible: !root.isPhone || player.playing || player.loading
-                     || root.currentVideoId !== ""
+        // The playback bar and the phone tab bar live in their own dock on
+        // top of everything (bottomDock, below): the artist page fills the
+        // whole window and the pill floats over it, covering the content.
+        Item {
+            id: bottomSpacer
             Layout.fillWidth: true
-            playing: player.playing
-            loading: player.loading
-            position: player.position
-            duration: player.duration
-            title: root.currentTitle
-            artist: root.currentArtist
-            currentThumb: root.currentThumb
-            volume: player.volume
-            shuffle: root.shuffle
-            repeatMode: root.repeatMode
-            onToggle: root.togglePlay()
-            onNextRequested: root.next()
-            onPrevRequested: root.prev()
-            onShuffleToggled: root.toggleShuffle()
-            onRepeatToggled: root.toggleRepeat()
-            onLyricsRequested: root.openFullscreenLyrics()
-            onQueueRequested: root.togglePanel(0)
-            onLyricsPanelRequested: root.togglePanel(1)
-            // Swipe up on the progress line: the cinema mode (the same
-            // full screen the "L"/"F" keys and the side panel open).
-            onCinemaRequested: root.openFullscreenLyrics()
-            onSeekRequested: (secs) => player.seek(secs)
-            onVolumeWanted: (v) => player.setVolume(v)
-            videoId: root.currentVideoId
-            liked: root.currentLiked
-            // Highlight of the queue button while the panel shows the queue.
-            queueOpen: root.panelOpen && root.panelTab === 0
-            canInteract: catalog.loginState === "ok"
-            onLikeRequested: root.toggleLike()
-            onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
-            onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
-            onArtistRequested: (name) => root.openArtistByName(name)
+            Layout.preferredHeight: bottomDock.implicitHeight
         }
+    }
 
-        // ---- phone-only bottom navigation --------------------------------
-        // The desktop rail moves to a bottom tab bar for thumb reach; the
-        // playback bar stays above it (mini-player over tab bar, like any
-        // mobile music app). Same signals the rail exposes.
-        BottomNav {
-            id: bottomNav
-            visible: root.isPhone
-            Layout.fillWidth: true
+    // ---- dock: side rail ------------------------------------------------
+    // Its own layer above the pages (and above the artist page), exactly
+    // like the playback pill: the rail is always there. Only a page that
+    // really covers the whole window on purpose (settings, the launcher)
+    // goes over it.
+    Item {
+        id: sideDock
+        z: 66
+        visible: !root.isPhone
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.panelMargin
+        anchors.topMargin: Theme.panelMargin
+        // Air at the bottom too: the rail is a rounded island, it does not
+        // run glued to the edge of the window.
+        anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        width: sidebar.railWidth
+
+        Sidebar {
+            id: sidebar
+            anchors.fill: parent
+            // The rail is an island: it ends with air above the window
+            // edge, like the playback pill.
             page: root.activeNavId()
+            trackTitle: root.currentTitle
+            trackArtist: root.currentArtist
+            trackThumb: root.currentThumb
+            playing: player.playing
+            engineStatus: player.engineStatus
             onNavigate: (p) => {
+                // "Library" leaves "Downloads" behind: it goes
+                // back to the "Songs" tab so the click really
+                // takes you to the Library.
                 if (p === "library") {
                     if (libPage.libraryTab === 4)
                         libPage.libraryTab = 0
                 }
                 root.navTo(p)
             }
-            onLikedRequested: {
-                root.beginOpenList(false)
-                catalog.openUrl("https://music.youtube.com/playlist?list=LM",
-                                "Me gusta")
-            }
+            onSettingsRequested: root.toggleSettings()
+            onNowPlayingRequested: root.openFullscreenLyrics()
+            // "Liked": opens YouTube Music's LM list without
+            // playing it (instant if it is already loaded).
+            onLikedRequested: root.openLiked()
+            // "Downloads": the Library with the "Downloaded" tab
+            // active (it is clear you are in Downloads).
             onDownloadsRequested: {
                 libPage.libraryTab = 4
                 root.navTo("library")
             }
+            // Click on a list: it opens and, when it arrives, it
+            // is shown directly (without jumping to the Library
+            // nor playing it).
+            onPlaylistRequested: (i) => {
+                root.beginOpenList(false)
+                catalog.openPlaylist(i)
+            }
+            onYtmlistRequested: (url, name) => {
+                root.beginOpenList(false)
+                catalog.openUrl(url, name)
+            }
+            onYtmlistContextRequested: (item, x, y) => {
+                root.showContextMenu(root.playlistMenuItems({
+                    id: item.id || root.listIdOf(item.url),
+                    name: item.name || "",
+                    url: item.url || "",
+                    owned: item.owned === true
+                }), x, y)
+            }
+            onPlaylistContextRequested: (item, x, y) => {
+                root.showContextMenu(root.savedPlaylistMenuItems(item, item.index), x, y)
+            }
         }
+    }
+
+    // ---- dock: playback bar (+ phone tab bar) ---------------------------
+    // Its own layer above the pages AND above the artist page: the dark
+    // pill floats over whatever is underneath (the artist page scrolls
+    // behind it). Modals that must win over the bar hide it.
+    ColumnLayout {
+        id: bottomDock
+        z: 66
+        // Always on: the playback pill (and the phone tab bar) never
+        // disappear, whatever is open on top of it.
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.panelMargin
+        anchors.rightMargin: Theme.panelMargin
+        anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
+        spacing: Theme.panelGap
+
+    PlayerBar {
+        id: playBar
+        // Floating on the phone: it only appears when there is
+        // really something playing or resolving; the desktop keeps
+        // the always-standing dock.
+        visible: !root.isPhone || player.playing || player.loading
+                 || root.currentVideoId !== ""
+        Layout.fillWidth: true
+        // The pill floats above the tab bar with a bit of air between the
+        // two (phone only: on the desktop there is no tab bar under it).
+        Layout.bottomMargin: root.isPhone ? Theme.s3 : 0
+        playing: player.playing
+        loading: player.loading
+        position: player.position
+        duration: player.duration
+        title: root.currentTitle
+        artist: root.currentArtist
+        currentThumb: root.currentThumb
+        volume: player.volume
+        shuffle: root.shuffle
+        repeatMode: root.repeatMode
+        onToggle: root.togglePlay()
+        onNextRequested: root.next()
+        onPrevRequested: root.prev()
+        onShuffleToggled: root.toggleShuffle()
+        onRepeatToggled: root.toggleRepeat()
+        onLyricsRequested: root.openFullscreenLyrics()
+        onQueueRequested: root.togglePanel(0)
+        onLyricsPanelRequested: root.togglePanel(1)
+        // Swipe up on the progress line: the cinema mode (the same
+        // full screen the "L"/"F" keys and the side panel open).
+        onCinemaRequested: root.openFullscreenLyrics()
+        onSeekRequested: (secs) => player.seek(secs)
+        onVolumeWanted: (v) => player.setVolume(v)
+        videoId: root.currentVideoId
+        liked: root.currentLiked
+        // Highlight of the queue button while the panel shows the queue.
+        queueOpen: root.panelOpen && root.panelTab === 0
+        canInteract: catalog.loginState === "ok"
+        onLikeRequested: root.toggleLike()
+        onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
+        onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
+        onArtistRequested: (name) => root.openArtistByName(name)
+    }
+
+    // ---- phone-only bottom navigation --------------------------------
+    // The desktop rail moves to a bottom tab bar for thumb reach; the
+    // playback bar stays above it (mini-player over tab bar, like any
+    // mobile music app). Same signals the rail exposes.
+    BottomNav {
+        id: bottomNav
+        visible: root.isPhone
+        Layout.fillWidth: true
+        page: root.activeNavId()
+        onNavigate: (p) => {
+            if (p === "library") {
+                if (libPage.libraryTab === 4)
+                    libPage.libraryTab = 0
+            }
+            root.navTo(p)
+        }
+        onLikedRequested: root.openLiked()
+        onDownloadsRequested: {
+            libPage.libraryTab = 4
+            root.navTo("library")
+        }
+    }
+    }
+
+    // ---- widget de la letra -------------------------------------------
+    // El widget de letra no sabe nada de tiempos: aqui se busca la linea
+    // activa (la misma `lineIndexAt` que usa la vista) y se le empuja el
+    // par actual/siguiente SOLO cuando cambia. El sondeo es barato porque
+    // trabaja sobre las lineas ya cargadas.
+    property string widgetLyricTrack: ""
+    property string widgetLyricPrev: ""
+    property string widgetLyricLine: ""
+    property string widgetLyricNext: ""
+
+    function refreshLyricsWidget() {
+        if (typeof player.updateLyricsWidget !== "function")
+            return
+        var lyr = (typeof lyrics !== "undefined") ? lyrics : null
+        if (!lyr || !root.lyricsEnabled || !root.currentTitle) {
+            if (root.widgetLyricLine !== "" || root.widgetLyricNext !== ""
+                    || root.widgetLyricPrev !== "") {
+                root.widgetLyricPrev = ""
+                root.widgetLyricLine = ""
+                root.widgetLyricNext = ""
+                player.updateLyricsWidget("", "", "")
+            }
+            return
+        }
+        var track = root.currentArtist + " - " + root.currentTitle
+        // Las lineas que hay en memoria pueden ser de la pista ANTERIOR
+        // (el cambio de cancion es inmediato, la letra tarda un poco):
+        // mientras no sean de esta, no se pintan.
+        var key = String(lyr.trackKey || "")
+        var known = (key !== "" && key === track)
+        var sameTrack = known
+        var prev = ""
+        var line = ""
+        var next = ""
+        var arr = lyr.lines || []
+        if (sameTrack && lyr.hasSynced && arr.length > 0) {
+            // El mismo ajuste fino que la vista (cada pista tiene el suyo).
+            var pos = Number(player.position || 0) + Number(lyr.offset || 0)
+            var idx = -1
+            if (typeof lyr.lineIndexAt === "function") {
+                var r = lyr.lineIndexAt(pos)
+                if (typeof r === "number" && r >= 0 && r < arr.length)
+                    idx = r
+            }
+            if (idx >= 0) {
+                line = String(arr[idx].text || "")
+                // La anterior y la siguiente acompañan a la actual: asi se
+                // sigue la cancion aunque se mire el movil de reojo.
+                if (idx > 0)
+                    prev = String(arr[idx - 1].text || "")
+                if (idx + 1 < arr.length)
+                    next = String(arr[idx + 1].text || "")
+            } else {
+                // Antes de la primera linea (intro instrumental): un
+                // simbolo y, como "siguiente", lo primero que se cantara.
+                line = "♪"
+                next = String(arr[0].text || "")
+            }
+        } else if (sameTrack && lyr.hasLyrics && lyr.plain) {
+            // Letra sin tiempos: se enseñan las dos primeras lineas.
+            var rows = String(lyr.plain).split("\n")
+            for (var i = 0; i < rows.length; i++) {
+                var t = rows[i].trim()
+                if (t === "")
+                    continue
+                if (line === "")
+                    line = t
+                else if (next === "") {
+                    next = t
+                    break
+                }
+            }
+        }
+        // Sin lineas todavia: si la letra esta en camino (o aun no se ha
+        // pedido porque el motor no sabia la duracion), se dice; solo
+        // cuando la peticion termina sin nada se queda en "sin letra".
+        if (line === "" && (lyr.loading || !sameTrack))
+            line = "Cargando letra…"
+        if (track === root.widgetLyricTrack && prev === root.widgetLyricPrev
+                && line === root.widgetLyricLine
+                && next === root.widgetLyricNext)
+            return
+        root.widgetLyricTrack = track
+        root.widgetLyricPrev = prev
+        root.widgetLyricLine = line
+        root.widgetLyricNext = next
+        player.updateLyricsWidget(prev, line, next)
+    }
+
+    Timer {
+        interval: 250
+        repeat: true
+        running: true
+        onTriggered: root.refreshLyricsWidget()
     }
 
     // ---- widget de inicio / notificacion -----------------------------
@@ -2954,6 +3389,20 @@ Window {
                             player.playing, root.shuffle,
                             root.repeatMode, root.currentLiked,
                             root.currentThumb, player.position, player.duration)
+    }
+
+    // La tarjeta de medios del sistema (y el widget) extrapolan la barra
+    // desde la ultima posicion que se les dio: sin refrescarla, al cambiar
+    // de pista o al volver de segundo plano la barra se quedaba atras o se
+    // adelantaba. Una vez por segundo basta y no repinta el aviso.
+    Timer {
+        interval: 1000
+        repeat: true
+        running: player.playing && player.duration > 0
+        onTriggered: {
+            if (typeof player.syncMediaProgress === "function")
+                player.syncMediaProgress(player.position)
+        }
     }
 
     Connections {
@@ -3151,6 +3600,7 @@ Window {
                 Layout.fillHeight: true
                 tracks: queue
                 currentIndex: root.queueIndex
+                barsAnimate: root.fsQueueOpen && player.playing
                 onTrackActivated: (i) => {
                     root.queueIndex = i
                     root.startCurrent()
@@ -3960,6 +4410,21 @@ Window {
                         }
 
                         SettingRow {
+                            label: "Sonidos de interfaz"
+                            desc: "Chasquido al pulsar botones, corazones y ajustes"
+                            Toggle {
+                                checked: sfx.enabled
+                                onToggled: {
+                                    sfx.enabled = !sfx.enabled
+                                    if (sfx.enabled)
+                                        sfx.play("toggle")
+                                    root.toast(sfx.enabled ? "Sonidos activados"
+                                                           : "Sonidos desactivados")
+                                }
+                            }
+                        }
+
+                        SettingRow {
                             label: "Color de acento"
                             desc: "Hexadecimal, por ejemplo #e3bae5"
                             RowLayout {
@@ -4640,11 +5105,27 @@ Window {
                             font.pixelSize: Theme.tBase
                             clip: true
                             text: ""
-                            onTextChanged: { root.buildLauncher(text); launcherSearch.restart() }
+                            onTextChanged: {
+                                // Results of the previous query are not
+                                // kept on screen: they made the launcher
+                                // look like it only found what had already
+                                // been played.
+                                if (String(catalog.resultsQuery || "")
+                                        !== String(text).trim()) {
+                                    root.launcherMusic = []
+                                    root.launcherSearching =
+                                        String(text).trim().length >= 3
+                                }
+                                root.buildLauncher(text)
+                                launcherSearch.restart()
+                            }
                             Keys.onEscapePressed: root.closeLauncher()
+                            // Enter: the full search (Search page).
+                            Keys.onReturnPressed: root.launcherSubmit()
+                            Keys.onEnterPressed: root.launcherSubmit()
                         }
                         Text {
-                            text: "Esc"
+                            text: "↵ busca · Esc"
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.bold: true
@@ -4670,6 +5151,7 @@ Window {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.s2
                             visible: root.launcherRows.length === 0
+                                     && !root.launcherSearching
                             text: "Sin resultados"
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
@@ -4765,14 +5247,48 @@ Window {
     ArtistPage {
         id: artistOverlay
         anchors.fill: parent
+        // The rail is a dock on top (z 66) and is always visible: the page
+        // starts to its right instead of sliding under it.
+        anchors.leftMargin: root.isPhone ? 0
+                            : sidebar.railWidth + Theme.panelGap
+        // It fills the whole window (the washed background goes edge to
+        // edge); the playback pill floats on top and the last section is
+        // given room to scroll clear of it.
+        bottomInset: root.artistBottomInset()
+        washSource: washImg.source
         z: 64
         visible: root.artistOpen
         artist: root.artistCur
-        albums: root.artistAlbums
+        pageData: root.artistPageData
         busy: root.artistBusy
         onBackRequested: root.closeArtist()
-        onPlayAllRequested: (random) => root.artistPlayAll(root.artistAlbums, random)
+        onPlayAllRequested: (random, oldestFirst) =>
+            root.artistPlayAll(root.artistAlbums, random, oldestFirst)
         onAlbumPlayRequested: (album) => root.artistPlayAlbum(album)
+        // Cover of a record: it opens its track list, it does not play.
+        onAlbumOpenRequested: (album) => root.artistOpenAlbum(album)
+        // Download the record (hover button of the card) or the whole
+        // discography (its button in the header).
+        onAlbumDownloadRequested: (album) => root.downloadAlbums([album])
+        onDiscographyDownloadRequested: () => root.downloadAlbums(root.artistAlbums)
+        // Top songs: that one plays and the rest of the section follows.
+        onSongPlayRequested: (list, index) => root.playTracks(list, index)
+        // "Radio de <artist>": the existing artist radio (top track + radio).
+        onRadioRequested: root.startArtistRadio({ artist: root.artistCur
+                                                  ? String(root.artistCur.name || "")
+                                                  : "" })
+        // A playlist/radio of their page: it opens as a list, no autoplay.
+        onListRequested: (id, name) => {
+            if (String(id) === "")
+                return
+            root.beginOpenList(false)
+            catalog.openUrl("https://music.youtube.com/playlist?list=" + id, name)
+        }
+        // Similar artist: another artist page, replacing this one.
+        onSimilarRequested: (a) => {
+            root.artistOpen = false
+            root.openArtist(a)
+        }
     }
 
     // ---- startup splash ------------------------------------------------

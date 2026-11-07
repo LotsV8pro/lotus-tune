@@ -33,8 +33,20 @@ Item {
     // Asks to open a DOWNLOADED list as a playlist (records the back
     // step).
     signal downloadOpenRequested(string folder)
+    // Play ALL the downloaded tracks: `random` = shuffle; `newestFirst` =
+    // newest downloads first (by default, the order they were downloaded).
+    signal downloadsPlayRequested(bool random, bool newestFirst)
 
     property bool showingTracks: false
+    // Order of the Downloads page: false = the order the tracks were
+    // downloaded, true = the newest first.
+    property bool dlNewestFirst: false
+
+    // Una radio (RDAMVM/RDCLAK, "start_radio") no es una lista con autor:
+    // la cabecera enseñaba el artista de la PRIMERA pista como si fuera el
+    // de la radio ("Radio de Calva Louise" → "VIOLENT VIRA").
+    readonly property bool viewIsRadio:
+        /(?:[?&]list=RD|start_radio=1)/.test(String(catalog.openListUrl || ""))
 
     function openTracks() { showingTracks = true; openDownloadFolder = "" }
     function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
@@ -280,6 +292,39 @@ Item {
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
     // Downloaded lists (one folder = one list) and loose tracks.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
+
+    // Folder of a downloaded list (empty if that cover is not downloaded).
+    // It matches by the list URL and, as a fallback, by the sanitised name
+    // (older downloads without URL in their metadata).
+    function downloadedFolder(c) {
+        if (!c || typeof downloads === "undefined")
+            return ""
+        const fs = page.dlFolders
+        const u = String(c.url || "")
+        if (u !== "") {
+            for (let i = 0; i < fs.length; i++)
+                if (String(fs[i].url || "") === u)
+                    return String(fs[i].folder || "")
+        }
+        const nm = String(c.name || "")
+        if (nm !== "") {
+            const want = downloads.listFolderName(nm)
+            for (let j = 0; j < fs.length; j++) {
+                const f = String(fs[j].folder || "")
+                if (f === "" || f === undefined)
+                    continue
+                if (f === want || f === nm || String(fs[j].name || "") === nm)
+                    return f
+            }
+        }
+        return ""
+    }
+
+    // Is this library cover already downloaded? (it has its folder in
+    // Downloads).
+    function isDownloaded(c) {
+        return page.downloadedFolder(c) !== ""
+    }
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
 
@@ -366,6 +411,9 @@ Item {
     function viewArtistText() {
         if (page.localPlaylistOpen)
             return ""
+        // La radio no tiene autor propio: el de su primera pista no lo es.
+        if (page.viewIsRadio)
+            return "Radio · YouTube Music"
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }
@@ -721,20 +769,28 @@ Item {
         // con el backend software, donde `MultiEffect` no dibuja nada y
         // el fondo salia plano. RoundedArt se encarga de la descarga, el
         // cache y de repintar cuando el C++ termina.
+        //
+        // Va como TARJETA, no a sangre: mismos margenes que los demas
+        // paneles (Theme.panelMargin) y radio Theme.rXl, redondeado en el
+        // C++ (el alfa lo pone rart, un `clip` de Rectangle no recorta las
+        // esquinas). El rectangulo que hacia de fondo llegaba cuadrado
+        // hasta los bordes de la pantalla y desentonaba con las islas.
         RoundedArt {
             id: listBgArt
             anchors.fill: parent
+            anchors.margins: Theme.panelMargin
             source: page.viewCover()
-            radiusSpec: 0
+            radiusSpec: Theme.rXl
             blur: 2
             opacity: 0.8
         }
         Rectangle {
-            anchors.fill: parent
+            anchors.fill: listBgArt
+            radius: Theme.rXl
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.30) }
-                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.62) }
-                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.94) }
+                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.34) }
+                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.58) }
+                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.80) }
             }
         }
     }
@@ -752,6 +808,11 @@ Item {
             Layout.fillHeight: true
             visible: page.showingTracks
             spacing: Theme.panelGap
+            // El fondo es una TARJETA con esquinas de Theme.rXl: sin aire
+            // dentro, la portada y la primera fila pisaban el arco de la
+            // esquina y parecia todo desplazado (el fondo iba a sangre
+            // antes de convertirlo en tarjeta).
+            Layout.margins: Theme.s3
 
             // ---- cabecera de la lista (referencia: Liner) --------------
             // Portada 168, titulo 30 en negrita, autor 18 y las pastillas
@@ -1175,6 +1236,10 @@ Item {
                 reuseItems: true
                 cacheBuffer: 800
                 spacing: 0
+                // Room at the end so the last row comes out from under the
+                // bottom edge of the card (before, it was cut and a black
+                // gradient was painted over it: that band looked dirty).
+                bottomMargin: Theme.s6
                 boundsBehavior: Flickable.StopAtBounds
                 // Open list: it already cooks its first tracks so the click
                 // on the header sounds right away.
@@ -2046,6 +2111,11 @@ Item {
                             width: 128
                             height: folderStrip.height
 
+                            // Hover of the whole card (it lives here, not in
+                            // the MouseArea, so the trash button showing up
+                            // under the cursor does not steal it).
+                            HoverHandler { id: fcellHover }
+
                             Rectangle {
                                 id: fthumb
                                 width: parent.width
@@ -2120,14 +2190,20 @@ Item {
                             // Uninstall this list (it deletes its files). It
                             // shows on mouse over the card; on touch it is
                             // always visible (there is no hover).
+                            // It is always LAID OUT and only changes its
+                            // opacity: toggling `visible` made it flicker
+                            // (when it appeared under the cursor it stole
+                            // the hover, hid itself, and so on in a loop).
                             Rectangle {
                                 width: Theme.touch ? 34 : 26
                                 height: width
                                 radius: width / 2
-                                visible: cellMa.containsMouse || Theme.touch
+                                opacity: (fcellHover.hovered || Theme.touch) ? 1 : 0
+                                enabled: opacity > 0.5
+                                Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                                 color: delMa.containsMouse ? Sys.danger
                                                            : Qt.rgba(0, 0, 0, 0.55)
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                                 anchors.right: fthumb.right
                                 anchors.top: fthumb.top
                                 anchors.rightMargin: 4
@@ -2156,159 +2232,192 @@ Item {
                     }
                 }
 
-                // ---- LOCAL: downloads (virtualized list) -------------------
-                Item {
+                // ---- LOCAL: downloads -------------------------------------
+                // Like the artist page: one "Play all" (in download order,
+                // reversible) and "Shuffle" for everything downloaded. The
+                // lists are the cards above; opening one shows its tracks
+                // (a single song is found with the search).
+                ColumnLayout {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: page.localSelected
+                    spacing: Theme.s3
 
-                    ListView {
-                        id: localList
-                        anchors.fill: parent
-                        clip: true
-                        model: page.dlLocalAll
-                        reuseItems: true
-                        cacheBuffer: 600
-                        spacing: 0
-                        boundsBehavior: Flickable.StopAtBounds
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.s1
+                        spacing: Theme.s2
+                        visible: page.dlLocalAll.length > 0
 
-                        delegate: Item {
-                            id: lrow
-                            required property int index
-                            required property var modelData
-
-                            width: ListView.view.width
-                            height: Theme.rowH
-
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: Theme.rMd
-                                color: lrowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        // Play all, in download order.
+                        Rectangle {
+                            Layout.preferredWidth: dlPlayRow.implicitWidth + Theme.s5 * 2
+                            Layout.preferredHeight: Theme.touch ? 42 : 40
+                            radius: Theme.rPill
+                            color: dlPlayMa.containsMouse || dlPlayMa.pressed
+                                   ? Qt.darker(Sys.accent, 1.12) : Sys.accent
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            RowLayout {
+                                id: dlPlayRow
+                                anchors.centerIn: parent
+                                spacing: Theme.s2
+                                Glyph { width: 15; height: 15; kind: "play"; color: Sys.bg }
+                                Text {
+                                    text: "Reproducir todo"
+                                    color: Sys.bg
+                                    font.pixelSize: Theme.tMd
+                                    font.weight: Font.DemiBold
+                                }
                             }
-
                             MouseArea {
-                                id: lrowMouse
+                                id: dlPlayMa
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                property bool menuHeld: false
-                                onPressAndHold: {
-                                    lrowMouse.menuHeld = true
-                                    const p = mapToItem(null, mouseX, mouseY)
-                                    page.trackContextRequested(modelData,
-                                                               p.x, p.y)
-                                }
-                                onClicked: (mouse) => {
-                                    if (lrowMouse.menuHeld) {
-                                        lrowMouse.menuHeld = false
-                                        return
-                                    }
+                                onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
-                                    if (mouse.button === Qt.RightButton) {
-                                        const p = mapToItem(null, mouse.x, mouse.y)
-                                        page.trackContextRequested(modelData,
-                                                                   p.x, p.y)
-                                    } else {
-                                        if (typeof sfx !== 'undefined') sfx.play('tap')
-                                        page.playRequested(page.dlLocalAll, lrow.index)
-                                    }
+                                    page.downloadsPlayRequested(false, page.dlNewestFirst)
                                 }
                             }
+                        }
 
+                        // Shuffle everything.
+                        Rectangle {
+                            Layout.preferredWidth: dlShuffleRow.implicitWidth + Theme.pillHPad * 2 + 22
+                            Layout.preferredHeight: Theme.touch ? 42 : 40
+                            radius: Theme.rPill
+                            color: dlShuffleMa.containsMouse
+                                   ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
+                            border.width: 1
+                            border.color: Theme.alpha(Sys.text, 0.28)
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                             RowLayout {
+                                id: dlShuffleRow
+                                anchors.centerIn: parent
+                                spacing: Theme.s2
+                                Glyph { width: 15; height: 15; kind: "shuffle"; color: Sys.text }
+                                Text {
+                                    text: "Aleatorio"
+                                    color: Sys.text
+                                    font.pixelSize: Theme.tMd
+                                }
+                            }
+                            MouseArea {
+                                id: dlShuffleMa
                                 anchors.fill: parent
-                                anchors.leftMargin: Theme.s3
-                                anchors.rightMargin: Theme.s3
-                                spacing: Theme.s3
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    page.downloadsPlayRequested(true, page.dlNewestFirst)
+                                }
+                            }
+                        }
 
-                                Rectangle {
-                                    Layout.preferredWidth: 32
-                                    Layout.preferredHeight: 32
-                                    Layout.alignment: Qt.AlignVCenter
-                                    radius: Theme.rSm
-                                    clip: true
-                                    color: Theme.sAlt(Sys.bg, Sys.text)
-                                    RoundedArt {
-                                        anchors.fill: parent
-                                        source: modelData.thumb || ""
-                                        visible: String(modelData.thumb || "") !== ""
-                                        radiusSpec: Theme.rSm
-                                    }
-                                    ActionIcon {
-                                        anchors.centerIn: parent
-                                        width: 15
-                                        height: 15
-                                        visible: !modelData.thumb
-                                        kind: "download"
-                                        color: Theme.tDim(Sys.bg, Sys.text)
-                                    }
-                                }
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 1
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: modelData.title || ""
-                                        color: Sys.text
-                                        font.pixelSize: Theme.tBase
-                                        elide: Text.ElideRight
-                                        maximumLineCount: 1
-                                    }
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: modelData.artist || ""
-                                        color: Theme.tDim(Sys.bg, Sys.text)
-                                        font.pixelSize: Theme.tSm
-                                        elide: Text.ElideRight
-                                        maximumLineCount: 1
-                                    }
-                                }
-                                // "Liked" in the downloads: the videoId comes from the
-                                // .info.json, so it is marked and synced with
-                                // YouTube Music.
-                                LikeButton {
-                                    id: dlRowLike
-                                    Layout.alignment: Qt.AlignVCenter
-                                    interactive: catalog.loginState === "ok"
-                                                 && catalog.videoIdOf(
-                                                        modelData.url) !== ""
-                                    revealed: lrowMouse.containsMouse
-                                    liked: {
-                                        const rev = catalog.likedRevision
-                                        return catalog.isLiked(modelData.url)
-                                    }
-                                    onToggled: catalog.toggleLiked(modelData.url,
-                                                                    dlRowLike.liked)
-                                }
+                        Item { Layout.fillWidth: true }
+
+                        // Download order: the order the files arrived in.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            visible: !Theme.touch && page.width > 560
+                            Layout.preferredWidth: dlOrderLabel.implicitWidth + Theme.pillHPad * 2 + 16
+                            Layout.preferredHeight: Theme.pillH
+                            radius: Theme.rPill
+                            color: dlOrderMa.containsMouse
+                                   ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
+                            border.width: 1
+                            border.color: Theme.alpha(Sys.text, 0.18)
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: Theme.s1
                                 Glyph {
-                                    Layout.alignment: Qt.AlignVCenter
                                     width: 13
                                     height: 13
-                                    kind: "check"
-                                    color: Theme.accentOn(Sys.accent, Sys.bg)
+                                    kind: page.dlNewestFirst ? "arrow-down" : "arrow-up"
+                                    color: Theme.tDim(Sys.bg, Sys.text)
                                 }
                                 Text {
-                                    Layout.alignment: Qt.AlignVCenter
-                                    text: Theme.mmss(modelData.duration)
+                                    id: dlOrderLabel
+                                    text: page.dlNewestFirst ? "Más recientes primero"
+                                                             : "En orden de descarga"
                                     color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
+                                }
+                            }
+                            MouseArea {
+                                id: dlOrderMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    page.dlNewestFirst = !page.dlNewestFirst
                                 }
                             }
                         }
                     }
 
+                    // Phone: the order chip does not fit next to the two
+                    // buttons, so it goes on its own line.
+                    Rectangle {
+                        visible: Theme.touch && page.dlLocalAll.length > 0
+                        Layout.preferredWidth: dlOrderLabel2.implicitWidth + Theme.pillHPad * 2 + 16
+                        Layout.preferredHeight: Theme.pillH
+                        Layout.alignment: Qt.AlignLeft
+                        radius: Theme.rPill
+                        color: "transparent"
+                        border.width: 1
+                        border.color: Theme.alpha(Sys.text, 0.18)
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s1
+                            Glyph {
+                                width: 13
+                                height: 13
+                                kind: page.dlNewestFirst ? "arrow-down" : "arrow-up"
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                            }
+                            Text {
+                                id: dlOrderLabel2
+                                text: page.dlNewestFirst ? "Más recientes primero"
+                                                         : "En orden de descarga"
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tSm
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.dlNewestFirst = !page.dlNewestFirst
+                            }
+                        }
+                    }
+
+                    // Hint: the lists above open with their tracks.
                     Text {
-                        anchors.centerIn: parent
-                        width: Math.min(parent.width - Theme.s4, 320)
-                        visible: localList.count === 0 && !page.dlLocalBusy
+                        Layout.fillWidth: true
+                        Layout.topMargin: Theme.s1
+                        visible: page.dlLocalAll.length > 0
+                        text: "Todo lo descargado, en el orden en que llegó. "
+                              + "Abre una lista para ver sus pistas."
+                        color: Theme.tDim(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tSm
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: page.dlLocalAll.length === 0 && !page.dlLocalBusy
                         text: "Sin descargas locales. Usa el botón de descarga de una playlist o pista."
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
-                        horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
+
+                    Item { Layout.fillWidth: true; Layout.fillHeight: true }
                 }
 
                 // ---- Library: virtualized covers grid -----------------------
@@ -2342,6 +2451,9 @@ Item {
                         thumb: modelData.thumb || ""
                         removable: (modelData.savedIndex || -1) >= 0
                         downloadable: !!modelData.url
+                        // Tick on the cover if this list is already
+                        // downloaded.
+                        downloaded: page.isDownloaded(modelData)
 
                         // Click on the card -> OPEN the list.
                         onClicked: {
@@ -2358,6 +2470,12 @@ Item {
                             if (typeof downloads !== "undefined")
                                 downloads.downloadPlaylist(modelData.url || "",
                                                            modelData.name || "")
+                        }
+                        // Tick pressed: ask before deleting the files.
+                        onUninstallRequested: {
+                            const f = page.downloadedFolder(modelData)
+                            if (f !== "")
+                                page.uninstallListRequested(f, modelData.name || "")
                         }
                         onRemoveRequested: {
                             if ((modelData.savedIndex || -1) >= 0)
@@ -2381,4 +2499,5 @@ Item {
             }
         }
     }
+
 }
