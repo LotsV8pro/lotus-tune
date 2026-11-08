@@ -4,6 +4,7 @@
 #include <QFileSystemWatcher>
 #include <QHash>
 #include <QObject>
+#include <QPair>
 #include <QProcess>
 #include <QSet>
 #include <QString>
@@ -12,6 +13,7 @@
 #include <QVector>
 
 class QDirIterator;
+class QNetworkAccessManager;
 class Player;
 
 // Downloads to disk + local library, exposed to QML as `downloads`.
@@ -42,6 +44,13 @@ class Downloads : public QObject
     // ({ name, folder, count, thumb, url }).
     Q_PROPERTY(QVariantList folders READ folders NOTIFY libraryChanged)
     Q_PROPERTY(bool localBusy READ localBusy NOTIFY libraryChanged)
+    // Space taken by the downloads folder (audio + metadata of the lists):
+    // Settings shows it broken down with the audio cache.
+    Q_PROPERTY(qint64 bytes READ bytes NOTIFY libraryChanged)
+    // Quality of new downloads: "max" | "alta" | "media" | "baja"
+    // (persisted in QSettings; the smallest one is the default).
+    Q_PROPERTY(QString quality READ quality WRITE setQuality NOTIFY changed)
+    Q_PROPERTY(QString storageSummary READ storageSummary NOTIFY libraryChanged)
     // AGGREGATED 0-100 progress of the running download (the whole list,
     // not just the current track); -1 if there is none.
     Q_PROPERTY(int activeProgress READ activeProgress NOTIFY activeProgressChanged)
@@ -56,6 +65,11 @@ public:
     QVariantList local() const { return m_local; }
     QVariantList folders() const;
     bool localBusy() const { return m_localBusy; }
+    qint64 bytes() const { return m_bytes; }
+    QString quality() const { return m_quality; }
+    void setQuality(const QString &q);
+    // "1,2 GB · 64 pistas en 14 listas" (or "Sin descargas").
+    QString storageSummary() const;
     int activeProgress() const;
 
     // Root downloads folder (configurable and persisted in QSettings).
@@ -66,10 +80,14 @@ public:
     // ~/.local/share/lotus-tune/descargas
     Q_INVOKABLE QString defaultFolder() const;
 
-    Q_INVOKABLE void downloadPlaylist(const QString &url, const QString &name);
+    Q_INVOKABLE void downloadPlaylist(const QString &url, const QString &name,
+                                      const QString &kind = QStringLiteral("list"));
     Q_INVOKABLE void downloadTrack(const QString &url, const QString &title,
                                    const QString &artist);
     Q_INVOKABLE void cancelAll();
+    // Deletes EVERYTHING inside the downloads folder (lists and loose
+    // tracks), keeping the folder itself. Runs are cancelled first.
+    Q_INVOKABLE void removeAll();
     // Pause / resume a job by its position in `jobs`. Pausing STOPS yt-dlp
     // but keeps the .part, so resuming continues from the same byte
     // (--continue) and skips the tracks already in the list's archive.
@@ -96,8 +114,24 @@ public:
     static QString safeSegment(const QString &text);
     static QString friendlyError(const QString &raw);
     static void removePartials(const QString &dir, bool keepResumable = false);
+    // Replaces the audio files of a freshly downloaded list that are
+    // byte-identical to one in another folder with a hard link to that
+    // one: a song released both as a single and inside an album takes the
+    // space of ONE file, not two.
+    void dedupeFolder(const QString &dir);
+    // Size of a downloaded list folder in bytes (confirmation dialogs).
+    Q_INVOKABLE qint64 listSize(const QString &folder) const;
+    // Approximate size of `minutes` of audio at the chosen quality, for
+    // the "you are going to download X" dialog.
+    Q_INVOKABLE QString estimateSize(double minutes) const;
     static int countAudioFiles(const QString &dir);
     QString uniqueListFolder(const QString &seg, const QString &url) const;
+    // Caches the cover of a downloaded list in `<folder>/cover.jpg` (the
+    // signed YouTube URL expires, the file does not).
+    void cacheCover(const QString &dir, const QString &url);
+    void queueFolderCovers();
+    // yt-dlp `-f` selector + quality for the level chosen in Settings.
+    QPair<QString, QString> downloadFormat() const;
 
 signals:
     void changed();
@@ -120,6 +154,9 @@ private:
         QString name;
         QString url;
         bool playlist = false;
+        // What the list is: "album", "single" or "list" (saved
+        // playlists/radios). Downloads groups the folders by it.
+        QString kind = QStringLiteral("list");
         QString folder;      // target folder (lists); "" for loose tracks
         int progress = 0;
         QString state = QStringLiteral("queued");
@@ -228,7 +265,11 @@ private:
     int m_plTotal = 0;
 
     QString m_folder;
+    QString m_quality = QStringLiteral("media");
     QVariantList m_local;
+    // Space taken by the folder: recounted in every scan (see scanChunk).
+    qint64 m_bytes = 0;
+    qint64 m_scanBytes = 0;
     bool m_localBusy = false;
     QDirIterator *m_scan = nullptr;
     QVariantList m_scanItems;
@@ -244,6 +285,9 @@ private:
     QProcess m_metaProc;
     QString m_metaFolder;          // folder being fetched right now
     bool m_metaWrote = false;      // something was cached: rescan at the end
+    // Covers cached on disk (one QNetworkAccessManager for all of them).
+    QNetworkAccessManager *m_coverNet = nullptr;
+    QSet<QString> m_coverBusy;
 
     // Auto sync: it watches the downloads folder (and its subfolders) and
      // rescans with a small debounce when something changes on disk.

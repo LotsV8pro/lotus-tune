@@ -3,14 +3,20 @@
 
 #include <QDateTime>
 #include <QtGui/QDesktopServices>
+#include <QtGui/QImage>
 #include <QDir>
 #include <QDirIterator>
+
+#include <sys/stat.h>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QStringList>
@@ -84,6 +90,45 @@ bool isAudioFile(const QString &path)
     return false;
 }
 
+// Readable size for Settings ("1,2 GB", "480 MB", "12 KB").
+QString humanBytes(qint64 bytes)
+{
+    const double mb = double(bytes) / (1024.0 * 1024.0);
+    if (mb < 1.0)
+        return QStringLiteral("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
+    if (mb < 1000.0)
+        return QStringLiteral("%1 MB").arg(qRound(mb));
+    return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
+            .replace(QLatin1Char('.'), QLatin1Char(','));
+}
+
+// Stable cover of a YouTube video: the thumbnails yt-dlp returns carry a
+// signature (`?sqp=...`) that expires, and the `s_p/` playlist covers
+// 404 without it. The /vi/ path never expires, so it is used as the
+// fallback of a downloaded list (and directly for its rows).
+QString stableThumb(const QString &url)
+{
+    static const QRegularExpression re(
+        QStringLiteral("/vi/([A-Za-z0-9_-]{11})/"));
+    const auto m = re.match(url);
+    if (!m.hasMatch())
+        return QString();
+    return QStringLiteral("https://i.ytimg.com/vi/%1/hqdefault.jpg")
+        .arg(m.captured(1));
+}
+
+// Key of an audio file to compare it with another copy of the same song:
+// the yt-dlp list index ("03Nobody.opus" -> "nobody") is stripped, the
+// rest is case-folded. Titles that begin with a number are left untouched
+// when the digits are not followed by a letter (safer: no false matches).
+QString trackFileKey(const QString &fileName)
+{
+    QString base = QFileInfo(fileName).completeBaseName().trimmed();
+    static const QRegularExpression idx(QStringLiteral("^[0-9]{1,3}(?=[^0-9])"));
+    base.remove(idx);
+    return base.simplified().toLower();
+}
+
 // Minimum age (seconds) to consider a partial leftover orphan on startup:
 // that way a resumable one from a recent close is not deleted, but the
 // garbage left by a session aborted hours ago is.
@@ -106,6 +151,12 @@ Downloads::Downloads(QObject *parent)
         saved.clear();
     m_folder = saved.isEmpty() ? defaultFolder() : saved;
     QDir().mkpath(m_folder);
+    // Quality of new downloads (the smallest Opus by default: same master,
+    // half the space).
+    const QString q = s.value(QStringLiteral("downloadQuality")).toString();
+    if (q == QLatin1String("max") || q == QLatin1String("alta")
+            || q == QLatin1String("media") || q == QLatin1String("baja"))
+        m_quality = q;
 
     // A single yt-dlp process, with stdout and stderr merged so both the
     // warnings and the progress bar can be read with the same parser.
@@ -235,6 +286,133 @@ void Downloads::setPlayer(Player *player)
 #endif
 }
 
+void Downloads::setQuality(const QString &q)
+{
+    if (q != QLatin1String("max") && q != QLatin1String("alta")
+            && q != QLatin1String("media") && q != QLatin1String("baja"))
+        return;
+    if (q == m_quality)
+        return;
+    m_quality = q;
+    QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    s.setValue(QStringLiteral("downloadQuality"), m_quality);
+    s.sync();
+    emit changed();
+}
+
+// yt-dlp `-f` selector and post-processor quality for the chosen level.
+QPair<QString, QString> Downloads::downloadFormat() const
+{
+    if (m_quality == QLatin1String("max"))
+        return { QStringLiteral("bestaudio[ext=opus][abr<=192]"
+                                "/bestaudio[ext=opus]/bestaudio/best"),
+                 QStringLiteral("0") };
+    if (m_quality == QLatin1String("alta"))
+        return { QStringLiteral("bestaudio[ext=opus][abr<=128]"
+                                "/bestaudio[ext=opus]/bestaudio/best"),
+                 QStringLiteral("2") };
+    if (m_quality == QLatin1String("baja"))
+        return { QStringLiteral("bestaudio[ext=opus][abr<=64]"
+                                "/bestaudio[webm][abr<=64]/bestaudio/best"),
+                 QStringLiteral("8") };
+    return { QStringLiteral("bestaudio[ext=opus][abr<=96]"
+                            "/bestaudio[ext=opus]/bestaudio/best"),
+             QStringLiteral("5") };
+}
+
+void Downloads::removeAll()
+{
+    if (m_folder.isEmpty())
+        return;
+    cancelAll();
+    QDir root(m_folder);
+    const QFileInfoList entries =
+        root.entryInfoList(QDir::Files | QDir::Dirs | QDir::NoDotAndDotDot
+                               | QDir::Hidden,
+                           QDir::DirsFirst);
+    for (const QFileInfo &fi : entries) {
+        if (fi.isDir())
+            QDir(fi.absoluteFilePath()).removeRecursively();
+        else
+            QFile::remove(fi.absoluteFilePath());
+    }
+    m_folderMeta.clear();
+    m_metaLoaded.clear();
+    m_metaQueue.clear();
+    refreshLocal();
+}
+
+void Downloads::cacheCover(const QString &dir, const QString &url)
+{
+    if (dir.isEmpty() || url.isEmpty() || m_coverBusy.contains(dir))
+        return;
+    if (QFileInfo::exists(dir + QStringLiteral("/cover.jpg")))
+        return;
+    const QUrl u(url);
+    if (!u.isValid()
+            || (u.scheme() != QLatin1String("http")
+                && u.scheme() != QLatin1String("https")))
+        return;
+    if (!m_coverNet)
+        m_coverNet = new QNetworkAccessManager(this);
+    m_coverBusy.insert(dir);
+    QNetworkRequest req{u};
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply *reply = m_coverNet->get(req);
+    QTimer::singleShot(8000, reply, [reply]() {
+        if (reply->isRunning())
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply, dir]() {
+        reply->deleteLater();
+        m_coverBusy.remove(dir);
+        if (reply->error() != QNetworkReply::NoError)
+            return;   // expired URL: the card already has the stable
+                      // first-track cover as a fallback
+        const QImage img = QImage::fromData(reply->readAll());
+        if (img.isNull() || img.width() < 100 || img.height() < 100)
+            return;
+        if (img.save(dir + QStringLiteral("/cover.jpg"), "JPG", 88))
+            emit libraryChanged();
+    });
+}
+
+void Downloads::queueFolderCovers()
+{
+    if (m_folder.isEmpty())
+        return;
+    QSet<QString> seen;
+    for (const QVariant &v : std::as_const(m_local)) {
+        const QString folder =
+            v.toMap().value(QStringLiteral("folder")).toString();
+        if (folder.isEmpty() || seen.contains(folder))
+            continue;
+        seen.insert(folder);
+        const QString dir = m_folder + QLatin1Char('/') + folder;
+        if (QFileInfo::exists(dir + QStringLiteral("/cover.jpg")))
+            continue;
+        const QString url =
+            m_folderMeta.value(folder)
+                .value(QStringLiteral("_thumb")).toString();
+        if (!url.isEmpty())
+            cacheCover(dir, url);
+    }
+}
+
+QString Downloads::storageSummary() const
+{
+    if (m_local.isEmpty())
+        return tr("Sin descargas");
+    const int tracks = m_local.size();
+    const int lists = folders().size();
+    const QString used = humanBytes(m_bytes);
+    if (lists <= 0)
+        return tr("%1 · %2 pistas").arg(used).arg(tracks);
+    return tr("%1 · %2 pistas en %3 listas")
+            .arg(used).arg(tracks).arg(lists);
+}
+
 int Downloads::activeProgress() const
 {
     if (m_current < 0 || m_current >= m_jobs.size())
@@ -339,7 +517,8 @@ void Downloads::enqueue(const Job &job)
         emit changed();
 }
 
-void Downloads::downloadPlaylist(const QString &url, const QString &name)
+void Downloads::downloadPlaylist(const QString &url, const QString &name,
+                                 const QString &kind)
 {
     const QString u = url.trimmed();
     if (u.isEmpty())
@@ -356,6 +535,9 @@ void Downloads::downloadPlaylist(const QString &url, const QString &name)
     Job j;
     j.url = u;
     j.playlist = true;
+    const QString k = kind.trimmed().toLower();
+    j.kind = (k == QLatin1String("album") || k == QLatin1String("single"))
+             ? k : QStringLiteral("list");
     j.name = name.trimmed().isEmpty() ? QStringLiteral("Playlist") : name.trimmed();
     enqueue(j);
 }
@@ -453,6 +635,22 @@ void Downloads::pauseDownload(int index)
         return;
     }
 
+    // The job is marked as running but the process is not up yet (it is
+    // about to start, or it already exited and Qt has not delivered
+    // `finished`): it is paused here and the queue is freed, so the pause
+    // button never does nothing and no late finishJob can undo it.
+    if (index == m_current && m_busy) {
+        j.state = QStringLiteral("paused");
+        m_pausing = false;
+        m_current = -1;
+        m_busy = false;
+        emit jobsChanged();
+        emit changed();
+        emit activeProgressChanged();
+        startNext();
+        return;
+    }
+
     // Not running: queued (it will not start) or already failed.
     if (j.state == QLatin1String("queued") || j.state == QLatin1String("error")) {
         j.state = QStringLiteral("paused");
@@ -474,8 +672,10 @@ void Downloads::resumeDownload(int index)
     emit jobsChanged();
     emit changed();
     emit activeProgressChanged();
-    if (m_current < 0)
-        startNext();
+    // startNext() is a no-op with a download already in progress; calling
+    // it unconditionally also covers Resume pressed while the pause is
+    // still closing yt-dlp.
+    startNext();
 }
 
 void Downloads::pauseAll()
@@ -615,6 +815,7 @@ void Downloads::startNext()
         QJsonObject meta;
         meta.insert(QStringLiteral("name"), j.name);
         meta.insert(QStringLiteral("url"), j.url);
+        meta.insert(QStringLiteral("kind"), j.kind);
         QFile mf(dir + QStringLiteral("/.lotus-list.json"));
         if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
             mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
@@ -642,15 +843,16 @@ void Downloads::startNext()
          // there is no need to "move" files when it finishes.
         QStringLiteral("-P"), QStringLiteral("home:") + m_folder,
         QStringLiteral("-P"), QStringLiteral("temp:") + m_folder,
-        // Compact but good: the 70-96 kbps Opus variant of YouTube Music
-        // (the same master, ~50 % smaller than the 160 kbps one) and, if
-        // there is none, the best compressed track. When the source is
-        // already Opus it is copied, without re-encoding.
+        // Quality chosen in Settings (see downloadFormat()): the smallest
+        // one is the default - the same master, ~50 % smaller than the
+        // 160 kbps Opus - and the big ones keep more bitrate for those who
+        // want it. When the source is already Opus it is copied, without
+        // re-encoding.
         QStringLiteral("-f"),
-        QStringLiteral("bestaudio[ext=opus][abr<=96]/bestaudio[ext=opus]/bestaudio/best"),
+        downloadFormat().first,
         QStringLiteral("--extract-audio"),
         QStringLiteral("--audio-format"), QStringLiteral("opus"),
-        QStringLiteral("--audio-quality"), QStringLiteral("5"),
+        QStringLiteral("--audio-quality"), downloadFormat().second,
         QStringLiteral("--embed-metadata"),
         // Without embedded thumbnail and without `.info.json`: less weight, less
         // post-processing and without depending on mutagen.
@@ -834,6 +1036,100 @@ int Downloads::countAudioFiles(const QString &dir)
     return n;
 }
 
+void Downloads::dedupeFolder(const QString &dir)
+{
+    QDir root(m_folder);
+    if (!root.exists() || dir.isEmpty())
+        return;
+    const QString newPath = QDir(dir).absolutePath();
+
+    // Index of the copies that already exist elsewhere (sibling folders
+    // and loose tracks in the root): key -> path.
+    QHash<QString, QString> other;
+    const auto indexDir = [&other](const QDir &d) {
+        const QStringList names = d.entryList(QDir::Files | QDir::NoDotAndDotDot);
+        for (const QString &n : names) {
+            if (!isAudioFile(n))
+                continue;
+            const QString key = trackFileKey(n);
+            if (!key.isEmpty() && !other.contains(key))
+                other.insert(key, d.absoluteFilePath(n));
+        }
+    };
+    const QFileInfoList subs =
+        root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo &fi : subs) {
+        if (fi.absoluteFilePath() != newPath)
+            indexDir(QDir(fi.absoluteFilePath()));
+    }
+    indexDir(root);
+
+    if (other.isEmpty())
+        return;
+
+    const QDir nd(dir);
+    const QStringList fresh = nd.entryList(QDir::Files | QDir::NoDotAndDotDot);
+    int linked = 0;
+    for (const QString &n : fresh) {
+        if (!isAudioFile(n))
+            continue;
+        const QString key = trackFileKey(n);
+        const QString src = other.value(key);
+        if (src.isEmpty())
+            continue;
+        const QString cur = nd.absoluteFilePath(n);
+        // Same size is the cheap proof that it is the same audio (same
+        // source and quality): different versions/edit lengths do not
+        // match and are kept.
+        if (QFileInfo(src).size() != QFileInfo(cur).size()
+            || QFileInfo(src).size() <= 0)
+            continue;
+        const QString tmp = cur + QStringLiteral(".ltlink");
+        QFile::remove(tmp);
+        if (!QFile::link(src, tmp))
+            continue;   // no hard links here (another FS): keep the copy
+        QFile::remove(cur);
+        if (QFile::rename(tmp, cur))
+            ++linked;
+        else
+            QFile::remove(tmp);
+    }
+    if (linked > 0)
+        qInfo() << "[downloads]" << linked
+                << "pistas compartidas (enlace duro) en" << dir;
+}
+
+qint64 Downloads::listSize(const QString &folder) const
+{
+    const QString dir = m_folder + QLatin1Char('/') + folder;
+    qint64 total = 0;
+    QDirIterator it(dir, QDir::Files | QDir::NoDotAndDotDot);
+    while (it.hasNext()) {
+        const QFileInfo fi = it.nextFileInfo();
+        // A hard link shares the inode with another folder: counting it
+        // would invent space that deleting this list would not free.
+        struct stat st;
+        if (::stat(QFile::encodeName(fi.absoluteFilePath()).constData(), &st) == 0
+            && st.st_nlink > 1)
+            continue;
+        total += fi.size();
+    }
+    return total;
+}
+
+QString Downloads::estimateSize(double minutes) const
+{
+    int kbps = 96;
+    if (m_quality == QLatin1String("max"))
+        kbps = 192;
+    else if (m_quality == QLatin1String("alta"))
+        kbps = 128;
+    else if (m_quality == QLatin1String("baja"))
+        kbps = 64;
+    const double bytes = minutes * 60.0 * kbps * 1000.0 / 8.0;
+    return humanBytes(qint64(bytes));
+}
+
 void Downloads::removePartials(const QString &dir, bool keepResumable)
 {
     QDir d(dir);
@@ -893,7 +1189,10 @@ void Downloads::finishJob(int code)
         // from that same byte (--continue) and the list's archive skips the
         // tracks already downloaded.
         m_pausing = false;
-        setJob(idx, QStringLiteral("paused"));
+        // If the user pressed Resume while yt-dlp was still closing, the
+        // job is already queued: it must NOT be forced back to paused.
+        if (m_jobs.at(idx).state != QLatin1String("queued"))
+            setJob(idx, QStringLiteral("paused"));
         m_busy = false;
         emit jobsChanged();
         emit changed();
@@ -930,6 +1229,8 @@ void Downloads::finishJob(int code)
             return;
         }
         removePartials(dir);
+        if (job.playlist)
+            dedupeFolder(dir);
         setJob(idx, QStringLiteral("done"));
         m_jobs[idx].progress = 100;
         emit jobsChanged();
@@ -1030,6 +1331,7 @@ void Downloads::startAndroidJob(int index)
         QJsonObject meta;
         meta.insert(QStringLiteral("name"), j.name);
         meta.insert(QStringLiteral("url"), j.url);
+        meta.insert(QStringLiteral("kind"), j.kind);
         QFile mf(dir + QStringLiteral("/.lotus-list.json"));
         if (mf.open(QIODevice::WriteOnly | QIODevice::Truncate))
             mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
@@ -1415,27 +1717,66 @@ QVariantList Downloads::folders() const
         }
         // The cover of the list itself (the one it has on YouTube Music),
         // not the cover of its first track.
-        const QVariantMap meta = readFolderMeta(m_folder + QLatin1Char('/') + f);
+        const QString dir = m_folder + QLatin1Char('/') + f;
+        const QVariantMap meta = readFolderMeta(dir);
         const QString listThumb = meta.value(QStringLiteral("_thumb")).toString();
         if (!listThumb.isEmpty())
             thumb = listThumb;
+        // A cover cached on disk wins: it is the real one of the list and
+        // never expires (the signed URL does, and answered 404).
+        const QString coverFile = dir + QStringLiteral("/cover.jpg");
+        if (QFileInfo::exists(coverFile))
+            thumb = QUrl::fromLocalFile(coverFile).toString();
+        // The signed covers expire: the stable one of the first track is
+        // kept as a second candidate (RoundedArt tries it if the first
+        // answers 404).
+        QString thumbAlt = meta.value(QStringLiteral("_thumbAlt")).toString();
+        if (thumbAlt.isEmpty()) {
+            for (const QVariant &v : tr) {
+                thumbAlt = stableThumb(
+                    v.toMap().value(QStringLiteral("thumb")).toString());
+                if (!thumbAlt.isEmpty())
+                    break;
+            }
+        }
+        if (thumbAlt.isEmpty())
+            thumbAlt = stableThumb(listThumb);
         QVariantMap m;
         m.insert(QStringLiteral("name"), f);
         m.insert(QStringLiteral("folder"), f);
         m.insert(QStringLiteral("count"), tr.size());
         m.insert(QStringLiteral("thumb"), thumb);
-        // Metadata of the list (if it exists): original name and source URL.
+        if (!thumbAlt.isEmpty() && thumbAlt != thumb)
+            m.insert(QStringLiteral("thumbFallback"), thumbAlt);
+        // Metadata of the list (if it exists): original name, source URL
+        // and what it is (album, single or saved list).
+        QString kind;
+        QString listUrl;
         QFile mf(m_folder + QLatin1Char('/') + f
                  + QStringLiteral("/.lotus-list.json"));
         if (mf.open(QIODevice::ReadOnly)) {
             const QJsonObject o = QJsonDocument::fromJson(mf.readAll()).object();
             const QString nm = o.value(QStringLiteral("name")).toString().trimmed();
             const QString u = o.value(QStringLiteral("url")).toString().trimmed();
+            kind = o.value(QStringLiteral("kind")).toString().trimmed().toLower();
+            listUrl = u;
             if (!nm.isEmpty())
                 m.insert(QStringLiteral("name"), nm);
             if (!u.isEmpty())
                 m.insert(QStringLiteral("url"), u);
         }
+        if (kind != QLatin1String("album") && kind != QLatin1String("single")) {
+            // Old folders have no `kind` in their JSON: an album playlist
+            // id is recognisable (OLAK5uy_), a one-track folder is a
+            // single, everything else (saved playlists, radios) is a list.
+            if (tr.size() <= 1)
+                kind = QStringLiteral("single");
+            else if (listUrl.contains(QLatin1String("OLAK5uy_")))
+                kind = QStringLiteral("album");
+            else
+                kind = QStringLiteral("list");
+        }
+        m.insert(QStringLiteral("kind"), kind);
         out.append(m);
     }
     return out;
@@ -1551,9 +1892,13 @@ QVariantMap Downloads::makeLocalTrack(const QString &path,
                 if (entry.contains(QStringLiteral("duration")))
                     t.insert(QStringLiteral("duration"),
                              entry.value(QStringLiteral("duration")));
-                if (entry.contains(QStringLiteral("thumb")))
+                if (entry.contains(QStringLiteral("thumb"))) {
+                    const QString th =
+                        entry.value(QStringLiteral("thumb")).toString();
+                    const QString st = stableThumb(th);
                     t.insert(QStringLiteral("thumb"),
-                             entry.value(QStringLiteral("thumb")));
+                             st.isEmpty() ? th : st);
+                }
             }
         }
     }
@@ -1577,6 +1922,7 @@ void Downloads::startScan()
 {
     if (m_folder.isEmpty() || !QDir(m_folder).exists()) {
         m_local.clear();
+        m_bytes = 0;
         m_localBusy = false;
         emit libraryChanged();
         return;
@@ -1584,6 +1930,9 @@ void Downloads::startScan()
 
     // Without name filters: the extension is tried by hand to be
      // case insensitive and find any audio format.
+    // The space used is recounted on every scan: it is summed file by
+    // file while walking, so opening Settings never walks the folder again.
+    m_scanBytes = 0;
     m_scan = new QDirIterator(m_folder, QDir::Files | QDir::NoDotAndDotDot
                                            | QDir::Readable,
                               QDirIterator::Subdirectories);
@@ -1611,6 +1960,9 @@ void Downloads::scanChunk()
         const QString path = m_scan->next();
         ++processed;
         const QFileInfo fi(path);
+        // Audio, .json of the lists, leftovers...: everything that takes
+        // space in the folder counts.
+        m_scanBytes += fi.size();
         m_scanDirs.insert(fi.absolutePath());
         if (!isAudioFile(path))
             continue;
@@ -1636,12 +1988,16 @@ void Downloads::scanChunk()
         });
         m_local = m_scanItems;
         m_scanItems.clear();
+        m_bytes = m_scanBytes;
         m_localBusy = false;
         updateWatchDirs();
         emit libraryChanged();
         // Lists downloaded before this cache existed (or lists that grew)
         // get their metadata fetched now, in the background.
         queueFolderMeta();
+        // And their cover is copied next to the files, so it survives the
+        // expiry of the signed URL.
+        queueFolderCovers();
     }
 }
 
@@ -1739,8 +2095,18 @@ void Downloads::queueFolderMeta()
         const QVariantMap meta = readFolderMeta(dir);
         const int cachedFiles = meta.value(QStringLiteral("_files")).toInt();
         if (cachedFiles >= it.value()
-            || (cachedFiles == 0 && meta.size() >= it.value()))
+            || (cachedFiles == 0 && meta.size() >= it.value())) {
+            // Cached, but maybe without the cover file yet (lists
+            // downloaded by older versions). One refresh is enough: the
+            // new metadata run leaves `_coverTried`.
+            if (!QFileInfo::exists(dir + QStringLiteral("/cover.jpg"))
+                    && !meta.contains(QStringLiteral("_coverTried"))
+                    && !m_metaTried.contains(folder)) {
+                m_metaTried.insert(folder);
+                m_metaQueue.append(folder);
+            }
             continue;   // cached with (at least) every track of the folder
+        }
         QFile lf(dir + QStringLiteral("/.lotus-list.json"));
         if (!lf.open(QIODevice::ReadOnly))
             continue;
@@ -1836,24 +2202,67 @@ void Downloads::finishFolderMeta(int code)
             if (dur > 0.0)
                 t.insert(QStringLiteral("duration"), dur);
             const QJsonArray thumbs = e.value(QStringLiteral("thumbnails")).toArray();
+            QString thumbUrl;
             for (int i = thumbs.size() - 1; i >= 0; --i) {
                 const QString u = thumbs.at(i).toObject()
                                       .value(QStringLiteral("url")).toString();
                 if (!u.isEmpty()) {
-                    t.insert(QStringLiteral("thumb"), u);
+                    thumbUrl = u;
                     break;
                 }
+            }
+            // The signed URL is fine while it lasts; the stable /vi/ one
+            // of the video is what is stored, so the rows keep their art
+            // months later.
+            const QString stable = stableThumb(thumbUrl);
+            if (!stable.isEmpty())
+                t.insert(QStringLiteral("thumb"), stable);
+            else if (!thumbUrl.isEmpty())
+                t.insert(QStringLiteral("thumb"), thumbUrl);
+            if (stable.isEmpty() && !thumbUrl.isEmpty()) {
+                // Last resort: the entry's id is enough to build it.
+                const QString id = e.value(QStringLiteral("id")).toString();
+                static const QRegularExpression idRe(
+                    QStringLiteral("^[A-Za-z0-9_-]{11}$"));
+                if (idRe.match(id).hasMatch())
+                    t.insert(QStringLiteral("thumb"),
+                             QStringLiteral("https://i.ytimg.com/vi/%1/"
+                                            "hqdefault.jpg").arg(id));
             }
             map.insert(QString::number(idx), t);
         }
         // Cover of the list itself (its own on YouTube Music): the folder
         // card shows it instead of the cover of the first track.
         const QJsonArray listThumbs = o.value(QStringLiteral("thumbnails")).toArray();
+        // Prefer a signed cover (it works right now) over the plain
+        // maxresdefault that yt-dlp also lists without a signature: that
+        // one answers 404 and left the card empty.
+        QString listThumb;
         for (int i = listThumbs.size() - 1; i >= 0; --i) {
             const QString u = listThumbs.at(i).toObject()
                                   .value(QStringLiteral("url")).toString();
-            if (!u.isEmpty()) {
-                map.insert(QStringLiteral("_thumb"), u);
+            if (u.isEmpty())
+                continue;
+            if (u.contains(QLatin1String("?sqp="))) {
+                listThumb = u;
+                break;
+            }
+            if (listThumb.isEmpty())
+                listThumb = u;
+        }
+        if (!listThumb.isEmpty())
+            map.insert(QStringLiteral("_thumb"), listThumb);
+        // Stable alternative: the first track's /vi/ cover (the card uses
+        // it if the signed one has already expired).
+        for (const QJsonValue &v : entries) {
+            const QString id = v.toObject()
+                                   .value(QStringLiteral("id")).toString();
+            static const QRegularExpression idRe(
+                QStringLiteral("^[A-Za-z0-9_-]{11}$"));
+            if (idRe.match(id).hasMatch()) {
+                map.insert(QStringLiteral("_thumbAlt"),
+                           QStringLiteral("https://i.ytimg.com/vi/%1/"
+                                          "hqdefault.jpg").arg(id));
                 break;
             }
         }
@@ -1863,10 +2272,16 @@ void Downloads::finishFolderMeta(int code)
         // (more tracks downloaded) it is fetched again; if some file of the
         // folder is not part of the list, it is not retried for ever.
         map.insert(QStringLiteral("_files"), countAudioFiles(dir));
+        map.insert(QStringLiteral("_coverTried"), 1);
+        const QString listCover = map.value(QStringLiteral("_thumb")).toString();
         writeFolderMeta(dir, map);
         m_metaWrote = true;
         qInfo() << "[downloads] metadata of" << m_metaFolder << ":"
                 << map.size() - 1 << "tracks";
+        // The signed URL works right now: copy the cover next to the
+        // tracks before it expires.
+        if (!listCover.isEmpty())
+            cacheCover(dir, listCover);
     } else if (!m_metaFolder.isEmpty()) {
         QVariantMap failed;
         failed.insert(QStringLiteral("_failedAt"),

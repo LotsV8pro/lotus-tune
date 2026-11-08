@@ -66,8 +66,8 @@ Item {
             Layout.preferredWidth: Math.round(cl.coverSize)
             Layout.preferredHeight: Math.round(cl.coverSize)
             radius: Theme.rXl
+            antialiasing: true
             color: Theme.sAccent(Sys.bg, Sys.accent)
-            clip: true
 
             ArtImage {
                 anchors.fill: parent
@@ -189,6 +189,7 @@ Item {
                 width: parent.width
                 height: 4
                 radius: Theme.rMd
+                antialiasing: true
                 color: Theme.alpha(cl.ink, 0.18)
             }
             Rectangle {
@@ -196,6 +197,7 @@ Item {
                 width: Math.max(0, parent.width * seekRow.ratio)
                 height: 4
                 radius: Theme.rMd
+                antialiasing: true
                 color: Theme.accentOn(Sys.accent, Sys.bg)
             }
             Rectangle {
@@ -205,6 +207,7 @@ Item {
                 width: 13
                 height: 13
                 radius: Theme.rLg
+                antialiasing: true
                 color: Theme.accentOn(Sys.accent, Sys.bg)
             }
             MouseArea {
@@ -259,6 +262,7 @@ Item {
                     anchors.centerIn: parent
                     width: 32; height: 32
                     radius: width / 2
+                    antialiasing: true
                     color: Theme.sAccent(Sys.bg, Sys.accent, 0.18)
                     visible: cl.shuffleOn
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -307,6 +311,7 @@ Item {
                 id: bigPlay
                 width: 54; height: 54
                 radius: Theme.rPanel
+                antialiasing: true
                 color: Theme.accentOn(Sys.accent, Sys.bg)
                 scale: playPress.pressed ? 0.93 : 1
                 Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
@@ -356,6 +361,7 @@ Item {
                     anchors.centerIn: parent
                     width: 32; height: 32
                     radius: width / 2
+                    antialiasing: true
                     color: Theme.sAccent(Sys.bg, Sys.accent, 0.18)
                     visible: cl.repeatVal > 0
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -376,6 +382,7 @@ Item {
                     anchors.bottomMargin: -1
                     width: 13; height: 13
                     radius: Theme.rLg
+                    antialiasing: true
                     color: Sys.accent
                     Text {
                         anchors.centerIn: parent

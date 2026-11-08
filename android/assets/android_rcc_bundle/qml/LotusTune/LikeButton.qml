@@ -42,6 +42,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.rPill
+        antialiasing: true
         color: btn.liked
                ? Theme.alpha(Sys.accent, hh.hovered ? 0.24 : 0.15)
                : "transparent"

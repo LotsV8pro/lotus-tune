@@ -161,6 +161,7 @@ Rectangle {
         width: diameter
         height: diameter
         radius: diameter / 2
+        antialiasing: true
         color: "transparent"
         scale: bbHover.pressed ? 0.92 : 1
         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -267,6 +268,7 @@ Rectangle {
         width: bar.pillW
         // Rounded card (same language as the tab bar), not a capsule.
         radius: bar.compact ? Theme.rLg : Theme.rPanel
+        antialiasing: true
         // Solid: the pill is the dark surface itself, it does not frost the
         // washed artwork behind it (no blurred backdrop).
         color: Sys.surface
@@ -329,6 +331,7 @@ Rectangle {
                         width: bar.compact ? 11 : 9
                         height: width
                         radius: width / 2
+                        antialiasing: true
                         color: bar._fill
                         opacity: bar.scrubbing ? 1 : (scrubArea.hovered ? 0.95 : 0.75)
                         scale: bar.scrubbing ? 1.25 : 1
@@ -456,6 +459,7 @@ Rectangle {
                             Rectangle {
                                 anchors.fill: parent
                                 radius: Theme.rSm
+                                antialiasing: true
                                 color: Theme.sAccent(Sys.bg, Sys.accent, 0.10)
                                 // The artwork is rounded by a CPU crop
                                 // (RoundedArt): the Rectangle's `clip` ignored
@@ -629,6 +633,7 @@ Rectangle {
                         width: bar.compact ? 44 : 30
                         height: bar.compact ? 44 : 30
                         radius: width / 2
+                        antialiasing: true
                         color: playHover.hovered ? Qt.lighter(Sys.accent, 1.14) : Sys.accent
                         scale: playHover.pressed ? 0.93 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -671,6 +676,7 @@ Rectangle {
                             anchors.bottomMargin: -1
                             width: 11; height: 11
                             radius: 5.5
+                            antialiasing: true
                             color: Sys.accent
                             Text {
                                 anchors.centerIn: parent
@@ -812,6 +818,7 @@ Rectangle {
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.rSm
+                            antialiasing: true
                             color: Theme.sAccent(Sys.bg, Sys.accent, 0.10)
                             RoundedArt {
                                 id: coverArtPhone
@@ -929,6 +936,7 @@ Rectangle {
                         width: 44
                         height: 44
                         radius: width / 2
+                        antialiasing: true
                         color: playHoverC.hovered ? Qt.lighter(Sys.accent, 1.14) : Sys.accent
                         scale: playHoverC.pressed ? 0.93 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -978,6 +986,7 @@ Rectangle {
                             anchors.bottom: parent.bottom
                             width: 12; height: 12
                             radius: 6
+                            antialiasing: true
                             color: Sys.accent
                             Text {
                                 anchors.centerIn: parent

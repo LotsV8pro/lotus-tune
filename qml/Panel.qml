@@ -36,6 +36,7 @@ Item {
         id: surface
         anchors.fill: parent
         radius: panel.radius
+        antialiasing: true
         color: panel.color
         border.width: panel.borderWidth
         border.color: panel.borderColor

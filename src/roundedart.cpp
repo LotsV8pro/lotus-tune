@@ -63,7 +63,11 @@ QStringList usable(const QStringList &candidates)
         if (u.isEmpty())
             continue;
         const QString scheme = u.scheme();
-        if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))
+        // A locally cached cover (Downloads writes cover.jpg) is as good
+        // as a remote one: it survives the expiry of YouTube's signed
+        // URLs and works offline.
+        if (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")
+                && scheme != QStringLiteral("file"))
             continue;
         real << c;
     }
@@ -288,6 +292,26 @@ void RoundedArt::tryNext(const QString &key, int index)
     }
 
     const QString url = candidates.at(index);
+    // Cached file: read it right here, no network request.
+    if (QUrl(url).isLocalFile()) {
+        QImage src(QUrl(url).toLocalFile());
+        if (src.isNull()) {
+            tryNext(key, index + 1);
+            return;
+        }
+        const QImage img = process(src, boxW, boxH, radius, scale, blur);
+        {
+            QMutexLocker lock(&m_mutex);
+            auto it = m_jobs.find(key);
+            if (it == m_jobs.end())
+                return;
+            it->image = img;
+            it->done = true;
+            it->version++;
+        }
+        emitReadyLater(key);
+        return;
+    }
     QNetworkRequest req{QUrl(url)};
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);

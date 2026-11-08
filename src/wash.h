@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QList>
 #include <QImage>
 #include <QObject>
 #include <QQuickImageProvider>
@@ -31,6 +32,11 @@ public:
     int serial() const { return m_serial; }
     bool valid() const { return !m_image.isNull(); }
     QColor average() const { return m_average; }
+    // Average of the cell `index` of a 3x3 grid over the blurred veil
+    // (row-major). The lyrics ask for the cell behind them: with a cover
+    // that is half black and half white the global average lied and the
+    // text vanished on the light half. Out of range = global average.
+    Q_INVOKABLE QColor zoneColor(int index) const;
 
     // Changes the source image (the track's thumbnail). Empty = no change
     // of the stored image; the QML decides to hide the wash.
@@ -51,6 +57,7 @@ private:
     QNetworkAccessManager *m_net;
     QImage m_image;
     QColor m_average;
+    QList<QColor> m_zones;
     QUrl m_wanted;
     int m_serial = 0;
 };

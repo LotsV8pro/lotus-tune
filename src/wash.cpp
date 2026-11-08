@@ -102,6 +102,39 @@ Wash::Wash(QObject *parent)
 // a 480 px blur already, so a coarse grid gives exactly the tone the eye
 // sees behind the text.
 // ---------------------------------------------------------------------------
+// Average of the 3x3 cells of the veil (row-major): the cinema lyrics only
+// need the tone behind THEIR column, not the average of the whole artwork.
+static QList<QColor> zoneColors(const QImage &img)
+{
+    QList<QColor> out;
+    if (img.isNull())
+        return out;
+    const int w = img.width();
+    const int h = img.height();
+    for (int ry = 0; ry < 3; ++ry) {
+        for (int rx = 0; rx < 3; ++rx) {
+            const int x0 = w * rx / 3;
+            const int x1 = qMax(x0 + 1, w * (rx + 1) / 3);
+            const int y0 = h * ry / 3;
+            const int y1 = qMax(y0 + 1, h * (ry + 1) / 3);
+            const int step = qMax(1, (x1 - x0) / 16);
+            qint64 r = 0, g = 0, b = 0, n = 0;
+            for (int y = y0; y < y1; y += step) {
+                for (int x = x0; x < x1; x += step) {
+                    const QRgb p = img.pixel(x, y);
+                    r += qRed(p);
+                    g += qGreen(p);
+                    b += qBlue(p);
+                    ++n;
+                }
+            }
+            out.append(n > 0 ? QColor(int(r / n), int(g / n), int(b / n))
+                             : QColor());
+        }
+    }
+    return out;
+}
+
 static QColor averageColor(const QImage &img)
 {
     if (img.isNull())
@@ -120,6 +153,14 @@ static QColor averageColor(const QImage &img)
     if (n == 0)
         return QColor();
     return QColor(int(r / n), int(g / n), int(b / n));
+}
+
+QColor Wash::zoneColor(int index) const
+{
+    if (index < 0 || index >= m_zones.size())
+        return m_average;
+    const QColor c = m_zones.at(index);
+    return c.isValid() ? c : m_average;
 }
 
 void Wash::setSource(const QUrl &url)
@@ -161,6 +202,7 @@ void Wash::setSource(const QUrl &url)
             return;
         m_image = blurred;
         m_average = averageColor(blurred);
+        m_zones = zoneColors(blurred);
         ++m_serial;
         emit changed();
     });

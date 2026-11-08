@@ -101,6 +101,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         radius: Theme.rXl
+        antialiasing: true
         visible: card.tintColor.a > 0
         gradient: Gradient {
             // With an artwork colour the tint reads stronger; with the
@@ -138,7 +139,7 @@ Item {
             // The only thing reworked on the card: the artwork corner
             // radius goes from rMd to rXl (22 px). Nothing else.
             radius: card.round ? width / 2 : Theme.rXl
-            clip: true
+            antialiasing: true
 
             gradient: Gradient {
                 GradientStop { position: 0.0
@@ -174,6 +175,7 @@ Item {
                 anchors.margins: Theme.s2
                 height: 18
                 radius: Theme.rPill
+                antialiasing: true
                 color: Theme.alpha(Sys.bg, 0.72)
                 implicitWidth: badgeLabel.implicitWidth + Theme.pillHPad
                 Text {
@@ -196,6 +198,7 @@ Item {
                 width: 38
                 height: 38
                 radius: Theme.rPill
+                antialiasing: true
                 color: playHit.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                 // No border: on a round shape the outline is traced inside
                 // and it comes out uneven (a halo around the button). The

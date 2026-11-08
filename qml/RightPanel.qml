@@ -61,6 +61,7 @@ Item {
                         Rectangle {
                             anchors.fill: parent
                             radius: Theme.rPill
+                            antialiasing: true
                             color: tabItem.on ? Theme.alpha(Sys.accent, 0.16)
                                    : (tabHover.hovered ? Theme.hover(Sys.surface) : "transparent")
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -100,6 +101,7 @@ Item {
                     Layout.preferredWidth: Theme.pillH
                     Layout.preferredHeight: Theme.pillH
                     radius: Theme.rPill
+                    antialiasing: true
                     visible: panel.tab === 1
                     color: fsHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -118,6 +120,7 @@ Item {
                     Layout.preferredWidth: Theme.pillH
                     Layout.preferredHeight: Theme.pillH
                     radius: Theme.rPill
+                    antialiasing: true
                     color: closeHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     HoverHandler { id: closeHover; cursorShape: Qt.PointingHandCursor }

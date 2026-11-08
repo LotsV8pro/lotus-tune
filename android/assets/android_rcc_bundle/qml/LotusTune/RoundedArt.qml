@@ -13,6 +13,10 @@ Item {
     id: art
 
     property string source: ""
+    // Alternative URLs, tried in order when `source` fails (a signed
+    // YouTube cover expires with time; the stable /vi/ one of the first
+    // track of a downloaded list does not).
+    property var sources: []
     // "circle" = perfect circle; a number = corner radius in slot pixels.
     property var radiusSpec: 16
 
@@ -36,23 +40,42 @@ Item {
     // turn was the source of a "Maximum call stack size exceeded" loop.
     property bool _refreshing: false
 
+    // Every non-empty candidate, without duplicates. The first one is
+    // the preferred cover; the rest are the safety net (see `sources`).
+    function candidates() {
+        var out = []
+        function add(u) {
+            u = String(u || "")
+            if (u.length > 0 && out.indexOf(u) < 0)
+                out.push(u)
+        }
+        add(art.source)
+        if (art.sources) {
+            for (var i = 0; i < art.sources.length; ++i)
+                add(art.sources[i])
+        }
+        return out
+    }
+
     function refresh() {
         if (art._refreshing)
             return
         art._refreshing = true
         const w = Math.round(art.width)
         const h = Math.round(art.height)
-        if (!art.source || art.source.length === 0 || w <= 0 || h <= 0) {
+        const list = art.candidates()
+        if (list.length === 0 || w <= 0 || h <= 0) {
             art.artUrl = ""
             art._refreshing = false
             return
         }
-        art.artUrl = rart.urlBlurred([art.source], w, h, art.radius,
+        art.artUrl = rart.urlBlurred(list, w, h, art.radius,
                                      Screen.devicePixelRatio, art.blur)
         art._refreshing = false
     }
 
     onSourceChanged: refresh()
+    onSourcesChanged: refresh()
     onWidthChanged: refresh()
     onHeightChanged: refresh()
     onRadiusChanged: refresh()
@@ -72,7 +95,7 @@ Item {
     Connections {
         target: rart
         function onReady(key) {
-            if (art.artUrl.length === 0 && art.source.length > 0)
+            if (art.artUrl.length === 0 && art.candidates().length > 0)
                 art.refresh()
         }
     }

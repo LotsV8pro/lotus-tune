@@ -44,6 +44,7 @@ Rectangle {
         width: tile.width - (Theme.touch ? 6 : 14)
         height: tile.height - (Theme.touch ? 10 : 18)
         radius: Theme.rMd
+        antialiasing: true
         color: "transparent"
         border.width: 0
         clip: false
@@ -60,7 +61,7 @@ Rectangle {
                 // rejilla (antes era unos 30 px mas baja que ancha).
                 Layout.preferredHeight: coverBox.width
                 radius: Theme.rMd
-                clip: true
+                antialiasing: true
                 color: Theme.sAlt(Sys.bg, Sys.text)
 
                 RoundedArt {
@@ -85,6 +86,7 @@ Rectangle {
                     width: 30
                     height: 30
                     radius: Theme.rPill
+                    antialiasing: true
                     color: tile.overPlay ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                     opacity: tileMa.containsMouse ? 1 : 0
                     scale: tileMa.containsMouse
@@ -204,6 +206,7 @@ Rectangle {
             width: 30
             height: 30
             radius: Theme.rPill
+            antialiasing: true
             color: dlMa.containsMouse ? Theme.hover(Sys.bg) : Sys.bg
             border.width: 0
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -238,6 +241,7 @@ Rectangle {
             width: 30
             height: 30
             radius: Theme.rPill
+            antialiasing: true
             color: rmMa.containsMouse ? Theme.alpha(Sys.danger, 0.16) : Sys.bg
             border.width: 0
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }

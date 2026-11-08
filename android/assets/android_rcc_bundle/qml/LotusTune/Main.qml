@@ -109,6 +109,8 @@ Window {
     // continuation (a radio seeded with the last track) so the music does
     // not stop. On by default; remembered between sessions.
     property bool autoplayEnabled: true
+    // "Continue where you left off" at startup (queue + track paused).
+    property bool resumeOnOpen: true
 
     // ---- right panel (queue / lyrics) -------------------------------------
     property bool panelOpen: false
@@ -221,13 +223,27 @@ Window {
     property bool confirmOpen: false
     property string confirmText: ""
     property string confirmLabel: "Eliminar"
+    property bool confirmDanger: true
     property var confirmAction: null
 
-    function askConfirm(text, label, action) {
+    function askConfirm(text, label, action, danger) {
         root.confirmText = String(text || "")
         root.confirmLabel = String(label || "Eliminar")
+        root.confirmDanger = danger !== false
         root.confirmAction = action
         root.confirmOpen = true
+    }
+
+    // Readable size for the confirmation dialogs.
+    function bytesText(b) {
+        const n = Number(b || 0)
+        if (n <= 0)
+            return "0 MB"
+        if (n >= 1024 * 1024 * 1024)
+            return (n / (1024 * 1024 * 1024)).toFixed(1).replace(".", ",") + " GB"
+        if (n >= 1024 * 1024)
+            return Math.round(n / (1024 * 1024)) + " MB"
+        return Math.max(1, Math.round(n / 1024)) + " KB"
     }
 
     function runConfirm() {
@@ -469,8 +485,13 @@ Window {
         const f = String(folder || "")
         if (!f)
             return
+        let freed = 0
+        if (typeof downloads !== "undefined")
+            freed = downloads.listSize(f)
         root.askConfirm("¿Desinstalar la descarga de «" + (name || f)
-                        + "»? Se borrarán los archivos descargados.",
+                        + "»? Se borrarán los archivos descargados"
+                        + (freed > 0 ? " y se liberarán " + root.bytesText(freed) : "")
+                        + ".",
                         "Desinstalar", function() {
                             if (typeof libPage !== "undefined"
                                     && libPage.openDownloadFolder === f)
@@ -1116,11 +1137,12 @@ Window {
         launcherRows = out
     }
 
-    // Launcher debounce: 450 ms after the last keystroke the remote
-    // search is fired (it avoids one API call per letter).
+    // Launcher debounce: a short pause after the last keystroke and the
+    // remote search is fired (it avoids one API call per letter, without
+    // making the launcher feel slow).
     Timer {
         id: launcherSearch
-        interval: 450
+        interval: 220
         onTriggered: {
             if (!root.launcherOpen)
                 return
@@ -1315,6 +1337,7 @@ Window {
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
+        resumeOnOpen = cfgGet("resumeOnOpen") !== "false"
         // Dynamic background (the blurred artwork behind everything): on a
         // phone the veil is 5× larger and the artwork turns into a smear
         // that eats the contrast, so it is OFF by default there. It stays
@@ -1798,6 +1821,18 @@ Window {
     property var albumDlQueue: []
     property int albumDlTotal: 0
     property int albumDlDone: 0
+    // Titles of the records of the batch: Downloads uses them to count
+    // how many of its downloads are still alive (the preparation queue is
+    // empty long before the files finish, so the progress cannot rely on
+    // albumDlQueue alone).
+    property var albumDlTitles: []
+    // Titles already covered by the batch: a single whose tracks are all
+    // inside an album of the same discography is not downloaded twice.
+    property var albumDlSeen: ({})
+    property int albumDlSkipped: 0
+    // Artist of the batch that is being queued ("" = loose albums):
+    // Downloads shows it as a single "Discografía de X" group.
+    property string albumDlArtist: ""
 
     function downloadAlbums(list) {
         if (typeof downloads === "undefined") {
@@ -1809,28 +1844,71 @@ Window {
             const a = list[i]
             if (!a || String(a.browseId || "") === "")
                 continue
+            const sub = String(a.subtitle || "")
+            const ls = sub.toLowerCase()
             clean.push({ browseId: String(a.browseId),
-                         title: String(a.title || "") })
+                         title: String(a.title || ""),
+                         subtitle: sub,
+                         single: ls.indexOf("single") === 0
+                                 || ls.indexOf("sencillo") === 0 })
         }
         if (clean.length === 0) {
             root.toast("No hay discos que descargar")
             return
         }
-        root.albumDlQueue = clean
-        root.albumDlTotal = clean.length
-        root.albumDlDone = 0
-        root.toast(clean.length === 1
-                   ? "Preparando «" + clean[0].title + "»…"
-                   : "Preparando " + clean.length + " discos…")
-        root.nextAlbumDownload()
+        // Álbumes/EPs primero y sencillos al final: así, cuando llega un
+        // sencillo, las pistas de los discos ya están apuntadas y se puede
+        // saber si ya está incluido en alguno.
+        clean.sort(function (a, b) {
+            return (a.single ? 1 : 0) - (b.single ? 1 : 0)
+        })
+        // What is going to happen and, above all, how much space it will
+        // take: a whole discography is a big download and it must be
+        // confirmed first (Cancelar leaves everything as it was).
+        let mins = 0
+        for (var m = 0; m < clean.length; m++) {
+            const ls = String(clean[m].subtitle || "").toLowerCase()
+            mins += ls.indexOf("single") === 0 || ls.indexOf("sencillo") === 0
+                    ? 4 : (ls.indexOf("ep") === 0 ? 15 : 42)
+        }
+        const size = downloads.estimateSize(mins)
+        const who = root.artistCur ? String(root.artistCur.name || "") : ""
+        const what = clean.length === 1
+                     ? "«" + clean[0].title + "»"
+                     : "la discografía de " + (who || "este artista")
+                       + " (" + clean.length + " discos)"
+        root.askConfirm("Vas a descargar " + what
+                        + ". Ocupará aproximadamente " + size
+                        + " en disco. ¿Continuar?",
+                        "Descargar", function () {
+            root.albumDlSeen = ({})
+            root.albumDlSkipped = 0
+            root.albumDlQueue = clean
+            root.albumDlTotal = clean.length
+            root.albumDlDone = 0
+            root.albumDlTitles = clean.map(function (a) { return String(a.title || "") })
+            root.albumDlArtist = (clean.length > 1 && root.artistCur)
+                                 ? String(root.artistCur.name || "") : ""
+            root.toast(clean.length === 1
+                       ? "Preparando «" + clean[0].title + "»…"
+                       : "Preparando " + clean.length + " discos…")
+            root.nextAlbumDownload()
+        }, false)
     }
 
     function nextAlbumDownload() {
         if (root.albumDlQueue.length === 0) {
             if (root.albumDlTotal > 1 && root.albumDlDone > 0)
-                root.toast(root.albumDlDone + " discos en la cola de descargas")
-            root.albumDlTotal = 0
-            root.albumDlDone = 0
+                root.toast(root.albumDlDone + " discos en la cola de descargas"
+                           + (root.albumDlSkipped > 0
+                              ? " (" + root.albumDlSkipped
+                                + " singles ya incluidos, omitidos)"
+                              : ""))
+            // The batch is only PREPARED, not downloaded: the counters are
+            // kept so Downloads can show "Discografía de X · N discos"
+            // while the files are still queued (they are cleaned up when
+            // the batch starts again).
+            root.albumDlDone = root.albumDlTotal
             return
         }
         const a = root.albumDlQueue[0]
@@ -1949,7 +2027,11 @@ Window {
     // leaves the queue empty but still recovers the volume.
     function restoreSession(skipQueue) {
         root.sessionLoaded = true
-        if (!skipQueue) {
+        // Ajustes -> Reproducción: "Continuar al abrir" off means a clean
+        // start (no queue, no track), which is handy to always land on
+        // Inicio instead of on the last disk. The volume is still
+        // restored.
+        if (!skipQueue && root.resumeOnOpen) {
             const raw = cfgGet("sessionState")
             var st = null
             if (raw) {
@@ -2629,16 +2711,37 @@ Window {
         }
         // One record of the album download queue is ready: it is handed to
         // yt-dlp as the album's audio list and the next one is asked for.
-        function onAlbumPlaylistReady(browseId, playlistId, name) {
+        function onAlbumPlaylistReady(browseId, playlistId, name, tracks) {
             if (root.albumDlQueue.length === 0
                 || String(root.albumDlQueue[0].browseId) !== String(browseId))
                 return
-            if (String(playlistId) !== "" && typeof downloads !== "undefined") {
+            const item = root.albumDlQueue[0]
+            // ¿Todas sus pistas ya están en otro disco de la tanda? Un
+            // single de una canción que ya trae el álbum no se descarga
+            // otra vez (aparecía como una lista aparte con la misma
+            // canción). Los álbumes nunca se omiten.
+            const titles = []
+            for (var i = 0; i < (tracks || []).length; i++) {
+                const t = String(tracks[i] || "").trim().toLowerCase()
+                if (t !== "")
+                    titles.push(t)
+            }
+            let already = item.single === true && titles.length > 0
+            for (var j = 0; j < titles.length && already; j++)
+                if (!root.albumDlSeen[titles[j]])
+                    already = false
+            if (already) {
+                root.albumDlSkipped++
+                root.toast("«" + String(name || item.title) + "» ya está en un disco: se omite")
+            } else if (String(playlistId) !== "" && typeof downloads !== "undefined") {
                 downloads.downloadPlaylist(
                     "https://music.youtube.com/playlist?list=" + playlistId,
-                    String(name || root.albumDlQueue[0].title || "Álbum"))
-                root.albumDlDone++
+                    String(name || item.title || "Álbum"),
+                    item.single === true ? "single" : "album")
+                for (var k = 0; k < titles.length; k++)
+                    root.albumDlSeen[titles[k]] = true
             }
+            root.albumDlDone++
             root.albumDlQueue.shift()
             root.nextAlbumDownload()
         }
@@ -2913,6 +3016,18 @@ Window {
                 GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.34) }
             }
         }
+
+        // Open library list: the blur backdrop card has a margin, so the
+        // wash peeked out around it as a bright frame. It is dimmed over
+        // the whole window (top bar included) and the rounded card stays
+        // the only lit surface.
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.alpha(Sys.bg, 0.62)
+            opacity: (root.page === "library" && libPage.showingTracks) ? 1 : 0
+            visible: opacity > 0.001
+            Behavior on opacity { NumberAnimation { duration: 240 } }
+        }
     }
 
     // ---- layout ----------------------------------------------------------
@@ -3042,6 +3157,12 @@ Window {
                             id: libPage
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            // Discography batch being queued: the Downloads
+                            // page groups it as one "artist" download.
+                            discArtist: root.albumDlArtist
+                            discTotal: root.albumDlTotal
+                            discDone: root.albumDlDone
+                            discTitles: root.albumDlTitles
                             onPlayRequested: (list, idx) => root.playTracks(list, idx)
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
                             // Cover: open (false) or open and play (true).
@@ -3535,6 +3656,7 @@ Window {
             id: cqSurface
             anchors.fill: parent
             radius: 24
+            antialiasing: true
             color: Theme.alpha(Theme.sAccent(Sys.bg, Sys.accent, 0.13), 0.98)
             border.width: 1
             border.color: Theme.alpha(Sys.text, 0.10)
@@ -3570,6 +3692,7 @@ Window {
                     Layout.preferredWidth: 26
                     Layout.preferredHeight: 26
                     radius: Theme.rMd
+                    antialiasing: true
                     color: cqCloseMa.containsMouse
                            ? Theme.sAccent(Sys.bg, Sys.accent, 0.22)
                            : "transparent"
@@ -3633,6 +3756,7 @@ Window {
             width: Math.min(380, root.width - 60)
             height: Math.min(pickerCol.implicitHeight + 32, root.height - 120)
             radius: Theme.rLg
+            antialiasing: true
             color: Sys.surface
             border.width: 0
 
@@ -3654,6 +3778,7 @@ Window {
                     Layout.fillWidth: true
                     height: Theme.rowThin
                     radius: Theme.rMd
+                    antialiasing: true
                     color: newPick.hovered ? Theme.hover(Sys.bg) : "transparent"
                     HoverHandler { id: newPick; cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.openCreatePlaylist(root.pickerVideoId) } }
@@ -3696,6 +3821,7 @@ Window {
                                 Layout.fillWidth: true
                                 height: Theme.rowThin
                                 radius: Theme.rMd
+                                antialiasing: true
                                 color: pickHover.hovered ? Theme.hover(Sys.bg) : "transparent"
                                 HoverHandler { id: pickHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler {
@@ -3742,6 +3868,7 @@ Window {
                     Layout.fillWidth: true
                     height: Theme.rowThin
                     radius: Theme.rMd
+                    antialiasing: true
                     color: pickHover2.hovered ? Theme.hover(Sys.bg) : "transparent"
                     HoverHandler { id: pickHover2; cursorShape: Qt.PointingHandCursor }
                     TapHandler {
@@ -3826,6 +3953,7 @@ Window {
             width: Math.min(400, root.width - 60)
             height: confirmCol.implicitHeight + 40
             radius: Theme.rLg
+            antialiasing: true
             color: Sys.surface
             border.width: 0
 
@@ -3852,6 +3980,7 @@ Window {
                         Layout.preferredHeight: Theme.rowThin
                         implicitWidth: cCancel.implicitWidth + 32
                         radius: Theme.rMd
+                        antialiasing: true
                         color: cCancelHov.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : Theme.sAlt(Sys.bg, Sys.text)
                         border.width: 0
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -3870,13 +3999,17 @@ Window {
                         Layout.preferredHeight: Theme.rowThin
                         implicitWidth: cOk.implicitWidth + 36
                         radius: Theme.rMd
-                        color: cOkHov.hovered ? Qt.lighter(Sys.danger, 1.12) : Sys.danger
+                        antialiasing: true
+                        color: root.confirmDanger
+                               ? (cOkHov.hovered ? Qt.lighter(Sys.danger, 1.12) : Sys.danger)
+                               : (cOkHov.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         Text {
                             id: cOk
                             anchors.centerIn: parent
                             text: root.confirmLabel
-                            color: Theme.onAccent(Sys.accent)
+                            color: root.confirmDanger ? Theme.onAccent(Sys.accent)
+                                                     : Theme.onAccent(Sys.accent)
                             font.pixelSize: Theme.tMd
                             font.bold: true
                         }
@@ -3899,6 +4032,7 @@ Window {
         width: Math.min(toastLabel.implicitWidth + 30, root.width - 60)
         height: toastLabel.implicitHeight + 18
         radius: Theme.rMd
+        antialiasing: true
         color: Theme.sAlt(Sys.bg, Sys.text)
         border.width: 0
         opacity: visible ? 1 : 0
@@ -3934,6 +4068,7 @@ Window {
         width: Math.min(backPromptLabel.implicitWidth + 36, root.width - 2 * (Theme.panelMargin + Theme.s5))
         height: backPromptLabel.implicitHeight + 20
         radius: Theme.rMd
+        antialiasing: true
         color: Theme.sAlt(Sys.bg, Sys.text)
         border.width: 0
         opacity: visible ? 1 : 0
@@ -3958,7 +4093,9 @@ Window {
     Rectangle {
         id: settingsOverlay
         anchors.fill: parent
-        z: 60
+        // Above the docks (z 66): on the phone the tab bar and the mini
+        // player were drawn OVER the modal, covering its last rows.
+        z: 67
         visible: root.settingsOpen
         // Dimmed background (like the rest of the modals): Settings is
         // also ONE more floating island over the shell.
@@ -3990,6 +4127,7 @@ Window {
                 Layout.fillWidth: true
                 implicitHeight: body.implicitHeight + Theme.s4 * 2
                 radius: Theme.rLg
+                antialiasing: true
                 // A shade lighter than the island, so the card reads as a
                 // card on top of it (like the rest of the app).
                 color: Theme.sAlt(Sys.bg, Sys.text)
@@ -4092,6 +4230,7 @@ Window {
             width: 40
             height: 22
             radius: Theme.rPill
+            antialiasing: true
             color: tg.checked ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.mix(Sys.surface, Sys.text, 0.16)
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -4099,6 +4238,7 @@ Window {
                 width: 18
                 height: 18
                 radius: Theme.rPill
+                antialiasing: true
                 color: Theme.onAccent(Sys.accent)
                 anchors.verticalCenter: parent.verticalCenter
                 x: tg.checked ? parent.width - width - 3 : 3
@@ -4124,6 +4264,7 @@ Window {
             implicitWidth: chLabel.implicitWidth + Theme.pillHPad * 2
             height: Theme.pillH
             radius: Theme.rPill
+            antialiasing: true
             color: ch.selected ? Sys.accentDim
                                : (chHover.containsMouse ? Theme.hover(Sys.surface) : "transparent")
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -4169,6 +4310,7 @@ Window {
                 Layout.fillWidth: true
                 height: 34
                 radius: Theme.rMd
+                antialiasing: true
                 color: Sys.bg
                 border.width: 1
                 border.color: input.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
@@ -4205,6 +4347,7 @@ Window {
             implicitWidth: pbLabel.implicitWidth + Theme.s5
             height: 36
             radius: Theme.rPill
+            antialiasing: true
             color: pbHover.containsMouse ? Theme.active(Sys.accent) : Sys.accent
             scale: pbHover.pressed ? 0.97 : 1
             Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -4240,6 +4383,7 @@ Window {
             implicitWidth: gbLabel.implicitWidth + Theme.s4
             height: 34
             radius: Theme.rPill
+            antialiasing: true
             color: gbHover.containsMouse
                    ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Theme.sAlt(Sys.bg, Sys.text)))
                    : (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.sAlt(Sys.bg, Sys.text))
@@ -4276,6 +4420,7 @@ Window {
             implicitWidth: sbLabel.implicitWidth + Theme.s3
             height: 20
             radius: 10
+            antialiasing: true
             color: sb.ok ? Sys.accentDim : Theme.alpha(Sys.danger, 0.14)
 
             Text {
@@ -4292,12 +4437,22 @@ Window {
         // edge as the rest of the shell (the rail, the bar, the panels), but
         // nearly opaque because it is a modal. The content goes on top with
         // its own padding, exactly like the other islands.
+        // The rail floats on top (z 66) and is always visible. So that it
+        // does not eat the first letters of every label ("Ajustes" came out
+        // as "tes"), the island starts to its right, like the artist page.
+        readonly property real railInset: root.isPhone ? 0
+                                            : sidebar.railWidth + Theme.panelGap
+
         Panel {
             id: settingsIsland
             anchors.fill: parent
             anchors.margins: Theme.panelMargin
+            anchors.leftMargin: Theme.panelMargin + settingsOverlay.railInset
             radius: Theme.rPanel
-            color: Theme.alpha(Sys.surface, 0.97)
+            antialiasing: true
+            // Opaque: at 0.97 the white title of the page behind bled
+            // through and looked like a ghost behind «Ajustes».
+            color: Sys.surface
             clipContent: true
         }
 
@@ -4305,6 +4460,7 @@ Window {
             id: settingsLayout
             anchors.fill: parent
             anchors.leftMargin: Theme.panelMargin + Theme.s4
+                                 + settingsOverlay.railInset
             anchors.rightMargin: Theme.panelMargin + Theme.s4
             anchors.topMargin: Theme.panelMargin + Theme.s3
             anchors.bottomMargin: Theme.panelMargin + Theme.s3
@@ -4327,6 +4483,7 @@ Window {
                     width: Theme.touch ? 36 : 32
                     height: Theme.touch ? 36 : 32
                     radius: Theme.rMd
+                    antialiasing: true
                     color: closeMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     Glyph {
@@ -4520,6 +4677,21 @@ Window {
                                 }
                             }
                         }
+
+                        // Startup: restore the last queue and track (paused)
+                        // or always start on Inicio with nothing loaded.
+                        SettingRow {
+                            label: "Continuar al abrir"
+                            desc: "Recupera la última cola y la canción en la que estabas"
+                            Toggle {
+                                checked: root.resumeOnOpen
+                                onToggled: {
+                                    root.resumeOnOpen = !root.resumeOnOpen
+                                    root.cfgSet("resumeOnOpen",
+                                                root.resumeOnOpen)
+                                }
+                            }
+                        }
                     }
 
                     // ======================================================
@@ -4605,6 +4777,40 @@ Window {
                     SettingSection {
                         title: "Almacenamiento"
 
+                        // Breakdown of what the app takes on disk. Downloads
+                        // is the folder itself (counted file by file while
+                        // the library scans) and the audio cache is the
+                        // streaming buffer; the total is the sum of both.
+                        SettingRow {
+                            label: "Descargas"
+                            desc: downloads.storageSummary
+                                  + " · " + downloads.folder
+                            RowLayout {
+                                spacing: Theme.s2
+                                GhostButton {
+                                    text: "Abrir"
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined")
+                                            sfx.play("tap")
+                                        downloads.openFolder()
+                                    }
+                                }
+                                GhostButton {
+                                    text: "Borrar"
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined")
+                                            sfx.play("tap")
+                                        root.askConfirm("¿Borrar TODAS las descargas? "
+                                                        + "Se eliminan los archivos "
+                                                        + "descargados; no se puede deshacer.",
+                                                        "Borrar todo", function() {
+                                            downloads.removeAll()
+                                            root.toast("Descargas borradas")
+                                        })
+                                    }
+                                }
+                            }
+                        }
                         SettingRow {
                             label: "Caché de audio"
                             desc: audiocache.summary
@@ -4622,7 +4828,7 @@ Window {
                             }
                         }
                         SettingBlock {
-                            label: "Límite"
+                            label: "Límite del caché"
                             desc: "Al pasarse, se eliminan las pistas que hace más tiempo que no suenan"
                             RowLayout {
                                 spacing: Theme.s2
@@ -4637,6 +4843,16 @@ Window {
                                         onPicked: audiocache.limitMB = modelData.mb
                                     }
                                 }
+                            }
+                        }
+                        SettingRow {
+                            label: "Total en disco"
+                            desc: "Descargas + caché de audio"
+                            Text {
+                                text: Theme.size(audiocache.bytes + downloads.bytes)
+                                color: Sys.text
+                                font.pixelSize: Theme.tMd
+                                font.weight: Font.DemiBold
                             }
                         }
                     }
@@ -4678,12 +4894,37 @@ Window {
                         title: "Descargas"
 
                         SettingBlock {
+                            label: "Calidad de las descargas"
+                            desc: "Compacta es la misma grabación en la mitad de espacio; "
+                                  + "las demás guardan más bitrate"
+                            RowLayout {
+                                spacing: Theme.s2
+                                Repeater {
+                                    model: [ { id: "max", t: "Máxima" },
+                                             { id: "alta", t: "Alta" },
+                                             { id: "media", t: "Compacta" },
+                                             { id: "baja", t: "Baja" } ]
+                                    Chip {
+                                        text: modelData.t
+                                        selected: downloads.quality === modelData.id
+                                        onPicked: {
+                                            if (typeof sfx !== "undefined")
+                                                sfx.play("tap")
+                                            downloads.quality = modelData.id
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
                             label: "Carpeta de descargas"
                             desc: "Dónde se guardan las canciones descargadas"
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 34
                                 radius: Theme.rMd
+                                antialiasing: true
                                 color: Sys.bg
                                 border.width: 1
                                 border.color: Theme.line(Sys.bg, Sys.text)
@@ -4849,6 +5090,7 @@ Window {
                                                 width: 2
                                                 height: 8
                                                 radius: 1
+                                                antialiasing: true
                                                 color: Sys.accent
                                                 anchors.top: parent.top
                                                 anchors.topMargin: 1
@@ -5022,6 +5264,7 @@ Window {
             visible: settingsScroll.contentHeight > settingsScroll.height + 1
             width: 3
             radius: 1.5
+            antialiasing: true
             color: Sys.accent
             opacity: 0.4
             x: settingsLayout.x + settingsScroll.x + settingsScroll.width - 8
@@ -5042,7 +5285,9 @@ Window {
     Rectangle {
         id: launcherOverlay
         anchors.fill: parent
-        z: 55
+        // Like Settings: over the docks, so the results are not hidden
+        // behind the playback bar on the phone.
+        z: 67
         visible: root.launcherOpen
         color: Qt.rgba(0, 0, 0, 0.45)
         opacity: root.launcherOpen ? 1 : 0
@@ -5062,6 +5307,7 @@ Window {
             width: Math.min(520, root.width - 70)
             height: Math.min(launcherCol.implicitHeight + 18, root.height - 90)
             radius: Theme.rLg
+            antialiasing: true
             color: Sys.surface
             border.width: 0
             scale: root.launcherOpen ? 1 : 0.97
@@ -5081,6 +5327,7 @@ Window {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 40
                     radius: Theme.rMd
+                    antialiasing: true
                     color: Sys.bg
                     border.width: 1
                     border.color: launchInput.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
@@ -5182,6 +5429,7 @@ Window {
                                     visible: !modelData.h
                                     anchors.fill: parent
                                     radius: Theme.rSm
+                                    antialiasing: true
                                     color: rowHover.containsMouse ? Sys.bg : "transparent"
                                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 

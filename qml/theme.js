@@ -251,20 +251,22 @@ function accentOn(accent, bg) {
     return c
 }
 
-// Text colour `c` (usually a dimmed tone) forced to clear 4.5:1 over `bg`.
-// It walks towards the most readable extreme (near white or near black)
-// keeping the hue: a "quiet" secondary tone that stops being decorative
-// and disappears over a washed-out artwork.
-function readableOn(c, bg) {
+// Text colour `c` (usually a dimmed tone) forced to clear `minRatio`:1
+// over `bg` (4.5 by default, the WCAG body-text floor). It walks towards
+// the most readable extreme (near white or near black) keeping the hue: a
+// "quiet" secondary tone that stops being decorative and disappears over
+// a washed-out artwork.
+function readableOn(c, bg, minRatio) {
     if (!_rgba(c))
         return onAccent(bg)
-    if (contrast(c, bg) >= 4.5)
+    var need = (typeof minRatio === "number" && minRatio > 0) ? minRatio : 4.5
+    if (contrast(c, bg) >= need)
         return c
     var target = onAccent(bg)
     var out = c
     for (var i = 1; i <= 6; i++) {
         out = mix(c, target, Math.min(1, i * 0.18))
-        if (contrast(out, bg) >= 4.5)
+        if (contrast(out, bg) >= need)
             return out
     }
     return target
@@ -306,4 +308,15 @@ function mmss(s) {
     if (m >= 60)
         return Math.floor(m / 60) + ":" + ((m % 60) < 10 ? "0" : "") + (m % 60) + ":" + rs
     return m + ":" + rs
+}
+
+// Bytes -> "1,2 GB" / "480 MB" / "12 KB" (same format as the backend).
+function size(bytes) {
+    var b = Number(bytes || 0)
+    var mb = b / (1024 * 1024)
+    if (mb < 1)
+        return Math.max(1, Math.round(b / 1024)) + " KB"
+    if (mb < 1000)
+        return Math.round(mb) + " MB"
+    return (mb / 1024).toFixed(1).replace(".", ",") + " GB"
 }

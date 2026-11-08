@@ -135,6 +135,7 @@ Item {
         width: Theme.touch ? 44 : 38
         height: width
         radius: width / 2
+        antialiasing: true
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.leftMargin: Theme.s5
@@ -178,7 +179,7 @@ Item {
                 Layout.preferredWidth: Theme.touch ? 84 : 104
                 Layout.preferredHeight: Layout.preferredWidth
                 radius: Theme.rLg
-                clip: true
+                antialiasing: true
                 color: Theme.sAlt(Sys.bg, Sys.text)
                 RoundedArt {
                     id: artImg
@@ -245,6 +246,7 @@ Item {
                         width: playAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: 40
                         radius: Theme.rPill
+                        antialiasing: true
                         color: playAllMa.containsMouse ? Theme.hover(Sys.accent) : Sys.accent
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         RowLayout {
@@ -276,6 +278,7 @@ Item {
                         width: shuffleAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: 40
                         radius: Theme.rPill
+                        antialiasing: true
                         color: shuffleAllMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                         border.width: 1
                         border.color: Theme.alpha(Sys.text, 0.28)
@@ -317,6 +320,7 @@ Item {
                         width: discLabel.implicitWidth + Theme.pillHPad * 2 + 22
                         height: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         color: discMa.containsMouse
                                ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                         border.width: 1
@@ -363,6 +367,7 @@ Item {
                     width: orderLabel.implicitWidth + Theme.pillHPad * 2 + 16
                     height: Theme.pillH
                     radius: Theme.rPill
+                    antialiasing: true
                     color: orderMa.containsMouse
                            ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                     border.width: 1
@@ -409,6 +414,7 @@ Item {
                 Layout.fillWidth: true
                 height: 42
                 radius: Theme.rPill
+                antialiasing: true
                 color: Sys.accent
                 RowLayout {
                     anchors.centerIn: parent
@@ -435,6 +441,7 @@ Item {
                 width: shuffleLabel2.implicitWidth + Theme.pillHPad * 2 + 20
                 height: 42
                 radius: Theme.rPill
+                antialiasing: true
                 color: "transparent"
                 border.width: 1
                 border.color: Theme.alpha(Sys.text, 0.28)
@@ -467,6 +474,7 @@ Item {
             Layout.preferredHeight: Theme.pillH
             Layout.alignment: Qt.AlignLeft
             radius: Theme.rPill
+            antialiasing: true
             color: "transparent"
             border.width: 1
             border.color: Theme.alpha(Sys.text, 0.18)
@@ -503,6 +511,7 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 42
             radius: Theme.rPill
+            antialiasing: true
             color: discPhoneMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text)
                                              : "transparent"
             border.width: 1
@@ -570,6 +579,7 @@ Item {
                             width: sections.width
                             height: Theme.rowH
                             radius: Theme.rMd
+                            antialiasing: true
                             color: srowMa.containsMouse
                                    ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
                                    : "transparent"
@@ -597,7 +607,7 @@ Item {
                                     Layout.preferredHeight: 40
                                     Layout.alignment: Qt.AlignVCenter
                                     radius: Theme.rMd
-                                    clip: true
+                                    antialiasing: true
                                     color: Theme.sAlt(Sys.bg, Sys.text)
                                     RoundedArt {
                                         anchors.fill: parent
