@@ -67,28 +67,76 @@ def _usable(header):
     )
 
 
+def _dedupe_header(header):
+    """Quita nombres repetidos de una cabecera Cookie (gana el primero).
+
+    cookies.txt puede traer la misma cookie para google.com y para
+    youtube.com con valores distintos. Mandar las dos en el mismo header
+    hace que YouTube responda CookieMismatch, asi que solo puede quedar una.
+    """
+    seen = set()
+    parts = []
+    for part in header.split(";"):
+        part = part.strip()
+        if not part or "=" not in part:
+            continue
+        name = part.split("=", 1)[0].strip()
+        if name in seen:
+            continue
+        seen.add(name)
+        parts.append(part)
+    return "; ".join(parts)
+
+
 def _stored_header():
     try:
         with open(SESSION_FILE, "r", encoding="utf-8") as f:
-            return json.load(f).get("cookie_header", "")
+            data = json.load(f)
+        # Las sesiones nuevas guardan ya la cabecera filtrada; las viejas
+        # traen google.com y youtube.com mezclados y hay que deduplicar.
+        return _dedupe_header(
+            data.get("youtube_cookie_header") or data.get("cookie_header", "")
+        )
     except Exception:
         return ""
 
 
-def _cookies_txt_header():
-    """Cabecera Cookie a partir de cookies.txt: es lo que manda yt-dlp."""
-    parts = []
+def _youtube_header():
+    """Cabecera Cookie con SOLO las cookies de YouTube.
+
+    Es lo que manda un navegador a youtube.com. Mezclar las de google.com
+    (SID/HSID/SSID llegan duplicadas) provoca CookieMismatch y el chequeo
+    daba la sesion por caducada en cada arranque aunque siguiera valiendo.
+    Si un nombre aparece en varios dominios gana el mas especifico.
+    """
+    best = {}
+    order = []
     try:
         with open(COOKIE_FILE, "r", encoding="utf-8") as f:
             for ln in f:
                 if not ln.strip() or ln.startswith("#"):
                     continue
                 cols = ln.rstrip("\n").split("\t")
-                if len(cols) >= 7:
-                    parts.append(f"{cols[5]}={cols[6]}")
-    except Exception:
+                if len(cols) < 7:
+                    continue
+                domain = cols[0].lstrip(".").lower()
+                if not (domain == "youtube.com" or domain.endswith(".youtube.com")):
+                    continue
+                name, value = cols[5], cols[6]
+                rank = domain.count(".")
+                if name not in best:
+                    order.append(name)
+                    best[name] = (rank, value)
+                elif rank > best[name][0]:
+                    best[name] = (rank, value)
+    except OSError:
         return ""
-    return "; ".join(parts)
+    return "; ".join(f"{name}={best[name][1]}" for name in order)
+
+
+def _cookies_txt_header():
+    """Cabecera Cookie a partir de cookies.txt: es lo que manda yt-dlp."""
+    return _youtube_header()
 
 
 def _session_state(header):
@@ -125,19 +173,11 @@ def _session_state(header):
 
 def cmd_status():
     # cookies.txt es la fuente de verdad (lo que lee yt-dlp); el header del
-    # ytm_session.json se usa si el fichero Netscape no estuviera.
+    # ytm_session.json se usa si el fichero Netscape no estuviera. En ambos
+    # casos solo viajan las cookies de YouTube: mezclarlas con las de
+    # google.com hacia que el servidor respondiera CookieMismatch y la
+    # sesion se daba por caducada en cada reinicio.
     header = _cookies_txt_header() or _stored_header()
-    if not header:
-        try:
-            with open(COOKIE_FILE, "r", encoding="utf-8") as f:
-                names = [
-                    ln.split("\t")[5]
-                    for ln in f
-                    if ln.strip() and not ln.startswith("#") and len(ln.split("\t")) >= 7
-                ]
-            header = "; ".join(names)
-        except Exception:
-            header = ""
     if not _usable(header):
         out("STATUS error sin-sesion")
         return 1
@@ -180,6 +220,21 @@ def _write_cookies(cookies):
 
     header = "; ".join(f"{r[5]}={r[6]}" for r in rows)
 
+    yt = {}
+    yt_order = []
+    for r in rows:
+        domain = r[0].lstrip(".").lower()
+        if not (domain == "youtube.com" or domain.endswith(".youtube.com")):
+            continue
+        name, value = r[5], r[6]
+        rank = domain.count(".")
+        if name not in yt:
+            yt_order.append(name)
+            yt[name] = (rank, value)
+        elif rank > yt[name][0]:
+            yt[name] = (rank, value)
+    youtube_header = "; ".join(f"{name}={yt[name][1]}" for name in yt_order)
+
     with open(COOKIE_FILE, "w", encoding="utf-8") as f:
         f.write("# Netscape HTTP Cookie File\n")
         for r in rows:
@@ -190,6 +245,7 @@ def _write_cookies(cookies):
             {
                 "saved_at": int(time.time()),
                 "cookie_header": header,
+                "youtube_cookie_header": youtube_header,
                 "cookie_count": len(rows),
             },
             f,
