@@ -64,7 +64,6 @@ fi
 # ---- tarball (always) ----------------------------------------------------
 echo "==> tar.gz"
 tar -czf "$DIST/${NAME}-${VERSION}-linux-x86_64.tar.gz" -C "$DIST" stage
-rm -rf "$STAGE"
 
 # ---- .deb ----------------------------------------------------------------
 if command -v dpkg-deb >/dev/null 2>&1 || command -v ar >/dev/null 2>&1; then
@@ -124,6 +123,11 @@ EOF
 else
     echo "==> appimagetool no está: no se genera el AppImage"
 fi
+
+# The staging tree feeds the tarball, the .deb and the AppImage: it is only
+# removed once all three are done (before, the .deb found no stage and was
+# left without the Python helpers).
+rm -rf "$STAGE"
 
 echo
 echo "Listo en $DIST:"
