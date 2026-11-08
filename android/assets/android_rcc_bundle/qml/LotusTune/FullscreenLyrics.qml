@@ -142,6 +142,11 @@ Rectangle {
     // which is exactly why the cinema mode did not match the desktop
     // palette: now it is the palette accent mixed over the background.
     readonly property color veilColor: Theme.sAccent(Sys.bg, Sys.accent, 0.10)
+    // How much the veil covers the wash. It used to be 0.66: over a white
+    // cover the mix landed on a mid grey where white lyrics only cleared
+    // ~5:1 and the neighbours looked washed out. 0.72 keeps the artwork
+    // recognisable and gives the ink room to be really legible.
+    readonly property real veilOpacity: 0.72
 
     // ---- ink of the cinema ------------------------------------------------
     // The veil below is drawn at 0.66 over the blurred artwork, so the
@@ -149,10 +154,15 @@ Rectangle {
     // veil. From it the chrome (title, artist, transport icons) and the
     // lyrics pick a near-white or a near-black tone: over the white cover
     // of "A Little Piece of Heaven" white text used to vanish.
+    // The chrome (title, artist, transport) sits on the left column on the
+    // desktop and on the top one on the phone: it uses THAT cell of the
+    // wash, not the global average (the cover is right there and it can be
+    // white while the rest of the artwork is black).
+    readonly property int chromeZone: fl.isPhone ? 1 : 3
     readonly property color bgBehind: {
-        const a = 0.66
+        const a = fl.veilOpacity
         const base = (typeof wash !== "undefined" && wash.valid)
-                     ? wash.average : Sys.bg
+                     ? wash.zoneColor(fl.chromeZone) : Sys.bg
         return Theme.alpha(Theme.mix(base, fl.veilColor, a), 1)
     }
     readonly property color ink: Theme.onAccent(fl.bgBehind)
@@ -195,7 +205,7 @@ Rectangle {
     Rectangle {
         anchors.fill: parent
         color: fl.veilColor
-        opacity: 0.66
+        opacity: fl.veilOpacity
     }
     // Click eater: the cinema mode has no colour of its own, so clicks on
     // any gap without a control or lyrics went through the window and
@@ -339,9 +349,11 @@ Rectangle {
                 lineSize: Math.max(20, Math.min(30, Math.round(content.height / 32)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: 860
-                edgeColor: Theme.alpha(fl.veilColor, 0.66)
+                edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
                 leftAlign: true
                 duetSides: true
+                // Right half of the screen: its own cell of the wash.
+                zone: 5
                 pinFrac: 0.36
                 pillTop: true
                 syncAdjustAllowed: false
@@ -394,9 +406,12 @@ Rectangle {
                 lineSize: Math.max(20, Math.min(28, Math.round(content.height / 34)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: Math.min(content.width * 0.86, 720)
-                edgeColor: Theme.alpha(fl.veilColor, 0.66)
+                edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
                 leftAlign: false
                 duetSides: true
+                // Phone: the lyrics live under the cover, in the bottom
+                // half. That cell is the one that decides light or dark ink.
+                zone: 7
                 pinFrac: 0.34
                 pillTop: true
                 syncAdjustAllowed: false
@@ -418,6 +433,7 @@ Rectangle {
         width: 38
         height: 38
         radius: Theme.rMd
+        antialiasing: true
         color: exitMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
                                     : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -453,6 +469,7 @@ Rectangle {
         width: 38
         height: 38
         radius: Theme.rMd
+        antialiasing: true
         color: queueMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
                                      : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }

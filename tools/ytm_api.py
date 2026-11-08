@@ -1011,9 +1011,12 @@ def _nav_artist_of_sb(renderer):
     return ", ".join(parts) if parts else ""
 
 
-def album_tracks(browse_id, limit=200):
-    """Pistas de un álbum/sencillo (browse + continuación de su estantería)."""
-    resp = browse(browse_id, anon=True)
+def album_tracks(browse_id, limit=200, data=None):
+    """Pistas de un álbum/sencillo (browse + continuación de su estantería).
+
+    `data` permite reutilizar una respuesta ya descargada (albuminfo pide
+    la lista de audio y las pistas en la misma consulta)."""
+    resp = data if isinstance(data, dict) else browse(browse_id, anon=True)
     tracks, seen = [], set()
     shelf = _find_key(resp, "musicShelfRenderer")
     items = shelf.get("contents") if isinstance(shelf, dict) else []
@@ -1357,12 +1360,8 @@ def cmd_artistpage(browse_id, name=""):
     return 0
 
 
-def album_playlist_id(browse_id):
-    """Id de la lista de audio (OLAK5uy…) de un álbum/sencillo.
-
-    Es la lista que YouTube Music genera para el disco: la que yt-dlp sabe
-    enumerar y descargar entera (una carpeta = un disco)."""
-    data = browse(browse_id, anon=True)
+def album_playlist_id_from(data):
+    """Igual que album_playlist_id pero sobre una respuesta ya bajada."""
     for key in ("musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer"):
         header = _find_key(data, key)
         if not isinstance(header, dict):
@@ -1379,6 +1378,14 @@ def album_playlist_id(browse_id):
     return m.group(0) if m else ""
 
 
+def album_playlist_id(browse_id):
+    """Id de la lista de audio (OLAK5uy…) de un álbum/sencillo.
+
+    Es la lista que YouTube Music genera para el disco: la que yt-dlp sabe
+    enumerar y descargar entera (una carpeta = un disco)."""
+    return album_playlist_id_from(browse(browse_id, anon=True))
+
+
 def cmd_album(browse_id):
     tracks = album_tracks(browse_id)
     json.dump({"entries": tracks}, sys.stdout, ensure_ascii=False)
@@ -1387,8 +1394,19 @@ def cmd_album(browse_id):
 
 
 def cmd_albuminfo(browse_id):
+    # Una sola consulta: la lista de audio (para yt-dlp) y los títulos de
+    # sus pistas (para no volver a descargar un single que ya está dentro
+    # de un disco de la misma discografía).
+    data = browse(browse_id, anon=True)
+    pid = album_playlist_id_from(data)
+    try:
+        tracks = album_tracks(browse_id, limit=200, data=data)
+    except Exception:
+        tracks = []
     json.dump({"id": browse_id,
-               "playlistId": album_playlist_id(browse_id)},
+               "playlistId": pid,
+               "tracks": [{"videoId": t.get("id", ""),
+                           "title": t.get("title", "")} for t in tracks]},
               sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0

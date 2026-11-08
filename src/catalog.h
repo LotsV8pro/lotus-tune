@@ -44,6 +44,11 @@ class Catalog : public QObject
     // Real URL of the open list (so it can be downloaded even if it is
     // not the user's or its id is unknown).
     Q_PROPERTY(QString openListUrl READ openListUrl NOTIFY changed)
+    // Artwork of the card the open list came from. A radio is opened by
+    // its seed video, so its tracks carry the cover of the seed song; the
+    // header must show the radio's own face (the artist photo on the
+    // card), not the first track's cover.
+    Q_PROPERTY(QString openListThumb READ openListThumb NOTIFY changed)
     // User's "liked" state (library). likedReady turns true once the set
     // has been loaded (or the attempt with a session failed); likedRevision
     // goes up on every change so the rows repaint the heart.
@@ -74,6 +79,7 @@ public:
     QString loginState() const { return m_loginState; }
     QString openPlaylistId() const { return m_openPlaylistId; }
     QString openListUrl() const { return m_openListUrl; }
+    QString openListThumb() const { return m_openListThumb; }
     bool likedReady() const { return m_likedReady; }
     QVariantList likedTracks() const { return m_likedTracks; }
     int likedRevision() const { return m_likedRevision; }
@@ -91,6 +97,10 @@ public:
     Q_INVOKABLE void searchAll(const QString &query, bool everySource = true);
     Q_INVOKABLE void openPlaylist(int savedIndex);
     Q_INVOKABLE void openUrl(const QString &url, const QString &name);
+    // Same, keeping the artwork of the card that was clicked (radio or
+    // playlist): the header of the open list shows it.
+    Q_INVOKABLE void openUrlArt(const QString &url, const QString &name,
+                                const QString &thumb);
     // YouTube Music self radio for a videoId (what the app itself puts
     // "up next"): it resolves the RDAMVM<videoId> mix with yt-dlp and
     // emits radioReady() with the list, without touching the queue. It is
@@ -221,9 +231,11 @@ signals:
     // Album/single tracks received (see fetchAlbumTracks()).
     void albumTracksReady(const QString &browseId, const QVariantList &tracks);
     // Album/single audio list resolved (see fetchAlbumPlaylist()): with
-    // `playlistId` the UI can enqueue the download of the whole record.
+    // `playlistId` the UI can enqueue the download of the whole record;
+    // `titles` are the track titles of the record (to skip a single that
+    // is already inside an album of the same discography).
     void albumPlaylistReady(const QString &browseId, const QString &playlistId,
-                            const QString &name);
+                            const QString &name, const QStringList &titles);
     // It could not be resolved (offline, restricted album...).
     void albumPlaylistFailed(const QString &browseId, const QString &name);
     // An artist's main track resolved (see resolveArtistRadio()); `track` is
@@ -447,6 +459,7 @@ private:
     // list" button).
     QString m_openPlaylistId;
     QString m_openListUrl;
+    QString m_openListThumb;
     QString m_loginState;
     // YouTube rejected the stored cookies (expired session, or the session
     // used from another network): they are not sent any more until a new

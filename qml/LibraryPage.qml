@@ -38,6 +38,50 @@ Item {
     signal downloadsPlayRequested(bool random, bool newestFirst)
 
     property bool showingTracks: false
+    // Discography batch being queued (from Main): when several albums are
+    // being prepared, Downloads shows them as ONE "Discografía de X"
+    // group instead of a flat list of loose album jobs.
+    property string discArtist: ""
+    property int discTotal: 0
+    property int discDone: 0
+    property var discTitles: []
+    // Live downloads: everything that is not finished ("done") nor a
+    // cancelled job. The section is called ACTIVE downloads: including
+    // the finished ones made the badge lie ("44 en curso" with songs
+    // already in the library) and pushed the rest off screen.
+    readonly property var dlLive: {
+        const out = []
+        const js = page.dlJobs
+        for (let i = 0; i < (js ? js.length : 0); ++i) {
+            const st = String(js[i].state || "")
+            if (st === "done")
+                continue
+            if (st === "error" && String(js[i].error || "") === "Cancelado")
+                continue
+            out.push(js[i])
+        }
+        return out
+    }
+    // Batch being prepared (albums still resolving their audio list).
+    readonly property bool discPreparing: discTotal > 1 && discDone < discTotal
+    // Downloads of the batch that are still alive.
+    readonly property int discLive: {
+        if (!discTitles || discTitles.length === 0)
+            return 0
+        let n = 0
+        const js = page.dlLive
+        for (let i = 0; i < js.length; ++i) {
+            if (discTitles.indexOf(String(js[i].name || "")) >= 0)
+                ++n
+        }
+        return n
+    }
+    // Shown while the batch is being prepared or while any of its records
+    // is still downloading; it disappears when the whole discography is
+    // done, so it never lingers as a stale card.
+    readonly property bool discActive: discArtist !== ""
+                                       && discTotal > 1
+                                       && (discPreparing || discLive > 0)
     // Order of the Downloads page: false = the order the tracks were
     // downloaded, true = the newest first.
     property bool dlNewestFirst: false
@@ -117,7 +161,7 @@ Item {
         if (c.savedIndex !== undefined && c.savedIndex >= 0)
             catalog.openPlaylist(c.savedIndex)
         else
-            catalog.openUrl(c.url || "", c.name || "")
+            catalog.openUrlArt(c.url || "", c.name || "", c.thumb || "")
     }
 
     // Opens (or plays) the list of a cover from the context menu.
@@ -146,9 +190,13 @@ Item {
         return out
     }
 
-    // Cover of the open list: the one from the YTM library if we know it
-    // (id = openPlaylistId); if not, the one of the first track.
+    // Cover of the open list: the artwork of the card it was opened from
+    // (a radio's face is the artist photo, NOT the seed song's cover),
+    // then the one from the YTM library, then the first track's.
     function currentCover() {
+        const art = String(catalog.openListThumb || "")
+        if (art.length > 0)
+            return art
         const id = String(catalog.openPlaylistId || "")
         if (id) {
             const l = catalog.ytmLibrary
@@ -158,6 +206,14 @@ Item {
         }
         const t = catalog.tracks
         return (t && t.length > 0) ? String(t[0].thumb || "") : ""
+    }
+
+    // Second cover candidate for downloaded lists (the signed YouTube
+    // one expires; the backend also sends the stable first-track one).
+    function viewCoverAlt() {
+        if (!page.localPlaylistOpen || !page.openDownloadInfo)
+            return ""
+        return String(page.openDownloadInfo.thumbFallback || "")
     }
 
     function currentOwned() {
@@ -290,6 +346,15 @@ Item {
 
     // ---- downloads (the `downloads` backend; it may not exist yet) -------
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
+    // Downloaded folders grouped by what they are: a discography mixes
+    // albums and singles, and a single ("Nobody") must not look like a
+    // record or hide among the saved playlists.
+    readonly property var dlAlbums: (page.dlFolders || []).filter(
+        function (f) { return String(f.kind || "") === "album" })
+    readonly property var dlSingles: (page.dlFolders || []).filter(
+        function (f) { return String(f.kind || "") === "single" })
+    readonly property var dlLists: (page.dlFolders || []).filter(
+        function (f) { return String(f.kind || "") === "list" })
     // Downloaded lists (one folder = one list) and loose tracks.
     readonly property var dlFolders: (typeof downloads !== "undefined") ? downloads.folders : []
 
@@ -556,6 +621,7 @@ Item {
 
         implicitHeight: inner.implicitHeight + island.pad * 2
         radius: Theme.rPanel
+        antialiasing: true
         color: "transparent"
         border.width: 0
 
@@ -588,6 +654,7 @@ Item {
             visible: header.badge !== ""
             height: 18
             radius: Theme.rSm
+            antialiasing: true
             color: Theme.sAlt(Sys.bg, Sys.text)
             implicitWidth: badgeLabel.implicitWidth + Theme.s3
             Text {
@@ -616,6 +683,7 @@ Item {
         Layout.preferredWidth: 32
         Layout.preferredHeight: 32
         radius: Theme.rMd
+        antialiasing: true
         color: ibMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
         border.width: 0
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -639,6 +707,167 @@ Item {
     }
 
     // ---- download row in progress ---------------------------------------
+    // ---- a downloaded list (one folder) ----------------------------------
+    component FolderCard: Item {
+        id: fcell
+        required property var modelData
+        width: 104
+        height: 124
+
+        // Hover of the whole card (it lives here, not in the MouseArea, so
+        // the trash button showing up under the cursor does not steal it).
+        HoverHandler { id: fcellHover }
+
+        Rectangle {
+            id: fthumb
+            width: parent.width
+            height: width
+            radius: Theme.rMd
+            antialiasing: true
+            color: Theme.sAlt(Sys.bg, Sys.text)
+            RoundedArt {
+                anchors.fill: parent
+                source: fcell.modelData.thumb || ""
+                sources: [fcell.modelData.thumbFallback || ""]
+                visible: String(fcell.modelData.thumb || "") !== ""
+                         || String(fcell.modelData.thumbFallback || "") !== ""
+                radiusSpec: Theme.rMd
+            }
+            Glyph {
+                anchors.centerIn: parent
+                width: 22
+                height: 22
+                visible: !fcell.modelData.thumb && !fcell.modelData.thumbFallback
+                kind: "download"
+                color: Theme.tDim(Sys.bg, Sys.text)
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: Theme.rMd
+                antialiasing: true
+                color: "transparent"
+                border.width: page.openDownloadFolder === fcell.modelData.folder ? 2 : 0
+                border.color: Sys.accent
+            }
+        }
+        Text {
+            anchors.top: fthumb.bottom
+            anchors.topMargin: 4
+            width: parent.width
+            text: (fcell.modelData.name || "")
+                  + " · " + (fcell.modelData.count || 0)
+            color: page.openDownloadFolder === fcell.modelData.folder
+                   ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
+            font.pixelSize: Theme.tXs
+            elide: Text.ElideRight
+            maximumLineCount: 1
+        }
+        MouseArea {
+            id: cellMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            // Long press = menu of the downloaded list (play / uninstall),
+            // which on desktop was the right click.
+            property bool menuHeld: false
+            onPressAndHold: {
+                cellMa.menuHeld = true
+                const p = mapToItem(null, mouseX, mouseY)
+                page.downloadMenuRequested(
+                    String(fcell.modelData.folder || ""),
+                    String(fcell.modelData.name || ""),
+                    p.x, p.y)
+            }
+            onClicked: {
+                if (cellMa.menuHeld) {
+                    cellMa.menuHeld = false
+                    return
+                }
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                page.downloadOpenRequested(String(fcell.modelData.folder || ""))
+            }
+        }
+        // Uninstall this list (it deletes its files). It shows on mouse
+        // over the card; on touch it is always visible (there is no hover).
+        // It is always LAID OUT and only changes its opacity: toggling
+        // `visible` made it flicker (when it appeared under the cursor it
+        // stole the hover, hid itself, and so on in a loop).
+        Rectangle {
+            width: Theme.touch ? 34 : 26
+            height: width
+            radius: width / 2
+            antialiasing: true
+            opacity: (fcellHover.hovered || Theme.touch) ? 1 : 0
+            enabled: opacity > 0.5
+            Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+            color: delMa.containsMouse ? Sys.danger : Qt.rgba(0, 0, 0, 0.55)
+            anchors.right: fthumb.right
+            anchors.top: fthumb.top
+            anchors.rightMargin: 4
+            anchors.topMargin: 4
+            Glyph {
+                anchors.centerIn: parent
+                width: 13
+                height: 13
+                kind: "trash"
+                color: delMa.containsMouse ? Theme.onAccent(Sys.accent) : Sys.text
+            }
+            MouseArea {
+                id: delMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (typeof sfx !== "undefined") sfx.play("tap")
+                    page.uninstallListRequested(
+                        String(fcell.modelData.folder || ""),
+                        String(fcell.modelData.name || ""))
+                }
+            }
+        }
+    }
+
+    // A labelled strip of downloaded lists: the "apartado" of each kind.
+    component FolderStrip: ColumnLayout {
+        id: fgroup
+        property var items: []
+        property string title: ""
+        // `active` is set by the page (is the Downloads tab selected?);
+        // the component itself hides when its strip is empty.
+        property bool active: true
+        Layout.fillWidth: true
+        visible: active && items.length > 0
+        spacing: 2
+
+        Text {
+            Layout.fillWidth: true
+            text: fgroup.title + "  " + fgroup.items.length
+            color: Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tXs
+            font.weight: Font.DemiBold
+            font.letterSpacing: 0.4
+            elide: Text.ElideRight
+            maximumLineCount: 1
+        }
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 124
+            clip: true
+
+            ListView {
+                anchors.fill: parent
+                orientation: ListView.Horizontal
+                spacing: Theme.s3
+                model: fgroup.items
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: FolderCard { }
+            }
+        }
+    }
+
     component JobRow: Rectangle {
         id: jrow
         required property var modelData
@@ -646,6 +875,7 @@ Item {
         Layout.fillWidth: true
         Layout.preferredHeight: Theme.rowH
         radius: Theme.rLg
+        antialiasing: true
         color: Sys.surface
         border.width: 0
 
@@ -692,6 +922,7 @@ Item {
                     Layout.preferredWidth: 26
                     Layout.preferredHeight: 26
                     radius: Theme.rSm
+                    antialiasing: true
                     visible: st === "downloading" || st === "paused" || st === "error"
                     color: jobCtlMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -742,12 +973,14 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 4
                 radius: 2
+                antialiasing: true
                 color: Theme.mix(Sys.surface, Sys.text, 0.16)
                 visible: String(jrow.modelData.state || "") !== "error"
                 Rectangle {
                     width: parent.width * Math.max(0, Math.min(1, (jrow.modelData.progress || 0) / 100))
                     height: parent.height
                     radius: 2
+                    antialiasing: true
                     color: Sys.accent
                     Behavior on width { NumberAnimation { duration: Theme.fastMs } }
                 }
@@ -780,17 +1013,27 @@ Item {
             anchors.fill: parent
             anchors.margins: Theme.panelMargin
             source: page.viewCover()
+            sources: [page.viewCoverAlt()]
             radiusSpec: Theme.rXl
             blur: 2
-            opacity: 0.8
+            // Faint: the artwork is a tint, not a light box. With 0.8 a
+            // pale cover turned the whole card into a grey blob that
+            // stood out against the page (and washed out the title).
+            opacity: 0.55
         }
+        // Veil: the blurred cover is often near-white (a pale artwork
+        // lit up the whole list and the white title fell to ~3,4:1). The
+        // scrim is denser at the top, where the header text sits, and
+        // melts into the page at the bottom while still letting the
+        // colours of the cover through.
         Rectangle {
             anchors.fill: listBgArt
             radius: Theme.rXl
+            antialiasing: true
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.34) }
-                GradientStop { position: 0.5; color: Theme.alpha(Sys.bg, 0.58) }
-                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.80) }
+                GradientStop { position: 0.0; color: Theme.alpha(Sys.bg, 0.60) }
+                GradientStop { position: 0.45; color: Theme.alpha(Sys.bg, 0.74) }
+                GradientStop { position: 1.0; color: Theme.alpha(Sys.bg, 0.92) }
             }
         }
     }
@@ -832,13 +1075,14 @@ Item {
                     Layout.preferredWidth: Theme.touch ? 104 : 168
                     Layout.preferredHeight: Theme.touch ? 104 : 168
                     radius: Theme.rXl
+                    antialiasing: true
                     color: Theme.alpha(Sys.text, 0.08)
-                    clip: true
 
                     RoundedArt {
                         id: heroCover
                         anchors.fill: parent
                         source: page.viewCover()
+                        sources: [page.viewCoverAlt()]
                         radiusSpec: Theme.rXl
                     }
                     Glyph {
@@ -888,6 +1132,7 @@ Item {
                             Layout.preferredHeight: 26
                             implicitWidth: yearLabel.implicitWidth + 22
                             radius: Theme.rPill
+                            antialiasing: true
                             color: Theme.alpha(Sys.text, 0.10)
                             visible: page.viewYearText() !== ""
                             Text {
@@ -903,6 +1148,7 @@ Item {
                             Layout.preferredHeight: 26
                             implicitWidth: metaRow.implicitWidth + 22
                             radius: Theme.rPill
+                            antialiasing: true
                             color: Theme.alpha(Sys.text, 0.10)
                             RowLayout {
                                 id: metaRow
@@ -923,6 +1169,7 @@ Item {
                                     width: 3
                                     height: 3
                                     radius: 1.5
+                                    antialiasing: true
                                     color: Theme.alpha(Sys.text, 0.35)
                                 }
                                 Text {
@@ -957,6 +1204,7 @@ Item {
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     implicitWidth: playAllRow.implicitWidth + 44
                     radius: Theme.rPill
+                    antialiasing: true
                     readonly property color pill: Theme.alpha(Sys.text, 0.92)
                     color: allMa.containsMouse ? Qt.darker(pill, 1.06) : pill
                     scale: allMa.pressed ? 0.97 : 1
@@ -991,6 +1239,7 @@ Item {
                     Layout.preferredWidth: Theme.touch ? 56 : 52
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     radius: Theme.rPill
+                    antialiasing: true
                     color: shufMa.containsMouse ? Theme.alpha(Sys.text, 0.16)
                                                 : Theme.alpha(Sys.text, 0.10)
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1017,6 +1266,7 @@ Item {
                     Layout.preferredWidth: Theme.touch ? 40 : 32
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     radius: Theme.rPill
+                    antialiasing: true
                     visible: !page.localPlaylistOpen && page.canDownloadTracks()
                     color: dlMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1053,10 +1303,12 @@ Item {
                         width: parent.width - 10
                         height: 2
                         radius: 1
+                        antialiasing: true
                         color: Theme.alpha(Sys.text, 0.20)
                         Rectangle {
                             height: parent.height
                             radius: 1
+                            antialiasing: true
                             color: dlBtn.failed ? Sys.danger : Sys.text
                             width: parent.width * (dlBtn.installed ? 1 : dlBtn.frac)
                             Behavior on width { NumberAnimation { duration: Theme.fastMs } }
@@ -1075,7 +1327,8 @@ Item {
                             else if (typeof downloads !== "undefined")
                                 downloads.downloadPlaylist(
                                     String(catalog.openListUrl || ""),
-                                    String(catalog.tracksTitle || ""))
+                                    String(catalog.tracksTitle || ""),
+                                    "list")
                         }
                     }
                 }
@@ -1085,6 +1338,7 @@ Item {
                     Layout.preferredWidth: Theme.touch ? 40 : 32
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     radius: Theme.rPill
+                    antialiasing: true
                     visible: page.localPlaylistOpen
                              || (dlBtn.installed && !dlBtn.downloading)
                     color: unMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
@@ -1112,6 +1366,7 @@ Item {
                     Layout.preferredWidth: Theme.touch ? 40 : 32
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     radius: Theme.rPill
+                    antialiasing: true
                     color: moreMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
                     Glyph {
                         anchors.centerIn: parent
@@ -1147,6 +1402,7 @@ Item {
                     Layout.preferredWidth: 220
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     radius: Theme.rPill
+                    antialiasing: true
                     color: Theme.alpha(Sys.text, listSearchInput.activeFocus ? 0.14 : 0.10)
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -1190,6 +1446,7 @@ Item {
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     implicitWidth: qlRow.implicitWidth + 44
                     radius: Theme.rPill
+                    antialiasing: true
                     color: qlMa.containsMouse ? Theme.alpha(Sys.text, 0.16)
                                               : Theme.alpha(Sys.text, 0.10)
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1292,6 +1549,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         radius: Theme.rMd
+                        antialiasing: true
                         color: trowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                     }
@@ -1391,6 +1649,7 @@ Item {
                             width: 20
                             height: 20
                             radius: Theme.rLg
+                            antialiasing: true
                             color: Theme.alpha(Sys.accent, 0.14)
                             Glyph {
                                 anchors.centerIn: parent
@@ -1433,6 +1692,7 @@ Item {
                             Layout.preferredWidth: 26
                             Layout.preferredHeight: 26
                             radius: Theme.rXl
+                            antialiasing: true
                             color: rowMoreMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                             Glyph {
@@ -1504,6 +1764,7 @@ Item {
                         Layout.preferredHeight: Theme.pillH
                         implicitWidth: tabLabel.implicitWidth + Theme.pillHPad * 2
                         radius: Theme.rPill
+                        antialiasing: true
                         color: tabItem.on
                                ? Sys.accentDim
                                : (tabMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
@@ -1553,6 +1814,7 @@ Item {
                     Layout.preferredWidth: 200
                     Layout.preferredHeight: Theme.pillH
                     radius: Theme.rPill
+                    antialiasing: true
                     color: Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
                     border.color: libSearchInput.activeFocus
@@ -1599,6 +1861,7 @@ Item {
                     Layout.preferredWidth: 40
                     Layout.preferredHeight: 40
                     radius: Theme.rPill
+                    antialiasing: true
                     color: page.libSearchOpen ? Sys.accentDim
                                               : Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
@@ -1633,6 +1896,7 @@ Item {
                     implicitWidth: Math.max(Theme.touch ? 40 : 0,
                                             createRow.implicitWidth + Theme.s4)
                     radius: Theme.rPill
+                    antialiasing: true
                     color: page.addListOpen ? Sys.accentDim
                                             : (createMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
                                                                       : Theme.sAlt(Sys.bg, Sys.text))
@@ -1683,6 +1947,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 40
                     radius: Theme.rPill
+                    antialiasing: true
                     color: Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
                     border.color: phoneFilter.activeFocus
@@ -1753,6 +2018,7 @@ Item {
                         Layout.preferredWidth: Theme.pillH
                         Layout.preferredHeight: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         color: errCloseMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
                                                         : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1791,6 +2057,7 @@ Item {
                     Layout.preferredWidth: 160
                     Layout.preferredHeight: Theme.rowThin
                     radius: Theme.rPill
+                    antialiasing: true
                     color: Sys.surface
                     border.width: 1
                     border.color: nameInput.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
@@ -1821,6 +2088,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.rowThin
                     radius: Theme.rPill
+                    antialiasing: true
                     color: Sys.surface
                     border.width: 1
                     border.color: urlInput.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
@@ -1854,6 +2122,7 @@ Item {
                     Layout.preferredWidth: 88
                     Layout.preferredHeight: Theme.rowThin
                     radius: Theme.rPill
+                    antialiasing: true
                     color: addMa.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
                     scale: addMa.pressed ? 0.96 : 1
                     Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -1892,21 +2161,104 @@ Item {
             // 3) active downloads (visible from any source)
             Island {
                 Layout.fillWidth: true
-                visible: page.dlJobs.length > 0
+                // Visible while there is something to show: live jobs or
+                // a discography that is still being prepared.
+                visible: page.dlLive.length > 0 || page.discActive
                 spacing: Theme.s2
 
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: Theme.s2
 
-                SectionHeader {
-                    title: "DESCARGAS ACTIVAS"
-                    badge: page.dlJobs.length + " en curso"
+                // Discography: one artist, N records. It is shown as a
+                // single group with the artist's name and the overall
+                // progress, so a 28-record batch reads as a real
+                // "download the artist" and not as 28 loose jobs.
+                Island {
+                    Layout.fillWidth: true
+                    visible: page.discActive
+                    pad: Theme.s3
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.s3
+
+                        Rectangle {
+                            Layout.preferredWidth: 34
+                            Layout.preferredHeight: 34
+                            radius: Theme.rPill
+                            antialiasing: true
+                            color: Theme.alpha(Sys.accent, 0.18)
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 17
+                                height: 17
+                                kind: "download"
+                                color: Theme.accentOn(Sys.accent, Sys.bg)
+                            }
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            Text {
+                                Layout.fillWidth: true
+                                text: "Discografía de " + page.discArtist
+                                color: Sys.text
+                                font.pixelSize: Theme.tMd
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: page.discPreparing
+                                      ? (page.discDone + " de " + page.discTotal
+                                         + " discos preparados · descargando en orden")
+                                      : (page.discLive + " de " + page.discTotal
+                                         + " discos en cola de descarga")
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tXs
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+                    }
                 }
 
-                Repeater {
-                    model: page.dlJobs
-                    delegate: JobRow {}
+                SectionHeader {
+                    title: "DESCARGAS ACTIVAS"
+                    badge: page.dlLive.length + " en curso"
+                }
+
+                // Capped and scrollable: a discography queues dozens of
+                // jobs and, without its own scroll, everything below it
+                // (the lists, the songs) was pushed off screen.
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(
+                        page.dlLive.length * (Theme.rowH + Theme.s2) - Theme.s2,
+                        5 * (Theme.rowH + Theme.s2) - Theme.s2)
+                    visible: page.dlLive.length > 0
+
+                    ListView {
+                        id: jobsList
+                        anchors.fill: parent
+                        model: page.dlLive
+                        spacing: Theme.s2
+                        clip: true
+                        reuseItems: true
+                        cacheBuffer: 400
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        delegate: JobRow {
+                            // In a ListView the Layout attached
+                            // properties are ignored: without an explicit
+                            // height every row collapsed and all the
+                            // titles were drawn on top of each other.
+                            width: jobsList.width
+                            height: Theme.rowH
+                        }
+                    }
                 }
 
                 RowLayout {
@@ -1917,6 +2269,7 @@ Item {
                         Layout.preferredWidth: 138
                         Layout.preferredHeight: 32
                         radius: Theme.rMd
+                        antialiasing: true
                         color: folderMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                         border.width: 0
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1960,6 +2313,7 @@ Item {
                         Layout.preferredWidth: 96
                         Layout.preferredHeight: 32
                         radius: Theme.rMd
+                        antialiasing: true
                         color: pauseAllMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         RowLayout {
@@ -2000,6 +2354,7 @@ Item {
                         Layout.preferredWidth: 106
                         Layout.preferredHeight: 32
                         radius: Theme.rMd
+                        antialiasing: true
                         color: resumeAllMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         RowLayout {
@@ -2030,6 +2385,7 @@ Item {
                         Layout.preferredWidth: 110
                         Layout.preferredHeight: 32
                         radius: Theme.rMd
+                        antialiasing: true
                         color: cancelMa.containsMouse
                                ? Theme.alpha(Sys.danger, 0.12)
                                : "transparent"
@@ -2089,157 +2445,11 @@ Item {
                     }
                 }
 
-                // ---- Downloaded lists (one folder = one list) --------------
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: page.dlFolders.length > 0 ? 112 : 0
-                    visible: page.localSelected && page.dlFolders.length > 0
-                    clip: true
-
-                    ListView {
-                        id: folderStrip
-                        anchors.fill: parent
-                        orientation: ListView.Horizontal
-                        spacing: Theme.s3
-                        model: page.dlFolders
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-
-                        delegate: Item {
-                            id: fcell
-                            required property var modelData
-                            width: 128
-                            height: folderStrip.height
-
-                            // Hover of the whole card (it lives here, not in
-                            // the MouseArea, so the trash button showing up
-                            // under the cursor does not steal it).
-                            HoverHandler { id: fcellHover }
-
-                            Rectangle {
-                                id: fthumb
-                                width: parent.width
-                                height: 84
-                                radius: Theme.rMd
-                                color: Theme.sAlt(Sys.bg, Sys.text)
-                                clip: true
-                                RoundedArt {
-                                    anchors.fill: parent
-                                    source: fcell.modelData.thumb || ""
-                                    visible: String(fcell.modelData.thumb || "") !== ""
-                                    radiusSpec: Theme.rMd
-                                }
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    width: 22
-                                    height: 22
-                                    visible: !fcell.modelData.thumb
-                                    kind: "download"
-                                    color: Theme.tDim(Sys.bg, Sys.text)
-                                }
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: Theme.rMd
-                                    color: "transparent"
-                                    border.width: page.openDownloadFolder
-                                                  === fcell.modelData.folder ? 2 : 0
-                                    border.color: Sys.accent
-                                }
-                            }
-                            Text {
-                                anchors.top: fthumb.bottom
-                                anchors.topMargin: 4
-                                width: parent.width
-                                text: (fcell.modelData.name || "")
-                                      + " · " + (fcell.modelData.count || 0)
-                                color: page.openDownloadFolder === fcell.modelData.folder
-                                       ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
-                                font.pixelSize: Theme.tXs
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
-                            }
-                            MouseArea {
-                                id: cellMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                // Long press = menu of the downloaded list
-                                // (play / uninstall), which on desktop was
-                                // the right click.
-                                property bool menuHeld: false
-                                onPressAndHold: {
-                                    cellMa.menuHeld = true
-                                    const p = mapToItem(null, mouseX, mouseY)
-                                    page.downloadMenuRequested(
-                                        String(fcell.modelData.folder || ""),
-                                        String(fcell.modelData.name || ""),
-                                        p.x, p.y)
-                                }
-                                onClicked: {
-                                    if (cellMa.menuHeld) {
-                                        cellMa.menuHeld = false
-                                        return
-                                    }
-                                    if (typeof sfx !== "undefined") sfx.play("tap")
-                                    // Opens the downloaded list AS A PLAYLIST (its
-                                    // own tracks view), without filtering.
-                                    page.downloadOpenRequested(
-                                        String(fcell.modelData.folder || ""))
-                                }
-                            }
-                            // Uninstall this list (it deletes its files). It
-                            // shows on mouse over the card; on touch it is
-                            // always visible (there is no hover).
-                            // It is always LAID OUT and only changes its
-                            // opacity: toggling `visible` made it flicker
-                            // (when it appeared under the cursor it stole
-                            // the hover, hid itself, and so on in a loop).
-                            Rectangle {
-                                width: Theme.touch ? 34 : 26
-                                height: width
-                                radius: width / 2
-                                opacity: (fcellHover.hovered || Theme.touch) ? 1 : 0
-                                enabled: opacity > 0.5
-                                Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                                color: delMa.containsMouse ? Sys.danger
-                                                           : Qt.rgba(0, 0, 0, 0.55)
-                                anchors.right: fthumb.right
-                                anchors.top: fthumb.top
-                                anchors.rightMargin: 4
-                                anchors.topMargin: 4
-                                Glyph {
-                                    anchors.centerIn: parent
-                                    width: 13
-                                    height: 13
-                                    kind: "trash"
-                                    color: delMa.containsMouse ? Theme.onAccent(Sys.accent) : Sys.text
-                                }
-                                MouseArea {
-                                    id: delMa
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (typeof sfx !== "undefined") sfx.play("tap")
-                                        page.uninstallListRequested(
-                                            String(fcell.modelData.folder || ""),
-                                            String(fcell.modelData.name || ""))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ---- LOCAL: downloads -------------------------------------
-                // Like the artist page: one "Play all" (in download order,
-                // reversible) and "Shuffle" for everything downloaded. The
-                // lists are the cards above; opening one shows its tracks
-                // (a single song is found with the search).
+                // Play all / Shuffle go ABOVE the strips: the action
+                // comes before the content, not after it (same order as
+                // the artist page).
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
                     visible: page.localSelected
                     spacing: Theme.s3
 
@@ -2254,6 +2464,7 @@ Item {
                             Layout.preferredWidth: dlPlayRow.implicitWidth + Theme.s5 * 2
                             Layout.preferredHeight: Theme.touch ? 42 : 40
                             radius: Theme.rPill
+                            antialiasing: true
                             color: dlPlayMa.containsMouse || dlPlayMa.pressed
                                    ? Qt.darker(Sys.accent, 1.12) : Sys.accent
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -2286,6 +2497,7 @@ Item {
                             Layout.preferredWidth: dlShuffleRow.implicitWidth + Theme.pillHPad * 2 + 22
                             Layout.preferredHeight: Theme.touch ? 42 : 40
                             radius: Theme.rPill
+                            antialiasing: true
                             color: dlShuffleMa.containsMouse
                                    ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                             border.width: 1
@@ -2323,6 +2535,7 @@ Item {
                             Layout.preferredWidth: dlOrderLabel.implicitWidth + Theme.pillHPad * 2 + 16
                             Layout.preferredHeight: Theme.pillH
                             radius: Theme.rPill
+                            antialiasing: true
                             color: dlOrderMa.containsMouse
                                    ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
                             border.width: 1
@@ -2366,6 +2579,7 @@ Item {
                         Layout.preferredHeight: Theme.pillH
                         Layout.alignment: Qt.AlignLeft
                         radius: Theme.rPill
+                        antialiasing: true
                         color: "transparent"
                         border.width: 1
                         border.color: Theme.alpha(Sys.text, 0.18)
@@ -2396,6 +2610,45 @@ Item {
                         }
                     }
 
+                }
+
+                // ---- Downloaded lists, grouped by kind -------------------
+                // A discography mixes albums and singles: each kind gets its
+                // own strip so "Nobody" does not appear as a record.
+                FolderStrip {
+                    active: page.localSelected
+                    title: "ÁLBUMES"
+                    items: page.dlAlbums
+                }
+                FolderStrip {
+                    active: page.localSelected
+                    title: "SINGLES Y EPS"
+                    items: page.dlSingles
+                }
+                FolderStrip {
+                    active: page.localSelected
+                    title: "LISTAS"
+                    items: page.dlLists
+                }
+
+                // If there is nothing downloaded yet, say it.
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.localSelected && page.dlFolders.length === 0
+                    text: "Aún no hay nada descargado."
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tSm
+                }
+
+                // ---- LOCAL: downloads -------------------------------------
+                // Text hints under the strips (the actions live above
+                // them). Opening a list shows its tracks; a single song is
+                // found with the search.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.localSelected
+                    spacing: Theme.s3
+
                     // Hint: the lists above open with their tracks.
                     Text {
                         Layout.fillWidth: true
@@ -2416,8 +2669,6 @@ Item {
                         font.pixelSize: Theme.tSm
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
-
-                    Item { Layout.fillWidth: true; Layout.fillHeight: true }
                 }
 
                 // ---- Library: virtualized covers grid -----------------------
@@ -2469,7 +2720,8 @@ Item {
                         onDownloadRequested: {
                             if (typeof downloads !== "undefined")
                                 downloads.downloadPlaylist(modelData.url || "",
-                                                           modelData.name || "")
+                                                           modelData.name || "",
+                                                           "list")
                         }
                         // Tick pressed: ask before deleting the files.
                         onUninstallRequested: {

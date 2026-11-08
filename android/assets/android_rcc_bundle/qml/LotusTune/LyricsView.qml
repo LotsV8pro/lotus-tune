@@ -45,6 +45,11 @@ Item {
     property bool pillShown: false
     // Real background colour of the panel; the edges fade into it.
     property color edgeColor: Sys.surface
+    // Which third of the blurred wash sits behind this view (0..8,
+    // row-major). -1 = the whole artwork's average, which is right for a
+    // panel but wrong in the cinema: a cover that is half black and half
+    // white made the ink white over the white half and the lyrics vanished.
+    property int zone: -1
 
     // ---- readable ink -------------------------------------------------
     // The REALLY visible colour behind the lines: the panel/veil (with its
@@ -56,17 +61,21 @@ Item {
         if (typeof wash === "undefined" || !wash.valid)
             return edgeColor
         const a = Math.max(0, Math.min(1, edgeColor.a))
-        return Theme.alpha(Theme.mix(wash.average, edgeColor, a), 1)
+        const base = (lv.zone >= 0 && lv.zone < 9)
+                     ? wash.zoneColor(lv.zone) : wash.average
+        return Theme.alpha(Theme.mix(base, edgeColor, a), 1)
     }
     readonly property color ink: Theme.onAccent(lv.bgBehind)
     // Soft tone for the lines that are not being sung. It is "dimmed" but
-    // never below 4.5:1: over a mid-tone wash a plain tDim turned into
-    // grey soup.
+    // never below 5.5:1: over a mid-tone wash a plain tDim turned into
+    // grey soup (and the line had no way back once its opacity dropped).
     readonly property color inkDim: Theme.readableOn(Theme.tDim(lv.bgBehind, lv.ink),
-                                                     lv.bgBehind)
+                                                     lv.bgBehind, 5.5)
     // Soft halo of the opposite tone: over a mid-tone (washed out) cover it
-    // is what keeps every line legible without drawing boxes.
-    readonly property color inkHalo: Theme.alpha(Theme.onAccent(lv.ink), 0.35)
+    // is what keeps every line legible without drawing boxes. It is the
+    // "subtitles" trick: a dark rim around light ink (or the reverse) reads
+    // even where the artwork and the text share a tone.
+    readonly property color inkHalo: Theme.alpha(Theme.onAccent(lv.ink), 0.6)
 
     // Guarded references so the view still renders before the backend registers
     // the context properties.
@@ -279,25 +288,18 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Fade by distance to the active line + symmetric window: only the
-    // active line, the two above and the two below (softly the third) are
-    // visible; everything else hides completely. The invisible rows keep
-    // their height so the auto-scroll never jumps. Symmetric: it does not
-    // matter if the line was already sung (above) or is still to come
-    // (below).
+    // Every line stays visible. The old fade by distance to the active line
+    // (1 / 0.74 / 0.48 / 0.22 / 0) turned the rest of the lyrics into
+    // ghosts: over a washed-out cover you could not read the stanza that
+    // was not next to the singing one, and it looked like the background
+    // was eating the text. The hierarchy is carried by SIZE, weight and the
+    // accent tint of the active line, plus the colour contrast (inkDim is
+    // forced to 5.5:1). The top/bottom edge fade (`vfade`) already softens
+    // the ends of the view.
     function lineOpacity(i) {
         if (activeIndex < 0)
-            return 0.78
-        var d = Math.abs(i - activeIndex)
-        if (d === 0)
             return 1
-        if (d === 1)
-            return 0.74
-        if (d === 2)
-            return 0.48
-        if (d === 3)
-            return 0.22
-        return 0
+        return i === activeIndex ? 1 : 0.95
     }
 
     // Re-anchors the interpolated position to the engine's last value.
@@ -574,6 +576,7 @@ Item {
         width: followRow.implicitWidth + Theme.pillHPad * 2
         height: Theme.pillH
         radius: Theme.rPill
+        antialiasing: true
         color: followMa.containsMouse
                ? Theme.hover(Sys.surface) : Sys.surface
         border.width: 1
@@ -694,6 +697,7 @@ Item {
         height: Theme.pillH
         width: offRow.implicitWidth + Theme.s4
         radius: Theme.rPill
+        antialiasing: true
         color: Sys.surface
         border.width: 1
         border.color: Theme.line(Sys.bg, Sys.text)
@@ -708,6 +712,7 @@ Item {
                 width: 22
                 height: 22
                 radius: 11
+                antialiasing: true
                 color: offMinus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 Text {
@@ -759,6 +764,7 @@ Item {
                 width: 22
                 height: 22
                 radius: 11
+                antialiasing: true
                 color: offPlus.hovered ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 Text {

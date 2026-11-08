@@ -52,6 +52,7 @@ ColumnLayout {
         implicitWidth: actText.implicitWidth + Theme.pillHPad * 2
         implicitHeight: Theme.pillH
         radius: Theme.rPill
+        antialiasing: true
         color: actMa.containsMouse ? Theme.alpha(Sys.accent, 0.14) : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 

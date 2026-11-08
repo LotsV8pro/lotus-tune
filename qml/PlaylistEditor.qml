@@ -52,6 +52,7 @@ Item {
         width: Math.min(440, parent.width - 60)
         height: body.implicitHeight + Theme.s6 + Theme.s2
         radius: Theme.rPanel
+        antialiasing: true
         scale: pel.open ? 1 : 0.96
         Behavior on scale { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
 
@@ -85,6 +86,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 42
                 radius: Theme.rPill
+                antialiasing: true
                 color: Sys.bg
                 border.width: 1
                 border.color: nameField.activeFocus ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.line(Sys.bg, Sys.text)
@@ -132,6 +134,7 @@ Item {
                     Layout.preferredHeight: Theme.pillH
                     implicitWidth: privLabel.implicitWidth + 26
                     radius: Theme.rPill
+                    antialiasing: true
                     color: privToggle.priv ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
                     border.color: privToggle.priv ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.border
@@ -169,6 +172,7 @@ Item {
                     Layout.preferredHeight: 34
                     implicitWidth: delLabel.implicitWidth + 34
                     radius: Theme.rPill
+                    antialiasing: true
                     color: delHov.hovered
                            ? Qt.rgba(Sys.danger.r, Sys.danger.g, Sys.danger.b, 0.14)
                            : "transparent"
@@ -204,6 +208,7 @@ Item {
                     Layout.preferredHeight: 34
                     implicitWidth: cancelLabel.implicitWidth + 34
                     radius: Theme.rPill
+                    antialiasing: true
                     color: cancelHov.hovered ? Theme.hover(Sys.surface) : "transparent"
                     border.width: 1
                     border.color: Sys.border
@@ -222,6 +227,7 @@ Item {
                     Layout.preferredHeight: 34
                     implicitWidth: saveLabel.implicitWidth + 40
                     radius: Theme.rPill
+                    antialiasing: true
                     enabled: nameField.text.trim().length > 0
                     color: !enabled ? Theme.sAlt(Sys.bg, Sys.text)
                            : (saveHov.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent)

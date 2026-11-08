@@ -377,13 +377,22 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
         if (id.isEmpty())
             return;   // there was no request in flight
         QString pid;
-        if (code == 0)
-            pid = QJsonDocument::fromJson(out).object()
-                      .value(QStringLiteral("playlistId")).toString();
+        QStringList titles;
+        if (code == 0) {
+            const QJsonObject o = QJsonDocument::fromJson(out).object();
+            pid = o.value(QStringLiteral("playlistId")).toString();
+            const QJsonArray tr = o.value(QStringLiteral("tracks")).toArray();
+            for (const QJsonValue &v : tr) {
+                const QString t = v.toObject()
+                                      .value(QStringLiteral("title")).toString();
+                if (!t.trimmed().isEmpty())
+                    titles << t.trimmed();
+            }
+        }
         if (pid.isEmpty())
             emit albumPlaylistFailed(id, name);
         else
-            emit albumPlaylistReady(id, pid, name);
+            emit albumPlaylistReady(id, pid, name, titles);
     });
     m_albumInfoTimer.setSingleShot(true);
     m_albumInfoTimer.setInterval(25000);
@@ -917,8 +926,10 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         return;
 
     // It remembers the real URL of the open list (to download it).
-    if (purpose == QLatin1String("playlist"))
+    if (purpose == QLatin1String("playlist")) {
         m_openListUrl = target;
+        m_openListThumb.clear();
+    }
 
     // List cache: reopening an already loaded one does not start any
     // process and answers instantly. Memory is looked at first and, if
@@ -1218,6 +1229,11 @@ void Catalog::openPlaylist(int savedIndex)
     const QVariantMap pl = m_playlists.at(savedIndex).toMap();
     run(pl.value(QStringLiteral("url")).toString(), QStringLiteral("playlist"),
         pl.value(QStringLiteral("name")).toString());
+    const QString thumb = pl.value(QStringLiteral("thumb")).toString();
+    if (!thumb.isEmpty()) {
+        m_openListThumb = thumb;
+        emit changed();
+    }
 }
 
 void Catalog::openUrl(const QString &url, const QString &name)
@@ -1228,6 +1244,17 @@ void Catalog::openUrl(const QString &url, const QString &name)
         return;
     }
     run(u, QStringLiteral("playlist"), name.trimmed());
+}
+
+void Catalog::openUrlArt(const QString &url, const QString &name,
+                         const QString &thumb)
+{
+    openUrl(url, name);
+    const QString t = thumb.trimmed();
+    if (!t.isEmpty() && !m_openListUrl.isEmpty()) {
+        m_openListThumb = t;
+        emit changed();
+    }
 }
 
 // YouTube Music radio/autoplay: the list the app itself plays "next"

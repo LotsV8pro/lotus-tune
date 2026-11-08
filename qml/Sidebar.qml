@@ -73,6 +73,7 @@ Item {
     Panel {
         anchors.fill: parent
         radius: 12
+        antialiasing: true
         // Solid: the rail is a floating island over the pages, so the
         // content must not show through it.
         color: Sys.surface

@@ -344,10 +344,10 @@ Item {
             if (typeof player !== "undefined")
                 player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
             page.openListRequested(!!play)
-            catalog.openUrl(
+            catalog.openUrlArt(
                 "https://music.youtube.com/watch?v=" + d.trackId
                 + "&list=RDAMVM" + d.trackId + "&start_radio=1",
-                d.title)
+                d.title, d.thumb || "")
             return true
         }
         return false
@@ -479,6 +479,7 @@ Item {
 
         implicitHeight: inner.implicitHeight + island.pad * 2
         radius: Theme.rPanel
+        antialiasing: true
         color: "transparent"
         border.width: 0
 
@@ -554,6 +555,7 @@ Item {
                         Layout.preferredHeight: Theme.pillH
                         implicitWidth: dlRow.implicitWidth + Theme.pillHPad * 2
                         radius: Theme.rPill
+                        antialiasing: true
                         color: dlMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -593,6 +595,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.touch ? 42 : 40
                     radius: Theme.rPill
+                    antialiasing: true
                     color: spotMouse.containsMouse ? Theme.sHigh(Sys.bg, Sys.text)
                                                  : Theme.sAlt(Sys.bg, Sys.text)
                     border.width: 1
@@ -669,6 +672,7 @@ Item {
                         Layout.preferredWidth: Theme.pillH
                         Layout.preferredHeight: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         color: prevMa.containsMouse && page.picksPage > 0
                                ? Sys.accentDim : "transparent"
                         opacity: page.picksPage > 0 ? 1 : 0.35
@@ -692,6 +696,7 @@ Item {
                         Layout.preferredWidth: Theme.pillH
                         Layout.preferredHeight: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         color: nextMa.containsMouse && page.picksPage < page.picksPages - 1
                                ? Sys.accentDim : "transparent"
                         opacity: page.picksPage < page.picksPages - 1 ? 1 : 0.4
@@ -744,6 +749,7 @@ Item {
                             // repo): the shortcut looks accessible
                             // without passing the mouse over it.
                             radius: Theme.rMd
+                            antialiasing: true
                             color: pickMouse.containsMouse
                                    ? Theme.alpha(Sys.text, 0.11) : Theme.alpha(Sys.text, 0.055)
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -759,8 +765,8 @@ Item {
                                     Layout.fillWidth: true
                                     Layout.preferredHeight: width
                                     radius: Theme.rMd
+                                    antialiasing: true
                                     color: Theme.sAlt(Sys.bg, Sys.text)
-                                    clip: true
                                     RoundedArt {
                                         anchors.fill: parent
                                         source: pickRow.modelData.thumb || ""
@@ -813,8 +819,8 @@ Item {
                                     Layout.preferredWidth: 42
                                     Layout.preferredHeight: 42
                                     radius: Theme.rMd
+                                    antialiasing: true
                                     color: Theme.sAlt(Sys.bg, Sys.text)
-                                    clip: true
                                     RoundedArt {
                                         anchors.fill: parent
                                         source: pickRow.modelData.thumb || ""
@@ -1003,6 +1009,7 @@ Item {
                         visible: page.searchHistory.length > 0
                         Layout.preferredHeight: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         implicitWidth: clearHistBtn.implicitWidth + Theme.pillHPad * 2
                         color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -1058,6 +1065,7 @@ Item {
 
                         height: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 340)
                         color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }

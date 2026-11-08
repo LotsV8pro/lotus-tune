@@ -111,7 +111,7 @@ Item {
     // finish". That is why, before searching, catalog.busy is checked and,
     // if it is busy,
     // it schedules a short retry instead of calling directly.
-    property int debounceMs: 300        // typing pause before searching
+    property int debounceMs: 160        // typing pause before searching
     property int minQuery: 2            // minimum length to search on its own
     property int retryMs: 250           // wait between retries (backend busy)
     property int retryMax: 40           // retry cap (≈10 s): never in a loop
@@ -293,6 +293,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
                 radius: Theme.rPill
+                antialiasing: true
                 color: "transparent"
                 borderWidth: 0
 
@@ -367,6 +368,7 @@ Item {
                     width: Theme.rowThin
                     height: Theme.rowThin
                     radius: Theme.rPill
+                    antialiasing: true
                     anchors.right: parent.right
                     anchors.rightMargin: Theme.s2
                     anchors.verticalCenter: parent.verticalCenter
@@ -405,6 +407,7 @@ Item {
                         width: modeLabel.implicitWidth + Theme.pillHPad * 2
                         height: Theme.pillH
                         radius: Theme.rPill
+                        antialiasing: true
                         color: modePill.on ? Theme.accentOn(Sys.accent, Sys.bg) : "transparent"
                         border.width: modePill.on ? 0 : 1
                         border.color: Theme.alpha(Sys.text, 0.28)
@@ -471,6 +474,7 @@ Item {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: Theme.rPanel
+                antialiasing: true
                 color: "transparent"
                 clipContent: true
 
@@ -517,6 +521,7 @@ Item {
                     height: isRail ? railCol.implicitHeight
                                    : (rrow.modelData.secHead ? 30 : Theme.rowH)
                     radius: Theme.rMd
+                    antialiasing: true
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
                            ? Theme.hover(Sys.bg) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -640,8 +645,8 @@ Item {
                             Layout.preferredWidth: 40
                             Layout.preferredHeight: 40
                             radius: Theme.rMd
+                            antialiasing: true
                             color: Theme.sAlt(Sys.bg, Sys.text)
-                            clip: true
                             RoundedArt {
                                 anchors.fill: parent
                                 source: rrow.modelData.thumb || ""
@@ -717,6 +722,7 @@ Item {
                             Layout.preferredHeight: 26
                             visible: !rrow.isArtist
                             radius: Theme.rXl
+                            antialiasing: true
                             color: rrowMoreMa.containsMouse ? Theme.hover(Sys.bg)
                                                             : "transparent"
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }

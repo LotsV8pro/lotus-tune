@@ -49,7 +49,7 @@ Item {
         anchors.top: parent.top
         height: width
         radius: Theme.rMd
-        clip: true
+        antialiasing: true
         color: Theme.sAlt(Sys.bg, Sys.text)
 
         RoundedArt {
@@ -83,6 +83,7 @@ Item {
         width: Theme.touch ? 32 : 34
         height: width
         radius: width / 2
+        antialiasing: true
         visible: card.showActions && (hover.hovered || Theme.touch)
         color: playMa.containsMouse ? Qt.darker(Sys.accent, 1.10) : Sys.accent
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
@@ -115,6 +116,7 @@ Item {
         width: 30
         height: 30
         radius: 15
+        antialiasing: true
         visible: card.showActions && (hover.hovered || Theme.touch)
         color: dlMa.containsMouse ? Theme.hover(Sys.bg) : Theme.alpha(Sys.bg, 0.72)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }

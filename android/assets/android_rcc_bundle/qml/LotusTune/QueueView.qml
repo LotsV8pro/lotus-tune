@@ -52,6 +52,7 @@ Item {
             height: Theme.rowCompact
             // Every row is a pill: a capsule floating over the panel.
             radius: Theme.rPill
+            antialiasing: true
             // Current row: the pill lights up with an accent veil and a very
             // faint ring. The rest only get a surface on hover.
             color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.14)
@@ -142,6 +143,7 @@ Item {
                                 required property int index
                                 width: 3
                                 radius: 1.5
+                                antialiasing: true
                                 color: Sys.accent
                                 height: 5
                                 SequentialAnimation on height {
@@ -161,7 +163,7 @@ Item {
                     Layout.preferredHeight: 34
                     Layout.alignment: Qt.AlignVCenter
                     radius: Theme.rMd
-                    clip: true
+                    antialiasing: true
                     color: Theme.sAlt(Sys.bg, Sys.text)
                     RoundedArt {
                         anchors.fill: parent
@@ -229,6 +231,7 @@ Item {
                     implicitWidth: durText.implicitWidth + Theme.s2 * 2
                     implicitHeight: 20
                     radius: Theme.rPill
+                    antialiasing: true
                     color: index === qv.currentIndex ? Theme.alpha(Sys.accent, 0.16)
                                                      : Theme.alpha(Sys.text, 0.05)
                     Text {
@@ -254,6 +257,7 @@ Item {
             width: 52
             height: 52
             radius: 26
+            antialiasing: true
             color: Theme.sAlt(Sys.bg, Sys.text)
             Glyph {
                 anchors.centerIn: parent

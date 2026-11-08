@@ -56,6 +56,7 @@ Item {
         x: Math.max(Theme.s2, Math.min(menu.at.x, menu.width - width - Theme.s2))
         y: Math.max(Theme.s2, Math.min(menu.at.y, menu.height - height - Theme.s2))
         radius: Theme.rLg
+        antialiasing: true
         clipContent: true
         opacity: menu.open ? 1 : 0
         Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
@@ -110,6 +111,7 @@ Item {
                             // Every entry is a pill: a capsule with a soft
                             // accent on hover.
                             radius: Theme.rPill
+                            antialiasing: true
                             readonly property bool can: modelData.enabled !== false
                             readonly property bool on: hov.hovered && row.can
                             color: row.on ? Theme.alpha(Sys.accent, 0.12) : "transparent"

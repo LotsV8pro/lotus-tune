@@ -63,6 +63,7 @@ Item {
     Panel {
         anchors.fill: parent
         radius: 12
+        antialiasing: true
         // Solid: the tab bar floats over the pages (and over the artist
         // page), so the content must not show through it.
         color: Sys.surface
@@ -99,6 +100,7 @@ Item {
                     Layout.preferredWidth: 100 * modelData.w
                     Layout.minimumWidth: navCell.duo ? 48 : 56
                     radius: Theme.rPill
+                    antialiasing: true
                     // Active = a soft accent tint (16 %) plus the accent
                     // itself on the glyph/label (5.7:1 on the tint). Inactive
                     // = quiet grey, readable but clearly "off".
@@ -131,6 +133,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: navCell.big ? -3 : 0
                                 radius: width / 2
+                                antialiasing: true
                                 color: bar._acc
                                 opacity: navCell.on ? 0.20 : 0.0
                                 Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
@@ -168,8 +171,14 @@ Item {
                         }
                     }
 
-                    TapHandler {
-                        onTapped: {
+                    // MouseArea, not TapHandler: on the phone build the
+                    // TapHandler never fired with touch and the tab bar
+                    // was dead (the rest of the app, all MouseArea,
+                    // answered fine).
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
                             if (typeof sfx !== 'undefined')
                                 sfx.play('tap')
                             bar.activate(navCell.modelData.id)

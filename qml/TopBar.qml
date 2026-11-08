@@ -43,6 +43,7 @@ Rectangle {
                 width: Theme.rowThin
                 height: Theme.rowThin
                 radius: width / 2
+                antialiasing: true
                 color: backHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 HoverHandler { id: backHover; cursorShape: Qt.PointingHandCursor }
@@ -52,7 +53,11 @@ Rectangle {
                     kind: "chevron-left"
                     color: Sys.text
                 }
-                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.backRequested() } }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.backRequested() }
+                }
             }
 
             Text {
@@ -74,6 +79,7 @@ Rectangle {
                 width: Theme.rowThin
                 height: Theme.rowThin
                 radius: width / 2
+                antialiasing: true
                 color: launcherHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 HoverHandler { id: launcherHover; cursorShape: Qt.PointingHandCursor }
@@ -85,7 +91,11 @@ Rectangle {
                     // (textDim on the dark surface was unreadable).
                     color: (launcherHover.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                 }
-                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() } }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.launcherRequested() }
+                }
             }
 
             Rectangle {
@@ -93,6 +103,7 @@ Rectangle {
                 width: Theme.rowThin
                 height: Theme.rowThin
                 radius: width / 2
+                antialiasing: true
                 color: gearHover.hovered ? Theme.hover(Sys.surface) : "transparent"
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 HoverHandler { id: gearHover; cursorShape: Qt.PointingHandCursor }
@@ -102,7 +113,11 @@ Rectangle {
                     kind: "gear"
                     color: (gearHover.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                 }
-                TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() } }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { if (typeof sfx !== 'undefined') sfx.play('tap'); top.settingsRequested() }
+                }
             }
         }
     }
