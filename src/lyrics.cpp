@@ -2052,6 +2052,10 @@ void Lyrics::publishLines()
     obj.insert(QStringLiteral("offset"), m_offset);
     obj.insert(QStringLiteral("status"),
                m_hasSynced ? QStringLiteral("ok") : QStringLiteral("none"));
+    // Letra sin tiempos: la app enseña sus dos primeras lineas y el widget
+    // del movil hace lo mismo con este mismo texto.
+    if (!m_plain.isEmpty())
+        obj.insert(QStringLiteral("plain"), m_plain);
     obj.insert(QStringLiteral("lines"), lines);
     obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
     writeJsonFile(stateDir() + QStringLiteral("/lyrics.json"), obj);

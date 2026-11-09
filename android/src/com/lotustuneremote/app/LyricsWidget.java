@@ -4,8 +4,16 @@
  * No tiene estado propio de reproduccion: titulo, artista, caratula, play,
  * aleatorio y "me gusta" los lee de PlayerWidget (los dos widgets son el
  * mismo reproductor visto de otra forma), y las acciones vuelven por el
- * mismo buzon que sondea el C++. Aqui solo vive el par de lineas que el
- * QML calcula con el tiempo real de la pista.
+ * mismo buzon que sondea el C++.
+ *
+ * La letra sale del MISMO sitio que en la app: los ficheros que el motor
+ * publica en files/ (lyrics.json con las lineas y el ajuste, y
+ * lyrics-runtime.json con la posicion y su marca de tiempo). Asi el widget
+ * no depende de que el QML este vivo empujandole el par de lineas, y el
+ * reloj, el offset, los "♪" del instrumental y el "Cargando letra…" son los
+ * mismos que se ven dentro de la app. El trio que empuja el QML se queda
+ * como respaldo (letra solo de texto de versiones antiguas, o mientras el
+ * motor aun no ha escrito nada).
  *
  * Acciones: las mismas que el widget de reproduccion (TOGGLE, NEXT, PREV,
  * SHUFFLE, REPEAT, FAV).
@@ -22,10 +30,16 @@ import android.graphics.Bitmap;
 import android.view.View;
 import android.widget.RemoteViews;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+
 public class LyricsWidget extends AppWidgetProvider
 {
-    // Anterior, actual y siguiente. El QML las empuja solo cuando cambia
-    // el indice, no en cada frame.
+    // Trio de respaldo: lo empuja el QML cuando cambia el indice.
     public static volatile String sPrev = "";
     public static volatile String sLine = "";
     public static volatile String sNext = "";
@@ -33,8 +47,40 @@ public class LyricsWidget extends AppWidgetProvider
     // Ultima linea pintada. Solo cuando CAMBIA se lanza la animacion; los
     // refrescos de la barra (cada segundo) no animan.
     private static String sShownLine = null;
+    private static String sShownPrev = "";
+    private static String sShownNext = "";
 
     private static Context sCtx = null;
+
+    // ---- estado publicado por el motor (igual que en la app) ----------
+
+    /** Copia cacheada de files/lyrics.json (se reparsea si cambia). */
+    private static final class Published
+    {
+        long mtime = -1;
+        long length = -1;
+        String trackKey = "";
+        String status = "";
+        String plain = "";
+        double offset = 0;
+        double[] t = new double[0];
+        String[] text = new String[0];
+    }
+
+    /** Copia cacheada de files/lyrics-runtime.json. */
+    private static final class Runtime
+    {
+        long mtime = -1;
+        long length = -1;
+        String trackKey = "";
+        double pos = 0;
+        double offset = 0;
+        double ts = 0;
+        boolean playing = false;
+    }
+
+    private static Published sPublished = null;
+    private static Runtime sRuntime = null;
 
     /** La app llama esto al arrancar (QNativeInterface::QAndroidApplication). */
     public static void attach(Context c)
@@ -43,12 +89,37 @@ public class LyricsWidget extends AppWidgetProvider
             sCtx = c.getApplicationContext();
     }
 
-    /** Trio de lineas nuevo desde la app. */
+    /** Trio de lineas nuevo desde la app (respaldo). */
     public static void update(String prev, String line, String next)
     {
         sPrev = prev == null ? "" : prev;
         sLine = line == null ? "" : line;
         sNext = next == null ? "" : next;
+        render(sCtx);
+    }
+
+    /**
+     * Latido del servicio (1 Hz, solo mientras suena): busca la linea con el
+     * reloj publicado y repinta SOLO si ha cambiado. Sirve para que el
+     * widget siga la cancion aunque el QML no este empujando nada.
+     */
+    static void tick(Context c)
+    {
+        if (c == null)
+            return;
+        sCtx = c.getApplicationContext();
+        String[] trio = publishedTrio(sCtx);
+        if (trio == null)
+            return;                       // no hay estado: manda el QML
+        String prev = trio[0] == null ? "" : trio[0].trim();
+        String line = trio[1] == null ? "" : trio[1].trim();
+        String next = trio[2] == null ? "" : trio[2].trim();
+        if (line.isEmpty())
+            line = PlayerWidget.sTitle.isEmpty()
+                    ? "Sin letra" : "Sin letra para esta cancion";
+        if (sShownLine != null && sShownLine.equals(line)
+                && sShownPrev.equals(prev) && sShownNext.equals(next))
+            return;                       // misma linea: nada que animar
         render(sCtx);
     }
 
@@ -78,6 +149,34 @@ public class LyricsWidget extends AppWidgetProvider
                 new ComponentName(context, LyricsWidget.class));
         if (ids == null || ids.length == 0)
             return;
+
+        // Primero el estado publicado (el mismo que pinta la app); si no
+        // hay nada de la pista actual, el trio que empuja el QML.
+        String prev;
+        String line;
+        String next;
+        String[] published = publishedTrio(context);
+        if (published != null) {
+            prev = published[0];
+            line = published[1];
+            next = published[2];
+        } else {
+            prev = sPrev == null ? "" : sPrev;
+            line = sLine == null ? "" : sLine;
+            next = sNext == null ? "" : sNext;
+        }
+        prev = prev.trim();
+        line = line.trim();
+        next = next.trim();
+        if (line.isEmpty())
+            line = PlayerWidget.sTitle.isEmpty()
+                    ? "Sin letra" : "Sin letra para esta cancion";
+        // Se decide una vez para todos los widgets puestos en la pantalla.
+        final boolean lineChanged = sShownLine != null && !sShownLine.equals(line);
+        sShownPrev = prev;
+        sShownLine = line;
+        sShownNext = next;
+
         for (int id : ids) {
             RemoteViews v = new RemoteViews(context.getPackageName(),
                                             R.layout.widget_lyrics);
@@ -93,12 +192,6 @@ public class LyricsWidget extends AppWidgetProvider
                             ? "Lotus Tune" : PlayerWidget.sTitle);
             v.setTextViewText(R.id.l_artist, PlayerWidget.sArtist);
 
-            String prev = sPrev == null ? "" : sPrev.trim();
-            String line = sLine == null ? "" : sLine.trim();
-            String next = sNext == null ? "" : sNext.trim();
-            if (line.isEmpty())
-                line = PlayerWidget.sTitle.isEmpty()
-                        ? "Sin letra" : "Sin letra para esta cancion";
             // Dos copias del bloque, rellenas las dos (asi el texto es
             // correcto se pinte la que se pinte). Al cambiar de linea se
             // pasa a la otra copia con showNext(), que siempre alterna:
@@ -108,9 +201,8 @@ public class LyricsWidget extends AppWidgetProvider
                  prev, line, next);
             fill(v, R.id.l_prev_line2, R.id.l_line2, R.id.l_next2,
                  prev, line, next);
-            if (sShownLine != null && !sShownLine.equals(line))
+            if (lineChanged)
                 v.showNext(R.id.l_flip);
-            sShownLine = line;
 
             // Barra fina de progreso, como en el widget de reproduccion.
             final long dur = Math.max(1L, PlayerWidget.sDurMs);
@@ -162,6 +254,207 @@ public class LyricsWidget extends AppWidgetProvider
             v.setOnClickPendingIntent(R.id.l_head,
                     openApp(context));
             m.updateAppWidget(id, v);
+        }
+    }
+
+    // ---- lectura del estado publicado ---------------------------------
+
+    /**
+     * Anterior/actual/siguiente calculadas con el mismo reloj que la app.
+     * Devuelve null si el estado publicado no es de la pista que suena
+     * (entonces manda el trio del QML).
+     */
+    private static String[] publishedTrio(Context c)
+    {
+        Published p = loadPublished(c);
+        if (p == null || p.trackKey.isEmpty())
+            return null;
+        final String key = PlayerWidget.sArtist.trim()
+                + " - " + PlayerWidget.sTitle.trim();
+        if (!key.equals(p.trackKey))
+            return null;
+
+        // "ok" = letra con tiempos; "none" = sin letra o solo texto;
+        // "loading" = la busqueda sigue (o aun no ha llegado nada).
+        if ("loading".equals(p.status))
+            return new String[] { "", "Cargando letra…", "" };
+
+        if ("ok".equals(p.status) && p.t.length > 0) {
+            final double pos = positionNow(c, p);
+            int idx = lineIndexAt(p.t, pos);
+            if (idx < 0) {
+                // Antes de la primera linea (intro instrumental): un
+                // simbolo y, como "siguiente", lo primero que se cantara.
+                return new String[] { "", "♪", p.text[0] };
+            }
+            String prev = idx > 0 ? p.text[idx - 1] : "";
+            String line = p.text[idx];
+            String next = idx + 1 < p.text.length ? p.text[idx + 1] : "";
+            return new String[] { prev, line, next };
+        }
+
+        if (!p.plain.isEmpty()) {
+            // Letra sin tiempos: las dos primeras lineas, como en la app.
+            String[] rows = p.plain.split("\n");
+            String line = "";
+            String next = "";
+            for (String row : rows) {
+                String t = row.trim();
+                if (t.isEmpty())
+                    continue;
+                if (line.isEmpty())
+                    line = t;
+                else {
+                    next = t;
+                    break;
+                }
+            }
+            if (!line.isEmpty())
+                return new String[] { "", line, next };
+        }
+
+        // La pista tiene su letra resuelta pero no hay nada que enseñar.
+        return new String[] { "", "", "" };
+    }
+
+    /** Posicion de la pista ahora, extrapolando desde la marca publicada. */
+    private static double positionNow(Context c, Published p)
+    {
+        Runtime rt = loadRuntime(c);
+        if (rt != null && !rt.trackKey.isEmpty()
+                && rt.trackKey.equals(p.trackKey)) {
+            final double offset = Double.isNaN(rt.offset) ? p.offset : rt.offset;
+            if (!rt.playing) {
+                // En pausa manda la posicion que empuja el reproductor: el
+                // runtime puede ser de la sesion anterior (la app arranca
+                // parada y hasta que suena no lo reescribe) y el widget
+                // enseñaba una linea de hace minutos.
+                return PlayerWidget.sPosMs / 1000.0 + offset;
+            }
+            double pos = rt.pos;
+            if (rt.ts > 0) {
+                double elapsed = (System.currentTimeMillis() - rt.ts) / 1000.0;
+                if (elapsed > 0)
+                    pos += Math.min(elapsed, 2.0);   // sin fe ciega al fichero
+            }
+            return pos + offset;
+        }
+        // Sin ritmo publicado (app cerrada o pausada): la posicion que el
+        // reproductor empuja al widget.
+        return PlayerWidget.sPosMs / 1000.0 + p.offset;
+    }
+
+    /** Ultima linea cuyo tiempo es <= pos (busqueda binaria). */
+    private static int lineIndexAt(double[] times, double pos)
+    {
+        int lo = 0;
+        int hi = times.length - 1;
+        int found = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (times[mid] <= pos) {
+                found = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        return found;
+    }
+
+    private static Published loadPublished(Context c)
+    {
+        File f = new File(c.getFilesDir(), "lyrics.json");
+        long mtime = f.lastModified();
+        long length = f.length();
+        Published p = sPublished;
+        if (p != null && p.mtime == mtime && p.length == length)
+            return p;
+        if (!f.isFile())
+            return null;
+        try {
+            JSONObject o = new JSONObject(readAll(f));
+            Published n = new Published();
+            n.trackKey = o.optString("trackKey", "");
+            n.status = o.optString("status", "");
+            n.plain = o.optString("plain", "");
+            n.offset = o.optDouble("offset", 0);
+            JSONArray arr = o.optJSONArray("lines");
+            int count = arr == null ? 0 : arr.length();
+            n.t = new double[count];
+            n.text = new String[count];
+            int kept = 0;
+            for (int i = 0; i < count; ++i) {
+                JSONObject lo = arr.optJSONObject(i);
+                if (lo == null || !lo.has("t"))
+                    continue;
+                n.t[kept] = lo.optDouble("t", 0);
+                n.text[kept] = lo.optString("text", "♪");
+                kept++;
+            }
+            if (kept != count) {
+                double[] t = new double[kept];
+                String[] text = new String[kept];
+                System.arraycopy(n.t, 0, t, 0, kept);
+                System.arraycopy(n.text, 0, text, 0, kept);
+                n.t = t;
+                n.text = text;
+            }
+            n.mtime = mtime;
+            n.length = length;
+            sPublished = n;
+            return n;
+        } catch (Throwable ignore) {
+            // JSON a medio escribir (el motor escribe con rename atomico):
+            // se queda lo ultimo bueno.
+            return p;
+        }
+    }
+
+    private static Runtime loadRuntime(Context c)
+    {
+        File f = new File(c.getFilesDir(), "lyrics-runtime.json");
+        long mtime = f.lastModified();
+        long length = f.length();
+        Runtime r = sRuntime;
+        if (r != null && r.mtime == mtime && r.length == length)
+            return r;
+        if (!f.isFile())
+            return null;
+        try {
+            JSONObject o = new JSONObject(readAll(f));
+            Runtime n = new Runtime();
+            n.trackKey = o.optString("trackKey", "");
+            n.pos = o.optDouble("pos", 0);
+            n.offset = o.optDouble("offset", 0);
+            n.ts = o.optDouble("ts", 0);
+            n.playing = o.optBoolean("playing", false);
+            if (Double.isNaN(n.pos))
+                n.pos = 0;
+            if (Double.isNaN(n.offset))
+                n.offset = 0;
+            n.mtime = mtime;
+            n.length = length;
+            sRuntime = n;
+            return n;
+        } catch (Throwable ignore) {
+            return r;
+        }
+    }
+
+    private static String readAll(File f) throws Exception
+    {
+        FileInputStream in = new FileInputStream(f);
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(
+                    (int) Math.max(64, f.length()));
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0)
+                out.write(buf, 0, n);
+            return out.toString("UTF-8");
+        } finally {
+            in.close();
         }
     }
 
