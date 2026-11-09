@@ -158,6 +158,7 @@ public class AudioService extends Service
         // los botones nuevos no llegan nunca.
         PlayerWidget.attach(sApp);
         PlayerWidget.render(sApp);
+        beat(sApp);
         try {
             NotificationManager nm = sApp.getSystemService(NotificationManager.class);
             if (nm != null)
@@ -279,6 +280,38 @@ public class AudioService extends Service
     {
         PlayerWidget.sAction = a;
         PlayerWidget.sSeq++;
+    }
+
+    // ---- latido del widget de letra -----------------------------------
+    // La letra del widget se calcula con los ficheros que publica el motor
+    // (lyrics.json / lyrics-runtime.json). El QML ya empuja la linea cada
+    // 250 ms, pero si la actividad muere el widget se quedaba congelado.
+    // Este latido de 1 Hz, solo mientras suena, mira el reloj publicado y
+    // repinta unicamente cuando cambia la linea (no en cada segundo).
+    private static Handler sBeatHandler = null;
+    private static Runnable sBeatRunnable = null;
+
+    private static void beat(Context c)
+    {
+        if (c == null)
+            return;
+        if (sBeatHandler == null)
+            sBeatHandler = new Handler(Looper.getMainLooper());
+        if (sBeatRunnable == null) {
+            sBeatRunnable = new Runnable() {
+                @Override public void run()
+                {
+                    if (!PlayerWidget.sPlaying)
+                        return;
+                    LyricsWidget.tick(sApp);
+                    if (sBeatHandler != null)
+                        sBeatHandler.postDelayed(this, 1000);
+                }
+            };
+        }
+        sBeatHandler.removeCallbacks(sBeatRunnable);
+        if (PlayerWidget.sPlaying)
+            sBeatHandler.postDelayed(sBeatRunnable, 1000);
     }
 
     private static void updateSession()
@@ -469,6 +502,9 @@ public class AudioService extends Service
     public void onDestroy()
     {
         abandonFocus();
+        if (sBeatHandler != null && sBeatRunnable != null)
+            sBeatHandler.removeCallbacks(sBeatRunnable);
+        sBeatRunnable = null;
         if (sWake != null && sWake.isHeld())
             sWake.release();
         sWake = null;
