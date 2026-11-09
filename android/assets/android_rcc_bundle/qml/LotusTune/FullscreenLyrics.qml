@@ -346,6 +346,7 @@ Rectangle {
                 id: lyric
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                live: fl.open && content.wide
                 lineSize: Math.max(20, Math.min(30, Math.round(content.height / 32)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: 860
@@ -407,6 +408,7 @@ Rectangle {
             LyricsView {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                live: fl.open && !content.wide
                 lineSize: Math.max(20, Math.min(28, Math.round(content.height / 34)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: Math.min(content.width * 0.86, 720)

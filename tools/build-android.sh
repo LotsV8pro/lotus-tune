@@ -43,6 +43,21 @@ if [ -d "$QML_SRC" ]; then
     echo "qt_qml.rcc: $(du -h "$ROOT/android/assets/qt_qml.rcc" | cut -f1)"
 fi
 
+# ---------------------------------------------------------------------------
+# The APK packages a COPY of qml/ (android/assets/android_rcc_bundle/qml,
+# tracked in git); the desktop binary embeds qml/ directly. Editing qml/ and
+# building used to ship the old copy silently, so the two trees must not
+# drift: sync them here before packaging.
+ASSET_QML="$ROOT/android/assets/android_rcc_bundle/qml/LotusTune"
+if [ -d "$ASSET_QML" ]; then
+    cp -f "$ROOT"/qml/*.qml "$ROOT"/qml/*.js "$ASSET_QML"/
+fi
+
+# androiddeployqt skips "Create rcc bundle" when the .rcc is already there, so
+# a QML edit never made it into the APK (the phone kept running the old UI).
+# Delete it and let the deploy step rebuild it from the synced copy.
+rm -f "$BUILD/android-build/assets/android_rcc_bundle.rcc"
+
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
