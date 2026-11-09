@@ -122,7 +122,15 @@ Item {
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
-    readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
+    // The 3-line window keeps every row at the height of the highlighted
+    // line: that way the column does not reflow when the highlight moves
+    // (the text grows and a long phrase could even wrap to one more
+    // line), which made the change of line look like a jump. The gap
+    // gives back the space the reserved line adds.
+    readonly property bool steadyRows: visibleLines > 0
+    readonly property int lineGap: Math.max(8, Math.round(lineSize * 0.72)
+                                            - (steadyRows
+                                               ? Math.round(activeBoost * 1.1) : 0))
     // Half height: that way the first and the last line can be centred
     // too.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
@@ -522,6 +530,14 @@ Item {
             _animating = false
             return
         }
+        // The scroll of the line that just arrived is already running and
+        // the layout was corrected in the same frame: only the target is
+        // updated. Restarting the animation reset the easing (it slowed
+        // down and started again) and the jump was visible.
+        if (scrollAnim.running) {
+            scrollAnim.to = target
+            return
+        }
         scrollAnim.from = syncedFlick.contentY
         scrollAnim.to = target
         scrollAnim.restart()
@@ -769,16 +785,20 @@ Item {
                     // are not sung and they keep their dim colour.
                     readonly property bool instrumental: modelData.instrumental === true
                     // The three notes of an instrumental stretch light up
-                    // one by one as it goes (the timings are the line's
-                    // own: nothing is moved).
+                    // as it goes, like the fill of the lyrics: each note
+                    // takes a third of the stretch and brightens through
+                    // it (nothing jumps on at a stroke). The timings are
+                    // the line's own: nothing is moved.
                     readonly property real instrStart: Number(modelData.time || 0)
                     readonly property real instrEnd: Math.max(instrStart + 0.6,
                                                               Number(modelData.end || 0))
                     readonly property real instrSpan: Math.max(0.6,
                                                                instrEnd - instrStart)
-                    function noteLit(k) {
-                        return lv.karaokePos >= instrStart
-                               + instrSpan * k / 3
+                    function noteFill(k) {
+                        var slot = instrSpan / 3
+                        var a = instrStart + slot * k
+                        return Theme.clamp((lv.karaokePos - a) / Math.max(0.25, slot),
+                                           0, 1)
                     }
                     // Segunda voz del dueto: su frase sale desde la derecha.
                     readonly property bool sec: modelData.secondary === true
@@ -840,8 +860,10 @@ Item {
                     }
 
                     width: lv.colW
-                    height: karaokeRow ? Math.ceil(editBase.contentHeight)
-                                       : base.implicitHeight
+                    height: Math.ceil(lv.steadyRows
+                                      ? measure.implicitHeight
+                                      : (karaokeRow ? editBase.contentHeight
+                                                    : base.implicitHeight))
                     // The opacity goes up on hover: the line under the
                     // cursor is marked as «clickable» (it jumps to that moment).
                     // All of that, multiplied by the edge fade. In the
@@ -854,6 +876,23 @@ Item {
                                 : Math.min(vfade, lv.lineOpacity(index)
                                            + (lineMa.containsMouse ? 0.22 : 0)))
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+
+                    // Invisible ruler: the height of the row is always the
+                    // one of the highlighted line (see `steadyRows`), so
+                    // the list never reflows when the highlight moves.
+                    Text {
+                        id: measure
+                        visible: false
+                        width: rrow.width
+                        leftPadding: rrow.padL
+                        rightPadding: rrow.padR
+                        wrapMode: Text.WordWrap
+                        text: rrow.modelData.text || ""
+                        textFormat: Text.PlainText
+                        font.pixelSize: lv.lineSize + lv.activeBoost
+                        font.weight: Font.DemiBold
+                        lineHeight: 1.32
+                    }
 
                     // Soft halo in the opposite tone: the last line of
                     // defence when the wash is mid-tone. Only the karaoke
@@ -922,13 +961,14 @@ Item {
                             delegate: Text {
                                 required property int index
                                 text: "♪"
-                                color: rrow.noteLit(index) ? lv.activeInk
-                                                           : lv.inkDim
+                                // The note brightens across its third of
+                                // the stretch, never in one go.
+                                color: Theme.mix(lv.inkDim, lv.activeInk,
+                                                 rrow.noteFill(index))
                                 style: Text.Outline
                                 styleColor: lv.inkHalo
                                 font.pixelSize: rrow.rowPx
                                 font.weight: Font.DemiBold
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                             }
                         }
                     }
@@ -958,10 +998,15 @@ Item {
                     }
 
                     Item {
+                        id: fillLayer
                         x: rrow.padL
                         width: rrow.textW
                         height: rrow.height
-                        visible: rrow.filling
+                        // The line lights up with a short fade instead of
+                        // appearing lit at once when the highlight jumps.
+                        visible: rrow.karaokeRow
+                        opacity: rrow.filling ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
 
                         // Rows above the front: sung whole.
                         Item {
