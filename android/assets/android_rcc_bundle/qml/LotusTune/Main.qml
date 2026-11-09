@@ -21,6 +21,17 @@ Window {
     title: "Lotus Tune"
     color: Sys.bg
 
+    // La app esta de verdad en primer plano. `Qt.application.state` cambia
+    // al salir con HOME, pero el binding no siempre se reevalua a tiempo:
+    // se guarda aqui y se avisa al cambiar.
+    property bool appActive: Qt.application.state === Qt.ApplicationActive
+    Connections {
+        target: Qt.application
+        function onStateChanged() {
+            root.appActive = Qt.application.state === Qt.ApplicationActive
+        }
+    }
+
     Settings {
         category: "window"
         property alias width: root.width
@@ -3228,6 +3239,7 @@ Window {
                 enabled: root.panelOpen
                 clip: true
                 Layout.fillHeight: true
+                appActive: root.appActive
                 tab: root.panelTab
                 onTabRequested: (t) => root.panelTab = t
                 queueModel: queue
@@ -3583,6 +3595,7 @@ Window {
     FullscreenLyrics {
         id: fsLyrics
         open: root.fsLyricsOpen
+        appActive: root.appActive
         title: root.currentTitle
         artist: root.currentArtist
         thumb: root.currentThumb

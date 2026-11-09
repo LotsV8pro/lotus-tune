@@ -36,6 +36,8 @@ Rectangle {
     z: 72
 
     property bool open: false
+    // La app en primer plano (ver RightPanel).
+    property bool appActive: true
     property string title: ""
     property string artist: ""
     property string thumb: ""
@@ -347,6 +349,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 live: fl.open && content.wide
+                      && (Qt.platform.os !== "android" || fl.appActive)
                 lineSize: Math.max(20, Math.min(30, Math.round(content.height / 32)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: 860
@@ -409,6 +412,7 @@ Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 live: fl.open && !content.wide
+                      && (Qt.platform.os !== "android" || fl.appActive)
                 lineSize: Math.max(20, Math.min(28, Math.round(content.height / 34)))
                 activeBoost: Math.round(lineSize * 0.20)
                 maxLineWidth: Math.min(content.width * 0.86, 720)
