@@ -2193,23 +2193,32 @@ Window {
         const dur = player.duration
         if (dur <= 0)
             return
-        const key = root.currentArtist + "|" + root.currentTitle
-        if (root.lyricsKey === key)
-            return
         // Which track the lyrics in memory belong to. If they are not
         // from THIS one, the lyrics on screen (and the ones the desktop
         // widget reads) are from the PREVIOUS song: the new ones have to be
         // asked for.
         const want = root.currentArtist + " - " + root.currentTitle
         const sameTrack = String(lyrics.trackKey || "") === want
-        // A request in flight for THIS track is left to finish; if it is
-        // for another one, it is cancelled: the new track wins.
-        if (sameTrack && lyrics.loading)
+        // Length that was used for the lookup. 0 means the immediate
+        // attempt did not know it yet: the providers may have picked
+        // another version of the song (the studio timings fitted to an
+        // acoustic video make the lyrics run ahead), so they are asked
+        // for again now that the real length is known.
+        const gotDur = Number(lyrics.duration || 0)
+        const fits = sameTrack && gotDur > 0 && Math.abs(gotDur - dur) <= 10
+        // The lyrics of this version are already on screen.
+        if (fits && (lyrics.hasLyrics || lyrics.hasSynced))
+            return
+        // A request for THIS track is already in flight with a length
+        // that fits (or without one yet): it is left to finish. If it was
+        // asked for another length, the real one wins and it is repeated.
+        if (sameTrack && lyrics.loading
+                && (gotDur <= 0 || Math.abs(gotDur - dur) <= 10))
+            return
+        const key = want + "|" + Math.round(dur)
+        if (root.lyricsKey === key)
             return
         root.lyricsKey = key
-        // The immediate attempt already brought the lyrics of THIS track: no repeat.
-        if (sameTrack && (lyrics.hasLyrics || lyrics.hasSynced))
-            return
         lyrics.fetch(root.currentArtist, root.currentTitle, dur,
                      root.currentVideoId)
     }
@@ -2304,13 +2313,16 @@ Window {
                             : t.liked === true
         root.lyricsKey = ""
         if (root.lyricsEnabled && root.currentTitle) {
-            // First immediate attempt. For YouTube tracks the exact
-            // video is used (the lyrics do not depend on the duration).
+            // First immediate attempt. The duration of the queue entry is
+            // passed when it is known: the providers choose the version
+            // of the song (studio, acoustic, live) by its length, and
+            // without it the studio timings were used for an acoustic
+            // video and the lyrics ran ahead.
             // If this attempt finds no lyrics, fetchLyrics() retries with
             // the real duration as soon as mpv reports it (without
             // having to pause and resume).
-            lyrics.fetch(root.currentArtist, root.currentTitle, 0,
-                         root.currentVideoId)
+            lyrics.fetch(root.currentArtist, root.currentTitle,
+                         Number(t.duration || 0), root.currentVideoId)
         }
         player.hintDuration = Number(t.duration || 0)
         player.load(t.url)

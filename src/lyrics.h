@@ -53,6 +53,10 @@ class Lyrics : public QObject
     Q_PROPERTY(QVariantList lines READ lines NOTIFY changed) // [{time, text}]
     Q_PROPERTY(QString error READ error NOTIFY changed)
     Q_PROPERTY(QString trackKey READ trackKey NOTIFY changed)
+    // Duration (rounded seconds) that was used to look the lyrics up. 0
+    // means they were searched without knowing it, so the version of the
+    // song may not be the one that is playing.
+    Q_PROPERTY(int duration READ duration NOTIFY changed)
     // Sync adjustment in seconds (positive = moves the front forward). It
     // lives here and not in the view so it also travels in the published
     // state.
@@ -76,6 +80,7 @@ public:
     QString synced() const { return m_synced; }
     QString error() const { return m_error; }
     QString trackKey() const { return m_trackKey; }
+    int duration() const { return m_duration; }
     double offset() const { return m_offset; }
     void setOffset(double v);
     bool karaoke() const { return m_karaoke; }
@@ -196,6 +201,11 @@ private:
     bool alignWords(QVector<LrcLine> &lines,
                     const QVector<LrcLine> &reference,
                     WordedScore *score = nullptr);
+    // True when the timed lines can be the timeline of the video being
+    // played: a reference that runs past the end of the track belongs to
+    // a longer version (the studio take of an acoustic video), and using
+    // it moves the karaoke of the other take.
+    bool referenceFitsDuration(const QVector<LrcLine> &lines) const;
     // The last word of a line usually inherits the end of the line: the
     // sources mark the end of the phrase, not the end of the word. When
     // the line is long the karaoke front stays on that word for seconds

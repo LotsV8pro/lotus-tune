@@ -55,6 +55,7 @@ private slots:
     void testLineIndexAt();
     void testWordTimings();
     void testParseTtml();
+    void testReferenceVersion();
     void testAudioCachePrune();
     void testAudioCacheClear();
     void testFriendlyNetError();
@@ -603,6 +604,36 @@ void TestLotusTune::testWordTimings()
     QCOMPARE(wide.size(), 1);
     QVERIFY(wide.at(0).words.isEmpty());
     QCOMPARE(wide.at(0).text, QStringLiteral("Do you take this man to death"));
+}
+
+// A reference timeline that runs past the real end of the track is
+// another version of the song (the studio take of an acoustic video):
+// it must not be used, or the karaoke of the take being played moves.
+void TestLotusTune::testReferenceVersion()
+{
+    Lyrics lyrics;
+    auto line = [](double t) {
+        Lyrics::LrcLine l;
+        l.time = t;
+        l.text = QStringLiteral("line");
+        return l;
+    };
+    lyrics.m_duration = 184;
+    QVector<Lyrics::LrcLine> acoustic{line(17.3), line(80.0), line(177.6)};
+    QVERIFY(lyrics.referenceFitsDuration(acoustic));
+
+    // The studio take of "Prettyboy!" ends at 4:00 for a 3:04 video.
+    QVector<Lyrics::LrcLine> studio{line(1.1), line(120.0), line(238.8)};
+    QVERIFY(!lyrics.referenceFitsDuration(studio));
+
+    // Without the real length there is nothing to compare.
+    lyrics.m_duration = 0;
+    QVERIFY(lyrics.referenceFitsDuration(studio));
+
+    // The end may be rounded: a few seconds past the end are tolerated.
+    lyrics.m_duration = 184;
+    QVector<Lyrics::LrcLine> edge{line(188.5)};
+    QVERIFY(lyrics.referenceFitsDuration(edge));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings
