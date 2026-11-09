@@ -17,6 +17,9 @@ Item {
     // The panel is on screen (the app owns that state): the bars of the
     // queue only animate then, never while it is closed.
     property bool open: false
+    // La app en primer plano: con el panel abierto y la app en segundo
+    // plano (HOME) la letra no se interpola.
+    property bool appActive: true
     property bool playing: false
 
     signal closeRequested()
@@ -157,6 +160,7 @@ Item {
                     // Se interpola solo mientras el panel esta abierto en
                     // la pestaña de letra.
                     live: panel.open && panel.tab === 1
+                          && (Qt.platform.os !== "android" || panel.appActive)
                     // The edge fade has to blend with the island's real
                     // background, which is the `Panel` surface.
                     edgeColor: island.color
