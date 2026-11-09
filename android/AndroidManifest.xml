@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:versionCode="10218" 
-    android:versionName="1.2.18" 
+    android:versionCode="10219" 
+    android:versionName="1.2.19" 
     package="com.lotustuneremote.app">
     
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34"/>
