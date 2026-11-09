@@ -1101,6 +1101,27 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
             ? 4.0 : durations.at(durations.size() / 2);
         const double threshold = qMax(10.0, typical * 2.5);
 
+        // The opening is an instrumental intro when the first phrase
+        // arrives late: without a marker nothing is shown during those
+        // seconds (the first line stayed dim, waiting). The notes cover
+        // that wait like any other stretch.
+        if (!lines.isEmpty() && lines.first().time >= threshold) {
+            bool marked = false;
+            for (const LrcLine &l : lines) {
+                if (l.instrumental && l.time <= lines.first().time) {
+                    marked = true;
+                    break;
+                }
+            }
+            if (!marked) {
+                LrcLine m;
+                m.time = 0.0;
+                m.text = QStringLiteral("♪");
+                m.instrumental = true;
+                lines.prepend(m);
+            }
+        }
+
         QVector<LrcLine> withGaps;
         for (int i = 0; i < lines.size(); ++i) {
             withGaps.append(lines.at(i));
