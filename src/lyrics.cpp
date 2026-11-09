@@ -1015,6 +1015,23 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
     if (parsed.size() < 2)
         return false;   // almost nothing: it is not worth hiding the plain text
 
+    // A reference that runs past the real end of the track is another
+    // version of the song (the studio take of an acoustic video). It is
+    // neither the timeline of this video nor its lyrics: using it moved
+    // the karaoke of the take that is playing.
+    if (!referenceFitsDuration(parsed)) {
+        double last = 0.0;
+        for (const LrcLine &l : parsed)
+            last = qMax(last, l.time);
+        qInfo().noquote()
+            << QString("[lyrics] \"%1\" no es de esta version (letra hasta "
+                       "%2 s, pista de %3 s): se descarta")
+                   .arg(source)
+                   .arg(QString::number(last, 'f', 1))
+                   .arg(m_duration);
+        return false;
+    }
+
     m_synced = lrc;
     // The timed lines of the video are kept as the reference: the word
     // level timings that come later are aligned with them.
@@ -2950,15 +2967,20 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
                     lines.append(line);
                 }
                 if (lines.size() >= 2) {
-                    qInfo() << "[lyrics] musixmatch: letra con tiempos por línea ("
-                            << lines.size() << " líneas)";
-                    m_synced = lrc;
-                    m_lines = lines;
-                    m_refLines = m_lines;
-                    m_hasSynced = true;
-                    m_syncSource = QStringLiteral("musixmatch");
-                    finish();
-                    return;
+                    if (!referenceFitsDuration(lines)) {
+                        qInfo() << "[lyrics] musixmatch: la letra por línea no "
+                                   "es de esta version: se descarta";
+                    } else {
+                        qInfo() << "[lyrics] musixmatch: letra con tiempos por línea ("
+                                << lines.size() << " líneas)";
+                        m_synced = lrc;
+                        m_lines = lines;
+                        m_refLines = m_lines;
+                        m_hasSynced = true;
+                        m_syncSource = QStringLiteral("musixmatch");
+                        finish();
+                        return;
+                    }
                 }
             }
             if (!lrc.trimmed().isEmpty()) {
@@ -2994,6 +3016,18 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
 
 // It returns false when the reference and the words do not match at all:
 // the lyrics are not used then.
+bool Lyrics::referenceFitsDuration(const QVector<LrcLine> &lines) const
+{
+    if (m_duration <= 0 || lines.isEmpty())
+        return true;   // without the real length there is nothing to check
+    double last = 0.0;
+    for (const LrcLine &l : lines)
+        last = qMax(last, l.time);
+    // The last sung line cannot start after the track ends. The margin
+    // covers the sources that round the times up.
+    return last <= m_duration + 5;
+}
+
 bool Lyrics::alignWords(QVector<LrcLine> &lines,
                         const QVector<LrcLine> &reference,
                         WordedScore *score)
