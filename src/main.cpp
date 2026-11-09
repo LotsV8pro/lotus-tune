@@ -527,6 +527,17 @@ int main(int argc, char *argv[])
                        << rcc.errorString();
         }
     }
+    // Where the bundle really landed inside the resource tree. androiddeployqt
+    // roots the rcc at /android_rcc_bundle, but it also appends the qrc's own
+    // directory in some versions (Qt 6.6.3), leaving the files one level
+    // deeper: /android_rcc_bundle/android_rcc_bundle. The prefix written in
+    // the qrc does not change that. Look for the qmldir instead of trusting
+    // either layout: with the wrong root the module import fails and the
+    // fallback below has nowhere to load Main.qml from.
+    const QString appRccRoot = QFile::exists(QStringLiteral(":/android_rcc_bundle/qmldir"))
+        ? QStringLiteral(":/android_rcc_bundle")
+        : QStringLiteral(":/android_rcc_bundle/android_rcc_bundle");
+    qInfo() << "[android] app rcc root:" << appRccRoot;
     {
         // The Qt QML modules (QtQuick, QtQuick.Window, QtQuick.Controls...)
         // are not in the APK assets in this build either. A second RCC
@@ -552,7 +563,11 @@ int main(int argc, char *argv[])
     // The QML modules live in the two RCC bundles registered above:
     // /qt/qml/* for Qt and /android_rcc_bundle/* for the app.
     engine.addImportPath(QStringLiteral(":/qt/qml"));
-    engine.addImportPath(QStringLiteral(":/android_rcc_bundle"));
+    engine.addImportPath(appRccRoot);
+    // The module's qmldir sits at the root of the bundle while the types are
+    // under qml/, so `import LotusTune` also resolves as a plain directory
+    // import from here (what the fallback relies on).
+    engine.addImportPath(appRccRoot + QStringLiteral("/qml"));
 #endif
 
     // Live theme (iNiR/matugen palette + config.ini overrides).
@@ -670,7 +685,7 @@ int main(int argc, char *argv[])
         // - ":/android_rcc_bundle/qml/LotusTune/Main.qml" - from APK assets
         const QStringList mainQmlPaths = {
             QStringLiteral(":/qt/qml/LotusTune/qml/Main.qml"),
-            QStringLiteral(":/android_rcc_bundle/qml/LotusTune/Main.qml"),
+            appRccRoot + QStringLiteral("/qml/LotusTune/Main.qml"),
             QStringLiteral(":/assets/android_rcc_bundle/qml/LotusTune/Main.qml"),
         };
         bool loaded = false;
