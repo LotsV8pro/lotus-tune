@@ -85,6 +85,13 @@ Item {
     // Synced lines already parsed by the backend: [{ time, text }]
     property var lines: []
     property int activeIndex: -1
+    // The line that is drawn big: the one being sung, or the first one
+    // while the song has not reached it yet. Before the first line the
+    // cinema showed no active line at all; the first phrase is already
+    // on screen, big, but it is not lit until it is sung.
+    readonly property int focusedIndex: activeIndex >= 0
+                                        ? activeIndex
+                                        : (lines.length > 0 ? 0 : -1)
 
     readonly property bool loading: lyr ? !!lyr.loading : false
     readonly property bool hasLyrics: lyr ? !!lyr.hasLyrics : false
@@ -115,7 +122,15 @@ Item {
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
-    readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
+    // The 3-line window keeps every row at the height of the highlighted
+    // line: that way the column does not reflow when the highlight moves
+    // (the text grows and a long phrase could even wrap to one more
+    // line), which made the change of line look like a jump. The gap
+    // gives back the space the reserved line adds.
+    readonly property bool steadyRows: visibleLines > 0
+    readonly property int lineGap: Math.max(8, Math.round(lineSize * 0.72)
+                                            - (steadyRows
+                                               ? Math.round(activeBoost * 1.1) : 0))
     // Half height: that way the first and the last line can be centred
     // too.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
@@ -128,6 +143,11 @@ Item {
     property real pinFrac: 0.5
     readonly property real pinTop: Math.max(56, Math.floor(height * pinFrac))
     readonly property real pinBottom: Math.max(56, Math.ceil(height * (1 - pinFrac)))
+    // Maximum number of lyric lines on screen (0 = the whole song). The
+    // cinema uses 3 (previous, active, next): with the full list the text
+    // ran down to the progress bar of the left column and the screen
+    // looked like a wall of text.
+    property int visibleLines: 0
     property bool following: true
     property bool _animating: false
 
@@ -487,9 +507,12 @@ Item {
     function scrollToActive(instant) {
         if (!syncedFlick.visible)
             return
-        if (activeIndex < 0 || activeIndex >= lines.length)
+        // Before the first line the focused one is the first phrase: the
+        // cinema already shows it big (not lit), so it has to be pinned.
+        var idx = focusedIndex
+        if (idx < 0 || idx >= lines.length)
             return
-        var item = lyricRepeater.itemAt(activeIndex)
+        var item = lyricRepeater.itemAt(idx)
         if (!item)
             return
         // The active one is fixed at 32 % of the height (Sonora style), not centred.
@@ -505,6 +528,14 @@ Item {
         }
         if (Math.abs(target - syncedFlick.contentY) < 1) {
             _animating = false
+            return
+        }
+        // The scroll of the line that just arrived is already running and
+        // the layout was corrected in the same frame: only the target is
+        // updated. Restarting the animation reset the easing (it slowed
+        // down and started again) and the jump was visible.
+        if (scrollAnim.running) {
+            scrollAnim.to = target
             return
         }
         scrollAnim.from = syncedFlick.contentY
@@ -740,10 +771,35 @@ Item {
                     required property var modelData
                     required property int index
                     readonly property bool active: index === lv.activeIndex
+                    readonly property bool focused: index === lv.focusedIndex
+                    // Subtitle window: only the focused line and its
+                    // neighbours have ink. The rest stay in the model (the
+                    // karaoke needs them) but are fully transparent.
+                    readonly property int windowCenter: lv.focusedIndex >= 0
+                                                        ? lv.focusedIndex : 0
+                    readonly property bool inWindow: lv.visibleLines <= 0
+                        || Math.abs(index - rrow.windowCenter)
+                           <= Math.floor((lv.visibleLines - 1) / 2)
 
                     // The instrumental markers ("♪") are shown, but they
                     // are not sung and they keep their dim colour.
                     readonly property bool instrumental: modelData.instrumental === true
+                    // The three notes of an instrumental stretch light up
+                    // as it goes, like the fill of the lyrics: each note
+                    // takes a third of the stretch and brightens through
+                    // it (nothing jumps on at a stroke). The timings are
+                    // the line's own: nothing is moved.
+                    readonly property real instrStart: Number(modelData.time || 0)
+                    readonly property real instrEnd: Math.max(instrStart + 0.6,
+                                                              Number(modelData.end || 0))
+                    readonly property real instrSpan: Math.max(0.6,
+                                                               instrEnd - instrStart)
+                    function noteFill(k) {
+                        var slot = instrSpan / 3
+                        var a = instrStart + slot * k
+                        return Theme.clamp((lv.karaokePos - a) / Math.max(0.25, slot),
+                                           0, 1)
+                    }
                     // Segunda voz del dueto: su frase sale desde la derecha.
                     readonly property bool sec: modelData.secondary === true
 
@@ -761,7 +817,7 @@ Item {
                     readonly property real padL: lv.duet && !rrow.sec ? 6 : 0
                     readonly property real padR: lv.duet && rrow.sec ? 6 : 0
                     readonly property real textW: Math.max(1, rrow.width - padL - padR)
-                    readonly property int rowPx: active ? lv.lineSize + lv.activeBoost
+                    readonly property int rowPx: focused ? lv.lineSize + lv.activeBoost
                                                         : lv.lineSize
                     // Row pitch of the TextEdit: the halo Text has to use
                     // the same one or it drifts from the line it outlines.
@@ -804,16 +860,39 @@ Item {
                     }
 
                     width: lv.colW
-                    height: karaokeRow ? Math.ceil(editBase.contentHeight)
-                                       : base.implicitHeight
+                    height: Math.ceil(lv.steadyRows
+                                      ? measure.implicitHeight
+                                      : (karaokeRow ? editBase.contentHeight
+                                                    : base.implicitHeight))
                     // The opacity goes up on hover: the line under the
                     // cursor is marked as «clickable» (it jumps to that moment).
-                    // All of that, multiplied by the edge fade.
-                    opacity: rrow.instrumental
-                             ? Math.min(vfade, 0.7)
-                             : Math.min(vfade, lv.lineOpacity(index)
-                                        + (lineMa.containsMouse ? 0.22 : 0))
+                    // All of that, multiplied by the edge fade. In the
+                    // 3-line window the rows outside it fade out: they
+                    // keep their place (the list never reflows) but take
+                    // no ink.
+                    opacity: !rrow.inWindow ? 0
+                             : (rrow.instrumental
+                                ? Math.min(vfade, 0.95)
+                                : Math.min(vfade, lv.lineOpacity(index)
+                                           + (lineMa.containsMouse ? 0.22 : 0)))
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+
+                    // Invisible ruler: the height of the row is always the
+                    // one of the highlighted line (see `steadyRows`), so
+                    // the list never reflows when the highlight moves.
+                    Text {
+                        id: measure
+                        visible: false
+                        width: rrow.width
+                        leftPadding: rrow.padL
+                        rightPadding: rrow.padR
+                        wrapMode: Text.WordWrap
+                        text: rrow.modelData.text || ""
+                        textFormat: Text.PlainText
+                        font.pixelSize: lv.lineSize + lv.activeBoost
+                        font.weight: Font.DemiBold
+                        lineHeight: 1.32
+                    }
 
                     // Soft halo in the opposite tone: the last line of
                     // defence when the wash is mid-tone. Only the karaoke
@@ -840,25 +919,58 @@ Item {
                     // The line as it waits: dimmed until it is sung.
                     Text {
                         id: base
-                        visible: !rrow.karaokeRow
+                        // The instrumental stretch has its own three notes.
+                        visible: !rrow.karaokeRow && !rrow.instrumental
                         width: rrow.width
                         leftPadding: rrow.padL
                         rightPadding: rrow.padR
                         wrapMode: Text.WordWrap
                         text: rrow.modelData.text || ""
                         textFormat: Text.PlainText
-                        color: rrow.instrumental
-                               ? lv.inkDim
-                               : (rrow.active ? lv.activeInk : lv.inkDim)
+                        // Before the first line the focused phrase is big
+                        // but not lit (it is not being sung yet).
+                        color: rrow.active
+                               ? lv.activeInk
+                               : (rrow.focused ? lv.activeDimInk : lv.inkDim)
                         style: Text.Outline
                         styleColor: lv.inkHalo
                         font.pixelSize: rrow.rowPx
-                        font.weight: rrow.active ? Font.DemiBold : Font.Normal
+                        font.weight: rrow.focused ? Font.DemiBold : Font.Normal
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
                                              : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
                         lineHeight: 1.32
                         Behavior on color { ColorAnimation { duration: Theme.medMs } }
+                    }
+
+                    // Instrumental stretch: three notes that light up as
+                    // it goes. They read the line's own time/end, so the
+                    // rest of the timings are untouched.
+                    Row {
+                        id: noteRow
+                        visible: rrow.instrumental
+                        x: rrow.padL + (lv.duet
+                                        ? (rrow.sec
+                                           ? Math.max(0, rrow.textW - width) : 0)
+                                        : (lv.leftAlign
+                                           ? 0
+                                           : Math.max(0, (rrow.textW - width) / 2)))
+                        spacing: Math.round(lv.lineSize * 0.40)
+                        Repeater {
+                            model: 3
+                            delegate: Text {
+                                required property int index
+                                text: "♪"
+                                // The note brightens across its third of
+                                // the stretch, never in one go.
+                                color: Theme.mix(lv.inkDim, lv.activeInk,
+                                                 rrow.noteFill(index))
+                                style: Text.Outline
+                                styleColor: lv.inkHalo
+                                font.pixelSize: rrow.rowPx
+                                font.weight: Font.DemiBold
+                            }
+                        }
                     }
 
                     // The active line with word timings: same layout, but
@@ -886,10 +998,15 @@ Item {
                     }
 
                     Item {
+                        id: fillLayer
                         x: rrow.padL
                         width: rrow.textW
                         height: rrow.height
-                        visible: rrow.filling
+                        // The line lights up with a short fade instead of
+                        // appearing lit at once when the highlight jumps.
+                        visible: rrow.karaokeRow
+                        opacity: rrow.filling ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
 
                         // Rows above the front: sung whole.
                         Item {
@@ -943,6 +1060,9 @@ Item {
                     MouseArea {
                         id: lineMa
                         anchors.fill: parent
+                        // The rows of the 3-line window are the only ones
+                        // that can be clicked (the others are invisible).
+                        enabled: rrow.inWindow
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
