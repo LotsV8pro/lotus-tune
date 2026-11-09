@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <RCC version="1.0">
-<qresource prefix="/android_rcc_bundle">
+<qresource prefix="/">
 <file>lotus-tune.svg</file>
 <file>lotus-tune.qmltypes</file>
 <file>qmldir</file>

@@ -16,6 +16,33 @@ if [ -z "${ANDROID_NDK_ROOT:-}" ] || [ -z "${QT_PREFIX:-}" ] || [ -z "${QT_HOST_
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Qt's own QML modules (QtQuick, QtQuick.Window, QtQuick.Controls...).
+# androiddeployqt 6.6 only packages the app's own assets and never writes
+# assets/qt_qml.rcc, and it deploys no qml/ directory either, so on the phone
+# the import fails with `module "QtQuick.Window" is not installed` and the app
+# closes. main.cpp registers assets:/qt_qml.rcc when it is there, so build
+# that bundle from the Qt install: every file of $QT_PREFIX/qml except the
+# plugins, which androiddeployqt already copies to lib/.
+QML_SRC="$QT_PREFIX/qml"
+if [ -d "$QML_SRC" ]; then
+    QRC="$QML_SRC/.lotus-qml-bundle.qrc"
+    trap 'rm -f "$QRC"' EXIT
+    {
+        echo '<?xml version="1.0" encoding="UTF-8"?>'
+        echo '<RCC version="1.0">'
+        echo '<qresource prefix="/">'
+        ( cd "$QML_SRC" && find . -type f ! -name '*.so' ! -name '*.o' \
+            | sed 's|^\./||' | LC_ALL=C sort ) \
+            | sed 's|.*|        <file>&</file>|'
+        echo '</qresource>'
+        echo '</RCC>'
+    } > "$QRC"
+    ( cd "$QML_SRC" && "$QT_HOST_PATH/libexec/rcc" --binary --no-compress \
+        --root /qt/qml -o "$ROOT/android/assets/qt_qml.rcc" "$QRC" )
+    echo "qt_qml.rcc: $(du -h "$ROOT/android/assets/qt_qml.rcc" | cut -f1)"
+fi
+
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
