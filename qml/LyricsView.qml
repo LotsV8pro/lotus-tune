@@ -100,6 +100,11 @@ Item {
     readonly property string errorText: lyr ? String(lyr.error || "") : ""
 
     readonly property bool showSynced: hasSynced && lines.length > 0
+    // Solo se interpola la letra (60 Hz) cuando de verdad se esta viendo.
+    // Estas vistas viven siempre (panel derecho, cinema..., abiertas o no)
+    // y, con una cancion con letra sonando, sus temporizadores se comian un
+    // nucleo entero en el movil aunque el panel estuviera cerrado.
+    property bool live: false
     // ¿La cancion tiene dos voces? Solo si la fuente lo dice: se mira si
     // alguna linea viene marcada como `secondary` (segunda voz). Asi el
     // reparto a los lados no se inventa en canciones de un solo cantante.
@@ -598,8 +603,18 @@ Item {
     // stays where it sounds and not where the last interpolation left it.
     Connections {
         target: lv.ply
-        function onPositionChanged() { lv.syncKaraokePos(); lv.computeActive() }
-        function onStateChanged() { lv.syncKaraokePos(); lv.computeActive() }
+        function onPositionChanged() {
+            if (!lv.live)
+                return
+            lv.syncKaraokePos()
+            lv.computeActive()
+        }
+        function onStateChanged() {
+            if (!lv.live)
+                return
+            lv.syncKaraokePos()
+            lv.computeActive()
+        }
     }
 
     // Interpolates the position between the engine's reports so the fill's
@@ -613,7 +628,7 @@ Item {
         // only runs while a synced song plays.
         interval: 16
         repeat: true
-        running: lv.showSynced && !!lv.ply && lv.ply.playing
+        running: lv.live && lv.showSynced && !!lv.ply && lv.ply.playing
         onTriggered: {
             if (!lv.ply)
                 return
@@ -679,6 +694,17 @@ Item {
     // settle until the line went by.
     onVisibleChanged: {
         if (!lv.visible || !lv.showSynced)
+            return
+        syncKaraokePos()
+        computeActive()
+        following = true
+        Qt.callLater(function () { scrollToActive(true) })
+    }
+
+    // Al abrirse el panel/cinema hay que ponerse al dia: mientras estaba
+    // cerrado no se interpolaba ni se recalculaba la linea activa.
+    onLiveChanged: {
+        if (!lv.live || !lv.showSynced)
             return
         syncKaraokePos()
         computeActive()

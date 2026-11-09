@@ -154,6 +154,9 @@ Item {
                 LyricsView {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    // Se interpola solo mientras el panel esta abierto en
+                    // la pestaña de letra.
+                    live: panel.open && panel.tab === 1
                     // The edge fade has to blend with the island's real
                     // background, which is the `Panel` surface.
                     edgeColor: island.color
