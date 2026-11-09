@@ -29,6 +29,9 @@ Window {
         target: Qt.application
         function onStateChanged() {
             root.appActive = Qt.application.state === Qt.ApplicationActive
+            // El "calentador" de audio solo hace falta con la app delante.
+            if (typeof sfx !== "undefined" && sfx.setWarm)
+                sfx.setWarm(root.appActive)
         }
     }
 

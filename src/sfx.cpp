@@ -57,6 +57,20 @@ void Sfx::startKeepAlive()
     m_keepAlive->play();
 }
 
+void Sfx::setWarm(bool on)
+{
+    if (!m_keepAlive)
+        return;
+    if (on) {
+        if (m_keepAlive->status() == QSoundEffect::Error)
+            return;
+        if (!m_keepAlive->isPlaying())
+            m_keepAlive->play();
+    } else if (m_keepAlive->isPlaying()) {
+        m_keepAlive->stop();
+    }
+}
+
 QSoundEffect *Sfx::effectFor(const QString &path)
 {
     if (!m_effects.contains(path)) {

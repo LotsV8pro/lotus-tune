@@ -23,6 +23,10 @@ public:
     void setVolume(qreal volume);
 
     Q_INVOKABLE void play(const QString &name);
+    // Enciende o apaga el bucle de silencio que mantiene el motor de audio
+    // despierto. Solo hace falta con la app delante: de fondo es un
+    // AudioTrack girando para nada (se comia ~5% de un nucleo en el movil).
+    Q_INVOKABLE void setWarm(bool on);
 
 signals:
     void enabledChanged(bool enabled);
