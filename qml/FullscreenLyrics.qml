@@ -352,6 +352,10 @@ Rectangle {
                 edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
                 leftAlign: true
                 duetSides: true
+                // Subtitle window: previous, active and next line. The
+                // whole song made the column run into the progress bar of
+                // the left block.
+                visibleLines: 3
                 // Right half of the screen: its own cell of the wash.
                 zone: 5
                 pinFrac: 0.36

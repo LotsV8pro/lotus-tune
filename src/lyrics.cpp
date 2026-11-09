@@ -2423,7 +2423,9 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
     int index = -1;
     for (LrcLine &line : lines) {
         const QString key = norm(line.text);
-        if (key.isEmpty())
+        // The instrumental markers ("♪") normalise to an empty key: they
+        // are not junk, they are the stretches without voice.
+        if (key.isEmpty() && !line.instrumental)
             continue;
         ++index;
         const bool inHeader = index < headerLines;
