@@ -109,10 +109,10 @@ Item {
     readonly property bool showError: !loading && errorText.length > 0 && !showSynced && !showPlain
     readonly property bool showEmpty: !loading && !showSynced && !showPlain && !showError
 
-    // Line-only lyrics by design: the sources only give line timings
-// (YTM/LRCLIB/NetEase), so the ACTIVE LINE lights up whole. The
-// word-by-word fill was dropped: half sweeps looked broken.
-// ---- geometry of the reading column --------------------------------
+    // With word timings (Apple Music, Musixmatch, NetEase klyric) the
+    // active line fills syllable by syllable; the sources that only give
+    // line timings light the whole phrase when it starts.
+    // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
     readonly property int lineGap: Math.max(10, Math.round(lineSize * 0.72))
@@ -139,6 +139,232 @@ Item {
     property real karaokePos: 0
     property real _posAnchor: 0
     property double _posStamp: 0
+
+    // ---- word level karaoke ---------------------------------------------
+    // Same mechanism as the desktop lyrics widget (iNiR, IrisLyricsFace):
+    // the active line is laid out by a TextEdit (which can say where every
+    // character sits in a wrapped line) and the sung part is drawn by
+    // three clipped copies of that same TextEdit. The fill therefore
+    // follows the voice word by word, without the half sweeps the old
+    // RichText approach produced.
+    //
+    // Inside a word the front does not move per letter: the widget's maths
+    // spread the word evenly over its letters, so a long word ("corazón")
+    // took four times longer than a short one ("y") in the same phrase.
+    // Here the word's time is shared by its SYLLABLES, which is how it is
+    // actually sung; within a syllable the letters still fill one by one.
+    readonly property bool karaokeOn: lv.lyr ? lv.lyr.karaoke !== false : true
+    // Per line: [{a, b, t, e, syl}] with the characters a..b of the line
+    // sung between t and e seconds and `syl` the syllable ends (relative
+    // to a). Empty for lines without word timings.
+    property var wordSpans: []
+
+    readonly property var activeLineData: (activeIndex >= 0
+                                           && activeIndex < lines.length)
+                                          ? lines[activeIndex] : null
+    readonly property string activeLineText: activeLineData
+                                             ? String(activeLineData.text || "") : ""
+    readonly property bool activeLineSec: activeLineData
+                                          ? activeLineData.secondary === true : false
+    readonly property bool activeHasWords: activeIndex >= 0
+                                           && activeIndex < wordSpans.length
+                                           && wordSpans[activeIndex]
+                                           && wordSpans[activeIndex].length > 0
+    readonly property real activeSung: (karaokeOn && activeHasWords)
+                                       ? sungFor(activeIndex) : 0
+    // Ink of the active line: the whole phrase in `activeInk` when it has
+    // no word timings; with timings the phrase waits in `activeDimInk`
+    // and the sung part lights in `activeInk`.
+    readonly property color activeInk: Theme.readableOn(
+                                           Theme.mix(lv.ink, Sys.accent, 0.14),
+                                           lv.bgBehind)
+    readonly property color activeDimInk: Theme.readableOn(
+                                              Theme.mix(lv.ink, lv.bgBehind, 0.55),
+                                              lv.bgBehind, 4.5)
+
+    // Character offset of the singing front inside line `i` (fractional
+    // while a word is being sung).
+    function sungFor(i) {
+        if (i < 0 || i >= wordSpans.length)
+            return 0
+        var spans = wordSpans[i]
+        if (!spans || spans.length === 0)
+            return 0
+        var pos = karaokePos
+        var at = 0
+        for (var k = 0; k < spans.length; ++k) {
+            var w = spans[k]
+            if (pos < w.t)
+                break
+            if (!(w.e > w.t)) {
+                at = w.b
+                continue
+            }
+            var p = Math.min(1, (pos - w.t) / (w.e - w.t))
+            if (w.syl && w.syl.length > 1) {
+                // Syllable by syllable: every syllable takes the same
+                // slice of the word's time and the letters inside it fill
+                // linearly, so the front lands on syllable boundaries.
+                var n = w.syl.length
+                var local = p * n
+                var s = Math.min(n - 1, Math.floor(local))
+                var f = Math.min(1, local - s)
+                var from = (s === 0) ? 0 : w.syl[s - 1]
+                var to = w.syl[s]
+                at = w.a + from + (to - from) * f
+            } else {
+                at = w.a + (w.b - w.a) * p
+            }
+        }
+        return at
+    }
+
+    // Maps the backend words ({t,e,text}) onto character ranges of the
+    // line. The words may carry their trailing space, so the trimmed text
+    // is searched from the previous match: repeated words ("la la la")
+    // still land in their own place.
+    function _spansFor(text, words) {
+        var s = String(text || "")
+        var out = []
+        var from = 0
+        for (var i = 0; i < words.length; ++i) {
+            var w = words[i]
+            if (!w)
+                continue
+            var core = String(w.text || "").replace(/^\s+/, "").replace(/\s+$/, "")
+            if (core.length === 0)
+                continue
+            var at = s.indexOf(core, from)
+            if (at < 0)
+                at = s.indexOf(core)
+            if (at < 0)
+                at = Math.min(from, s.length)
+            var len = Math.min(core.length, s.length - at)
+            var t = Number(w.t || 0)
+            var e = Number(w.e || 0)
+            if (!(e > t))
+                e = t + 0.2
+            out.push({ a: at, b: at + len, t: t, e: e,
+                       syl: _sylCuts(s.substr(at, len)) })
+            from = at + Math.max(1, core.length)
+        }
+        _rebalanceTail(out)
+        return out
+    }
+
+    // The provider sometimes clips the last syllable of a phrase: it sets
+    // its end at the line's end but its begin almost there too, so the
+    // last word gets a 20-70 ms slice ("bleed", "dust") and the fill
+    // flashes through it at the end of every phrase. The tail of the line
+    // is shared again between the last two syllables by their length, so
+    // the last word is sung at a believable pace instead of jumping.
+    function _rebalanceTail(spans) {
+        var n = spans.length
+        if (n < 2)
+            return
+        var last = spans[n - 1]
+        var prev = spans[n - 2]
+        var dur = last.e - last.t
+        if (!(dur > 0) || !(last.e > prev.t))
+            return
+        var tailDur = last.e - prev.t
+        var uLast = (last.syl && last.syl.length > 0) ? last.syl.length
+                                                       : Math.max(1, last.b - last.a)
+        var uPrev = (prev.syl && prev.syl.length > 0) ? prev.syl.length
+                                                       : Math.max(1, prev.b - prev.a)
+        var expected = tailDur * uLast / (uLast + uPrev)
+        if (dur >= expected * 0.35 && dur >= 0.10)
+            return
+        var at = prev.t
+        prev.t = at
+        prev.e = at + tailDur * uPrev / (uLast + uPrev)
+        last.t = prev.e
+        last.e = at + tailDur
+    }
+
+    // ---- syllables ------------------------------------------------------
+    // End of each syllable inside `word`, as character offsets (the last
+    // one is the word's length). It is a near enough split, not a
+    // dictionary: vowel groups are the nuclei and the consonants between
+    // them are shared the way Spanish (and most Latin scripts) do it.
+    function _isCjk(c) {
+        return (c >= 0x3040 && c <= 0x30ff) || (c >= 0x3400 && c <= 0x4dbf)
+            || (c >= 0x4e00 && c <= 0x9fff) || (c >= 0xf900 && c <= 0xfaff)
+            || (c >= 0xff66 && c <= 0xff9f) || (c >= 0xac00 && c <= 0xd7af)
+    }
+    function _isSmallKana(c) {
+        return "ぁぃぅぇぉゃゅょゎァィゥェォャュョヮ".indexOf(String.fromCharCode(c)) >= 0
+    }
+    function _isVowel(c) {
+        var ch = String.fromCharCode(c).toLowerCase()
+        return "aeiouyàáâäãåāăąæèéêëēĕėęěìíîïĩīĭįòóôöõøōŏőœùúûüũūŭůűųýÿ".indexOf(ch) >= 0
+            || "аеёиоуыэюяіїє".indexOf(ch) >= 0
+            || "αεηιουωάέήίόύώϊϋΐΰ".indexOf(ch) >= 0
+    }
+    function _isLiquidPair(a, b) {
+        // Consonant groups that stay together at the start of a syllable.
+        var pair = (a + b).toLowerCase()
+        return ["pr", "br", "tr", "dr", "cr", "gr", "fr", "vr", "pl", "bl",
+                "cl", "gl", "fl", "ch", "ll", "rr", "qu", "gu"].indexOf(pair) >= 0
+    }
+    function _sylCuts(word) {
+        var s = String(word || "")
+        var n = s.length
+        if (n <= 1)
+            return [n]
+        var cjk = 0
+        for (var i = 0; i < n; ++i)
+            if (_isCjk(s.charCodeAt(i)))
+                ++cjk
+        if (cjk >= n * 0.6) {
+            // Japanese/Chinese/Korean: a character is a syllable (a small
+            // kana belongs to the one before it).
+            var kana = []
+            for (var j = 0; j < n; ++j) {
+                if (j + 1 < n && _isSmallKana(s.charCodeAt(j + 1)))
+                    continue
+                kana.push(j + 1)
+            }
+            return kana
+        }
+        // Vowel groups (diphthongs count as one nucleus).
+        var groups = []
+        var p = 0
+        while (p < n) {
+            if (_isVowel(s.charCodeAt(p))) {
+                var q = p + 1
+                while (q < n && _isVowel(s.charCodeAt(q)))
+                    ++q
+                groups.push([p, q])
+                p = q
+            } else {
+                ++p
+            }
+        }
+        if (groups.length <= 1)
+            return [n]
+        var cuts = []
+        for (var g = 1; g < groups.length; ++g) {
+            var prevEnd = groups[g - 1][1]
+            var nextStart = groups[g][0]
+            var k = nextStart - prevEnd
+            var cut = prevEnd
+            if (k === 1) {
+                cut = prevEnd + 1                 // consonant opens the next
+            } else if (k === 2) {
+                cut = _isLiquidPair(s.charAt(prevEnd), s.charAt(prevEnd + 1))
+                      ? prevEnd : prevEnd + 1     // "ha-blar" vs "can-tar"
+            } else if (k >= 3) {
+                cut = prevEnd + (k - 2)           // "ins-tan-te"
+            }
+            if (cut <= 0 || cut >= n)
+                continue
+            if (cuts.length === 0 || cut > cuts[cuts.length - 1])
+                cuts.push(cut)
+        }
+        cuts.push(n)
+        return cuts
+    }
 
     // Fine sync adjustment (Sonora's `positionTrim` equivalent): seconds
     // added to the engine position when the lyrics are matched. Positive
@@ -237,6 +463,16 @@ Item {
     function rebuild() {
         var src = (lyr && lyr.lines) ? lyr.lines : []
         lines = (src && src.length) ? src : []
+        // Character ranges for the karaoke fill, precomputed once per
+        // track: the delegates only read them.
+        var spans = []
+        for (var i = 0; i < lines.length; ++i) {
+            var ln = lines[i]
+            var ws = (ln && ln.words) ? ln.words : []
+            spans.push((ws && ws.length > 1 && ln.instrumental !== true)
+                       ? _spansFor(ln.text, ws) : [])
+        }
+        wordSpans = spans
         // Every track has its own offset (the video may have a longer intro
         // than the album): the one saved for it is applied here.
         applyStoredOffset()
@@ -341,10 +577,10 @@ Item {
     // line level timings it feeds the sweep of the active phrase. The engine
     // of the engine arrives at 240 ms; at 50 ms the front moves smoothly.
     Timer {
-        // 30 fps is enough for the front of the karaoke (the engine
-        // reports the position four times a second and the front is
-        // interpolated): a faster timer only wakes the CPU up.
-        interval: 33
+        // 60 fps: the front is interpolated between the engine's reports,
+        // and at 30 fps the fill visibly stepped on a 165 Hz screen. It
+        // only runs while a synced song plays.
+        interval: 16
         repeat: true
         running: lv.showSynced && !!lv.ply && lv.ply.playing
         onTriggered: {
@@ -419,6 +655,32 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
+    // A bright copy of the active line for the clipped fill layers: it has
+    // to lay out exactly like `editBase` in the delegate, or the front
+    // would cut between the wrong glyphs.
+    component KaraokeText: TextEdit {
+        required property string lineText
+        required property real textWidth
+        required property color inkColor
+        required property bool rightAligned
+        width: textWidth
+        text: lineText
+        color: inkColor
+        readOnly: true
+        enabled: false
+        focus: false
+        selectByMouse: false
+        activeFocusOnPress: false
+        textFormat: TextEdit.PlainText
+        textMargin: 0
+        wrapMode: TextEdit.Wrap
+        font.pixelSize: lv.lineSize + lv.activeBoost
+        font.weight: Font.DemiBold
+        horizontalAlignment: lv.duet
+                             ? (rightAligned ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                             : (lv.leftAlign ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
+    }
+
     // ---- loading ------------------------------------------------------
     ColumnLayout {
         anchors.centerIn: parent
@@ -473,17 +735,62 @@ Item {
             Repeater {
                 id: lyricRepeater
                 model: lv.lines
-                delegate: Text {
+                delegate: Item {
                     id: rrow
                     required property var modelData
                     required property int index
                     readonly property bool active: index === lv.activeIndex
 
-                    // Line mode: the whole line lights up when it becomes
-                    // active (no half sweep - word sync is not wired).
                     // The instrumental markers ("♪") are shown, but they
                     // are not sung and they keep their dim colour.
                     readonly property bool instrumental: modelData.instrumental === true
+                    // Segunda voz del dueto: su frase sale desde la derecha.
+                    readonly property bool sec: modelData.secondary === true
+
+                    // With word timings the active line is drawn by a
+                    // TextEdit (it can say where each character sits) and
+                    // the sung part by clipped copies of it.
+                    readonly property bool karaokeRow: active && lv.karaokeOn
+                                                       && lv.activeHasWords
+                                                       && !rrow.instrumental
+                    readonly property bool filling: karaokeRow && lv.activeSung > 0
+
+                    // Dueto: la voz principal empieza a la izquierda y la
+                    // segunda se pega a la derecha (con un pequeño margen
+                    // para que no toque el borde de la columna).
+                    readonly property real padL: lv.duet && !rrow.sec ? 6 : 0
+                    readonly property real padR: lv.duet && rrow.sec ? 6 : 0
+                    readonly property real textW: Math.max(1, rrow.width - padL - padR)
+                    readonly property int rowPx: active ? lv.lineSize + lv.activeBoost
+                                                        : lv.lineSize
+                    // Row pitch of the TextEdit: the halo Text has to use
+                    // the same one or it drifts from the line it outlines.
+                    readonly property real editPitch: editBase.lineCount > 0
+                                                      ? editBase.contentHeight / editBase.lineCount
+                                                      : rowPx * 1.2
+
+                    // The singing front, as a caret inside the active
+                    // line: the rows above it are sung whole and its own
+                    // row up to here.
+                    readonly property rect caret: {
+                        void (editBase.text + editBase.contentWidth
+                              + editBase.contentHeight + editBase.width
+                              + editBase.font.pixelSize + lv.activeSung)
+                        if (!rrow.filling)
+                            return Qt.rect(0, 0, 0, 0)
+                        var i = Math.min(Math.floor(lv.activeSung), editBase.length)
+                        var f = lv.activeSung - i
+                        var a = editBase.positionToRectangle(i)
+                        if (f <= 0 || i >= editBase.length)
+                            return a
+                        var b = editBase.positionToRectangle(i + 1)
+                        // A packed word break: the fractional advance makes
+                        // no sense from one row to the next, so the word
+                        // stays on the first row until the line moves.
+                        return (b.y === a.y)
+                               ? Qt.rect(a.x + (b.x - a.x) * f, a.y, 0, a.height)
+                               : a
+                    }
 
                     // Edge fade: each line fades itself out near the top
                     // or the bottom of the view. No black bands above:
@@ -496,32 +803,9 @@ Item {
                         return Math.min(a, b)
                     }
 
-                    // Segunda voz del dueto: su frase sale desde la derecha.
-                    readonly property bool sec: modelData.secondary === true
-
                     width: lv.colW
-                    // Dueto: la voz principal empieza a la izquierda y la
-                    // segunda se pega a la derecha (con un pequeño margen
-                    // para que no toque el borde de la columna).
-                    leftPadding: lv.duet && !rrow.sec ? 6 : 0
-                    rightPadding: lv.duet && rrow.sec ? 6 : 0
-                    wrapMode: Text.WordWrap
-                    text: modelData.text || ""
-                    textFormat: Text.PlainText
-                    color: rrow.instrumental
-                           ? lv.inkDim
-                           : (active
-                              ? Theme.readableOn(
-                                    Theme.mix(lv.ink, Sys.accent, 0.14),
-                                    lv.bgBehind)
-                              : lv.inkDim)
-                    // A soft halo in the opposite tone: the last line of
-                    // defence when the wash is mid-tone.
-                    style: Text.Outline
-                    styleColor: lv.inkHalo
-                    font.pixelSize: active ? lv.lineSize + lv.activeBoost
-                                            : lv.lineSize
-                    font.weight: active ? Font.DemiBold : Font.Normal
+                    height: karaokeRow ? Math.ceil(editBase.contentHeight)
+                                       : base.implicitHeight
                     // The opacity goes up on hover: the line under the
                     // cursor is marked as «clickable» (it jumps to that moment).
                     // All of that, multiplied by the edge fade.
@@ -529,12 +813,131 @@ Item {
                              ? Math.min(vfade, 0.7)
                              : Math.min(vfade, lv.lineOpacity(index)
                                         + (lineMa.containsMouse ? 0.22 : 0))
-                    horizontalAlignment: lv.duet
-                                         ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
-                                         : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
-                    lineHeight: 1.32
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
-                    Behavior on color { ColorAnimation { duration: Theme.medMs } }
+
+                    // Soft halo in the opposite tone: the last line of
+                    // defence when the wash is mid-tone. Only the karaoke
+                    // line needs its own (the others carry it on the Text).
+                    Text {
+                        id: halo
+                        visible: rrow.karaokeRow
+                        x: rrow.padL
+                        width: rrow.textW
+                        text: rrow.modelData.text || ""
+                        color: "transparent"
+                        style: Text.Outline
+                        styleColor: lv.inkHalo
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: rrow.rowPx
+                        font.weight: Font.DemiBold
+                        lineHeightMode: Text.FixedHeight
+                        lineHeight: rrow.editPitch
+                        horizontalAlignment: lv.duet
+                                             ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
+                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                    }
+
+                    // The line as it waits: dimmed until it is sung.
+                    Text {
+                        id: base
+                        visible: !rrow.karaokeRow
+                        width: rrow.width
+                        leftPadding: rrow.padL
+                        rightPadding: rrow.padR
+                        wrapMode: Text.WordWrap
+                        text: rrow.modelData.text || ""
+                        textFormat: Text.PlainText
+                        color: rrow.instrumental
+                               ? lv.inkDim
+                               : (rrow.active ? lv.activeInk : lv.inkDim)
+                        style: Text.Outline
+                        styleColor: lv.inkHalo
+                        font.pixelSize: rrow.rowPx
+                        font.weight: rrow.active ? Font.DemiBold : Font.Normal
+                        horizontalAlignment: lv.duet
+                                             ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
+                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                        lineHeight: 1.32
+                        Behavior on color { ColorAnimation { duration: Theme.medMs } }
+                    }
+
+                    // The active line with word timings: same layout, but
+                    // the sung part is drawn bright above the dim one.
+                    TextEdit {
+                        id: editBase
+                        visible: rrow.karaokeRow
+                        x: rrow.padL
+                        width: rrow.textW
+                        text: rrow.modelData.text || ""
+                        color: lv.activeDimInk
+                        readOnly: true
+                        enabled: false
+                        focus: false
+                        selectByMouse: false
+                        activeFocusOnPress: false
+                        textFormat: TextEdit.PlainText
+                        textMargin: 0
+                        wrapMode: TextEdit.Wrap
+                        font.pixelSize: rrow.rowPx
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: lv.duet
+                                             ? (rrow.sec ? TextEdit.AlignRight : TextEdit.AlignLeft)
+                                             : (lv.leftAlign ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
+                    }
+
+                    Item {
+                        x: rrow.padL
+                        width: rrow.textW
+                        height: rrow.height
+                        visible: rrow.filling
+
+                        // Rows above the front: sung whole.
+                        Item {
+                            width: parent.width
+                            height: Math.max(0, rrow.caret.y)
+                            clip: true
+                            KaraokeText {
+                                lineText: rrow.modelData.text || ""
+                                textWidth: rrow.textW
+                                inkColor: lv.activeInk
+                                rightAligned: rrow.sec
+                            }
+                        }
+                        // The front's own row: from its start to the front.
+                        Item {
+                            y: rrow.caret.y
+                            width: Math.max(0, rrow.caret.x)
+                            height: Math.max(1, rrow.caret.height)
+                            clip: true
+                            KaraokeText {
+                                lineText: rrow.modelData.text || ""
+                                textWidth: rrow.textW
+                                inkColor: lv.activeInk
+                                rightAligned: rrow.sec
+                                y: -rrow.caret.y
+                            }
+                        }
+                        // Soft edge: the word being sung lights as it goes,
+                        // not behind a hard cut.
+                        Item {
+                            x: rrow.caret.x
+                            y: rrow.caret.y
+                            width: 10
+                            height: Math.max(1, rrow.caret.height)
+                            clip: true
+                            opacity: 0.45
+                            visible: rrow.caret.x > 0
+                                     && lv.activeSung < rrow.modelData.text.length
+                            KaraokeText {
+                                lineText: rrow.modelData.text || ""
+                                textWidth: rrow.textW
+                                inkColor: lv.activeInk
+                                rightAligned: rrow.sec
+                                x: -rrow.caret.x
+                                y: -rrow.caret.y
+                            }
+                        }
+                    }
 
                     // Click on a line: jumps to that moment of the song.
                     MouseArea {
