@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
+#include <QStandardPaths>
 #include <QUrl>
 
 Sfx::Sfx(QObject *parent)
@@ -30,10 +31,24 @@ Sfx::Sfx(QObject *parent)
     m_soundMap.insert("toggle", clickToggle);
     m_soundMap.insert("success", click);
     m_soundMap.insert("error", click);
+#ifdef Q_OS_LINUX
+    // On Linux the sounds are played by pw-play, NOT by QSoundEffect. Qt
+    // 6.12 crashed inside libQt6Multimedia (data-loop thread and main
+    // thread, same spot) after a few minutes of playback: the QAudioSink
+    // of every QSoundEffect got reconfigured when mpv opened or closed its
+    // own PipeWire stream, and the audio engine died with it, taking the
+    // whole app down. pw-play hands each sound to PipeWire and returns, so
+    // there is no sink of ours to reconfigure.
+    m_wavDir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation)
+               + QStringLiteral("/sounds");
+    QDir().mkpath(m_wavDir);
+#else
     preloadAll();
     startKeepAlive();
+#endif
 }
 
+#ifndef Q_OS_LINUX
 void Sfx::preloadAll()
 {
     // Loads the sounds ahead of time (QSoundEffect loads lazily; without
@@ -56,21 +71,17 @@ void Sfx::startKeepAlive()
     m_keepAlive->setVolume(1.0);
     m_keepAlive->play();
 }
+#endif
 
 void Sfx::setWarm(bool on)
 {
-    if (!m_keepAlive)
-        return;
-    if (on) {
-        if (m_keepAlive->status() == QSoundEffect::Error)
-            return;
-        if (!m_keepAlive->isPlaying())
-            m_keepAlive->play();
-    } else if (m_keepAlive->isPlaying()) {
-        m_keepAlive->stop();
-    }
+    Q_UNUSED(on)
+    // No silent loop is kept on Linux: pw-play starts on demand and the
+    // sounds are already on disk (extracted once), so there is nothing to
+    // wake up and nothing to keep burning CPU in the background.
 }
 
+#ifndef Q_OS_LINUX
 QSoundEffect *Sfx::effectFor(const QString &path)
 {
     if (!m_effects.contains(path)) {
@@ -89,6 +100,7 @@ QSoundEffect *Sfx::effectFor(const QString &path)
     }
     return m_effects.value(path);
 }
+#endif
 
 void Sfx::loadSettings()
 {
@@ -130,9 +142,16 @@ void Sfx::play(const QString &name)
     if (!m_enabled) return;
     QString path = m_soundMap.value(name);
     if (path.isEmpty()) path = QStringLiteral("qrc:/sounds/click.wav");
+#ifdef Q_OS_LINUX
+    if (qEnvironmentVariableIsSet("LOTUS_TUNE_SFX_DEBUG"))
+        qInfo() << "[sfx]" << name << path;
+    playWithPw(path);
+#else
     tryPlayWithSoundEffect(path);
+#endif
 }
 
+#ifndef Q_OS_LINUX
 void Sfx::tryPlayWithSoundEffect(const QString &path)
 {
     QSoundEffect *e = effectFor(path);
@@ -150,28 +169,60 @@ void Sfx::tryPlayWithSoundEffect(const QString &path)
         break;
     }
 }
+#endif
 
 void Sfx::playWithPw(const QString &path)
 {
     if (path.isEmpty()) return;
     QString file = path;
-    // The resources (qrc:/…) are not files: look for the copy on disk next to the
-    // binary or in the source tree for the pw-play fallback.
+    // The resources (qrc:/…) are not files: they are written once to the
+    // cache and played from there (pw-play only reads files).
     if (file.startsWith(QLatin1String("qrc:/"))) {
         const QString base = QFileInfo(file).fileName();
-        const QStringList cands{
-            QCoreApplication::applicationDirPath() + QStringLiteral("/sounds/") + base,
-            QCoreApplication::applicationDirPath() + QStringLiteral("/../sounds/") + base,
-            QCoreApplication::applicationDirPath() + QStringLiteral("/../../sounds/") + base,
-        };
-        for (const QString &c : cands) {
-            if (QFile::exists(c)) { file = c; break; }
+        if (!m_wavDir.isEmpty()) {
+            const QString disk = m_wavDir + QLatin1Char('/') + base;
+            if (!QFile::exists(disk) || QFileInfo(disk).size() == 0) {
+                // QFile::copy() with a :/ resource as the source is not
+                // reliable: the bytes are read and written by hand. QFile
+                // wants the ":/sounds/x.wav" form, not the "qrc:/..." URL.
+                QString res = file;
+                if (res.startsWith(QLatin1String("qrc:")))
+                    res.replace(0, 4, QStringLiteral(":"));
+                QFile in(res);
+                const bool inOk = in.open(QIODevice::ReadOnly);
+                if (inOk) {
+                    const QByteArray bytes = in.readAll();
+                    QFile out(disk);
+                    const bool outOk =
+                        out.open(QIODevice::WriteOnly | QIODevice::Truncate);
+                    if (outOk) {
+                        out.write(bytes);
+                        out.close();
+                    }
+                    if (qEnvironmentVariableIsSet("LOTUS_TUNE_SFX_DEBUG"))
+                        qInfo() << "[sfx] res" << res << "bytes" << bytes.size()
+                                << "outOpen" << outOk << "err" << out.errorString();
+                } else if (qEnvironmentVariableIsSet("LOTUS_TUNE_SFX_DEBUG")) {
+                    qInfo() << "[sfx] cannot read" << res << in.errorString();
+                }
+                if (qEnvironmentVariableIsSet("LOTUS_TUNE_SFX_DEBUG"))
+                    qInfo() << "[sfx] extract" << file << "->" << disk
+                            << QFileInfo(disk).size();
+            }
+            if (QFile::exists(disk))
+                file = disk;
         }
     }
     if (!QFile::exists(file))
         return;
 #ifdef Q_OS_LINUX
-    QProcess::startDetached(QStringLiteral("pw-play"), {file});
+    // The volume is the one of the interface; the role tells PipeWire it is
+    // a notification and not music (it does not duck the player).
+    QProcess::startDetached(QStringLiteral("pw-play"),
+                            {QStringLiteral("--volume"),
+                             QString::number(m_volume, 'f', 2),
+                             QStringLiteral("--media-role"),
+                             QStringLiteral("Notification"), file});
 #else
     // There is no PipeWire player on Windows or Android: the sound of
     // the interface is played by Qt itself.

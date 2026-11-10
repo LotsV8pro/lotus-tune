@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QMap>
 #include <QSet>
+#include <QString>
 
 class Sfx : public QObject
 {
@@ -51,4 +52,7 @@ private:
     // Effects whose play() was asked while they were still loading.
     QSet<QSoundEffect*> m_pending;
     QSoundEffect *m_keepAlive = nullptr;
+    // Linux: directory with the WAVs extracted from the resources, so
+    // pw-play can read them as files.
+    QString m_wavDir;
 };
