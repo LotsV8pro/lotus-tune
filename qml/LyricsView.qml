@@ -439,15 +439,23 @@ Item {
         try {
             map = JSON.parse(appcfg.get("lyricsOffsetByTrack") || "{}")
         } catch (e) {
-            return
+            map = {}
         }
-        if (map[key] === undefined)
-            return
-        const v = Number(map[key])
-        if (isNaN(v))
+        // Every track has its own offset: when this one has no saved
+        // adjust, the offset goes back to 0. Before, the offset of the
+        // previous track was kept and every song played after it came out
+        // late.
+        let v = 0
+        if (map[key] !== undefined) {
+            const n = Number(map[key])
+            if (!isNaN(n))
+                v = n
+        }
+        if (Math.abs(v - offset) < 0.001)
             return
         offset = v
-        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function")
+        if (lv.lyr && typeof lv.lyr.setPublishedOffset === "function"
+                && Math.abs(Number(lv.lyr.offset || 0) - v) > 0.001)
             lv.lyr.setPublishedOffset(offset)
     }
 
@@ -482,6 +490,24 @@ Item {
         }
         if (idx < 0)
             idx = localIndex(pos)
+        // Two lines that overlap: the one that was already being sung is
+        // still the main one while it has voice left. Before, the new one
+        // took over as soon as it started and the main phrase faded out in
+        // the middle of a word (the jump to the chorus that could be seen).
+        while (idx > 0) {
+            var prev = lines[idx - 1]
+            var prevEnd = Number(prev && prev.end ? prev.end : 0)
+            if (!(prevEnd > pos + 0.20))
+                break
+            var cur = lines[idx]
+            var curStart = Number(cur && cur.time ? cur.time : 0)
+            var curEnd = Number(cur && cur.end ? cur.end : 0)
+            // The one coming in is a short piece on top of it (an answer,
+            // an adlib, the second voice): it does not take the big line.
+            if (!(curEnd > curStart && (curEnd - curStart) < (prevEnd - pos)))
+                break
+            idx = idx - 1
+        }
         activeIndex = idx
     }
 
@@ -508,30 +534,37 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Centres the active line in the viewport with a smooth animation.
+    // Where the view has to sit so that line `idx` stays pinned at the
+    // height `pinFrac` of the viewport.
+    function pinTargetFor(idx) {
+        if (idx < 0 || idx >= lines.length)
+            return -1
+        var item = lyricRepeater.itemAt(idx)
+        if (!item)
+            return -1
+        var target = item.y + item.height / 2 - syncedFlick.height * pinFrac
+        var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
+        return Math.max(0, Math.min(target, maxY))
+    }
+
+    // Pins the active line in the viewport (with a smooth animation).
     function scrollToActive(instant) {
         if (!syncedFlick.visible)
             return
         // Before the first line the focused one is the first phrase: the
         // cinema already shows it big (not lit), so it has to be pinned.
-        var idx = focusedIndex
-        if (idx < 0 || idx >= lines.length)
+        var target = pinTargetFor(focusedIndex)
+        if (target < 0)
             return
-        var item = lyricRepeater.itemAt(idx)
-        if (!item)
-            return
-        // The active one is fixed at 32 % of the height (Sonora style), not centred.
-        var target = item.y + item.height / 2 - syncedFlick.height * pinFrac
-        var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
-        target = Math.max(0, Math.min(target, maxY))
-        _animating = true
         if (instant) {
             scrollAnim.stop()
-            syncedFlick.contentY = target
             _animating = false
+            syncedFlick.contentY = target
             return
         }
         if (Math.abs(target - syncedFlick.contentY) < 1) {
+            if (scrollAnim.running)
+                scrollAnim.stop()
             _animating = false
             return
         }
@@ -543,6 +576,7 @@ Item {
             scrollAnim.to = target
             return
         }
+        _animating = true
         scrollAnim.from = syncedFlick.contentY
         scrollAnim.to = target
         scrollAnim.restart()
@@ -679,6 +713,20 @@ Item {
     Timer {
         id: settleScroll
         interval: 100
+        onTriggered: lv.scrollToActive(false)
+    }
+
+    // The column reflows a frame or two after the active line changes (that
+    // row grows and the ones below move): the first scroll was aimed at the
+    // box measured BEFORE that, so the line stayed a little off the pin and
+    // every change left it a bit further up ("se va para arriba y no se
+    // mantiene"). This cheap check (some arithmetic, 20 times per second)
+    // looks at the real position and corrects it until it matches.
+    Timer {
+        id: pinWatch
+        interval: 48
+        repeat: true
+        running: lv.following && lv.showSynced && lv.live
         onTriggered: lv.scrollToActive(false)
     }
 

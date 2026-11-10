@@ -125,6 +125,11 @@ private:
         // True when the line is sung by the SECOND voice: the song has two
         // (a dialogue, a duet) and this one is not the main singer.
         bool secondary = false;
+        // When the phrase stops sounding (0 = the source does not say it).
+        // A richsync line brings it (`te`) and a plain LRC says it with an
+        // empty timed line; without it the phrase would last until the next
+        // lyric, swallowing the instrumental stretches in between.
+        double end = 0.0;
     };
 
     // How well a word level source fits the song, once it is aligned with

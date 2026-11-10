@@ -31,6 +31,9 @@ Item {
     property bool liked: false
     property int volume: 70
     property real coverSize: 220
+    // Centre of the cover inside this item: the lyrics pin the active line
+    // there, so it does not depend on how tall the block ends up being.
+    readonly property real coverCenter: coverBox.y + coverBox.height / 2
     // Escritorio: todo alineado a la izquierda. Movil: centrado.
     property bool centered: false
     // Tinta legible sobre el lavado del cinema: el cinema la calcula con el
