@@ -5,6 +5,7 @@
 #include <QTemporaryDir>
 #include <QStandardPaths>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QSignalSpy>
 #include <QUrl>
@@ -55,6 +56,9 @@ private slots:
     void testLineIndexAt();
     void testWordTimings();
     void testParseTtml();
+    void testInstrumentalMarkers();
+    void testRichsyncPhraseEnd();
+    void testLrcSilenceBoundary();
     void testReferenceVersion();
     void testAudioCachePrune();
     void testAudioCacheClear();
@@ -686,6 +690,148 @@ void TestLotusTune::testParseTtml()
     QCOMPARE(lines.at(2).text, QStringLiteral("without words"));
     QVERIFY(lines.at(2).words.isEmpty());
     QVERIFY(!lines.at(2).secondary);
+}
+
+void TestLotusTune::testInstrumentalMarkers()
+{
+    // The notes of an instrumental stretch cannot start while the previous
+    // phrase is still being sung: the old marker (`time + 0.5`) cut the
+    // last words of the line and the view jumped to the instrumental in the
+    // middle of the phrase ("empieza a medias").
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Test");
+    lyrics.m_artist = QStringLiteral("Test");
+    QVector<Lyrics::LrcLine> lines;
+    lines.append(wordLine(10.0, QStringLiteral("But don't call us the liars"),
+                          {10.0, 10.5, 11.0, 11.5, 12.0}, 14.5));
+    lines.append(wordLine(15.0, QStringLiteral("We've walked these alleys"),
+                          {15.0, 15.5, 16.0, 16.5}, 19.0));
+    lines.append(wordLine(20.0, QStringLiteral("And scattered around"),
+                          {20.0, 20.5, 21.0, 21.5}, 24.0));
+    lines.append(wordLine(60.0, QStringLiteral("Your life maybe hard"),
+                          {60.0, 60.5, 61.0, 61.5}, 64.0));
+    // A marker of the video that lands in the middle of the first phrase:
+    // it is not a stretch without voice.
+    {
+        Lyrics::LrcLine mark;
+        mark.time = 12.0;
+        mark.text = QStringLiteral("♪");
+        lyrics.m_refLines.append(mark);
+    }
+    lyrics.prepareWordedLines(lines);
+
+    // No marker inside any phrase.
+    for (const Lyrics::LrcLine &l : lines) {
+        if (!l.instrumental)
+            continue;
+        QVERIFY2(!(l.time > 10.0 && l.time < 14.5),
+                 qPrintable(QStringLiteral("marker inside the phrase: %1")
+                                .arg(l.time)));
+        QVERIFY(!(l.time > 20.0 && l.time < 24.0));
+    }
+    // The gap between 20 and 60 does have its marker, after the last word
+    // of the previous phrase.
+    bool gap = false;
+    for (const Lyrics::LrcLine &l : lines) {
+        if (l.instrumental && l.time > 24.0 && l.time < 60.0) {
+            gap = true;
+            QVERIFY(l.time >= 24.0);
+        }
+    }
+    QVERIFY(gap);
+}
+
+void TestLotusTune::testRichsyncPhraseEnd()
+{
+    // A richsync line carries its own end (`te`): the phrase stops there,
+    // NOT where the next line starts. The old code stretched the words of
+    // the phrase until the next lyric, so a 4 s phrase followed by a 10 s
+    // instrumental filled the whole stretch and the karaoke front crawled
+    // ("muchísimos errores de sync") while the ♪ marker never appeared.
+    const QByteArray json = R"([
+        {"ts":79.37,"te":83.273,"l":[
+            {"c":"I","o":0.0},{"c":" need","o":0.186},
+            {"c":" a","o":0.557},{"c":" new","o":0.681},
+            {"c":" way","o":0.929},{"c":" out","o":3.855}]},
+        {"ts":92.88,"te":96.83,"l":[
+            {"c":"The","o":0.0},{"c":" pain","o":0.5}]}
+    ])";
+    const QJsonArray arr = QJsonDocument::fromJson(json).array();
+    QVector<Lyrics::LrcLine> lines = Lyrics::parseRichsync(arr);
+    QCOMPARE(lines.size(), 2);
+
+    // The end of the phrase is the `te` of the source.
+    QVERIFY(qAbs(lines.at(0).end - 83.273) < 0.001);
+    const QVariantMap last = lines.at(0).words.last().toMap();
+    QVERIFY(qAbs(last.value(QStringLiteral("e")).toDouble() - 83.273) < 0.001);
+    // The word instants are the real ones (offset + ts), not redistributed
+    // by the length of the text over the gap until the next line.
+    const QVariantMap need = lines.at(0).words.at(1).toMap();
+    QVERIFY(qAbs(need.value(QStringLiteral("t")).toDouble() - 79.556) < 0.001);
+    QVERIFY(qAbs(need.value(QStringLiteral("e")).toDouble() - 79.927) < 0.001);
+    QVERIFY(lines.at(0).end < 90.0);
+
+    // The instrumental stretch between the two phrases gets its marker,
+    // right after the phrase stops.
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Test");
+    lyrics.m_artist = QStringLiteral("Test");
+    lyrics.prepareWordedLines(lines);
+    bool gap = false;
+    for (const Lyrics::LrcLine &l : lines) {
+        if (l.instrumental && l.time >= 83.273 && l.time < 92.88) {
+            gap = true;
+            QVERIFY(l.time >= 83.273);
+            QVERIFY(l.time < 86.0);
+        }
+    }
+    QVERIFY(gap);
+
+    // A phrase of one word is a real lyric line ("Ah", "Yeah", "Go!"):
+    // it is kept without word timings instead of being thrown away.
+    const QByteArray oneWordJson = R"([
+        {"ts":16.87,"te":16.87,"l":[{"c":"Ah","o":0.0}]},
+        {"ts":26.8,"te":30.56,"l":[
+            {"c":"I'm","o":0.0},{"c":" in","o":0.3}]}
+    ])";
+    QVector<Lyrics::LrcLine> oneWord =
+        Lyrics::parseRichsync(QJsonDocument::fromJson(oneWordJson).array());
+    QCOMPARE(oneWord.size(), 2);
+    QCOMPARE(oneWord.at(0).text, QStringLiteral("Ah"));
+    QVERIFY(oneWord.at(0).words.isEmpty());
+    QCOMPARE(oneWord.at(0).end, 0.0);
+
+    // The video marks where that phrase stops (an empty timed line) and the
+    // karaoke source does not: the boundary is copied when the lines are
+    // aligned, so the interjection does not stay lit until the next lyric.
+    Lyrics::LrcLine ref0;
+    ref0.time = 16.87;
+    ref0.text = QStringLiteral("Ah");
+    ref0.end = 19.03;
+    Lyrics::LrcLine ref1;
+    ref1.time = 26.8;
+    ref1.text = QStringLiteral("I'm in");
+    QVector<Lyrics::LrcLine> reference{ref0, ref1};
+    Lyrics::WordedScore score;
+    QVERIFY(lyrics.alignWords(oneWord, reference, &score));
+    QVERIFY(qAbs(oneWord.at(0).end - 19.03) < 0.001);
+}
+
+void TestLotusTune::testLrcSilenceBoundary()
+{
+    // A plain LRC marks the end of the phrase with a timed line without
+    // text: it has to be kept as the end of the previous line (it is where
+    // the instrumental starts), not discarded as an empty lyric.
+    const QString lrc = QStringLiteral("[00:10.00]Hello world\n"
+                                       "[00:14.50]\n"
+                                       "[00:20.00]Next line");
+    const QVector<Lyrics::LrcLine> lines = Lyrics::parseLrc(lrc, true);
+    QCOMPARE(lines.size(), 2);
+    QVERIFY(qAbs(lines.at(0).time - 10.0) < 0.001);
+    QVERIFY(qAbs(lines.at(0).end - 14.5) < 0.001);
+    QVERIFY(qAbs(lines.at(1).time - 20.0) < 0.001);
+    // The last line has no silence marker after it: no invented end.
+    QCOMPARE(lines.at(1).end, 0.0);
 }
 
 // ---------------------------------------------------------------------------

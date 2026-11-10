@@ -1061,11 +1061,40 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
 // cut and the lines that are not sung are removed.
 void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
 {
+    // The end of a phrase: the end of its last word when the source gives
+    // it (a line without word timings has no known end). It is what tells
+    // whether a line is still being sung at a given instant.
+    const auto endOf = [](const LrcLine &l) -> double {
+        if (l.end > l.time)
+            return l.end;
+        if (l.words.isEmpty())
+            return 0.0;
+        const QVariantMap last = l.words.last().toMap();
+        return last.value(QStringLiteral("e")).toDouble();
+    };
+    // True when `t` falls in the middle of a phrase that is still sounding.
+    // A marker there cut the last words of the line (the view jumped to the
+    // notes while the singer had not finished: "empieza a medias").
+    const auto sungAt = [&lines, &endOf](double t) -> bool {
+        for (const LrcLine &l : lines) {
+            if (l.instrumental)
+                continue;
+            const double end = endOf(l);
+            if (end > 0.0 && t > l.time + 0.05 && t < end - 0.15)
+                return true;
+        }
+        return false;
+    };
+
     // The instrumental markers of the video are added (the album may not
     // have them) and every one of them is marked with as many "♪" as the
     // stretch lasts.
     for (const LrcLine &r : m_refLines) {
         if (!isInstrumental(normLine(r.text)))
+            continue;
+        // The marker of the video lands inside a phrase: it is not a
+        // stretch without voice, the words are still sounding.
+        if (sungAt(r.time))
             continue;
         bool covered = false;
         for (const LrcLine &l : lines) {
@@ -1128,8 +1157,6 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
             if (i + 1 >= lines.size())
                 break;
             const double gap = lines.at(i + 1).time - lines.at(i).time;
-            if (gap < threshold)
-                continue;
             // There is no marker already for that stretch.
             bool marked = false;
             for (const LrcLine &o : lines) {
@@ -1141,8 +1168,23 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
             }
             if (marked)
                 continue;
+            // The notes cannot start while the previous phrase is still
+            // being sung: the old marker (time + 0.5) cut its last words
+            // and the view jumped to the instrumental in the middle of the
+            // phrase.
+            const double end = endOf(lines.at(i));
+            const bool endKnown = end > lines.at(i).time + 0.05;
+            double start = endKnown ? end + 0.15 : lines.at(i).time + 0.5;
+            // With the real end of the phrase the silence is measured from
+            // that end: an instrumental of 8 s looked like a 12 s gap only
+            // because the phrase was stretched until the next lyric. Four
+            // seconds is already a stretch of music, not a breath.
+            const double silence = lines.at(i + 1).time - start;
+            const double minSilence = endKnown ? 4.0 : threshold;
+            if (endKnown ? (silence < minSilence) : (gap < threshold))
+                continue;   // there is no room for the notes: no marker
             LrcLine m;
-            m.time = lines.at(i).time + 0.5;
+            m.time = start;
             m.text = QStringLiteral("♪");
             m.instrumental = true;
             withGaps.append(m);
@@ -1683,8 +1725,8 @@ QVariantList Lyrics::lines() const
         // an instrumental stretch in the middle does not make the
         // previous phrase longer.
         {
-            double end = 0.0;
-            if (!l.words.isEmpty()) {
+            double end = l.end;
+            if (!(end > l.time) && !l.words.isEmpty()) {
                 const QVariantMap last = l.words.last().toMap();
                 end = last.value(QStringLiteral("e")).toDouble();
             }
@@ -1697,6 +1739,8 @@ QVariantList Lyrics::lines() const
                     }
                 }
             }
+            if (m_duration > 0.0 && end > m_duration)
+                end = m_duration;
             m.insert(QStringLiteral("end"), end);
         }
         m.insert(QStringLiteral("text"), l.text);
@@ -1741,6 +1785,16 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredit
         // The text is what follows the last timestamp of the line.
         const QString body = line.mid(lastEnd).trimmed();
         if (body.isEmpty() || (filterCredits && looksLikeCredit(body))) {
+            // A timed line with no text is not a lyric: it marks the
+            // instant the voice stops (the instrumental stretches are
+            // written like that in many LRCs). It is kept as the end of
+            // the phrase that comes before it, so the words of that phrase
+            // are not stretched until the next lyric line.
+            if (body.isEmpty() && first > 0 && first < out.size()) {
+                LrcLine &prev = out[first - 1];
+                if (!(prev.end > prev.time))
+                    prev.end = out.at(first).time;
+            }
             out.resize(first);
             continue;
         }
@@ -2023,6 +2077,8 @@ void Lyrics::publishLines()
             double e = (i + 1 < m_lines.size()) ? m_lines.at(i + 1).time
                                                 : l.time + 12.0;
             e = qMin(e, l.time + 45.0);
+            if (m_duration > 0.0 && e > m_duration)
+                e = m_duration;   // nothing lasts past the end of the track
             lo.insert(QStringLiteral("e"), e);
             lo.insert(QStringLiteral("text"), l.text);
             if (l.secondary)
@@ -2738,9 +2794,17 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         const QJsonObject e = lv.toObject();
         const double ts = e.value(QStringLiteral("ts")).toDouble();
         const double te = e.value(QStringLiteral("te")).toDouble(ts + 4.0);
+        // The end of the phrase is the `te` of the richsync: it says when
+        // the voice stops, and that is NOT the start of the next line. The
+        // instrumental stretches live in between, and stretching the words
+        // of a phrase until the next lyric made the karaoke front crawl
+        // through the whole instrumental (and hid the ♪ markers).
+        const bool hasEnd = e.contains(QStringLiteral("te"))
+                            && te > ts + 0.02 && te < ts + 30.0;
         const QJsonArray chunks = e.value(QStringLiteral("l")).toArray();
         LrcLine line;
         line.time = ts;
+        line.end = hasEnd ? te : 0.0;
         QString text;
         int i = 0;
         while (i < chunks.size()) {
@@ -2766,83 +2830,35 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
                 : te;
             QVariantMap wm;
             wm.insert(QStringLiteral("t"), t0);
-            wm.insert(QStringLiteral("e"), t1);
+            double wEnd = qMax(t1, t0 + 0.05);
+            if (hasEnd && t0 < te)
+                wEnd = qMin(wEnd, te);
+            wm.insert(QStringLiteral("e"), wEnd);
             wm.insert(QStringLiteral("text"), wtext);
             line.words.append(wm);
             text += wtext;
             i = j;
         }
+        if (line.words.isEmpty())
+            continue;
+        // A phrase of one word ("Ah", "Yeah", "Go!") is a real lyric line:
+        // it is kept (the line level highlight is enough for it). Only the
+        // word timings are dropped, like in the other parsers.
         if (line.words.size() < 2)
-            continue;
-        // The last word of the line inherits the end of the line: it is
-        // cut to what the other words of the line take.
-        clampStretchedWord(line);
+            line.words.clear();
+        // Without a real `te` the last word would inherit the guessed end:
+        // it is cut to what the other words of the line take. With `te` the
+        // timings are kept just as Musixmatch sends them (they are real:
+        // the duration of a word is until the next word starts).
+        if (!hasEnd)
+            clampStretchedWord(line);
         line.text = text.trimmed();
-        if (line.text.isEmpty())
-            continue;
         if (line.text.isEmpty())
             continue;
         // The instrumental markers ("♪") are kept: they are shown as they
         // are, without being sung.
         line.instrumental = isInstrumental(normLine(line.text));
         out.append(line);
-    }
-
-    // Musixmatch spreads the words of a line in a strange way (the gap
-    // before the next word is counted as part of it), so a word that is
-    // sung fast comes out with a very long segment and the karaoke front
-    // goes slower and slower. When the words do not fill the line, they
-    // share it by the length of their text.
-    for (int i = 0; i < out.size(); ++i) {
-        LrcLine &line = out[i];
-        if (line.words.size() < 2)
-            continue;
-        const double lineEnd = (i + 1 < out.size()) ? out.at(i + 1).time
-                                                    : line.time + 6.0;
-        const double lineDur = lineEnd - line.time;
-        if (lineDur <= 0.0)
-            continue;
-        double used = 0.0;
-        int chars = 0;
-        for (const QVariant &wv : line.words) {
-            const QVariantMap w = wv.toMap();
-            used += qMax(0.0, w.value(QStringLiteral("e")).toDouble()
-                             - w.value(QStringLiteral("t")).toDouble());
-            chars += w.value(QStringLiteral("text")).toString().size();
-        }
-        if (chars <= 0 || used <= 0.0)
-            continue;
-        // Each word should take about the time its length needs. When one
-        // of them takes much more (or much less) the timings are strange
-        // (Musixmatch counts the silence in front of a word as part of
-        // it) and the karaoke front goes slower and slower. Then the line
-        // is shared by the length of the words.
-        bool strange = false;
-        for (const QVariant &wv : line.words) {
-            const QVariantMap w = wv.toMap();
-            const double d = w.value(QStringLiteral("e")).toDouble()
-                           - w.value(QStringLiteral("t")).toDouble();
-            const int len = qMax(1, w.value(QStringLiteral("text")).toString().size());
-            const double expected = lineDur * (double(len) / double(chars));
-            if (expected > 0.0 && (d > expected * 2.0 || d < expected * 0.4)) {
-                strange = true;
-                break;
-            }
-        }
-        if (!strange)
-            continue;   // the timings are coherent: they are kept
-
-        double acc = 0.0;
-        for (int k = 0; k < line.words.size(); ++k) {
-            QVariantMap w = line.words.at(k).toMap();
-            const int len = qMax(1, w.value(QStringLiteral("text")).toString().size());
-            const double share = lineDur * (double(len) / double(chars));
-            const double t0 = line.time + acc;
-            acc += share;
-            w.insert(QStringLiteral("t"), t0);
-            w.insert(QStringLiteral("e"), t0 + share);
-            line.words[k] = w;
-        }
     }
 
     return out;
@@ -3131,6 +3147,12 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
             // that are filled in the karaoke belong to this very text.
             deltas.append(reference.at(j).time - aligned.time);
             ++matched;
+            // The video may mark where the phrase stops (a timed line
+            // without text) and the karaoke source may not: that boundary
+            // is taken so the phrase does not last until the next lyric.
+            if (!(aligned.end > aligned.time)
+                && reference.at(j).end > aligned.time)
+                aligned.end = reference.at(j).end;
         }
         // The instrumental lines (and the ones the video does not have) are
         // kept: they are shown as they are.
@@ -3177,6 +3199,8 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
     if (qAbs(shift) >= 0.02) {
         for (LrcLine &l : out) {
             l.time += shift;
+            if (l.end > 0.0)
+                l.end += shift;
             for (QVariant &wv : l.words) {
                 QVariantMap w = wv.toMap();
                 w.insert(QStringLiteral("t"),

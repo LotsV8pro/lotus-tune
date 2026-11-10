@@ -362,7 +362,19 @@ Rectangle {
                 visibleLines: 3
                 // Right half of the screen: its own cell of the wash.
                 zone: 5
-                pinFrac: 0.36
+                // The active line is pinned at the centre of the cover
+                // (not at the centre of the window: the cover sits higher
+                // because the title and the controls go under it).
+                pinFrac: {
+                    // `left.y` has to be part of the expression: a value
+                    // read inside mapToItem() is not tracked, so the pin
+                    // stayed with the fraction measured before the row was
+                    // laid out (the line sat near the top).
+                    var center = left.y + left.coverCenter
+                    if (!(content.height > 0))
+                        return 0.50
+                    return Math.max(0.0, Math.min(1.0, center / content.height))
+                }
                 pillTop: true
                 syncAdjustAllowed: false
                 pillShown: false
@@ -422,7 +434,7 @@ Rectangle {
                 // Phone: the lyrics live under the cover, in the bottom
                 // half. That cell is the one that decides light or dark ink.
                 zone: 7
-                pinFrac: 0.34
+                pinFrac: 0.50
                 pillTop: true
                 syncAdjustAllowed: false
                 pillShown: false
