@@ -3,13 +3,23 @@
   <id>io.github.lotsv8pro.lotus-tune</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>LotusTune</name>
-  <summary>Reproductor de música para YouTube Music</summary>
+  <name>Lotus Tune</name>
+  <summary>Reproductor de YouTube Music con karaoke palabra a palabra</summary>
   <description>
     <p>
-      LotusTune reproduce YouTube Music con la letra sincronizada palabra a
-      palabra (karaoke real), portadas en alta resolución y un fondo que
-      sigue la portada de la canción.
+      Lotus Tune reproduce YouTube Music y SoundCloud con mpv y muestra la
+      letra sincronizada palabra a palabra. La letra se elige por la versión
+      que suena, así que no aparece la de otro álbum ni la de un directo.
+    </p>
+    <p>
+      También descarga canciones con yt-dlp, guarda una biblioteca local y
+      publica MPRIS para los controles del sistema. En Linux, Windows y
+      Android.
+    </p>
+    <p>
+      Si reproduce en un escritorio con iNiR, deja la letra y la posición en
+      dos ficheros JSON para que los widgets y la pantalla de bloqueo usen la
+      misma letra sin descargarla otra vez.
     </p>
   </description>
   <launchable type="desktop-id">lotus-tune.desktop</launchable>
@@ -20,6 +30,15 @@
     <category>Player</category>
   </categories>
   <releases>
+    <release version="2.0.0" date="2026-11-11">
+      <description>
+        <p>
+          Primera release con Windows además de Linux y Android. La letra se
+          publica en un fichero JSON compartido y los tramos sin voz se
+          dibujan con puntos.
+        </p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-22"/>
   </releases>
 </component>
