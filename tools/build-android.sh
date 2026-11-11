@@ -16,6 +16,17 @@ if [ -z "${ANDROID_NDK_ROOT:-}" ] || [ -z "${QT_PREFIX:-}" ] || [ -z "${QT_HOST_
     exit 1
 fi
 
+# Gradle does not run on the system JDK (27: "Unsupported class file major
+# version 71"), and the build failed every time the shell had not exported
+# JAVA_HOME by hand. The toolchain brings its own JDK 17: use it when the
+# environment does not point anywhere.
+JDK17="$(ls -d "$HOME"/lotus-android-toolchain/jdk-17* 2>/dev/null | head -1 || true)"
+if [ -n "$JDK17" ] && [ -z "${JAVA_HOME:-}" ]; then
+    export JAVA_HOME="$JDK17"
+    export PATH="$JAVA_HOME/bin:$PATH"
+    echo "JAVA_HOME=$JAVA_HOME"
+fi
+
 # ---------------------------------------------------------------------------
 # Qt's own QML modules (QtQuick, QtQuick.Window, QtQuick.Controls...).
 # androiddeployqt 6.6 only packages the app's own assets and never writes
