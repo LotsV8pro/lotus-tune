@@ -10,6 +10,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD="$ROOT/build-android"
 
+# CI exports the SDK but not the NDK root: take the one the SDK carries so
+# the same script works on a runner and on this machine.
+if [ -z "${ANDROID_NDK_ROOT:-}" ] && [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+    ANDROID_NDK_ROOT="$(ls -d "$ANDROID_SDK_ROOT"/ndk/*/ 2>/dev/null | sort -V | tail -1)"
+    ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT%/}"
+    export ANDROID_NDK_ROOT
+fi
+
 if [ -z "${ANDROID_NDK_ROOT:-}" ] || [ -z "${QT_PREFIX:-}" ] || [ -z "${QT_HOST_PATH:-}" ]; then
     echo "Falta el toolchain: ejecuta primero" >&2
     echo "  tools/setup-android-toolchain.sh && source ~/lotus-android-toolchain/env.sh" >&2
@@ -54,6 +62,14 @@ if [ -d "$QML_SRC" ]; then
     echo "qt_qml.rcc: $(du -h "$ROOT/android/assets/qt_qml.rcc" | cut -f1)"
 fi
 
+# Without that bundle the phone dies on the first import (`module
+# "QtQuick.Window" is not installed`), and the build looks fine up to the
+# install. Stop here instead of shipping an APK that closes on launch.
+if [ ! -s "$ROOT/android/assets/qt_qml.rcc" ]; then
+    echo "falta android/assets/qt_qml.rcc: revisa QT_PREFIX ($QT_PREFIX)" >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # The APK packages a COPY of qml/ (android/assets/android_rcc_bundle/qml,
 # tracked in git); the desktop binary embeds qml/ directly. Editing qml/ and
@@ -89,8 +105,22 @@ mkdir -p "$BUILD/android-build/libs/arm64-v8a"
 cp "$BUILD"/liblotus-tune_*.so "$BUILD/android-build/libs/arm64-v8a/" 2>/dev/null || true
 ( cd "$BUILD/android-build" && ./gradlew assembleDebug --no-daemon )
 
-APK=$(find "$BUILD" -name "*.apk" | head -1)
-if [ -n "$APK" ]; then
+APK="$BUILD/android-build/build/outputs/apk/debug/lotus-tune-debug.apk"
+if [ -f "$APK" ]; then
+    # The two bundles are what the phone loads: Qt's QML modules and the
+    # app's own qmldir. An APK without them installs and dies in a second,
+    # which is exactly what the release shipped once. The listing is read
+    # into a variable: `unzip | grep -q` fails on SIGPIPE with pipefail.
+    listing="$(unzip -l "$APK")"
+    for entry in assets/qt_qml.rcc assets/android_rcc_bundle/qmldir; do
+        case "$listing" in
+            *"$entry"*) ;;
+            *)
+                echo "el APK no lleva $entry: no lo instales" >&2
+                exit 1
+                ;;
+        esac
+    done
     echo
     echo "APK: $APK ($(du -h "$APK" | cut -f1))"
     echo "Para instalarlo en un movil:  adb install -r \"$APK\""
