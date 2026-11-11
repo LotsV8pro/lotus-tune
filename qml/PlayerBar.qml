@@ -214,12 +214,15 @@ Rectangle {
                 return
             const dy = startY - sceneY(m)
             const dx = sceneX(m) - startX
-            if (!dragging && !sideways && (Math.abs(dx) > 14 || dy > 6)) {
+            // Un gesto empieza tarde a proposito: un clic con el pulso
+            // tembloroso sobre un boton no puede acabar cambiando de
+            // cancion ni abriendo el cine (era lo que pasaba "a veces").
+            if (!dragging && !sideways && (Math.abs(dx) > 26 || dy > 16)) {
                 // Gana el eje que mas se ha movido: un dedo que sube abre
                 // el cine, uno que cruza cambia de pista.
-                if (Math.abs(dx) > Math.abs(dy) * 1.2)
+                if (Math.abs(dx) > Math.abs(dy) * 1.6)
                     sideways = true
-                else if (dy > 6)
+                else if (dy > 16)
                     dragging = true
             }
             if (sideways) {
@@ -232,14 +235,14 @@ Rectangle {
         }
         onReleased: (m) => {
             const dx = sceneX(m) - startX
-            if (sideways && Math.abs(dx) > 56) {
+            if (sideways && Math.abs(dx) > 90) {
                 if (typeof sfx !== "undefined")
                     sfx.play("tap")
                 if (dx < 0)
                     bar.nextRequested()
                 else
                     bar.prevRequested()
-            } else if (dragging && bar.pull > 26) {
+            } else if (dragging && bar.pull > 70) {
                 if (typeof sfx !== "undefined")
                     sfx.play("tap")
                 bar.cinemaRequested()
@@ -344,8 +347,11 @@ Rectangle {
                         anchors.fill: parent
                         // Invisible extra reach above the line: a thumb
                         // that starts a little high still catches the
-                        // gesture (nothing is painted there).
-                        anchors.topMargin: -18
+                        // gesture (nothing is painted there). Small: the
+                        // slab used to reach 18 px above the bar, into the
+                        // list, and clicks there sought the song instead of
+                        // pressing the row.
+                        anchors.topMargin: -8
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
 

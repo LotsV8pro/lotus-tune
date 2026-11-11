@@ -127,19 +127,11 @@ Item {
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
     readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
-    // The 3-line window keeps every row at the height of the highlighted
-    // line: that way the column does not reflow when the highlight moves
-    // (the text grows and a long phrase could even wrap to one more
-    // line), which made the change of line look like a jump. The gap
-    // gives back the space the reserved line adds.
-    readonly property bool steadyRows: visibleLines > 0
     // The lines that are not being sung are a bit smaller: the sounding
     // one is the one that has to stand out (they read as a frame around it,
     // not as more lyrics at the same level).
     property real dimScale: 0.86
-    readonly property int lineGap: Math.max(6, Math.round(lineSize * 0.62)
-                                            - (steadyRows
-                                               ? Math.round(activeBoost * 1.1) : 0))
+    readonly property int lineGap: Math.max(6, Math.round(lineSize * 0.62))
     // Half height: that way the first and the last line can be centred
     // too.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
@@ -160,6 +152,43 @@ Item {
     property bool following: true
     property bool _animating: false
     property int _pinTries: 0
+    // Last contentY that our own pin wrote: any other position is a scroll
+    // of the user.
+    property real _pinY: 0
+    // Key of the track the list belongs to: a change of key is a change of
+    // song, and the list must start again at the top without animation.
+    property string _trackKey: ""
+    // Just after a track change the layout is still settling: the first
+    // placements are JUMPED, not animated (before the list could be seen
+    // travelling up and then down to find the line that sounds).
+    property bool _rekeying: false
+    // Row that sits under the pin. The 3-line window is centred on it, so
+    // when the user scrolls the window travels with the content and the
+    // lines come in and out through it. Measured on the real layout (rows
+    // are not all the same height: a long phrase wraps to two rows).
+    property int pinIndex: -1
+    function updatePinIndex() {
+        var n = lyricRepeater ? lyricRepeater.count : 0
+        if (n <= 0) {
+            pinIndex = -1
+            return
+        }
+        var target = syncedFlick.contentY + pinTop
+        var best = -1
+        var bestD = 1e9
+        for (var i = 0; i < n; ++i) {
+            var it = lyricRepeater.itemAt(i)
+            if (!it)
+                continue
+            var d = Math.abs(it.y + it.height / 2 - target)
+            if (d < bestD) {
+                bestD = d
+                best = i
+            }
+        }
+        if (best !== pinIndex)
+            pinIndex = best
+    }
 
     // ---- progressive fill (karaoke) -------------------------------------
     // Position interpolated between the engine's reports.
@@ -534,9 +563,27 @@ Item {
         applyStoredOffset()
         // New track: we go back to following the singing from the beginning.
         following = true
+        var key = (lyr && lyr.trackKey) ? String(lyr.trackKey) : ""
+        if (key !== _trackKey) {
+            _trackKey = key
+            // The list is different now: the old scroll offset pointed at
+            // the middle of the previous song. Back to the top in the same
+            // frame, and the next placements jump (the rows are laid out
+            // a frame later, so a first measurement is wrong and would be
+            // seen as the lyrics going up and then down).
+            _rekeying = true
+            rekeyGuard.restart()
+            if (scrollAnim.running)
+                scrollAnim.stop()
+            _animating = false
+            _pinTries = 0
+            syncedFlick.contentY = 0
+            _pinY = 0
+        }
         computeActive()
         // Track change: jump without animation to the new active line.
-        Qt.callLater(function () { scrollToActive(true) })
+        scrollToActive(true)
+        Qt.callLater(function () { lv.scrollToActive(true) })
     }
 
     // Pins the line that is sounding at `pinTop` (the middle of the cover
@@ -571,6 +618,7 @@ Item {
             if (scrollAnim.running)
                 scrollAnim.stop()
             _animating = false
+            _pinY = syncedFlick.contentY
             return
         }
         if (instant) {
@@ -578,6 +626,7 @@ Item {
                 scrollAnim.stop()
             _animating = false
             syncedFlick.contentY = target
+            _pinY = target
             return
         }
         // The scroll of the line that just arrived is already running and
@@ -711,8 +760,13 @@ Item {
             lv.lyr.setPublishedOffset(offset)
         rebuild()
     }
-    onLinesChanged: computeActive()
+    onLinesChanged: { computeActive(); updatePinIndex() }
     onActiveIndexChanged: {
+        updatePinIndex()
+        if (lv._rekeying) {
+            Qt.callLater(function () { lv.scrollToActive(true) })
+            return
+        }
         Qt.callLater(function () { if (lv.following) lv.scrollToActive(false) })
         // The active one grows when it becomes active: the column
         // reorders and the first centring may have been computed before
@@ -728,13 +782,21 @@ Item {
         onTriggered: lv.scrollToActive(false)
     }
 
+    // How long the list is allowed to "still be settling" after a track
+    // change: during that window every placement is a jump.
+    Timer {
+        id: rekeyGuard
+        interval: 450
+        onTriggered: lv._rekeying = false
+    }
+
     // After a manual scroll the lyrics go back to the singing line on
-    // their own (2 s without touching the list): a scroll left the active
-    // line where it was, off the centre, and it never came back until the
-    // "Seguir la canción" pill was pressed.
+    // their own (4 s without touching the list, enough to read a verse): a
+    // scroll left the active line where it was, off the centre, and it
+    // never came back until the "Seguir la canción" pill was pressed.
     Timer {
         id: refollow
-        interval: 2000
+        interval: 4000
         onTriggered: {
             if (!lv.showSynced || !lv.live)
                 return
@@ -758,8 +820,8 @@ Item {
     }
 
     // Re-centre on resize (window <-> fullscreen change).
-    onHeightChanged: Qt.callLater(function () { lv.scrollToActive(true) })
-    onWidthChanged: Qt.callLater(function () { lv.scrollToActive(true) })
+    onHeightChanged: Qt.callLater(function () { lv.updatePinIndex(); lv.scrollToActive(true) })
+    onWidthChanged: Qt.callLater(function () { lv.updatePinIndex(); lv.scrollToActive(true) })
 
     // When it becomes visible (opening the cinema or the queue panel): the scroll
     // had been skipped while it was hidden (`scrollToActive` bails if the
@@ -854,15 +916,33 @@ Item {
         // by itself: it must not stay lost off the middle of the cover
         // because of one scroll. The view's own animation does not count.
         onMovementStarted: {
-            if (lv._animating)
-                return
+            // The pin may be animating when the finger lands: the drag wins,
+            // the animation stops (before it kept pulling the content while
+            // the user scrolled, so the lyrics barely moved).
+            if (lv._animating) {
+                scrollAnim.stop()
+                lv._animating = false
+            }
             lv.following = false
             refollow.stop()
         }
         onMovementEnded: if (!lv._animating) refollow.restart()
         onFlickEnded: if (!lv._animating) refollow.restart()
-        onContentYChanged: if (!lv._animating && syncedFlick.moving
-                               && lv.following) lv.following = false
+        // Any movement of the content that the view did not do itself (a
+        // wheel, a fling, a drag) stops the follow: otherwise the pin
+        // pulled it back 48 ms later and the list looked stuck. `_pinY` is
+        // where our own pin left the content.
+        onContentYChanged: {
+            lv.updatePinIndex()
+            if (lv._animating)
+                return
+            if (Math.abs(syncedFlick.contentY - lv._pinY) > 6) {
+                if (lv.following)
+                    lv.following = false
+            }
+            if (!lv.following)
+                refollow.restart()
+        }
 
         // Reading column centred and with a bounded width.
         Column {
@@ -876,19 +956,31 @@ Item {
             Repeater {
                 id: lyricRepeater
                 model: lv.lines
+                // The rows are created after the model changes: measure
+                // them once they exist.
+                onCountChanged: Qt.callLater(function () { lv.updatePinIndex() })
                 delegate: Item {
                     id: rrow
                     required property var modelData
                     required property int index
                     readonly property bool active: index === lv.activeIndex
                     readonly property bool focused: index === lv.focusedIndex
-                    // Subtitle window: only the focused line and its
-                    // neighbours have ink. The rest stay in the model (the
-                    // karaoke needs them) but are fully transparent.
-                    readonly property int windowCenter: lv.focusedIndex >= 0
-                                                        ? lv.focusedIndex : 0
+                    // Subtitle window: only the lines around the pin have
+                    // ink. The rest stay in the model (the karaoke needs
+                    // them) but are fully transparent.
+                    //
+                    // The window is measured on SCREEN, not by index: the
+                    // rows whose centre falls near the pin. While the song
+                    // is followed the pin sits on the line that sounds, so
+                    // it is the same 3-line window as before; when the user
+                    // scrolls, the window travels with the content and the
+                    // lines come in and out through it (before it was tied
+                    // to the sounding line, so a scroll moved the block but
+                    // the next lines stayed invisible).
+                    readonly property int winCenter: lv.pinIndex >= 0
+                        ? lv.pinIndex : Math.max(0, lv.focusedIndex)
                     readonly property bool inWindow: lv.visibleLines <= 0
-                        || Math.abs(index - rrow.windowCenter)
+                        || Math.abs(index - rrow.winCenter)
                            <= Math.floor((lv.visibleLines - 1) / 2)
 
                     // The instrumental markers ("♪") are shown, but they
@@ -971,26 +1063,28 @@ Item {
                     }
 
                     width: lv.colW
-                    height: Math.ceil(lv.steadyRows
-                                      ? measure.implicitHeight
-                                      : (karaokeRow ? editBase.contentHeight
-                                                    : base.implicitHeight))
+                    // Height of the text the row DRAWS (the short lines at
+                    // the dim size, the sung one at its size): reserving
+                    // the height of the active size for every row left a
+                    // line of air above and below the short phrases.
+                    height: Math.ceil(rrow.karaokeRow
+                                      ? editBase.contentHeight
+                                      : base.implicitHeight)
                     // The opacity goes up on hover: the line under the
                     // cursor is marked as «clickable» (it jumps to that moment).
-                    // All of that, multiplied by the edge fade. In the
-                    // 3-line window the rows outside it fade out: they
-                    // keep their place (the list never reflows) but take
-                    // no ink.
+                    // All of that, multiplied by the edge fade. The rows
+                    // outside the window fade out: they keep their place
+                    // (the list never reflows) but take no ink.
                     opacity: !rrow.inWindow ? 0
                              : (rrow.instrumental
                                 ? Math.min(vfade, 0.95)
                                 : Math.min(vfade, lv.lineOpacity(index)
-                                           + (lineMa.containsMouse ? 0.22 : 0)))
+                                           + (lineHover.hovered ? 0.22 : 0)))
                     Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
 
-                    // Invisible ruler: the height of the row is always the
-                    // one of the highlighted line (see `steadyRows`), so
-                    // the list never reflows when the highlight moves.
+                    // Invisible ruler: kept for the layout maths of the
+                    // karaoke (its pitch); the height of the row is the one
+                    // of the text it draws.
                     Text {
                         id: measure
                         visible: false
@@ -1167,16 +1261,19 @@ Item {
                         }
                     }
 
-                    // Click on a line: jumps to that moment of the song.
-                    MouseArea {
-                        id: lineMa
-                        anchors.fill: parent
-                        // The rows of the 3-line window are the only ones
-                        // that can be clicked (the others are invisible).
+                    // Hover + tap, not a MouseArea: a MouseArea grabbed the
+                    // press of the whole row and the Flickable never saw the
+                    // drag, so the lyrics could not be scrolled with the
+                    // finger. A TapHandler lets the drag go to the list and
+                    // only fires when the pointer really tapped.
+                    HoverHandler {
+                        id: lineHover
                         enabled: rrow.inWindow
-                        hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: {
+                    }
+                    TapHandler {
+                        enabled: rrow.inWindow
+                        onTapped: {
                             if (typeof sfx !== "undefined") sfx.play("tap")
                             lv.seekTo(modelData.time)
                         }
@@ -1191,7 +1288,11 @@ Item {
             property: "contentY"
             duration: Theme.slowMs
             easing.type: Easing.InOutCubic
-            onStopped: lv._animating = false
+            onStopped: {
+                lv._animating = false
+                lv._pinY = syncedFlick.contentY
+                lv.updatePinIndex()
+            }
         }
     }
 
