@@ -42,8 +42,8 @@ android {
         targetSdk 34
         // El mismo numero que CMakeLists (1.2.1 -> 10201): si baja, el
         // sistema rechaza la instalacion por "downgrade".
-        versionCode 10222
-        versionName "1.2.22"
+        versionCode 10223
+        versionName "1.2.23"
     }
 
     buildTypes {

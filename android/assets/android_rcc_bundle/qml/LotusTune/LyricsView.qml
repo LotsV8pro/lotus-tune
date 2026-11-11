@@ -983,25 +983,17 @@ Item {
                         || Math.abs(index - rrow.winCenter)
                            <= Math.floor((lv.visibleLines - 1) / 2)
 
-                    // The instrumental markers ("♪") are shown, but they
-                    // are not sung and they keep their dim colour.
+                    // The instrumental markers are not sung: they keep
+                    // their dim colour and show the stretch as three dots.
                     readonly property bool instrumental: modelData.instrumental === true
-                    // The three notes of an instrumental stretch light up
-                    // as it goes, like the fill of the lyrics: each note
-                    // takes a third of the stretch and brightens through
-                    // it (nothing jumps on at a stroke). The timings are
-                    // the line's own: nothing is moved.
+                    // The dots take a third of the stretch each and light
+                    // through it (nothing jumps on at a stroke). The
+                    // timings are the line's own: nothing is moved.
                     readonly property real instrStart: Number(modelData.time || 0)
                     readonly property real instrEnd: Math.max(instrStart + 0.6,
                                                               Number(modelData.end || 0))
                     readonly property real instrSpan: Math.max(0.6,
                                                                instrEnd - instrStart)
-                    function noteFill(k) {
-                        var slot = instrSpan / 3
-                        var a = instrStart + slot * k
-                        return Theme.clamp((lv.karaokePos - a) / Math.max(0.25, slot),
-                                           0, 1)
-                    }
                     // Segunda voz del dueto: su frase sale desde la derecha.
                     readonly property bool sec: modelData.secondary === true
 
@@ -1148,9 +1140,11 @@ Item {
                         Behavior on color { ColorAnimation { duration: Theme.medMs } }
                     }
 
-                    // Instrumental stretch: three notes that light up as
-                    // it goes. They read the line's own time/end, so the
-                    // rest of the timings are untouched.
+                    // Instrumental stretch: three dots that light one by
+                    // one (the same reading as the desktop widget: the
+                    // stretch fills them, and they shrink away as the
+                    // singing comes back). They read the line's own
+                    // time/end, so the rest of the timings are untouched.
                     Row {
                         id: noteRow
                         visible: rrow.instrumental
@@ -1160,20 +1154,34 @@ Item {
                                         : (lv.leftAlign
                                            ? 0
                                            : Math.max(0, (rrow.textW - width) / 2)))
-                        spacing: Math.round(lv.lineSize * 0.40)
+                        y: Math.round((rrow.height - height) / 2)
+                        spacing: Math.round(noteRow.dotSize * 0.8)
+
+                        readonly property real dotSize: Math.max(6, Math.round(lv.lineSize * 0.42))
+                        // How much of the stretch has gone by (0..1).
+                        readonly property real p: Theme.clamp(
+                            (lv.karaokePos - rrow.instrStart) / rrow.instrSpan, 0, 1)
+                        // The last half second before the voice returns:
+                        // the dots fold away instead of vanishing.
+                        readonly property real away: Theme.clamp(
+                            1 - (rrow.instrEnd - lv.karaokePos) / 0.5, 0, 1)
+                        function lit(index) {
+                            var v = Theme.clamp(noteRow.p * 3.3 - index, 0, 1)
+                            return v * v * (3 - 2 * v)
+                        }
+
                         Repeater {
                             model: 3
-                            delegate: Text {
+                            delegate: Rectangle {
                                 required property int index
-                                text: "♪"
-                                // The note brightens across its third of
-                                // the stretch, never in one go.
-                                color: Theme.mix(lv.inkDim, lv.activeInk,
-                                                 rrow.noteFill(index))
-                                style: Text.Outline
-                                styleColor: lv.inkHalo
-                                font.pixelSize: rrow.rowPx
-                                font.weight: Font.DemiBold
+                                readonly property real lit: noteRow.lit(index)
+                                width: noteRow.dotSize
+                                height: width
+                                radius: width / 2
+                                antialiasing: true
+                                color: Sys.accent
+                                opacity: 0.28 + 0.72 * lit
+                                scale: (0.82 + 0.18 * lit) * (1 - noteRow.away)
                             }
                         }
                     }
