@@ -1267,6 +1267,7 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
     }
     std::sort(lines.begin(), lines.end(),
               [](const LrcLine &x, const LrcLine &y) { return x.time < y.time; });
+    markNoteStretches(lines);
     // The instrumental stretches in the middle of the song are not always
     // marked by the sources: without a line for them the previous phrase
     // would be sung until the next one (it looked too long).
@@ -1345,16 +1346,6 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
             withGaps.append(m);
         }
         lines = withGaps;
-    }
-    // Two instrumental markers in a row are one stretch: the video marks
-    // the same silence twice (or a marker falls right after the gap of the
-    // phrase) and the view drew two rows of dots for one stretch.
-    for (int i = 0; i + 1 < lines.size(); ) {
-        if (lines.at(i).instrumental && lines.at(i + 1).instrumental) {
-            lines.removeAt(i + 1);
-            continue;
-        }
-        ++i;
     }
     expandInstrumentals(lines);
     // The lines that are not sung are removed. The stretched words are
@@ -1904,6 +1895,10 @@ void Lyrics::finish()
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
+    // The lines of a source without word timings did not go through
+    // prepareWordedLines: a notes-only line would still reach the view as
+    // text (a lone "♪" where the dots belong).
+    markNoteStretches(m_lines);
     publishLines();   // full dump to the published state (lines or discard)
     emit changed();
 }
@@ -2570,6 +2565,28 @@ void Lyrics::requestMusixmatchRichsync()
 // An instrumental stretch is marked with as many "♪" as it lasts: one
 // for a short gap, two for a middle one and three for a long one (the
 // silence is not left empty on the screen).
+void Lyrics::markNoteStretches(QVector<LrcLine> &lines)
+{
+    static const QRegularExpression notesOnly(
+        QStringLiteral("^[\\s\\x{266A}-\\x{266C}]+$"));
+    for (LrcLine &l : lines) {
+        if (l.instrumental || !notesOnly.match(l.text).hasMatch())
+            continue;
+        l.instrumental = true;
+        l.words.clear();
+        l.text = QStringLiteral("♪");
+    }
+    // Two markers in a row are one stretch: the video marks the same
+    // silence twice, or a marker falls right after the gap of the phrase.
+    for (int i = 0; i + 1 < lines.size(); ) {
+        if (lines.at(i).instrumental && lines.at(i + 1).instrumental) {
+            lines.removeAt(i + 1);
+            continue;
+        }
+        ++i;
+    }
+}
+
 void Lyrics::expandInstrumentals(QVector<LrcLine> &lines)
 {
     for (int i = 0; i < lines.size(); ++i) {

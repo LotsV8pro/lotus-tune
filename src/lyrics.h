@@ -242,6 +242,10 @@ private:
     void pickWorded();
     // An instrumental stretch is marked with as many "♪" as it lasts.
     static void expandInstrumentals(QVector<LrcLine> &lines);
+    // A line that only carries notes is a stretch without voice, and two
+    // stretches in a row are one: the view draws dots there, never a note
+    // as if it were a sung word.
+    static void markNoteStretches(QVector<LrcLine> &lines);
     // Musixmatch: the word level timings ("richsync") of the very same
     // catalogue YouTube Music uses, but with the timing of every word.
     void startMusixmatch();

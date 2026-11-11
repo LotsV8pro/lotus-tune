@@ -58,6 +58,7 @@ private slots:
     void testParseTtml();
     void testInstrumentalMarkers();
     void testConsecutiveInstrumentalMarkers();
+    void testNotesOnlyLineIsInstrumental();
     void testRichsyncPhraseEnd();
     void testLrcSilenceBoundary();
     void testSungCreditLine();
@@ -783,6 +784,37 @@ void TestLotusTune::testConsecutiveInstrumentalMarkers()
             continue;
         QVERIFY(l.text.contains(QChar(0x266a)));
     }
+}
+
+void TestLotusTune::testNotesOnlyLineIsInstrumental()
+{
+    // Some sources write the stretch as a line of notes and do not flag it.
+    // It reached the view as a lyric and a lone "♪" was drawn where the
+    // three dots belong.
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Test");
+    lyrics.m_artist = QStringLiteral("Test");
+    QVector<Lyrics::LrcLine> lines;
+    lines.append(wordLine(5.0, QStringLiteral("Under the stars"),
+                          {5.0, 5.4, 6.2, 7.0}, 12.0));
+    Lyrics::LrcLine note;
+    note.time = 20.0;
+    note.text = QStringLiteral("♪");
+    lines.append(note);
+    lines.append(wordLine(40.0, QStringLiteral("Torment and sadness"),
+                          {40.0, 40.5, 41.2, 42.0}, 45.0));
+    lyrics.prepareWordedLines(lines);
+
+    int stretches = 0;
+    for (const Lyrics::LrcLine &l : lines) {
+        if (l.instrumental) {
+            ++stretches;
+            continue;
+        }
+        QVERIFY2(!l.text.contains(QChar(0x266a)),
+                 "a line of notes was left as a lyric");
+    }
+    QCOMPARE(stretches, 1);
 }
 
 void TestLotusTune::testRichsyncPhraseEnd()
