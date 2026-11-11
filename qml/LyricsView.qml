@@ -133,7 +133,11 @@ Item {
     // line), which made the change of line look like a jump. The gap
     // gives back the space the reserved line adds.
     readonly property bool steadyRows: visibleLines > 0
-    readonly property int lineGap: Math.max(8, Math.round(lineSize * 0.72)
+    // The lines that are not being sung are a bit smaller: the sounding
+    // one is the one that has to stand out (they read as a frame around it,
+    // not as more lyrics at the same level).
+    property real dimScale: 0.86
+    readonly property int lineGap: Math.max(6, Math.round(lineSize * 0.62)
                                             - (steadyRows
                                                ? Math.round(activeBoost * 1.1) : 0))
     // Half height: that way the first and the last line can be centred
@@ -155,6 +159,7 @@ Item {
     property int visibleLines: 0
     property bool following: true
     property bool _animating: false
+    property int _pinTries: 0
 
     // ---- progressive fill (karaoke) -------------------------------------
     // Position interpolated between the engine's reports.
@@ -534,38 +539,45 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Where the view has to sit so that line `idx` stays pinned at the
-    // height `pinFrac` of the viewport.
-    function pinTargetFor(idx) {
-        if (idx < 0 || idx >= lines.length)
-            return -1
-        var item = lyricRepeater.itemAt(idx)
-        if (!item)
-            return -1
-        var target = item.y + item.height / 2 - syncedFlick.height * pinFrac
-        var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
-        return Math.max(0, Math.min(target, maxY))
-    }
-
-    // Pins the active line in the viewport (with a smooth animation).
+    // Pins the line that is sounding at `pinTop` (the middle of the cover
+    // by default). The row is measured where the column actually laid it
+    // out, so a line that wrapped to two rows is still centred and the
+    // highlight never drifts upwards as the song goes on.
+    //
+    // `instant` jumps without animation (opening the view, resizing, a
+    // seek); otherwise the move is animated. It is what keeps the active
+    // line fixed in place while the rest of the lyrics scroll under it.
     function scrollToActive(instant) {
-        if (!syncedFlick.visible)
+        if (!showSynced || !visible || syncedFlick.height <= 0)
             return
-        // Before the first line the focused one is the first phrase: the
-        // cinema already shows it big (not lit), so it has to be pinned.
-        var target = pinTargetFor(focusedIndex)
-        if (target < 0)
+        var idx = focusedIndex
+        if (idx < 0 || idx >= lines.length)
             return
-        if (instant) {
-            scrollAnim.stop()
-            _animating = false
-            syncedFlick.contentY = target
+        var it = lyricRepeater.itemAt(idx)
+        if (!it) {
+            // The delegates are laid out a frame later: retry, but only a
+            // handful of times (a row that never exists would loop).
+            if (lv._pinTries < 6) {
+                lv._pinTries++
+                Qt.callLater(function () { lv.scrollToActive(instant) })
+            }
             return
         }
+        lv._pinTries = 0
+        var center = it.y + it.height / 2
+        var maxY = Math.max(0, syncedFlick.contentHeight - syncedFlick.height)
+        var target = Math.max(0, Math.min(maxY, center - lv.pinTop))
         if (Math.abs(target - syncedFlick.contentY) < 1) {
             if (scrollAnim.running)
                 scrollAnim.stop()
             _animating = false
+            return
+        }
+        if (instant) {
+            if (scrollAnim.running)
+                scrollAnim.stop()
+            _animating = false
+            syncedFlick.contentY = target
             return
         }
         // The scroll of the line that just arrived is already running and
@@ -716,6 +728,21 @@ Item {
         onTriggered: lv.scrollToActive(false)
     }
 
+    // After a manual scroll the lyrics go back to the singing line on
+    // their own (2 s without touching the list): a scroll left the active
+    // line where it was, off the centre, and it never came back until the
+    // "Seguir la canción" pill was pressed.
+    Timer {
+        id: refollow
+        interval: 2000
+        onTriggered: {
+            if (!lv.showSynced || !lv.live)
+                return
+            lv.following = true
+            lv.scrollToActive(false)
+        }
+    }
+
     // The column reflows a frame or two after the active line changes (that
     // row grows and the ones below move): the first scroll was aimed at the
     // box measured BEFORE that, so the line stayed a little off the pin and
@@ -822,9 +849,18 @@ Item {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
 
-        // Manual scroll: we stop following the song until "Follow the
-        // song" is pressed. The animation of its own does not count.
-        onMovementStarted: if (!lv._animating) lv.following = false
+        // Manual scroll: the song stops being followed for a moment (so
+        // the user can read ahead), but the sounding line is pinned again
+        // by itself: it must not stay lost off the middle of the cover
+        // because of one scroll. The view's own animation does not count.
+        onMovementStarted: {
+            if (lv._animating)
+                return
+            lv.following = false
+            refollow.stop()
+        }
+        onMovementEnded: if (!lv._animating) refollow.restart()
+        onFlickEnded: if (!lv._animating) refollow.restart()
         onContentYChanged: if (!lv._animating && syncedFlick.moving
                                && lv.following) lv.following = false
 
@@ -891,8 +927,9 @@ Item {
                     readonly property real padL: lv.duet && !rrow.sec ? 6 : 0
                     readonly property real padR: lv.duet && rrow.sec ? 6 : 0
                     readonly property real textW: Math.max(1, rrow.width - padL - padR)
-                    readonly property int rowPx: focused ? lv.lineSize + lv.activeBoost
-                                                        : lv.lineSize
+                    readonly property int rowPx: focused
+                        ? lv.lineSize + lv.activeBoost
+                        : Math.round(lv.lineSize * lv.dimScale)
                     // Row pitch of the TextEdit: the halo Text has to use
                     // the same one or it drifts from the line it outlines.
                     readonly property real editPitch: editBase.lineCount > 0

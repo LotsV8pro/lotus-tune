@@ -130,6 +130,10 @@ private:
         // empty timed line; without it the phrase would last until the next
         // lyric, swallowing the instrumental stretches in between.
         double end = 0.0;
+        // True when the line comes from a word level source: it is sung
+        // (a credit line of the header is not), so the "Artist - Title"
+        // filter must not throw it away.
+        bool sung = false;
     };
 
     // How well a word level source fits the song, once it is aligned with
@@ -203,9 +207,12 @@ private:
     // timeline is the video being played: the text of the reference wins
     // (it is the version that is being sung) and the offset is the median
     // of the difference between the lines that match by text.
+    // `musical`: the source brings the real end of each word (the held
+    // note included), so the silence marks of the video must not stretch
+    // it. A source that only knows where the words start needs them.
     bool alignWords(QVector<LrcLine> &lines,
                     const QVector<LrcLine> &reference,
-                    WordedScore *score = nullptr);
+                    WordedScore *score = nullptr, bool musical = false);
     // True when the timed lines can be the timeline of the video being
     // played: a reference that runs past the end of the track belongs to
     // a longer version (the studio take of an acoustic video), and using
@@ -298,6 +305,7 @@ private:
                      bool filterCredits);
     // Scores the NetEase search results and picks the best one.
     int scoreNetease(const QJsonObject &song) const;
+    int scoreLrcRecord(const QJsonObject &obj) const;
 
     static QVector<LrcLine> parseLrc(const QString &text, bool filterCredits);
     static bool looksLikeCredit(const QString &line);
@@ -369,6 +377,10 @@ private:
     QString m_trackKey;
     QString m_artist;
     QString m_title;
+    // The title without the noise of the video title ("Poppy - New Way Out
+    // (Official Visualizer)" -> "New Way Out"): LRCLIB finds other records
+    // of the same song with it.
+    QString m_searchTitle;
     int m_duration = 0;         // rounded seconds
     // Number of fetch() in flight. Together with m_trackKey it drops any
     // reply from an old request even if the key repeats (e.g. two
@@ -395,6 +407,9 @@ private:
     bool m_hasSynced = false;
     QString m_plain;
     QString m_synced;
+    // Body of the LRCLIB `get` answer while the search is compared: its
+    // record is one more candidate for the best lyrics.
+    QByteArray m_lrclibGet;
     QString m_error;
     QString m_syncSource;       // "ytmusic" | "lrclib" | "netease"
     QString m_plainSource;      // "ytmusic" | "lrclib"

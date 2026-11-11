@@ -59,6 +59,10 @@ private slots:
     void testInstrumentalMarkers();
     void testRichsyncPhraseEnd();
     void testLrcSilenceBoundary();
+    void testSungCreditLine();
+    void testVideoEndWins();
+    void testBestLrcRecordWins();
+    void testMusicalEndKept();
     void testReferenceVersion();
     void testAudioCachePrune();
     void testAudioCacheClear();
@@ -832,6 +836,175 @@ void TestLotusTune::testLrcSilenceBoundary()
     QVERIFY(qAbs(lines.at(1).time - 20.0) < 0.001);
     // The last line has no silence marker after it: no invented end.
     QCOMPARE(lines.at(1).end, 0.0);
+}
+
+void TestLotusTune::testSungCreditLine()
+{
+    // The richsync of a song whose intro whispers the artist name ("Poppy"
+    // before the first verse) carries a line with the artist as its text.
+    // It is sung: the "Artist - Title" filter must not throw it away.
+    const QByteArray json = R"([
+        {"ts":8.25,"te":8.76,"l":[{"c":"Poppy","o":0.0}]},
+        {"ts":16.87,"te":16.9,"l":[{"c":"Ah","o":0.0}]}
+    ])";
+    QVector<Lyrics::LrcLine> lines =
+        Lyrics::parseRichsync(QJsonDocument::fromJson(json).array());
+    QCOMPARE(lines.size(), 2);
+    QVERIFY(lines.at(0).sung);
+
+    Lyrics lyrics;
+    lyrics.dropJunkLines(lines, QStringLiteral("New Way Out"),
+                         QStringLiteral("Poppy"));
+    // Both stay: the first one is sung, not a credit.
+    QCOMPARE(lines.size(), 2);
+    QCOMPARE(lines.at(0).text, QStringLiteral("Poppy"));
+
+    // A header line that is NOT sung is still removed.
+    QVector<Lyrics::LrcLine> header;
+    Lyrics::LrcLine h;
+    h.time = 0.0;
+    h.text = QStringLiteral("Poppy - New Way Out");
+    header.append(h);
+    Lyrics::LrcLine real;
+    real.time = 8.0;
+    real.text = QStringLiteral("I'm in too deep");
+    header.append(real);
+    lyrics.dropJunkLines(header, QStringLiteral("New Way Out"),
+                         QStringLiteral("Poppy"));
+    QCOMPARE(header.size(), 1);
+    QCOMPARE(header.at(0).text, QStringLiteral("I'm in too deep"));
+}
+
+void TestLotusTune::testVideoEndWins()
+{
+    // The richsync stops counting at the onset of the last word: "out" was
+    // still sounding when the view had already jumped to the ♪ marker. The
+    // video's own LRC marks where the phrase really stops (a timed line
+    // without text), and that mark wins.
+    QVector<Lyrics::LrcLine> worded;
+    Lyrics::LrcLine line;
+    line.time = 79.37;
+    line.end = 83.273;   // the `te` of the richsync
+    line.text = QStringLiteral("I need a new way, give me a new way out");
+    line.sung = true;
+    QVariantMap w1;
+    w1.insert(QStringLiteral("t"), 82.0);
+    w1.insert(QStringLiteral("e"), 83.0);
+    w1.insert(QStringLiteral("text"), QStringLiteral("way "));
+    QVariantMap w2;
+    w2.insert(QStringLiteral("t"), 83.225);
+    w2.insert(QStringLiteral("e"), 83.273);
+    w2.insert(QStringLiteral("text"), QStringLiteral("out"));
+    line.words.append(w1);
+    line.words.append(w2);
+    worded.append(line);
+    Lyrics::LrcLine next;
+    next.time = 92.88;
+    next.text = QStringLiteral("The pain and all the pretty things");
+    worded.append(next);
+
+    QVector<Lyrics::LrcLine> reference;
+    Lyrics::LrcLine ref;
+    ref.time = 79.32;
+    ref.text = QStringLiteral("I need a new way, give me a new way out");
+    ref.end = 86.42;   // the timed line without text of the video
+    reference.append(ref);
+    Lyrics::LrcLine refNext;
+    refNext.time = 92.82;
+    refNext.text = QStringLiteral("The pain and all the pretty things");
+    reference.append(refNext);
+
+    Lyrics lyrics;
+    lyrics.m_duration = 203.0;
+    Lyrics::WordedScore score;
+    QVERIFY(lyrics.alignWords(worded, reference, &score));
+    // The end of the phrase is the one of the video, not the `te`...
+    QVERIFY(worded.at(0).end > 86.0);
+    // ...and the last word is held until that moment.
+    const QVariantMap last = worded.at(0).words.last().toMap();
+    QVERIFY(qAbs(last.value(QStringLiteral("e")).toDouble() - worded.at(0).end)
+            < 0.001);
+}
+
+void TestLotusTune::testMusicalEndKept()
+{
+    // A musical source (Apple Music) gives the real end of the last word:
+    // the held note is already there. The silence mark of the video comes
+    // after the voice and must not stretch it ("Get up" stayed lit two
+    // seconds longer over the instrumental).
+    QVector<Lyrics::LrcLine> worded;
+    Lyrics::LrcLine line;
+    line.time = 157.87;
+    line.end = 158.50;
+    line.text = QStringLiteral("Get up");
+    QVariantMap w1;
+    w1.insert(QStringLiteral("t"), 157.87);
+    w1.insert(QStringLiteral("e"), 158.06);
+    w1.insert(QStringLiteral("text"), QStringLiteral("Get "));
+    QVariantMap w2;
+    w2.insert(QStringLiteral("t"), 158.06);
+    w2.insert(QStringLiteral("e"), 158.50);
+    w2.insert(QStringLiteral("text"), QStringLiteral("up"));
+    line.words.append(w1);
+    line.words.append(w2);
+    worded.append(line);
+    Lyrics::LrcLine next;
+    next.time = 166.75;
+    next.text = QStringLiteral("'Cause they push and pull me down");
+    worded.append(next);
+
+    QVector<Lyrics::LrcLine> reference;
+    Lyrics::LrcLine ref;
+    ref.time = 157.86;
+    ref.text = QStringLiteral("Get up");
+    ref.end = 160.37;   // the video's silence mark
+    reference.append(ref);
+    reference.append(next);
+
+    Lyrics lyrics;
+    lyrics.m_duration = 203.0;
+    QVERIFY(lyrics.alignWords(worded, reference, nullptr, /*musical=*/true));
+    QCOMPARE(worded.at(0).end, 158.50);
+    QCOMPARE(worded.at(0).words.last().toMap()
+                 .value(QStringLiteral("e")).toDouble(), 158.50);
+}
+
+void TestLotusTune::testBestLrcRecordWins()
+{
+    // The search brings several records of the same song. The first one may
+    // not mark where the phrases stop; another one does, and that is the
+    // one that must be adopted (it cuts the karaoke when the voice ends).
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("new way out");
+    lyrics.m_artist = QStringLiteral("Poppy");
+    lyrics.m_duration = 203.0;
+
+    QJsonObject withoutStops;
+    withoutStops.insert(QStringLiteral("id"), 30258756);
+    withoutStops.insert(QStringLiteral("trackName"),
+                        QStringLiteral("new way out"));
+    withoutStops.insert(QStringLiteral("artistName"), QStringLiteral("Poppy"));
+    withoutStops.insert(QStringLiteral("duration"), 203.0);
+    withoutStops.insert(QStringLiteral("syncedLyrics"),
+                        QStringLiteral("[01:19.59] I need a new way\n"
+                                       "[01:32.88] The pain and all\n"
+                                       "[03:19.80] "));
+
+    QJsonObject withStops = withoutStops;
+    withStops.insert(QStringLiteral("id"), 18424346);
+    withStops.insert(QStringLiteral("syncedLyrics"),
+                     QStringLiteral("[01:19.32] I need a new way\n"
+                                    "[01:26.42] \n"
+                                    "[01:32.82] The pain and all\n"
+                                    "[03:20.21] "));
+
+    QVERIFY(lyrics.scoreLrcRecord(withStops) > lyrics.scoreLrcRecord(withoutStops));
+
+    // A record of another take (its length is far off) loses.
+    QJsonObject otherTake = withStops;
+    otherTake.insert(QStringLiteral("id"), 13387270);
+    otherTake.insert(QStringLiteral("duration"), 260.0);
+    QVERIFY(lyrics.scoreLrcRecord(withStops) > lyrics.scoreLrcRecord(otherTake));
 }
 
 // ---------------------------------------------------------------------------
