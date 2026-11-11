@@ -57,6 +57,7 @@ private slots:
     void testWordTimings();
     void testParseTtml();
     void testInstrumentalMarkers();
+    void testConsecutiveInstrumentalMarkers();
     void testRichsyncPhraseEnd();
     void testLrcSilenceBoundary();
     void testSungCreditLine();
@@ -743,6 +744,45 @@ void TestLotusTune::testInstrumentalMarkers()
         }
     }
     QVERIFY(gap);
+}
+
+void TestLotusTune::testConsecutiveInstrumentalMarkers()
+{
+    // The video marks one silence twice (two markers in a row): the view
+    // drew two rows of dots for the same stretch. Two instrumental lines
+    // that follow each other are one stretch, never two.
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Test");
+    lyrics.m_artist = QStringLiteral("Test");
+    QVector<Lyrics::LrcLine> lines;
+    lines.append(wordLine(10.0, QStringLiteral("For this is love"),
+                          {10.0, 10.4, 11.2}, 18.4));
+    lines.append(wordLine(31.6, QStringLiteral("I wanna be a celebrity martyr"),
+                          {31.6, 32.1, 32.8, 33.6}, 35.5));
+    for (const double at : {18.4, 26.6}) {
+        Lyrics::LrcLine mark;
+        mark.time = at;
+        mark.text = QStringLiteral("♪");
+        lyrics.m_refLines.append(mark);
+    }
+    lyrics.prepareWordedLines(lines);
+
+    int stretches = 0;
+    double start = -1.0;
+    for (const Lyrics::LrcLine &l : lines) {
+        if (!l.instrumental)
+            continue;
+        ++stretches;
+        start = l.time;
+    }
+    QCOMPARE(stretches, 1);
+    QVERIFY(qAbs(start - 18.4) < 0.001);
+    // One notes line for it (not one per marker), and it is not sung.
+    for (const Lyrics::LrcLine &l : lines) {
+        if (!l.instrumental)
+            continue;
+        QVERIFY(l.text.contains(QChar(0x266a)));
+    }
 }
 
 void TestLotusTune::testRichsyncPhraseEnd()

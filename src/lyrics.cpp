@@ -1346,6 +1346,16 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
         }
         lines = withGaps;
     }
+    // Two instrumental markers in a row are one stretch: the video marks
+    // the same silence twice (or a marker falls right after the gap of the
+    // phrase) and the view drew two rows of dots for one stretch.
+    for (int i = 0; i + 1 < lines.size(); ) {
+        if (lines.at(i).instrumental && lines.at(i + 1).instrumental) {
+            lines.removeAt(i + 1);
+            continue;
+        }
+        ++i;
+    }
     expandInstrumentals(lines);
     // The lines that are not sung are removed. The stretched words are
     // NOT cut here: that is an artefact of some sources (the last word of
