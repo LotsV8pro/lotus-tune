@@ -63,7 +63,11 @@ fi
 
 # ---- tarball (always) ----------------------------------------------------
 echo "==> tar.gz"
-tar -czf "$DIST/${NAME}-${VERSION}-linux-x86_64.tar.gz" -C "$DIST" stage
+# The staging tree is called "stage" while it is being built: inside the
+# tarball it takes the name of the release, so extracting it gives one folder
+# and not a pile of files in the current directory.
+tar -czf "$DIST/${NAME}-${VERSION}-linux-x86_64.tar.gz" -C "$DIST" \
+    --transform "s,^stage,${NAME}-${VERSION}," stage
 
 # ---- .deb ----------------------------------------------------------------
 if command -v dpkg-deb >/dev/null 2>&1 || command -v ar >/dev/null 2>&1; then
