@@ -147,6 +147,32 @@ static QString stripMaskedTokens(const QString &text)
     return out;
 }
 
+// The search is done with the bare title: the track of a YouTube video
+// arrives as "Poppy - New Way Out (Official Visualizer)", and LRCLIB has
+// the records of the song under "New Way Out" (with the marks of where the
+// phrases stop, which the video title ones usually lack).
+static QString cleanSearchTitle(const QString &title, const QString &artist)
+{
+    QString t = title.trimmed();
+    if (!artist.isEmpty() && t.startsWith(artist + QStringLiteral(" - "),
+                                          Qt::CaseInsensitive))
+        t = t.mid(artist.size() + 3).trimmed();
+    // The noise at the end of a video title, in any combination.
+    static const QRegularExpression tail(
+        QStringLiteral("\\s*[\\[(](?:official|oficial|video|vídeo|visualizer|"
+                       "visualiser|audio|lyric|letra|mv|m/v|hd|hq|4k|"
+                       "remaster(?:ed)?|en vivo|live)[^)\\]]*[)\\]]\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (;;) {
+        const QRegularExpressionMatch m = tail.match(t);
+        if (!m.hasMatch())
+            break;
+        t.remove(m.capturedStart(), m.capturedLength());
+    }
+    t = t.trimmed();
+    return t.isEmpty() ? title.trimmed() : t;
+}
+
 void Lyrics::fetch(const QString &artist, const QString &title,
                    double durationSeconds, const QString &videoId)
 {
@@ -159,6 +185,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_trackKey = a + QStringLiteral(" - ") + t;
     m_artist = a;
     m_title = t;
+    m_searchTitle = cleanSearchTitle(t, a);
     m_duration = qMax(0, qRound(durationSeconds));
     m_videoId = videoId.trimmed();
     m_exactTried = m_videoId.isEmpty();
@@ -187,6 +214,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     // were kept and the new ones were never shown.
     m_worded = false;
     m_refLines.clear();
+    m_lrclibGet.clear();
     m_error.clear();
     m_syncSource.clear();
     m_plainSource.clear();
@@ -731,6 +759,24 @@ void Lyrics::ytmGiveUp(const QString &why)
     startLrclib();
 }
 
+// The timed lines without text of an LRC: they say where a phrase stops.
+static int lrcStopMarkers(const QString &synced)
+{
+    static const QRegularExpression timeRe(
+        QStringLiteral("\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?\\]"));
+    int stops = 0;
+    const QStringList raw = synced.split(QLatin1Char('\n'));
+    for (const QString &line : raw) {
+        if (!timeRe.match(line).hasMatch())
+            continue;
+        QString body = line;
+        body.remove(timeRe);
+        if (body.trimmed().isEmpty())
+            ++stops;
+    }
+    return stops;
+}
+
 // ---- LRCLIB ---------------------------------------------------------------
 
 void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
@@ -747,6 +793,17 @@ void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
     if (reply->error() == QNetworkReply::NoError && status < 400) {
         const QJsonObject obj = QJsonDocument::fromJson(body).object();
         if (!obj.isEmpty()) {
+            const QString synced =
+                obj.value(QStringLiteral("syncedLyrics")).toString();
+            // The record of the `get` is kept and the search is asked too:
+            // several records of the same song exist and the one that marks
+            // where the phrases stop is the good one. The search decides
+            // between all of them (if it fails, this one is used).
+            if (!synced.trimmed().isEmpty()) {
+                m_lrclibGet = body;
+                startSearch();
+                return;
+            }
             applyPayload(obj);
             if (m_hasSynced) {
                 finish();
@@ -767,7 +824,9 @@ void Lyrics::startSearch()
 {
     QUrl url(QString::fromLatin1(kApiSearch));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("track_name"), m_title);
+    q.addQueryItem(QStringLiteral("track_name"),
+                   m_searchTitle.trimmed().isEmpty() ? m_title
+                                                     : m_searchTitle);
     q.addQueryItem(QStringLiteral("artist_name"), m_artist);
     url.setQuery(q);
     request(url, Stage::LrclibSearch, m_trackKey);
@@ -779,25 +838,61 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
     if (isStale(reply, key, m_trackKey, m_gen))
         return;   // old answer
 
-    if (reply->error() != QNetworkReply::NoError) {
+    const QJsonArray arr = (reply->error() == QNetworkReply::NoError)
+                               ? QJsonDocument::fromJson(reply->readAll()).array()
+                               : QJsonArray();
+    if (reply->error() != QNetworkReply::NoError)
         qInfo() << "[lyrics] lrclib search falló:" << reply->errorString();
-        settleOrFail();
-        return;
-    }
 
-    const QJsonArray arr = QJsonDocument::fromJson(reply->readAll()).array();
+    // More than one record can carry the same song: they differ in the
+    // details that matter here. Some of them mark where each phrase stops
+    // with a timed line without text, and that mark is what cuts the
+    // karaoke when the voice goes quiet; the ones that lack it leave the
+    // last word lit over the instrumental stretch. So the first one that
+    // comes is not necessarily the best: all of them are scored, and the
+    // record of the `get` (if it came) is one more candidate.
+    QVector<QJsonObject> candidates;
+    if (!m_lrclibGet.isEmpty()) {
+        const QJsonObject got = QJsonDocument::fromJson(m_lrclibGet).object();
+        if (!got.isEmpty())
+            candidates.append(got);
+        m_lrclibGet.clear();
+    }
     for (const QJsonValue &v : arr) {
         const QJsonObject obj = v.toObject();
-        const QString synced = obj.value(QStringLiteral("syncedLyrics")).toString();
-        const QString plain = obj.value(QStringLiteral("plainLyrics")).toString();
-        if (!synced.trimmed().isEmpty()) {
-            applyPayload(obj);
-            if (m_hasSynced) {
-                finish();
-                return;
-            }
-        } else {
-            rememberPlain(plain, "lrclib");
+        if (obj.value(QStringLiteral("syncedLyrics")).toString().trimmed().isEmpty()) {
+            rememberPlain(obj.value(QStringLiteral("plainLyrics")).toString(),
+                          "lrclib");
+            continue;
+        }
+        candidates.append(obj);
+    }
+
+    int best = -1;
+    int bestScore = -1;
+    for (int i = 0; i < candidates.size(); ++i) {
+        const int s = scoreLrcRecord(candidates.at(i));
+        if (s > bestScore) {
+            bestScore = s;
+            best = i;
+        }
+    }
+
+    if (best >= 0) {
+        const QJsonObject obj = candidates.at(best);
+        const QString synced =
+            obj.value(QStringLiteral("syncedLyrics")).toString();
+        qInfo().noquote()
+            << QString("[lyrics] lrclib: elegida \"%1\" (id=%2, puntuación=%3, "
+                       "marcas de silencio=%4)")
+                   .arg(obj.value(QStringLiteral("trackName")).toString())
+                   .arg(obj.value(QStringLiteral("id")).toInt())
+                   .arg(bestScore)
+                   .arg(lrcStopMarkers(synced));
+        applyPayload(obj);
+        if (m_hasSynced) {
+            finish();
+            return;
         }
     }
 
@@ -990,8 +1085,66 @@ int Lyrics::scoreNetease(const QJsonObject &song) const
     return score;
 }
 
-// ---- result ------------------------------------------------------------
+// A LRCLIB record is scored so the best of the search results is adopted
+// instead of the first one that happens to come. What matters, in order:
+// it must be this version of the song (duration), it must be this song
+// (title and artist) and, between equals, the one that marks where the
+// phrases stop wins (those marks cut the karaoke before the instrumental).
+int Lyrics::scoreLrcRecord(const QJsonObject &obj) const
+{
+    const QString synced =
+        obj.value(QStringLiteral("syncedLyrics")).toString();
+    if (synced.trimmed().isEmpty())
+        return 0;
 
+    // The bare title is what the catalogue has; the raw one (the video
+    // title) is compared too, because some records use it.
+    const QString wantTitle = norm(m_title);
+    const QString wantBare = norm(m_searchTitle);
+    const QString gotTitle =
+        norm(obj.value(QStringLiteral("trackName")).toString());
+    int titleScore = 0;
+    if (!gotTitle.isEmpty()) {
+        for (const QString &want : {wantTitle, wantBare}) {
+            if (want.isEmpty())
+                continue;
+            if (gotTitle == want)
+                titleScore = qMax(titleScore, 20);
+            else if (gotTitle.contains(want) || want.contains(gotTitle))
+                titleScore = qMax(titleScore, 10);
+        }
+    }
+    int score = titleScore;
+    const QString wantArtist = norm(m_artist);
+    const QString gotArtist =
+        norm(obj.value(QStringLiteral("artistName")).toString());
+    if (!wantArtist.isEmpty() && !gotArtist.isEmpty()
+        && (gotArtist == wantArtist || gotArtist.contains(wantArtist)
+            || wantArtist.contains(gotArtist)))
+        score += 15;
+
+    // The length of the record: another take (a live version, an extended
+    // mix) has another timeline and its marks would cut the wrong phrases.
+    const double dur = obj.value(QStringLiteral("duration")).toDouble();
+    if (m_duration > 0 && dur > 0) {
+        const double diff = qAbs(dur - m_duration);
+        if (diff <= 3)
+            score += 40;
+        else if (diff <= 8)
+            score += 25;
+        else if (diff <= 20)
+            score += 10;
+        else
+            score -= 30;   // almost certainly another version
+    }
+
+    // Timed lines without text: they say where a phrase stops. Each one is
+    // worth something (a handful of them is all a song has).
+    score += qMin(lrcStopMarkers(synced), 5) * 8;
+    return score;
+}
+
+// ---- result ------------------------------------------------------------
 void Lyrics::applyPayload(const QJsonObject &obj)
 {
     rememberPlain(obj.value(QStringLiteral("plainLyrics")).toString(), "lrclib");
@@ -1052,7 +1205,9 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
         pickWorded();
     }
     m_hasSynced = true;
-    m_syncSource = source;
+    // The lines on screen are the worded ones: their source is the one
+    // that does the karaoke, not the video's line reference.
+    m_syncSource = m_worded ? m_wordedSource : source;
     return true;
 }
 
@@ -1219,7 +1374,7 @@ void Lyrics::pickWorded()
         if (canCompare) {
             // The alignment moves the lines, and it refuses a source that
             // is another take of the song.
-            if (!alignWords(lines, m_refLines, &score)) {
+            if (!alignWords(lines, m_refLines, &score, c.musical)) {
                 qInfo() << "[lyrics] la fuente" << c.source
                         << "no es la misma version: se descarta";
                 continue;
@@ -1251,6 +1406,39 @@ void Lyrics::pickWorded()
         } else {
             return;   // none of them is this take of the song
         }
+    }
+    // The chosen source may not have the adlibs of the intro (Apple Music
+    // starts with the first verse and leaves out the whispered name of the
+    // artist): a line of another aligned source that falls in a hole of
+    // this one is kept, so nothing that is sung is missing.
+    if (canCompare && best >= 0) {
+        QVector<LrcLine> merged = bestLines;
+        for (int i = 0; i < m_candidates.size(); ++i) {
+            if (i == best)
+                continue;
+            QVector<LrcLine> other = m_candidates.at(i).lines;
+            WordedScore sc;
+            if (!alignWords(other, m_refLines, &sc, m_candidates.at(i).musical))
+                continue;
+            for (const LrcLine &l : other) {
+                if (l.instrumental || l.text.trimmed().isEmpty())
+                    continue;
+                bool near = false;
+                for (const LrcLine &b : merged) {
+                    if (qAbs(b.time - l.time) < 2.0) {
+                        near = true;
+                        break;
+                    }
+                }
+                if (!near)
+                    merged.append(l);
+            }
+        }
+        std::sort(merged.begin(), merged.end(),
+                  [](const LrcLine &a, const LrcLine &b) {
+                      return a.time < b.time;
+                  });
+        bestLines = std::move(merged);
     }
     prepareWordedLines(bestLines);
     m_lines = std::move(bestLines);
@@ -1363,6 +1551,10 @@ bool Lyrics::trySonoraCache()
             line.time = secsOf(lo.value(QStringLiteral("start")));
             line.text = stripMaskedTokens(text);
             const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
+            // The format is word level even when the line has a single
+            // word (the whispered name of the intro): it is sung, so the
+            // "Artist - Title" filter must keep it.
+            line.sung = !ws.isEmpty();
             if (ws.size() > 1) {
                 ++worded;
                 for (const QJsonValue &wv : ws) {
@@ -1413,9 +1605,10 @@ bool Lyrics::trySonoraCache()
         return false;
     }
 
-    // The cache stretches the last word of the line too: it is cut.
-    clampStretchedWords(best);
-    return adoptWorded(std::move(best), source, /*local=*/true);
+    const bool musical = source.contains(QStringLiteral("Apple Music"));
+    if (!musical)
+        clampStretchedWords(best);
+    return adoptWorded(std::move(best), source, /*local=*/true, musical);
 }
 
 // Fallback of the Sonora cache: look it up by TITLE and ARTIST, not only
@@ -1539,6 +1732,10 @@ bool Lyrics::trySonoraByTitle()
                 line.time = secsOf(lo.value(QStringLiteral("start")));
                 line.text = stripMaskedTokens(text);
                 const QJsonArray ws = lo.value(QStringLiteral("words")).toArray();
+                // Word level format: the line is sung even when it has a
+                // single word (the whispered name of the intro), so the
+                // "Artist - Title" filter must keep it.
+                line.sung = !ws.isEmpty();
                 if (ws.size() > 1) {
                     ++worded;
                     for (const QJsonValue &wv : ws) {
@@ -1602,9 +1799,17 @@ bool Lyrics::trySonoraByTitle()
         return false;
     }
 
-    // The cache stretches the last word of the line too: it is cut.
-    clampStretchedWords(best);
-    return adoptWorded(std::move(best), source, /*local=*/true);
+    // The timings of Apple Music are the musical ones (the held note is
+    // long, the rest of the syllables are short). Musixmatch richsync is
+    // not always right inside a line: it can leave a word sounding for a
+    // second and a half while the singer has already moved on, so when
+    // both sources exist the Apple one wins.
+    const bool musical = source.contains(QStringLiteral("Apple Music"));
+    // The last word of a richsync is stretched to the end of the phrase;
+    // a musical source does not need it, and its held note is real.
+    if (!musical)
+        clampStretchedWords(best);
+    return adoptWorded(std::move(best), source, /*local=*/true, musical);
 }
 
 void Lyrics::settleOrFail()
@@ -1872,6 +2077,8 @@ QVector<Lyrics::LrcLine> Lyrics::parseLrcWords(const QString &text)
         if (plain.isEmpty())
             continue;
         line.text = plain;
+        // The format itself is a worded lyric: every line is sung.
+        line.sung = true;
         if (line.words.size() < 2)
             line.words.clear();
         out.append(line);
@@ -2517,7 +2724,7 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
             (!a.isEmpty() && key.contains(a) && key.size() <= a.size() + 40)
             || (!aFirst.isEmpty() && key.contains(aFirst)
                 && key.size() <= aFirst.size() + t.size() + 40);
-        if (inHeader && hasArtist)
+        if (inHeader && hasArtist && !line.sung)
             continue;
         // The words of the line cover a stretch that is not sung: the text
         // is real, but the timings are not, so the line is kept without
@@ -2757,6 +2964,9 @@ QVector<Lyrics::LrcLine> Lyrics::parseTtml(const QString &xml)
             line.text = plain.trimmed();
         if (line.text.isEmpty())
             continue;
+        // A line with word marks is sung (even a single word): the
+        // credit filter must keep it.
+        line.sung = !wordTexts.isEmpty();
         if (line.words.size() < 2)
             line.words.clear();
         agents.append(agent);
@@ -2805,6 +3015,10 @@ QVector<Lyrics::LrcLine> Lyrics::parseRichsync(const QJsonArray &arr)
         LrcLine line;
         line.time = ts;
         line.end = hasEnd ? te : 0.0;
+        // A richsync only carries sung lines: the "Artist - Title" of the
+        // header is not one of them, so the credit filter must not remove
+        // it (the whispered "Poppy" of the intro is part of the song).
+        line.sung = true;
         QString text;
         int i = 0;
         while (i < chunks.size()) {
@@ -3073,7 +3287,7 @@ bool Lyrics::referenceFitsDuration(const QVector<LrcLine> &lines) const
 
 bool Lyrics::alignWords(QVector<LrcLine> &lines,
                         const QVector<LrcLine> &reference,
-                        WordedScore *score)
+                        WordedScore *score, bool musical)
 {
     if (score) {
         *score = WordedScore();
@@ -3150,9 +3364,32 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
             // The video may mark where the phrase stops (a timed line
             // without text) and the karaoke source may not: that boundary
             // is taken so the phrase does not last until the next lyric.
-            if (!(aligned.end > aligned.time)
-                && reference.at(j).end > aligned.time)
-                aligned.end = reference.at(j).end;
+            // When the karaoke source DOES bring an end (the `te` of the
+            // richsync) it usually stops at the onset of the last word and
+            // not at the end of its tail: the video's mark is the real one
+            // ("out" was still sounding while the view had already jumped
+            // to the ♪). A mark that lands absurdly far is not believed.
+            // A musical source already knows where the last word ends
+            // (the held note): the mark of the video is the silence that
+            // comes after, and stretching the word to it would leave it
+            // lit over the instrumental ("Get up" lasted 2 s more).
+            const double refEnd = musical ? 0.0 : reference.at(j).end;
+            if (refEnd > aligned.time) {
+                const bool noEnd = !(aligned.end > aligned.time);
+                if (noEnd || (refEnd > aligned.end + 0.05
+                              && refEnd - aligned.time <= 10.0)) {
+                    aligned.end = refEnd;
+                    // The last word is held until the phrase stops: its
+                    // highlight has to last as long as the voice.
+                    if (!noEnd && !aligned.words.isEmpty()) {
+                        QVariantMap last = aligned.words.last().toMap();
+                        if (last.value(QStringLiteral("t")).toDouble() < refEnd) {
+                            last.insert(QStringLiteral("e"), refEnd);
+                            aligned.words.last() = last;
+                        }
+                    }
+                }
+            }
         }
         // The instrumental lines (and the ones the video does not have) are
         // kept: they are shown as they are.
