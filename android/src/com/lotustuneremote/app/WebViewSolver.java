@@ -48,7 +48,8 @@ public class WebViewSolver
     private static final Object sLoadLock = new Object();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
 
-    // Vigilante: si el WebView no contesta en este tiempo, se rearma.
+    // Watchdog: when the WebView does not answer within this time, it is
+    // rearmed.
     private static final long kSolveTimeoutMs = 15000;
 
     // Poll-safe status for the C++ side: "idle" | "working" | "done" | "error:<msg>"
@@ -69,8 +70,8 @@ public class WebViewSolver
         return sb.toString();
     }
 
-    // Corre algo en el hilo de la interfaz y espera a que termine: asi el
-    // hilo del solver puede crear/comprobar el WebView sin carreras.
+    // Runs something on the UI thread and waits for it to finish: that way
+    // the solver thread can create/check the WebView without races.
     private static void runOnUiAndWait(final Runnable r)
     {
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -87,8 +88,8 @@ public class WebViewSolver
         try { latch.await(10, TimeUnit.SECONDS); } catch (InterruptedException ignored) { }
     }
 
-    // Destruye el WebView (en el hilo de la interfaz) para que la proxima
-    // peticion cree uno nuevo. Se usa cuando una evaluacion no contesta.
+    // Destroys the WebView (on the UI thread) so the next request creates a
+    // new one. It is used when an evaluation does not answer.
     private static void resetWeb()
     {
         sMain.post(new Runnable() {
@@ -120,8 +121,8 @@ public class WebViewSolver
             }
             sBusy = true;
             token = ++sEpoch;
-            // Antes de soltar el hilo: el sondeo del C++ no debe leer el
-            // "done" y el resultado de la peticion ANTERIOR.
+            // Before releasing the thread: the C++ poll must not read "done" and
+            // the result of the PREVIOUS request.
             sResult = null;
             sStatus = "working";
         }
@@ -141,9 +142,8 @@ public class WebViewSolver
                     final String core = loadAsset(ctx, "solver/core.min.js");
                     final String scripts = lib + "\nObject.assign(globalThis, lib);\n" + core + "\n";
 
-                    // Un solo WebView para toda la sesion: solo se crea (y
-                    // se carga about:blank) la primera vez o despues de un
-                    // rearme por timeout.
+                    // A single WebView for the whole session: it is only created (and
+                    // about:blank loaded) the first time or after a rearm on timeout.
                     final boolean[] needLoad = { false };
                     runOnUiAndWait(new Runnable() {
                         @Override
@@ -190,13 +190,13 @@ public class WebViewSolver
                     }
 
                     if (sEpoch != token) {
-                        // Otra peticion relevo a esta (timeout): no se toca
-                        // el WebView.
+                        // Another request took over this one (timeout): the WebView is left
+                        // alone.
                         return;
                     }
 
-                    // Vigilante del solve: si el callback no llega, se
-                    // suelta el candado y se rearma el WebView.
+                    // Watchdog of the solve: when the callback does not arrive, the lock
+                    // is released and the WebView is rearmed.
                     sMain.postDelayed(new Runnable() {
                         @Override
                         public void run() {
@@ -220,11 +220,9 @@ public class WebViewSolver
                         public void run() {
                             try {
                                 final StringBuilder js = new StringBuilder();
-                                // Los scripts se evaluan UNA vez por WebView y la
-                                // funcion se guarda en globalThis: asi el
-                                // "jsc" sigue existiendo en los solves
-                                // siguientes (antes se recargaba la pagina en
-                                // cada uno solo para tenerlo en el ambito).
+                                // The scripts are evaluated ONCE per WebView and the function is kept in
+                                // globalThis: that way "jsc" still exists in the following solves (it
+                                // used to reload the page on every one just to have it in scope).
                                 js.append("(function(){\n");
                                 js.append("if (!globalThis.__ltmJsc) {\n");
                                 js.append(scripts);

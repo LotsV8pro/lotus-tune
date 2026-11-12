@@ -131,7 +131,7 @@ public:
     // `albuminfo` helper (fetchAlbumPlaylist) is not available.
     Q_INVOKABLE void showTracks(const QVariantList &tracks,
                                 const QString &title);
-    // Audio list (OLAK5uy…) of an album/single, to download the whole
+    // Audio list (OLAK5uy...) of an album/single, to download the whole
     // record with yt-dlp: albumPlaylistReady(browseId, playlistId, name).
     Q_INVOKABLE void fetchAlbumPlaylist(const QString &browseId,
                                         const QString &name);
@@ -163,7 +163,7 @@ public:
     Q_INVOKABLE void removeFromPlaylist(const QString &playlistId,
                                         const QString &videoId,
                                         const QString &setVideoId);
-    // Reorders (`delta` ±1) or removes a track from the OPEN list
+    // Reorders (`delta` +1 or -1) or removes a track from the OPEN list
     // (m_openPlaylistId): it is painted at once and synced with YouTube
     // Music.
     Q_INVOKABLE void moveOpenPlaylistTrack(const QString &setVideoId, int delta);

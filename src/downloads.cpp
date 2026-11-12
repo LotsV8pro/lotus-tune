@@ -60,9 +60,9 @@ bool isPartialName(const QString &name)
         || low.contains(QLatin1String(".part-frag"));
 }
 
-// Id de 11 caracteres de un video de YouTube (o "" si no lo es). Se usa
-// para emparejar la url que devuelve el reproductor con la pista pedida:
-// music.youtube.com y www.youtube.com son el mismo video.
+// Id of 11 characters of a YouTube video (or "" when the url is not
+// one). It matches the url the player returns with the track asked for:
+// music.youtube.com and www.youtube.com are the same video.
 QString videoIdOfUrl(const QString &url)
 {
     const QUrl u(url);
@@ -192,10 +192,10 @@ Downloads::Downloads(QObject *parent)
             [this](const QString &) { m_watchDebounce.start(); });
 
 #ifdef Q_OS_ANDROID
-    // Sondeo de la descarga Java (nunca bloquea el hilo de la UI).
+    // Polling of the Java download (it never blocks the UI thread).
     m_androidPoll.setInterval(300);
     connect(&m_androidPoll, &QTimer::timeout, this, &Downloads::androidPollTick);
-    // Helper nativo con las pistas de la lista: se lee entero al terminar.
+    // Native helper with the tracks of the list: it is read whole at the end.
     m_androidList.setProcessChannelMode(QProcess::SeparateChannels);
     connect(&m_androidList,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
@@ -254,8 +254,8 @@ void Downloads::setFolder(const QString &dir)
     refreshLocal();
 }
 
-// El reproductor resuelve en Android la URL directa del audio (no hay
-// yt-dlp): sus respuestas llegan por señal y se emparejan por id de video.
+// The player resolves the direct audio URL on Android (there is no
+// yt-dlp): its answers arrive by signal and are matched by video id.
 void Downloads::setPlayer(Player *player)
 {
 #ifdef Q_OS_ANDROID
@@ -592,8 +592,8 @@ void Downloads::pauseDownload(int index)
         return;
 
 #ifdef Q_OS_ANDROID
-    // Descarga de Android en curso: se corta la resolucion/descarga y el
-    // trabajo queda en pausa (los ficheros ya bajados se conservan).
+    // Android download in progress: the resolution and the download are cut
+    // and the job stays paused (the files already down are kept).
     if (index == m_current && m_busy) {
         j.state = QStringLiteral("paused");
         emit jobsChanged();
@@ -784,8 +784,8 @@ void Downloads::startNext()
     }
 
 #ifdef Q_OS_ANDROID
-    // En Android no hay yt-dlp: las pistas las da el helper nativo, la URL
-    // directa la resuelve el reproductor y los bytes los baja MediaDownload.
+    // On Android there is no yt-dlp: the tracks come from the native helper,
+    // the player resolves the direct URL and MediaDownload fetches the bytes.
     startAndroidJob(idx);
     return;
 #endif
@@ -1298,11 +1298,11 @@ void Downloads::cancelAll()
 
 #ifdef Q_OS_ANDROID
 // --------------------------------------------------------- Android ----
-// Sin yt-dlp: 1) el helper nativo devuelve las pistas de la lista,
-// 2) Player resuelve la URL directa (misma cadena que la reproduccion),
-// 3) MediaDownload (Java) baja los bytes con el stack HTTP del sistema.
-// El diseño de carpetas es el mismo que el de escritorio
-// (<lista>/<NN><titulo>.<ext> + .lotus-list.json + .lotus-archive.txt).
+// No yt-dlp: 1) the native helper returns the tracks of the list, 2) the
+// Player resolves the direct URL (the same chain as playback), 3)
+// MediaDownload (Java) fetches the bytes with the HTTP stack of the
+// system. The folder layout is the one of the desktop
+// (<list>/<NN><title>.<ext> + .lotus-list.json + .lotus-archive.txt).
 
 void Downloads::startAndroidJob(int index)
 {
@@ -1325,9 +1325,8 @@ void Downloads::startAndroidJob(int index)
                                           "permiso de escritura: %1").arg(dir));
             return;
         }
-        // Marca de identidad de la lista (nombre original + url): permite
-        // emparejarla despues (desinstalar, abrir...) aunque cambie el
-        // nombre visible.
+        // Identity mark of the list (original name + url): it lets the app match
+        // it later (uninstall, open...) even when the visible name changes.
         QJsonObject meta;
         meta.insert(QStringLiteral("name"), j.name);
         meta.insert(QStringLiteral("url"), j.url);
@@ -1352,7 +1351,8 @@ void Downloads::startAndroidJob(int index)
     m_androidOutPath.clear();
     m_androidDone.clear();
 
-    // Fichero de pistas ya bajadas (reanudar sin repetir lo que ya esta).
+    // File of the tracks already downloaded (resume without repeating what
+    // is already there).
     m_androidArchive = j.playlist
         ? dir + QStringLiteral("/.lotus-archive.txt") : QString();
     if (!m_androidArchive.isEmpty()) {
@@ -1389,8 +1389,8 @@ void Downloads::startAndroidJob(int index)
     }
     args << j.url;
 
-    // El hijo no resuelve DNS (netd le contesta NODATA): el padre resuelve
-    // por Java y le pasa las IPs, igual que hace Catalog.
+    // The child does not resolve DNS (netd answers NODATA): the parent
+    // resolves through Java and passes the IPs, as Catalog does.
     const QJniObject ips = QJniObject::callStaticObjectMethod(
         QStringLiteral("com/lotustuneremote/app/MainActivity")
             .toUtf8().constData(),
@@ -1457,7 +1457,7 @@ void Downloads::androidListFinished(int code)
     androidNextTrack();
 }
 
-// Pide al reproductor la URL directa de la pista actual (una cada vez).
+// Asks the player for the direct URL of the current track (one at a time).
 void Downloads::androidNextTrack()
 {
     if (m_current < 0)
@@ -1465,7 +1465,7 @@ void Downloads::androidNextTrack()
     m_androidResolving.clear();
     m_androidFetchId.clear();
     m_androidOutPath.clear();
-    // Reanudar: salta lo que ya esta en el fichero de archivo.
+    // Resume: skip what is already in the archive file.
     while (m_androidIndex < m_androidTracks.size()
            && m_androidDone.contains(m_androidTracks.at(m_androidIndex).id)) {
         ++m_androidIndex;
@@ -1493,7 +1493,7 @@ void Downloads::androidNextTrack()
     m_player->resolveForDownload(t.url);
 }
 
-// URL directa resuelta: se baja con el stack HTTP del sistema.
+// Direct URL resolved: it is downloaded with the HTTP stack of the system.
 void Downloads::androidStartFetch(const QString &direct)
 {
     if (m_current < 0 || m_androidIndex >= m_androidTracks.size())
@@ -1506,8 +1506,8 @@ void Downloads::androidStartFetch(const QString &direct)
         return;
     }
 
-    // Extension segun el mime del stream (los dos formatos estan en la
-    // lista de extensiones de audio de la biblioteca local).
+    // Extension from the mime of the stream (both formats are in the audio
+    // extension list of the local library).
     const bool webm = direct.contains(QLatin1String("audio%2Fwebm"))
                       || direct.contains(QLatin1String("audio/webm"))
                       || direct.contains(QLatin1String("webm"));
@@ -1555,7 +1555,7 @@ void Downloads::androidPollTick()
         m_androidPoll.stop();
         return;
     }
-    // Esperando a que el reproductor resuelva la URL.
+    // Waiting for the player to resolve the URL.
     if (!m_androidResolving.isEmpty() && m_androidFetchId.isEmpty()) {
         if (++m_androidResolveTicks > 120) {   // ~36 s
             m_androidPoll.stop();
@@ -1612,8 +1612,8 @@ void Downloads::androidPollTick()
         return;
     }
 
-    // Fallo (403 transitorio del nodo, red...): se reintenta unas veces
-    // antes de dar la pista por perdida.
+    // Failure (transient 403 from the node, network...): it retries a few
+    // times before the track is given up.
     qWarning() << "[downloads] fallo de descarga:" << status;
     if (m_androidRetries < 3) {
         ++m_androidRetries;
@@ -1651,9 +1651,9 @@ void Downloads::androidAbort()
         }
         m_androidFetchId.clear();
     }
-    // El orden importa: se limpia primero lo que identifica la pista para
-    // que el aviso de "resolucion abandonada" del reproductor no vuelva a
-    // entrar aqui (bucle).
+    // Order matters: what identifies the track is cleared first so the
+    // "resolution abandoned" notice from the player does not come back in
+    // here (a loop).
     m_androidResolving.clear();
     m_androidOutPath.clear();
     if (m_player)

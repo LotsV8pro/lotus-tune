@@ -32,15 +32,16 @@ public class PlayerWidget extends AppWidgetProvider
     public static final String ACTION_FAV =
         "com.lotustuneremote.app.WIDGET_FAV";
 
-    // Buzon para el C++: la ultima accion pedida y su numero de secuencia.
+    // Mailbox for C++: the last action asked for and its sequence number.
     public static volatile String sAction = "";
     public static volatile int sSeq = 0;
 
-    // Estado que pinta la app.
+    // State the app paints.
     public static volatile String sTitle = "Lotus Tune";
     public static volatile String sArtist = "";
-    // URL de la caratula: la descarga AudioService (misma clase, mismo
-    // proceso) y el widget la recibe ya como bitmap al repintarse.
+    // URL of the artwork: AudioService downloads it (same class, same
+    // process) and the widget receives it already as a bitmap when it is
+    // repainted.
     public static volatile String sArt = "";
     public static volatile boolean sPlaying = false;
     public static volatile boolean sShuffle = false;
@@ -73,8 +74,8 @@ public class PlayerWidget extends AppWidgetProvider
         sRepeat = repeat;
         sFav = fav;
         render(sCtx);
-        // El widget de letra pinta titulo, artista, caratula y botones
-        // desde este mismo estado: se repinta a la vez.
+        // The lyrics widget paints title, artist, artwork and buttons from
+        // this same state: it is repainted at the same time.
         LyricsWidget.render(sCtx);
     }
 
@@ -187,15 +188,14 @@ public class PlayerWidget extends AppWidgetProvider
             v.setTextViewText(R.id.w_title,
                               sTitle.isEmpty() ? "Lotus Tune" : sTitle);
             v.setTextViewText(R.id.w_artist, sArtist);
-            // Barra de progreso: el launcher no la anima sola, la app la
-            // empuja cada segundo (Player::syncMediaProgress).
+            // Progress bar: the launcher does not animate it on its own, the app
+            // pushes it every second (Player::syncMediaProgress).
             final long dur = Math.max(1L, sDurMs);
             int prog = (int) Math.min(1000L,
                     Math.max(0L, sPosMs * 1000L / dur));
             v.setProgressBar(R.id.w_progress, 1000, prog, false);
-            // Iconos vectoriales: los glifos de texto (corazon, flechas
-            // del aleatorio) no existen en todas las fuentes y el widget
-            // salia sin like ni aleatorio.
+            // Vector icons: the text glyphs (heart, shuffle arrows) do not exist in
+            // every font and the widget came out with no like and no shuffle.
             v.setImageViewResource(R.id.w_play,
                     sPlaying ? R.drawable.ic_w_pause : R.drawable.ic_w_play);
             v.setImageViewResource(R.id.w_fav,

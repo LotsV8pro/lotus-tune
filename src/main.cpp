@@ -37,7 +37,7 @@
 #include <QEvent>
 #include <QtQuick/QSGRendererInterface>
 
-// Contadores del medidor de frames (LOTUS_FRAME_LOG).
+// Counters of the frame meter (LOTUS_FRAME_LOG).
 struct FrameStats
 {
     qint64 last = 0;
@@ -586,8 +586,8 @@ int main(int argc, char *argv[])
     AppConfig appcfg;
     engine.rootContext()->setContextProperty(QStringLiteral("appcfg"), &appcfg);
 
-    // Limpieza del cache de audio: en Android cada pista descargada deja
-    // 4-8 MB en cache/audio_<id>.bin y sin tope se come el almacenamiento.
+    // Audio cache cleanup: on Android every downloaded track leaves 4-8 MB
+    // in cache/audio_<id>.bin and with no cap it eats the storage.
     AudioCache &audiocache = *AudioCache::instance();
     audiocache.prunePartials();
     audiocache.prune();
@@ -753,10 +753,10 @@ int main(int argc, char *argv[])
     if (g_mainWindow)
         g_mainWindow->installEventFilter(new MouseNavFilter(root, g_mainWindow));
 
-    // Medidor de frames (solo con LOTUS_FRAME_LOG=1): cada bloque de 120
-    // frames imprime media y peor frame. Sirve para comparar antes/despues
-    // de un cambio sin adivinar. No se activa nunca por si solo (ni siquiera
-    // deja el connect hecho).
+    // Frame meter (only with LOTUS_FRAME_LOG=1): every block of 120 frames
+    // prints the mean and the worst frame. It is there to compare before and
+    // after a change without guessing. It never turns itself on (it does not
+    // even leave the connect made).
     if (g_mainWindow && qEnvironmentVariableIntValue("LOTUS_FRAME_LOG") > 0) {
         auto *clock = new QElapsedTimer;
         clock->start();
@@ -766,8 +766,8 @@ int main(int argc, char *argv[])
             const qint64 now = clock->nsecsElapsed() / 1000;
             if (st->last > 0) {
                 const double ms = double(now - st->last) / 1000.0;
-                // Un hueco grande es la app en reposo (no dibuja nada):
-                // no cuenta como frame lento.
+                // A big gap is the app idle (it draws nothing): it does not count as a
+                // slow frame.
                 if (ms > 250.0) {
                     st->last = now;
                     return;

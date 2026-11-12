@@ -25,10 +25,10 @@ public class MainActivity extends QtActivity
     // (moveTaskToBack lives on Activity, not on Context).
     private static Activity sActivity;
 
-    // MIUI / HyperOS. Ojo: en HyperOS 3 Build.DISPLAY ya NO lleva la palabra
-    // ("BP2A.250605.031.A3"), asi que mirar solo esa cadena daba siempre
-    // false y todo lo de MIUI quedaba muerto. Se mira el fabricante y las
-    // propiedades de la ROM.
+    // MIUI / HyperOS. Careful: on HyperOS 3 Build.DISPLAY no longer carries
+    // the word ("BP2A.250605.031.A3"), so looking only at that string was
+    // always false and every MIUI path stayed dead. The manufacturer and the
+    // ROM properties are checked instead.
     private static boolean isMIUI()
     {
         if ("Xiaomi".equalsIgnoreCase(Build.MANUFACTURER)
@@ -48,9 +48,9 @@ public class MainActivity extends QtActivity
         sActivity = this;
         requestHighRefreshRate();
 
-        // Android 13+: sin POST_NOTIFICATIONS la notificacion del servicio
-        // de reproduccion no se ve; la musica seguiria sonando pero sin
-        // controles y sin que el usuario sepa que hay un servicio activo.
+        // Android 13+: without POST_NOTIFICATIONS the notification of the
+        // playback service is not seen; music would keep playing but with no
+        // controls and without the user knowing a service is running.
         if (android.os.Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(
                        android.Manifest.permission.POST_NOTIFICATIONS)
@@ -74,24 +74,23 @@ public class MainActivity extends QtActivity
         });
     }
 
-    // Pide a Android la frecuencia maxima del panel (120 Hz en este movil).
-    // Qt no pide nunca una frecuencia alta: sin esto el compositor deja la
-    // ventana en 60 Hz y las animaciones van a 60 aunque la pantalla sea de
-    // 120.
+    // Asks Android for the maximum rate of the panel (120 Hz on this phone).
+    // Qt never asks for a high rate: without this the compositor leaves the
+    // window at 60 Hz and the animations run at 60 even on a 120 screen.
     //
-    // Se usan solo APIs publicas:
+    // Only public APIs are used:
     //   - WindowManager.LayoutParams.preferredRefreshRate /
-    //     preferredDisplayModeId (API 23): algunos ROMs lo respetan.
-    //   - Surface.setFrameRate (API 29/30): es lo que mira el compositor
-    //     moderno. Qt pinta en un SurfaceView, asi que se recorre la
-    //     jerarquia y se le pide a cada superficie. Se reintenta porque la
-    //     superficie no existe todavia en el primer instante.
+    //     preferredDisplayModeId (API 23): some ROMs respect it.
+    //   - Surface.setFrameRate (API 29/30): this is what the modern compositor
+    //     looks at. Qt paints into a SurfaceView, so the hierarchy is walked
+    //     and every surface is asked. It is retried because the surface does
+    //     not exist yet on the first instant.
     //
-    // Limite conocido: MIUI/HyperOS mantiene una lista de apps con refresco
-    // alto y esta no esta en ella; ignora la peticion y fija 60 Hz. Ahi solo
-    // se consigue con el ajuste del sistema (Ajustes > Pantalla > Frecuencia
-    // de actualizacion, o `settings put secure miui_refresh_rate 120`). En
-    // cualquier ROM que respete la peticion esto basta.
+    // Known limit: MIUI/HyperOS keeps a list of apps allowed a high refresh
+    // rate and this one is not on it; it ignores the request and fixes 60 Hz.
+    // There only the system setting works (Settings > Display > Refresh rate,
+    // or `settings put secure miui_refresh_rate 120`). On any ROM that respects
+    // the request this is enough.
     public static void requestHighRefreshRate()
     {
         final Activity act = sActivity;
@@ -129,12 +128,11 @@ public class MainActivity extends QtActivity
 
                     final float hz = bestHz;
 
-                    // MIUI/HyperOS no hace caso a la peticion de la app: su
-                    // framework emite su propio voto (PRIORITY_MIUI_REFRESH_RATE)
-                    // y deja la ventana en 60 Hz. Lo que si respeta es su
-                    // propio ajuste "miui_refresh_rate", asi que se escribe
-                    // ahi (necesita WRITE_SECURE_SETTINGS; sin el permiso la
-                    // excepcion se ignora y todo sigue igual).
+                    // MIUI/HyperOS ignores the request of the app: its framework casts its
+                    // own vote (PRIORITY_MIUI_REFRESH_RATE) and leaves the window at 60 Hz.
+                    // What it does respect is its own "miui_refresh_rate" setting, so it is
+                    // written there (needs WRITE_SECURE_SETTINGS; without the permission the
+                    // exception is ignored and nothing changes).
                     if (isMIUI()) {
                         try {
                             android.provider.Settings.Secure.putInt(
@@ -145,10 +143,9 @@ public class MainActivity extends QtActivity
                     }
 
                     final View decor = win.getDecorView();
-                    // La superficie de Qt se crea despues de onCreate: se
-                    // engancha un callback para pedir la frecuencia en
-                    // cuanto exista (si se pide tarde, algunos ROMs ya han
-                    // decidido el modo y la ignoran).
+                    // The surface of Qt is created after onCreate: a callback is hooked to ask
+                    // for the rate as soon as it exists (asked late, some ROMs have already
+                    // decided the mode and ignore it).
                     watchSurfaces(decor, hz);
                     for (int delay : new int[] { 0, 500, 1500, 3000, 6000 }) {
                         decor.postDelayed(new Runnable()
@@ -160,14 +157,14 @@ public class MainActivity extends QtActivity
                         }, delay);
                     }
                 } catch (Throwable ignored) {
-                    // Un panel sin modo alto se queda como esta.
+                    // A panel with no high mode stays as it is.
                 }
             }
         });
     }
 
-    // Engancha un SurfaceHolder.Callback a cada SurfaceView para pedir la
-    // frecuencia en el mismo instante en que la superficie se crea.
+    // Hooks a SurfaceHolder.Callback to every SurfaceView to ask for the rate
+    // the moment the surface is created.
     private static void watchSurfaces(View v, final float hz)
     {
         if (v == null)
@@ -216,9 +213,9 @@ public class MainActivity extends QtActivity
         }
     }
 
-    // Recorre la jerarquia y pide `hz` a cada superficie (el SurfaceView de
-    // Qt). setFrameRate(float, int) es publico desde API 30; en API 29
-    // existe la variante de 2 argumentos.
+    // Walks the hierarchy and asks `hz` to every surface (the SurfaceView of
+    // Qt). setFrameRate(float, int) is public since API 30; on API 29 the two
+    // argument variant exists.
     private static void applyFrameRate(View v, float hz)
     {
         if (v == null)
@@ -236,8 +233,8 @@ public class MainActivity extends QtActivity
         }
     }
 
-    // Al volver del segundo plano Android puede haber devuelto la ventana a
-    // 60 Hz: se vuelve a pedir.
+    // Coming back from the background Android may have returned the window to
+    // 60 Hz: it is asked again.
     @Override
     protected void onResume() {
         super.onResume();
@@ -264,18 +261,18 @@ public class MainActivity extends QtActivity
         super.onPause();
     }
 
-    // El permiso de notificaciones es NUESTRO (no de Qt): sin esta
-    // sobrecarga, QtActivity no lo reconoce, avisa de "no valid pending
-    // permission request" y la respuesta se queda sin tratar.
+    // The notification permission is OURS (not Qt's): without this overload
+    // QtActivity does not recognise it, warns about "no valid pending
+    // permission request" and the answer is left unhandled.
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            String[] permissions,
                                            int[] grantResults)
     {
         if (requestCode == 7) {
-            // El permiso fue solicitado, ahora procesamos el resultado.
-            // Si el usuario lo rechazó o MIUI lo bloqueó, la app
-            // continúa igual; solo no mostrará notificaciones.
+            // The permission was asked, now the result is processed. If the user
+            // refused it or MIUI blocked it, the app goes on; it just will not show
+            // notifications.
             super.onRequestPermissionsResult(requestCode, permissions, grantResults);
             return;
         }

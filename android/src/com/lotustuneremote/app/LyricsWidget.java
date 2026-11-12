@@ -39,20 +39,20 @@ import java.io.FileInputStream;
 
 public class LyricsWidget extends AppWidgetProvider
 {
-    // Trio de respaldo: lo empuja el QML cuando cambia el indice.
+    // Fallback trio: the QML pushes it when the index changes.
     public static volatile String sPrev = "";
     public static volatile String sLine = "";
     public static volatile String sNext = "";
 
-    // Ultima linea pintada. Solo cuando CAMBIA se lanza la animacion; los
-    // refrescos de la barra (cada segundo) no animan.
+    // Last line painted. The animation only starts when it CHANGES; the
+    // refreshes of the bar (every second) do not animate.
     private static String sShownLine = null;
     private static String sShownPrev = "";
     private static String sShownNext = "";
 
     private static Context sCtx = null;
 
-    // ---- estado publicado por el motor (igual que en la app) ----------
+    // ---- state published by the engine (the same as in the app) ----------
 
     /** Copia cacheada de files/lyrics.json (se reparsea si cambia). */
     private static final class Published
@@ -134,8 +134,8 @@ public class LyricsWidget extends AppWidgetProvider
     public void onReceive(Context context, Intent intent)
     {
         sCtx = context.getApplicationContext();
-        // Mismo camino que el otro widget: deja la accion en el buzon y
-        // repinta los dos.
+        // Same path as the other widget: it leaves the action in the mailbox and
+        // repaints both.
         PlayerWidget.dispatch(sCtx, intent.getAction());
         super.onReceive(context, intent);
     }
@@ -150,8 +150,8 @@ public class LyricsWidget extends AppWidgetProvider
         if (ids == null || ids.length == 0)
             return;
 
-        // Primero el estado publicado (el mismo que pinta la app); si no
-        // hay nada de la pista actual, el trio que empuja el QML.
+        // The published state first (the same one the app paints); when there is
+        // nothing of the current track, the trio the QML pushes.
         String prev;
         String line;
         String next;
@@ -171,7 +171,7 @@ public class LyricsWidget extends AppWidgetProvider
         if (line.isEmpty())
             line = PlayerWidget.sTitle.isEmpty()
                     ? "Sin letra" : "Sin letra para esta cancion";
-        // Se decide una vez para todos los widgets puestos en la pantalla.
+        // It is decided once for all the widgets placed on the screen.
         final boolean lineChanged = sShownLine != null && !sShownLine.equals(line);
         sShownPrev = prev;
         sShownLine = line;
@@ -192,11 +192,11 @@ public class LyricsWidget extends AppWidgetProvider
                             ? "Lotus Tune" : PlayerWidget.sTitle);
             v.setTextViewText(R.id.l_artist, PlayerWidget.sArtist);
 
-            // Dos copias del bloque, rellenas las dos (asi el texto es
-            // correcto se pinte la que se pinte). Al cambiar de linea se
-            // pasa a la otra copia con showNext(), que siempre alterna:
-            // tanto si el host reutiliza el arbol (esta en 1) como si lo
-            // reinfla (esta en 0), el salto de 0->1 o 1->0 anima.
+            // Two copies of the block, both filled (so the text is right whichever
+            // is painted). On a line change it moves to the other copy with
+            // showNext(), which always alternates: whether the host reuses the tree
+            // (it is at 1) or reinflates it (it is at 0), the 0->1 or 1->0 jump
+            // animates.
             fill(v, R.id.l_prev_line, R.id.l_line, R.id.l_next,
                  prev, line, next);
             fill(v, R.id.l_prev_line2, R.id.l_line2, R.id.l_next2,
@@ -204,7 +204,7 @@ public class LyricsWidget extends AppWidgetProvider
             if (lineChanged)
                 v.showNext(R.id.l_flip);
 
-            // Barra fina de progreso, como en el widget de reproduccion.
+            // Thin progress bar, as in the playback widget.
             final long dur = Math.max(1L, PlayerWidget.sDurMs);
             int prog = (int) Math.min(1000L,
                     Math.max(0L, PlayerWidget.sPosMs * 1000L / dur));
@@ -249,8 +249,8 @@ public class LyricsWidget extends AppWidgetProvider
             v.setOnClickPendingIntent(R.id.l_fav,
                     PlayerWidget.intentFor(context,
                             PlayerWidget.ACTION_FAV, 6));
-            // Tocar la cabecera abre la app (como el widget de musica de
-            // cualquier reproductor).
+            // Touching the header opens the app (like the music widget of any
+            // player).
             v.setOnClickPendingIntent(R.id.l_head,
                     openApp(context));
             m.updateAppWidget(id, v);
@@ -274,8 +274,8 @@ public class LyricsWidget extends AppWidgetProvider
         if (!key.equals(p.trackKey))
             return null;
 
-        // "ok" = letra con tiempos; "none" = sin letra o solo texto;
-        // "loading" = la busqueda sigue (o aun no ha llegado nada).
+        // "ok" = lyrics with timings; "none" = no lyrics or plain text only;
+        // "loading" = the search is still going (or nothing has arrived yet).
         if ("loading".equals(p.status))
             return new String[] { "", "Cargando letra…", "" };
 
@@ -283,8 +283,8 @@ public class LyricsWidget extends AppWidgetProvider
             final double pos = positionNow(c, p);
             int idx = lineIndexAt(p.t, pos);
             if (idx < 0) {
-                // Antes de la primera linea (intro instrumental): un
-                // simbolo y, como "siguiente", lo primero que se cantara.
+                // Before the first line (instrumental intro): a symbol and, as the
+                // "next" one, the first thing that will be sung.
                 return new String[] { "", "♪", p.text[0] };
             }
             String prev = idx > 0 ? p.text[idx - 1] : "";
@@ -294,7 +294,7 @@ public class LyricsWidget extends AppWidgetProvider
         }
 
         if (!p.plain.isEmpty()) {
-            // Letra sin tiempos: las dos primeras lineas, como en la app.
+            // Lyrics with no timings: the first two lines, as in the app.
             String[] rows = p.plain.split("\n");
             String line = "";
             String next = "";
@@ -313,7 +313,7 @@ public class LyricsWidget extends AppWidgetProvider
                 return new String[] { "", line, next };
         }
 
-        // La pista tiene su letra resuelta pero no hay nada que enseñar.
+        // The track has its lyrics resolved but there is nothing to show.
         return new String[] { "", "", "" };
     }
 
@@ -325,10 +325,10 @@ public class LyricsWidget extends AppWidgetProvider
                 && rt.trackKey.equals(p.trackKey)) {
             final double offset = Double.isNaN(rt.offset) ? p.offset : rt.offset;
             if (!rt.playing) {
-                // En pausa manda la posicion que empuja el reproductor: el
-                // runtime puede ser de la sesion anterior (la app arranca
-                // parada y hasta que suena no lo reescribe) y el widget
-                // enseñaba una linea de hace minutos.
+                // While paused the position pushed by the player rules: the runtime may
+                // be from the previous session (the app starts stopped and does not
+                // rewrite it until something plays) and the widget showed a line from
+                // minutes ago.
                 return PlayerWidget.sPosMs / 1000.0 + offset;
             }
             double pos = rt.pos;
@@ -339,8 +339,8 @@ public class LyricsWidget extends AppWidgetProvider
             }
             return pos + offset;
         }
-        // Sin ritmo publicado (app cerrada o pausada): la posicion que el
-        // reproductor empuja al widget.
+        // With no published beat (app closed or paused): the position the player
+        // pushes to the widget.
         return PlayerWidget.sPosMs / 1000.0 + p.offset;
     }
 
@@ -405,8 +405,8 @@ public class LyricsWidget extends AppWidgetProvider
             sPublished = n;
             return n;
         } catch (Throwable ignore) {
-            // JSON a medio escribir (el motor escribe con rename atomico):
-            // se queda lo ultimo bueno.
+            // JSON caught mid write (the engine writes with an atomic rename): the
+            // last good one stays.
             return p;
         }
     }
@@ -464,9 +464,9 @@ public class LyricsWidget extends AppWidgetProvider
     {
         v.setTextViewText(lineId, line);
         v.setTextViewText(nextId, next);
-        // La anterior siempre ocupa su hueco (INVISIBLE, no GONE): si
-        // desapareciera, el bloque entero se desplazaria al cambiar de
-        // linea y el widget daria un salto.
+        // The previous one always keeps its slot (INVISIBLE, not GONE): if it
+        // disappeared, the whole block would shift on a line change and the
+        // widget would jump.
         if (prev.isEmpty()) {
             v.setTextViewText(prevId, "");
             v.setViewVisibility(prevId, View.INVISIBLE);

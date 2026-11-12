@@ -124,8 +124,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     Q_UNUSED(helperPath());
 
     // Self-test of the native helper (libytmcli.so): it launches "search"
-    // (anonymous) ~2.5 s after igniting and it is shown in logcat only
-    // — it validates exec + TLS + API without user interaction.
+    // (anonymous) ~2.5 s after igniting and it is shown in logcat only:
+    // it validates exec + TLS + API without user interaction.
     QTimer::singleShot(2500, this, []() {
         QProcess *probe = new QProcess();
         probe->setProcessChannelMode(QProcess::MergedChannels);
@@ -162,7 +162,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 m_sessionRejected = (code != 0);
                 setLoginState(code == 0 ? QStringLiteral("ok") : QString());
                 // Only a rejected session deserves a notice: a plain
-                // "sin-sesion" is simply an app that was never logged in.
+                // "sin-sesion" is an app that was never logged in.
                 if (code != 0 && why.contains(QLatin1String("sesion-caducada")))
                     emit sessionExpired();
             });
@@ -760,15 +760,15 @@ QString Catalog::cookieFile()
     return AppPaths::cookiesFile();
 }
 
-// El "helper" que hace las llamadas autenticadas a YouTube Music.
+// The helper that makes the authenticated calls to YouTube Music.
 //
-// En escritorio es el script tools/ytm_api.py. En Android ese .py NO se
-// empaqueta: el mismo codigo va compilado en libytmcli.so y el binario
-// busca el comando dentro de argv. Aqui se comprobaba siempre el .py, asi
-// que en el movil TODAS las acciones con sesion (me gusta, quitar me
-// gusta, añadir/quitar de lista, crear lista, refrescar la biblioteca)
-// se cancelaban en el acto con "No se encontró ytm_api.py" y el corazon
-// solo cambiaba de color en local.
+// On desktop it is the tools/ytm_api.py script. On Android that .py is NOT
+// packaged: the same code is compiled into libytmcli.so and the binary
+// looks for the command inside argv. Here the .py was always checked, so
+// on the phone EVERY action with a session (like, unlike, add to or remove
+// from a list, create a list, refresh the library) was cancelled on the
+// spot with the "ytm_api.py not found" error and the heart only changed
+// colour locally.
 static bool ytmHelperReady()
 {
 #ifdef Q_OS_ANDROID
@@ -866,11 +866,11 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     }
 }
 
-// YouTube siempre sirve una portada para un id de video, aunque la
-// respuesta que trajo la pista no la incluya (las radios de YouTube Music
-// llegan por playlistPanelVideoRenderer, que no lleva miniatura). Sin esto
-// la cabecera de una radio se quedaba con el icono de música y el fondo
-// dinámico en gris.
+// YouTube always serves a cover for a video id, even when the answer
+// that brought the track leaves it out (YouTube Music radios arrive
+// through playlistPanelVideoRenderer, which carries no thumbnail).
+// Without this the header of a radio kept the music icon and the
+// dynamic background stayed grey.
 static QString coverFromUrl(const QString &id, const QString &url)
 {
     const QUrl u(url);
@@ -892,7 +892,7 @@ static QString coverFromUrl(const QString &id, const QString &url)
            + QStringLiteral("/hqdefault.jpg");
 }
 
-// Completa las portadas que falten (listas antiguas en cache incluidas).
+// Fills in the missing covers (old cached lists included).
 static void fillMissingThumbs(QVariantList &list)
 {
     for (QVariant &v : list) {
@@ -958,8 +958,8 @@ void Catalog::run(const QString &target, const QString &purpose, const QString &
         if (hit) {
             if (bgBusy)
                 cancelBackgroundFetch();
-            // Las listas guardadas antes de arreglar las portadas de las
-            // radios no traen miniatura: se completa al servirla.
+            // Lists saved before the radio covers were fixed come with no
+            // thumbnail: it is filled in when the list is served.
             fillMissingThumbs(cached);
             m_fastFallback.clear();
             m_fastFallbackTitle.clear();
@@ -1049,7 +1049,7 @@ void Catalog::runYtdlp(const QString &target, const QString &purpose,
     // Flat SoundCloud set entries are bare url_transparent stubs without
     // title/uploader/duration (yt-dlp SoundcloudSetIE._extract_set passes only
     // id + url + album), which normalize() cannot display: extract playlists
-    // hosted on soundcloud.com fully (≈0.5 s/track). Searches (scsearchN:…)
+    // hosted on soundcloud.com fully (~0.5 s/track). Searches (scsearchN:...)
     // and every other target stay flat for speed.
     const bool soundcloudPlaylist =
         purpose == QLatin1String("playlist")
@@ -1385,7 +1385,7 @@ void Catalog::showTracks(const QVariantList &tracks, const QString &title)
     emit changed();
 }
 
-// Audio list of an album (OLAK5uy…): the download of a whole record asks
+// Audio list of an album (OLAK5uy...): the download of a whole record asks
 // ytm_api.py for it and then hands it to yt-dlp like any other list.
 void Catalog::fetchAlbumPlaylist(const QString &browseId, const QString &name)
 {
@@ -1569,8 +1569,9 @@ void Catalog::removeFromPlaylist(const QString &playlistId, const QString &video
                  QStringLiteral("Quitado de la lista"));
 }
 
-// Reorders the track `setVideoId` of the open list `delta` positions (±1).
-// The row moves at once locally and the change is uploaded to YouTube Music.
+// Reorders the track `setVideoId` of the open list by `delta` positions
+// (+1 or -1). The row moves at once locally and the change is uploaded to
+// YouTube Music.
 void Catalog::moveOpenPlaylistTrack(const QString &setVideoId, int delta)
 {
     const QString sid = setVideoId.trimmed();
@@ -1992,7 +1993,7 @@ QString Catalog::playlistsFile()
 // Reads the file on startup and seeds the in-memory cache with the most
 // recent entries (respecting the RAM cap of cachePlaylist). It does not
 // mark it dirty: what was read does not need to be written again. A
-// corrupt or unreadable file is simply ignored.
+// corrupt or unreadable file is ignored.
 void Catalog::loadPlaylistCache()
 {
     QFile f(playlistsFile());
@@ -2410,10 +2411,10 @@ bool Catalog::handleOutput(const QByteArray &json)
     return true;
 }
 
-// YT Music etiqueta algunas filas de estantería con el TIPO delante del
-// artista ("Canción • FloyyMenor y Cris Mj"). Ese prefijo no es parte del
-// nombre: acababa guardado como artista en el historial y el reproductor lo
-// enseñaba tal cual.
+// YT Music tags some shelf rows with the KIND in front of the artist
+// ("Song - FloyyMenor y Cris Mj"). That prefix is not part of the name:
+// it ended up saved as the artist in the history and the player showed
+// it verbatim.
 static QString artistWithoutKindPrefix(QString a)
 {
     static const QRegularExpression re(
@@ -2644,8 +2645,8 @@ void Catalog::loadLibrary()
         QVariantMap m = v.toObject().toVariantMap();
         if (schema < 1)
             m.insert(QStringLiteral("legacy"), true);
-        // Historial viejo: el artista pudo guardarse con la etiqueta de
-        // tipo delante ("Canción • ..."). Se limpia al cargar.
+        // Old history: the artist may have been saved with the kind tag
+        // in front ("Song - ..."). It is cleaned up on load.
         const QString a = m.value(QStringLiteral("artist")).toString();
         if (!a.isEmpty())
             m.insert(QStringLiteral("artist"), artistWithoutKindPrefix(a));

@@ -1,88 +1,88 @@
-# La letra publicada
+# The published lyrics
 
-Lotus Tune escribe dos ficheros JSON mientras reproduce. Sirven para que otros
-programas del escritorio enseñen la misma letra sin volver a buscarla ni
-adivinar por dónde va la canción.
+Lotus Tune writes two JSON files while it plays. They let other programs on the
+desktop show the same lyrics without searching again or guessing where the song
+is.
 
 ```
-$XDG_STATE_HOME/lotus-tune/lyrics.json          # letra de la pista
-$XDG_STATE_HOME/lotus-tune/lyrics-runtime.json  # posición y estado
+$XDG_STATE_HOME/lotus-tune/lyrics.json          # lyrics of the track
+$XDG_STATE_HOME/lotus-tune/lyrics-runtime.json  # position and state
 ```
 
-`XDG_STATE_HOME` vale `~/.local/state` si no está definida. Si la variable no
-existe y el directorio tampoco, la app usa `~/.local/state/lotus-tune`.
+`XDG_STATE_HOME` is `~/.local/state` when it is not set. If the variable does
+not exist and the directory does not either, the app falls back to
+`~/.local/state/lotus-tune`.
 
-El consumidor de referencia es `LyricsService.qml` del shell iNiR. Lee estos
-ficheros antes de pedir letra a Internet y solo busca por su cuenta si la pista
-que suena no es la que Lotus Tune está publicando.
+The reference consumer is `LyricsService.qml` from the iNiR shell. It reads
+these files before asking the internet for lyrics and only searches on its own
+when the track playing is not the one Lotus Tune is publishing.
 
 ## `lyrics.json`
 
-| Campo | Tipo | Qué es |
+| Field | Type | What it is |
 |---|---|---|
-| `v` | número | Versión del formato. Hoy `1`. |
-| `app` | texto | `lotus-tune`. Sirve para descartar ficheros de otro programa. |
-| `trackKey` | texto | `Artista - Título`. Es la clave para saber si la letra es de la pista que suena. |
-| `title`, `artist` | texto | Los metadatos de la pista. |
-| `videoId` | texto | El vídeo de YouTube Music. |
-| `duration` | número | Duración en segundos. |
-| `karaoke` | booleano | Si la letra tiene tiempos por palabra. |
-| `offset` | número | Ajuste en segundos que el usuario haya puesto. |
-| `status` | texto | `ok` si hay letra con tiempos, `none` si no. |
-| `plain` | texto | Letra sin tiempos, cuando no hay otra. Puede faltar. |
-| `lines` | lista | Las líneas. Vacía si `status` es `none`. |
-| `ts` | número | Momento de escritura, en milisegundos desde la época. |
+| `v` | number | Format version. Today `1`. |
+| `app` | text | `lotus-tune`. Lets a reader drop files written by another program. |
+| `trackKey` | text | `Artist - Title`. The key to tell whether the lyrics belong to the track playing. |
+| `title`, `artist` | text | Metadata of the track. |
+| `videoId` | text | The YouTube Music video. |
+| `duration` | number | Length in seconds. |
+| `karaoke` | boolean | Whether the lyrics carry word timings. |
+| `offset` | number | The offset the user has set, in seconds. |
+| `status` | text | `ok` when there are timed lyrics, `none` when there are not. |
+| `plain` | text | Untimed lyrics, used when there is nothing else. May be absent. |
+| `lines` | list | The lines. Empty when `status` is `none`. |
+| `ts` | number | Time of writing, in milliseconds since the epoch. |
 
-Cada línea de `lines`:
+Each entry in `lines`:
 
-| Campo | Tipo | Qué es |
+| Field | Type | What it is |
 |---|---|---|
-| `t` | número | Segundo en que empieza. |
-| `e` | número | Segundo en que termina. Nunca pasa del final de la pista. |
-| `text` | texto | La línea tal cual se canta. |
-| `w` | lista | Palabras, si hay tiempos por palabra. Puede faltar. |
-| `instrumental` | booleano | Tramo sin voz. Presente y `true` solo en esos tramos. |
-| `voice` | texto | `counter` en las líneas de contrapunto. Puede faltar. |
+| `t` | number | Second it starts at. |
+| `e` | number | Second it ends at. Never past the end of the track. |
+| `text` | text | The line as sung. |
+| `w` | list | Words, when there are word timings. May be absent. |
+| `instrumental` | boolean | A stretch with no voice. Present and `true` only in those. |
+| `voice` | text | `counter` on the lines of the counterpoint voice. May be absent. |
 
-Cada palabra de `w` es `{ "t": inicio, "e": fin, "text": "palabra" }`, en
-segundos, como el resto.
+Each word in `w` is `{ "t": start, "e": end, "text": "word" }`, in seconds like
+the rest.
 
-Los tramos instrumentales no llevan texto cantable: la app los envía con
-`instrumental: true` y su texto es solo una marca. Quien dibuje la letra debe
-enseñar puntos o un hueco, no la marca.
+Instrumental stretches carry no singable text: the app sends them with
+`instrumental: true` and their text is only a marker. Whoever draws the lyrics
+should show dots or a gap, not the marker.
 
 ## `lyrics-runtime.json`
 
-| Campo | Tipo | Qué es |
+| Field | Type | What it is |
 |---|---|---|
-| `v` | número | Versión del formato. Hoy `1`. |
-| `trackKey` | texto | La misma clave que en `lyrics.json`. |
-| `pos` | número | Posición del motor en segundos, sin el `offset`. |
-| `playing` | booleano | Si está sonando. |
-| `karaoke` | booleano | Si la letra tiene tiempos por palabra. |
-| `offset` | número | El mismo ajuste que en `lyrics.json`. |
-| `ts` | número | Momento de escritura, en milisegundos. |
+| `v` | number | Format version. Today `1`. |
+| `trackKey` | text | The same key as in `lyrics.json`. |
+| `pos` | number | Position of the engine in seconds, without the `offset`. |
+| `playing` | boolean | Whether it is playing. |
+| `karaoke` | boolean | Whether the lyrics carry word timings. |
+| `offset` | number | The same offset as in `lyrics.json`. |
+| `ts` | number | Time of writing, in milliseconds. |
 
-El segundo que se canta es `pos + offset`. La app separa las dos cosas para que
-cambiar el ajuste no obligue a reescribir la letra.
+The second being sung is `pos + offset`. The app keeps the two apart so that
+changing the offset does not force a rewrite of the lyrics.
 
-## Cuándo leerlos
+## When to read them
 
-Los dos ficheros se reescriben varias veces por segundo mientras suena la
-música. Un lector debe:
+Both files are rewritten several times per second while music plays. A reader
+should:
 
-1. Leer `lyrics.json` y quedarse con `trackKey` y el instante `ts`.
-2. Si `ts` es viejo (la app lleva un rato cerrada) o el `trackKey` no es el de
-   la pista que suena, ignorar el fichero y buscar la letra por su cuenta.
-3. Con la letra en mano, leer `lyrics-runtime.json` para saber por dónde va.
-   Mientras recibe las actualizaciones, puede avanzar la posición con su propio
-   reloj y corregirla en cada lectura.
+1. Read `lyrics.json` and keep `trackKey` and the `ts` moment.
+2. If `ts` is old (the app has been closed for a while) or `trackKey` is not the
+   track playing, ignore the file and search for the lyrics on its own.
+3. With the lyrics in hand, read `lyrics-runtime.json` to know where the song
+   is. Between updates it can advance the position with its own clock and
+   correct it on every read.
 
-Un fichero a medio escribir puede llegar truncado. Si el JSON no se puede
-leer, se descarta y se vuelve a intentar en la siguiente lectura; no se cachea
-el error.
+A file caught mid write can arrive truncated. When the JSON cannot be read,
+drop it and try again on the next read; do not cache the error.
 
-## Ejemplo
+## Example
 
 ```json
 {

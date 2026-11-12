@@ -279,7 +279,7 @@ def _collect(node, found, seen):
             if isinstance(renderer, dict):
                 bid = _browse_id_of(renderer)
                 name = _title_of(renderer)
-                # Solo listas: su browseId empieza por "VL" (VL + id de lista).
+                # Lists only: their browseId starts with "VL" (VL + the list id).
                 if bid.startswith("VL") and name:
                     pid = bid[2:]
                     if pid not in seen:
@@ -741,11 +741,12 @@ def artist_discography(browse_id, artist_name=""):
 
 
 # ---- artist page (the sections the app paints) -----------------------------
-# The artist page (UC…/MPC…) is a pile of shelves: "Canciones más escuchadas"
-# (musicShelfRenderer with playable rows), "Álbumes", "Singles y EPs",
-# "Radios"/"Listas de reproducción de X" and "Puede que también te guste"
-# (similar artists). The discography (MPAD…) is asked separately because it
-# is the complete list of releases, which the shelves cut to 10.
+# The artist page (UC.../MPC...) is a pile of shelves: top songs
+# (musicShelfRenderer with playable rows), albums, singles and EPs, radios
+# and playlists of the artist, and similar artists. The discography
+# (MPAD...) is asked separately because it is the complete list of
+# releases, which the shelves cut to 10. The shelf labels arrive in the
+# language of the account.
 
 def _plain_text(node):
     """Texto plano de un nodo {runs|simpleText} (títulos de sección)."""
@@ -890,7 +891,8 @@ def artist_page(browse_id, artist_name=""):
         "similar": [],
         "discography": [],
     }
-    # Cabecera (nombre y retrato buenos: los de la búsqueda vienen pequeños).
+    # Header (name and portrait are the good ones: the ones from the search
+    # come small).
     h = _find_key(resp, "musicImmersiveHeaderRenderer")
     if not isinstance(h, dict):
         h = _find_key(resp, "musicVisualHeaderRenderer")
@@ -941,8 +943,8 @@ def artist_page(browse_id, artist_name=""):
     try:
         page["discography"] = artist_discography(bid, page["name"])
     except Exception:
-        # La página ya sirve: si la discografía falla, «Reproducir todo»
-        # usará los álbumes y singles de las estanterías.
+        # The page is usable as it is: when the discography fails, "Play all"
+        # uses the albums and singles of the shelves.
         page["discography"] = []
     return page
 
@@ -1161,9 +1163,9 @@ def playlist_info(list_id):
         "privacy": (_find_key(editable, "privacy") or "") if owned else "",
         "owned": owned,
         "count": count,
-        # Portada de la lista (la que se ve en YouTube Music): la usa la
-        # biblioteca de descargas para la tarjeta de la lista, en vez de la
-        # portada de su primera pista.
+        # Cover of the list (the one seen in YouTube Music): the downloads
+        # library uses it for the card of the list, instead of the cover of its
+        # first track.
         "thumb": _best_thumb(header) if isinstance(header, dict) else "",
     }
 
@@ -1372,8 +1374,8 @@ def album_playlist_id_from(data):
             pid = (endpoint.get("watchPlaylistEndpoint") or {}).get("playlistId") or ""
             if pid.startswith("OLAK5uy_"):
                 return pid
-    # Álbumes sin botón de reproducción en la cabecera: primera lista de
-    # audio que aparezca en la respuesta.
+    # Albums with no play button in the header: the first audio list that
+    # shows up in the answer.
     m = re.search(r"OLAK5uy_[A-Za-z0-9_-]{20,}", json.dumps(data))
     return m.group(0) if m else ""
 
@@ -1394,9 +1396,9 @@ def cmd_album(browse_id):
 
 
 def cmd_albuminfo(browse_id):
-    # Una sola consulta: la lista de audio (para yt-dlp) y los títulos de
-    # sus pistas (para no volver a descargar un single que ya está dentro
-    # de un disco de la misma discografía).
+    # One single query: the audio list (for yt-dlp) and the titles of its
+    # tracks (so a single that is already inside a record of the same
+    # discography is not downloaded again).
     data = browse(browse_id, anon=True)
     pid = album_playlist_id_from(data)
     try:
@@ -1461,7 +1463,7 @@ def alternate_track(artist, title, exclude_id="", duration=0.0):
         score = 40
         if ct == want_t:
             score += 40
-        # Artista coincidente (uno contiene al otro, en cualquier orden).
+        # Matching artist (one contains the other, in any order).
         if want_a and ca and (want_a in ca or ca in want_a):
             score += 30
         dur = float(c.get("duration") or 0)

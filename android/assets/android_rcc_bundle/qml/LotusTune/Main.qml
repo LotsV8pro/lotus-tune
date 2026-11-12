@@ -21,15 +21,15 @@ Window {
     title: "Lotus Tune"
     color: Sys.bg
 
-    // La app esta de verdad en primer plano. `Qt.application.state` cambia
-    // al salir con HOME, pero el binding no siempre se reevalua a tiempo:
-    // se guarda aqui y se avisa al cambiar.
+    // The app is really in the foreground. `Qt.application.state` changes
+    // when HOME is pressed, but the binding is not always re-evaluated in
+    // time: it is stored here and notified on change.
     property bool appActive: Qt.application.state === Qt.ApplicationActive
     Connections {
         target: Qt.application
         function onStateChanged() {
             root.appActive = Qt.application.state === Qt.ApplicationActive
-            // El "calentador" de audio solo hace falta con la app delante.
+            // The audio "warm-up" is only needed with the app in front.
             if (typeof sfx !== "undefined" && sfx.setWarm)
                 sfx.setWarm(root.appActive)
         }
@@ -79,9 +79,9 @@ Window {
             return String(catalog.loginError)
         return "No se pudo iniciar sesión. Inténtalo de nuevo."
     }
-    // YouTube rechazó la sesión guardada (caducada, o usada desde otra red).
-    // La app sigue funcionando de forma anónima; se avisa una vez y se deja
-    // de mandar la cookie rechazada (si no, TODAS las listas fallarían).
+    // YouTube rejected the saved session (expired, or used from another
+    // network). The app keeps working anonymously; it is reported once and
+    // the rejected cookie stops being sent (otherwise EVERY list fails).
     Connections {
         target: catalog
         function onSessionExpired() {
@@ -110,7 +110,7 @@ Window {
     property var launcherMusic: []
     property string launcherQ: ""
     // A search is on its way (typing, waiting for the catalogue to be free
-    // or the sources answering): the launcher shows "Buscando…" instead of
+    // or the sources answering): the launcher shows "Buscando..." instead of
     // "Sin resultados".
     property bool launcherSearching: false
     property bool followSys: true
@@ -859,7 +859,7 @@ Window {
     }
 
     // Is `url` the list that is ALREADY loaded? Then entering it again does
-    // not touch the network, does not show "Cargando…" and does not rebuild
+    // not touch the network, does not show "Cargando..." and does not rebuild
     // the view: it just opens it, instant, with the scroll where it was.
     // It is what makes the "Me gusta" tab open at once after the first time.
     function listAlreadyOpen(url) {
@@ -933,7 +933,7 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("play"); if (root.currentTitle) root.togglePlay() }
     }
-    // Arrows: ±5 s of seeking; Ctrl+arrows or Media: previous/next track.
+    // Arrows: +/-5 s of seeking; Ctrl+arrows or Media: previous/next track.
     Shortcut {
         sequence: "Right"
         enabled: !root.typing() && root.currentTitle !== ""
@@ -1188,7 +1188,7 @@ Window {
     }
 
     // A search that never answers does not leave the launcher saying
-    // "Buscando…" for ever (a dead network, a blocked source).
+    // "Buscando..." for ever (a dead network, a blocked source).
     Timer {
         id: launcherGiveUp
         interval: 15000
@@ -1353,9 +1353,9 @@ Window {
         autoplayEnabled = cfgGet("autoplay") !== "false"
         resumeOnOpen = cfgGet("resumeOnOpen") !== "false"
         // Dynamic background (the blurred artwork behind everything): on a
-        // phone the veil is 5× larger and the artwork turns into a smear
+        // phone the veil is 5x larger and the artwork turns into a smear
         // that eats the contrast, so it is OFF by default there. It stays
-        // available in Ajustes → Apariencia.
+        // available in Ajustes -> Apariencia.
         {
             const dyn = cfgGet("dynamicBg")
             Sys.dynamicBg = (dyn === "") ? !Theme.touch : (dyn !== "false")
@@ -1829,7 +1829,7 @@ Window {
     // newest first; `oldestFirst` reverses it. Shuffle adds everything and
     // then shuffles the queue, so it is the whole artist in random order.
     // ---- downloading albums / the whole discography ---------------------
-    // Every record has an audio list on YouTube Music (OLAK5uy…) that yt-dlp
+    // Every record has an audio list on YouTube Music (OLAK5uy...) that yt-dlp
     // can enumerate. It is resolved one album at a time in the background
     // (Catalog::fetchAlbumPlaylist) and then queued in Downloads.
     property var albumDlQueue: []
@@ -1845,7 +1845,7 @@ Window {
     property var albumDlSeen: ({})
     property int albumDlSkipped: 0
     // Artist of the batch that is being queued ("" = loose albums):
-    // Downloads shows it as a single "Discografía de X" group.
+    // Downloads shows it as a single "Discografia de X" group.
     property string albumDlArtist: ""
 
     function downloadAlbums(list) {
@@ -1870,9 +1870,9 @@ Window {
             root.toast("No hay discos que descargar")
             return
         }
-        // Álbumes/EPs primero y sencillos al final: así, cuando llega un
-        // sencillo, las pistas de los discos ya están apuntadas y se puede
-        // saber si ya está incluido en alguno.
+        // Albums/EPs first and singles last: that way, when a single
+        // arrives, the tracks of the records are already listed and it is
+        // possible to know whether it is already included in one of them.
         clean.sort(function (a, b) {
             return (a.single ? 1 : 0) - (b.single ? 1 : 0)
         })
@@ -1919,7 +1919,7 @@ Window {
                                 + " singles ya incluidos, omitidos)"
                               : ""))
             // The batch is only PREPARED, not downloaded: the counters are
-            // kept so Downloads can show "Discografía de X · N discos"
+            // kept so Downloads can show "Discografia de X - N discos"
             // while the files are still queued (they are cleaned up when
             // the batch starts again).
             root.albumDlDone = root.albumDlTotal
@@ -2041,10 +2041,10 @@ Window {
     // leaves the queue empty but still recovers the volume.
     function restoreSession(skipQueue) {
         root.sessionLoaded = true
-        // Ajustes -> Reproducción: "Continuar al abrir" off means a clean
-        // start (no queue, no track), which is handy to always land on
-        // Inicio instead of on the last disk. The volume is still
-        // restored.
+        // The Playback section of the settings: "Continuar al abrir" off
+        // means a clean start (no queue, no track), which is handy to
+        // always land on Inicio instead of on the last disk. The volume is
+        // still restored.
         if (!skipQueue && root.resumeOnOpen) {
             const raw = cfgGet("sessionState")
             var st = null
@@ -2250,9 +2250,9 @@ Window {
         }
         discord.setActivity(root.currentTitle, root.currentArtist, "", root.currentThumb,
                             player.position, dur, player.playing)
-        // stopped=false SIEMPRE en la llamada: los parámetros por defecto
-        // no se rellenan en la invocación desde QML (Qt exige todos los
-        // argumentos) y sin esto caía "Insufficient arguments" en el log.
+        // stopped=false on EVERY call: default parameters are not filled in
+        // when invoking from QML (Qt demands all the arguments) and
+        // without this "Insufficient arguments" showed up in the log.
         mpris.updatePlayback(player.playing, player.position, false)
         mpris.updateVolume(player.volume)
         root.fetchLyrics()
@@ -2346,10 +2346,10 @@ Window {
         // position) is dropped first, so it does not block the ones that
         // are going to play.
         player.clearPrefetch()
-        // Solo 2 por delante: en el movil cada pista son 4-8 MB y
-        // precargar 6 gastaba ~30 MB de datos por cada cambio.
-        // En Android 1 y no 2: cada precarga es una descarga mas en la
-        // misma IP y YouTube limita (403) cuando se piden varias seguidas.
+        // Only 2 ahead: on mobile each track is 4-8 MB and prefetching 6
+        // used up ~30 MB of data on every change.
+        // 1 on Android, not 2: each prefetch is one more download from the
+        // same IP and YouTube throttles (403) when several are asked in a row.
         prefetchAhead(queueIndex, Qt.platform.os === "android" ? 1 : 2)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "",
@@ -2742,10 +2742,10 @@ Window {
                 || String(root.albumDlQueue[0].browseId) !== String(browseId))
                 return
             const item = root.albumDlQueue[0]
-            // ¿Todas sus pistas ya están en otro disco de la tanda? Un
-            // single de una canción que ya trae el álbum no se descarga
-            // otra vez (aparecía como una lista aparte con la misma
-            // canción). Los álbumes nunca se omiten.
+            // Are all of its tracks already in another record of the batch?
+            // A single of a song the album already carries is not
+            // downloaded again (it showed up as a separate list with the
+            // same song). Albums are never skipped.
             const titles = []
             for (var i = 0; i < (tracks || []).length; i++) {
                 const t = String(tracks[i] || "").trim().toLowerCase()
@@ -3134,9 +3134,9 @@ Window {
                         anchors.fill: parent
                         currentIndex: root.pageIndex(root.page)
 
-                        // La pagina entra con un desvanecido corto y 10 px
-                        // de subida: cambiar de seccion ya no es un corte
-                        // seco. Solo opacity/transform: va a 120 Hz.
+                        // The page enters with a short fade and a 10 px
+                        // rise: changing section is no longer a dry cut.
+                        // Only opacity/transform: it runs at 120 Hz.
                         onCurrentIndexChanged: {
                             // Reloads the home search history (it is
                             // written from Search while it is not visible).
@@ -3228,9 +3228,9 @@ Window {
 
             RightPanel {
                 id: rightPanel
-                // Nada aparece de golpe: la columna se abre empujando el
-                // contenido (ancho animado) y se funde; al cerrar se
-                // recoge igual. Todo es layout+opacity, sin efectos.
+                // Nothing shows up all at once: the column opens pushing
+                // the content (animated width) and fades in; on close it
+                // collapses the same way. All layout+opacity, no effects.
                 visible: root.panelOpen || width > 1
                 Layout.preferredWidth: root.panelOpen
                                         ? (root.isPhone ? 290 : 360) : 0
@@ -3431,11 +3431,11 @@ Window {
     }
     }
 
-    // ---- widget de la letra -------------------------------------------
-    // El widget de letra no sabe nada de tiempos: aqui se busca la linea
-    // activa (la misma `lineIndexAt` que usa la vista) y se le empuja el
-    // par actual/siguiente SOLO cuando cambia. El sondeo es barato porque
-    // trabaja sobre las lineas ya cargadas.
+    // ---- lyrics widget ------------------------------------------------
+    // The lyrics widget knows nothing about timings: here the active line
+    // is looked up (the same `lineIndexAt` the view uses) and the
+    // current/next pair is pushed to it ONLY when it changes. The poll is
+    // cheap because it works on the lines already loaded.
     property string widgetLyricTrack: ""
     property string widgetLyricPrev: ""
     property string widgetLyricLine: ""
@@ -3456,9 +3456,9 @@ Window {
             return
         }
         var track = root.currentArtist + " - " + root.currentTitle
-        // Las lineas que hay en memoria pueden ser de la pista ANTERIOR
-        // (el cambio de cancion es inmediato, la letra tarda un poco):
-        // mientras no sean de esta, no se pintan.
+        // The lines in memory may belong to the PREVIOUS track (the song
+        // change is immediate, the lyrics take a while): while they are
+        // not from this one, they are not painted.
         var key = String(lyr.trackKey || "")
         var known = (key !== "" && key === track)
         var sameTrack = known
@@ -3467,7 +3467,7 @@ Window {
         var next = ""
         var arr = lyr.lines || []
         if (sameTrack && lyr.hasSynced && arr.length > 0) {
-            // El mismo ajuste fino que la vista (cada pista tiene el suyo).
+            // The same fine tuning as the view (each track has its own).
             var pos = Number(player.position || 0) + Number(lyr.offset || 0)
             var idx = -1
             if (typeof lyr.lineIndexAt === "function") {
@@ -3477,20 +3477,20 @@ Window {
             }
             if (idx >= 0) {
                 line = String(arr[idx].text || "")
-                // La anterior y la siguiente acompañan a la actual: asi se
-                // sigue la cancion aunque se mire el movil de reojo.
+                // The previous and the next one flank the current one: that
+                // way the song is followed even when glancing at the phone.
                 if (idx > 0)
                     prev = String(arr[idx - 1].text || "")
                 if (idx + 1 < arr.length)
                     next = String(arr[idx + 1].text || "")
             } else {
-                // Antes de la primera linea (intro instrumental): un
-                // simbolo y, como "siguiente", lo primero que se cantara.
+                // Before the first line (instrumental intro): a symbol and,
+                // as "next", the first thing that will be sung.
                 line = "♪"
                 next = String(arr[0].text || "")
             }
         } else if (sameTrack && lyr.hasLyrics && lyr.plain) {
-            // Letra sin tiempos: se enseñan las dos primeras lineas.
+            // Lyrics with no timings: the first two lines are shown.
             var rows = String(lyr.plain).split("\n")
             for (var i = 0; i < rows.length; i++) {
                 var t = rows[i].trim()
@@ -3504,9 +3504,9 @@ Window {
                 }
             }
         }
-        // Sin lineas todavia: si la letra esta en camino (o aun no se ha
-        // pedido porque el motor no sabia la duracion), se dice; solo
-        // cuando la peticion termina sin nada se queda en "sin letra".
+        // No lines yet: if the lyrics are on their way (or have not been
+        // asked for because the engine did not know the duration), it says
+        // so; when the request ends with nothing it stays at "no lyrics".
         if (line === "" && (lyr.loading || !sameTrack))
             line = "Cargando letra…"
         if (track === root.widgetLyricTrack && prev === root.widgetLyricPrev
@@ -3527,9 +3527,9 @@ Window {
         onTriggered: root.refreshLyricsWidget()
     }
 
-    // ---- widget de inicio / notificacion -----------------------------
-    // El widget de Android manda acciones por un buzon que el C++ sondea;
-    // aqui se traducen a las mismas funciones que usan los botones.
+    // ---- home / notification widget -----------------------------------
+    // The Android widget sends actions through a mailbox the C++ polls;
+    // here they are mapped to the same functions the buttons use.
     function refreshWidget() {
         if (typeof player.updateWidget !== "function")
             return
@@ -3539,10 +3539,10 @@ Window {
                             root.currentThumb, player.position, player.duration)
     }
 
-    // La tarjeta de medios del sistema (y el widget) extrapolan la barra
-    // desde la ultima posicion que se les dio: sin refrescarla, al cambiar
-    // de pista o al volver de segundo plano la barra se quedaba atras o se
-    // adelantaba. Una vez por segundo basta y no repinta el aviso.
+    // The system media card (and the widget) extrapolate the bar from the
+    // last position they were given: without refreshing it, on a track
+    // change or coming back from the background the bar fell behind or ran
+    // ahead. Once per second is enough and it does not repaint the notice.
     Timer {
         interval: 1000
         repeat: true
@@ -3577,8 +3577,8 @@ Window {
         }
         function onStateChanged() { root.refreshWidget() }
         function onSeeked() { root.refreshWidget() }
-        // El fallo ya viene traducido del C++ ("403 del operador", "sin
-        // conexion"...): se enseña tal cual en vez de un codigo.
+        // The failure already comes translated from C++ ("403 del operador",
+        // "sin conexion"...): it is shown as is instead of a code.
         function onLastErrorChanged() {
             if (player.lastError.length)
                 root.toast(player.lastError)
@@ -3619,8 +3619,8 @@ Window {
         onShuffleRequested: root.toggleShuffle()
         onRepeatRequested: root.toggleRepeat()
         onLikeRequested: root.toggleLike()
-        // La cola ya no cierra el cinema: se abre DENTRO, como una hoja
-        // (ver `cinemaQueue`), sin pestañas y con los colores del cinema.
+        // The queue no longer closes the cinema: it opens INSIDE it, as a
+        // sheet (see `cinemaQueue`), with no tabs and the cinema colours.
         onQueueRequested: root.fsQueueOpen = !root.fsQueueOpen
         onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
         onArtistRequested: (name) => {
@@ -3632,27 +3632,27 @@ Window {
         // below the lyrics (task: floating controls without "fullscreen"
         // chrome). Phone: the bar floats over the tab bar, so the tab bar,
         // the air and the outer margin join the inset.
-        // Pantalla completa de verdad (estilo Metrolist): el transporte
-        // vive DENTRO del cinema, asi que la barra flotante y la barra de
-        // navegacion dejan de reservar sitio y quedan debajo de la capa.
+        // Real fullscreen (Metrolist style): the transport lives INSIDE
+        // the cinema, so the floating bar and the navigation bar stop
+        // reserving room and stay below the layer.
         bottomInset: 0
     }
 
-    // ---- cola DENTRO del cinema -------------------------------------
-    // Al pulsar la cola en el cinema ya NO se cierra el cinema ni se abre
-    // el panel lateral (el de las pestañas Cola/Letra): se despliega esta
-    // hoja encima, con el mismo lenguaje visual (velo cálido, aura de
-    // acento, sin pestañas) y solo la cola.
+    // ---- queue INSIDE the cinema -------------------------------------
+    // Pressing the queue in the cinema no longer closes the cinema or
+    // opens the side panel (the one with the Queue/Lyrics tabs): this
+    // sheet unfolds on top, with the same visual language (warm veil,
+    // accent aura, no tabs) and only the queue.
     Item {
         id: cinemaQueue
-        z: 78                                  // encima del cinema (72)
-        // Panel FLOTANTE: no toca los bordes (aire alrededor), esquinas
-        // redondeadas y sombra de borde, para que se lea como una pestaña
-        // independiente que flota sobre el cinema y no como una hoja
-        // pegada al lateral.
+        z: 78                                  // above the cinema (72)
+        // FLOATING panel: it does not touch the edges (air around it),
+        // rounded corners and an edge shadow, so it reads as a standalone
+        // tab that floats over the cinema and not as a sheet glued to the
+        // side.
         width: Math.min(372, Math.round(parent.width * 0.84))
         height: Math.min(520, Math.max(240, parent.height - 2 * Theme.s5))
-        // 0 = fuera (a la derecha y un poco abajo), 1 = dentro.
+        // 0 = out (to the right and a bit lower), 1 = in.
         property real slide: (root.fsLyricsOpen && root.fsQueueOpen) ? 1 : 0
         x: parent.width - width - Theme.s4 + (1 - slide) * Math.round(width * 0.22)
         y: Math.round((parent.height - height) / 2) + (1 - slide) * Theme.s4
@@ -3662,10 +3662,11 @@ Window {
             NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
         }
 
-        // Velo: oscurece el cinema detrás y cierra al tocar fuera.
+        // Veil: it darkens the cinema behind and closes on an outside tap.
         MouseArea {
-            // Ojo: el velo NO es hijo del Item de la hoja (iría con ella);
-            // se coloca a mano cubriendo la ventana entera.
+            // Careful: the veil is NOT a child of the sheet's Item (it
+            // would move with it); it is placed by hand over the whole
+            // window.
             x: -cinemaQueue.x
             y: -cinemaQueue.y
             width: cinemaQueue.parent.width
@@ -3678,8 +3679,8 @@ Window {
             }
         }
 
-        // Superficie del panel: mismo tono que el velo del cinema, con
-        // borde de hilo y esquinas redondeadas (todo el contorno).
+        // Panel surface: same tone as the cinema veil, with a hairline
+        // border and rounded corners (all the way around).
         Rectangle {
             id: cqSurface
             anchors.fill: parent
@@ -3715,7 +3716,7 @@ Window {
                     color: Theme.tFaint(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                 }
-                // Cerrar la hoja (el cinema sigue detrás).
+                // Close the sheet (the cinema stays behind).
                 Rectangle {
                     Layout.preferredWidth: 26
                     Layout.preferredHeight: 26
@@ -4479,7 +4480,7 @@ Window {
             radius: Theme.rPanel
             antialiasing: true
             // Opaque: at 0.97 the white title of the page behind bled
-            // through and looked like a ghost behind «Ajustes».
+            // through and looked like a ghost behind "Ajustes".
             color: Sys.surface
             clipContent: true
         }
@@ -4577,7 +4578,7 @@ Window {
                         // (Liner style): pseudo blur with no GPU +
                         // frosted islands.
                         SettingRow {
-                            // ⦿ CINEMA MODE: The wash background is enabled by default.
+                            // > CINEMA MODE: The wash background is enabled by default.
                             //   If you see a static background in cinema mode, make
                             //   sure this toggle is ON (see below).
                             label: "Fondo dinámico"
@@ -4800,7 +4801,7 @@ Window {
                     }
 
                     // ======================================================
-                    // ALMACENAMIENTO
+                    // STORAGE
                     // ======================================================
                     SettingSection {
                         title: "Almacenamiento"

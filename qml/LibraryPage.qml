@@ -39,8 +39,8 @@ Item {
 
     property bool showingTracks: false
     // Discography batch being queued (from Main): when several albums are
-    // being prepared, Downloads shows them as ONE "Discografía de X"
-    // group instead of a flat list of loose album jobs.
+    // being prepared, Downloads shows them as ONE "Discography of X" group
+    // instead of a flat list of loose album jobs.
     property string discArtist: ""
     property int discTotal: 0
     property int discDone: 0
@@ -86,9 +86,9 @@ Item {
     // downloaded, true = the newest first.
     property bool dlNewestFirst: false
 
-    // Una radio (RDAMVM/RDCLAK, "start_radio") no es una lista con autor:
-    // la cabecera enseñaba el artista de la PRIMERA pista como si fuera el
-    // de la radio ("Radio de Calva Louise" → "VIOLENT VIRA").
+    // A radio (RDAMVM/RDCLAK, "start_radio") is not a list with an
+    // author: the header showed the artist of the FIRST track as the author
+    // of the radio ("Radio de Calva Louise" -> "VIOLENT VIRA").
     readonly property bool viewIsRadio:
         /(?:[?&]list=RD|start_radio=1)/.test(String(catalog.openListUrl || ""))
 
@@ -131,7 +131,7 @@ Item {
     }
     readonly property var covers: coversFor()
 
-    // ---- barra de la biblioteca: buscar / crear lista -------------------
+    // ---- library bar: search / create list -------------------------------
     property string libFilter: ""
     property bool addListOpen: false
     // Phone: the filter field takes the full width in its own row and only
@@ -139,8 +139,8 @@ Item {
     // fit: 200 dp of a 372 dp screen).
     property bool libSearchOpen: false
 
-    // Covers filtradas por el campo "Buscar en la biblioteca" (nombre o
-    // URL). El filtro es local: no vuelve a pedir nada a la red.
+    // Covers filtered by the "Search in the library" box (name or URL).
+    // The filter is local: it asks the network for nothing.
     readonly property var filteredCovers: {
         const src = page.covers
         const q = String(page.libFilter || "").trim().toLowerCase()
@@ -321,9 +321,9 @@ Item {
     }
 
     // ---- responsive grid ------------------------------------------------
-    // Columnas como en la referencia: tarjetas mas pequeñas y juntas, con
-    // la portada cuadrada, en vez de cuatro tarjetas enormes. A 1240 px
-    // de ancho salen 6 columnas de ~196 px (antes 5 de ~220).
+    // Columns like in the reference: smaller cards, closer together, with
+    // the cover square, instead of four huge cards. At 1240 px wide that is
+    // 6 columns of about 196 px (it was 5 of about 220).
     readonly property int coverGap: 12
     function gridCols(w) {
         w = Math.max(1, w)
@@ -332,10 +332,10 @@ Item {
         const min = Theme.touch ? 112 : 180
         return Math.max(1, Math.floor(w / min))
     }
-    // Ancho de celda exacto: la rejilla reparte el ancho entre las
-    // columnas y la tarjeta deja el hueco dentro de su celda. Antes se
-    // sumaba el hueco a cada celda y la ultima columna no cabia (a 1240
-    // px se veian 5 columnas en vez de 6).
+    // Exact cell width: the grid divides the width between the columns and
+    // the card keeps the gap inside its own cell. It used to add the gap to
+    // every cell, so the last column did not fit (at 1240 px you saw 5
+    // columns instead of 6).
     function gridCellW(w) {
         w = Math.max(1, w)
         return Math.floor(w / gridCols(w))
@@ -469,20 +469,20 @@ Item {
         const n = page.openDownloadTracks.length
         return n + (n === 1 ? " canción" : " canciones") + " · descargada"
     }
-    // Chips de la cabecera: numero de pistas y duracion total, por
-    // separado (la referencia los muestra como dos pastillas).
-    // Autor de la lista: el de la primera pista (la cabecera de la
-    // referencia lo enseña bajo el titulo, a 18 px).
+    // Header chips: number of tracks and total length, apart (the reference
+    // shows them as two pills).
+    // Author of the list: the one of the first track (the header of the
+    // reference shows it under the title, at 18 px).
     function viewArtistText() {
         if (page.localPlaylistOpen)
             return ""
-        // La radio no tiene autor propio: el de su primera pista no lo es.
+        // A radio has no author of its own: the one of its first track is not it.
         if (page.viewIsRadio)
             return "Radio · YouTube Music"
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }
-    // Año (si las pistas lo traen): primera pastilla de la cabecera.
+    // Year (when the tracks carry it): first chip of the header.
     function viewYearText() {
         const t = page.viewTracks()
         const y = (t && t.length > 0) ? t[0].year : 0
@@ -513,10 +513,10 @@ Item {
                                       : String(page.dlOpenFolder || "")
     }
 
-    // ---- "Buscar en la lista" -------------------------------------------
-    // El filtro es solo de la vista: cada fila guarda su indice ORIGINAL
-    // (`_listIndex`) para que al pulsar suene la pista correcta de la
-    // lista, no la de la posicion filtrada.
+    // ---- "Search in the list" -------------------------------------------
+    // The filter is only for the view: every row keeps its ORIGINAL index
+    // (`_listIndex`) so pressing it plays the right track of the list, not
+    // the one at the filtered position.
     property string listFilter: ""
     property bool listSearchOpen: false
 
@@ -955,7 +955,7 @@ Item {
                 }
             }
 
-            // Real reason of the failure ("Playlist does not exist", "Missing ffprobe"…)
+            // Real reason of the failure ("Playlist does not exist", "Missing ffprobe"...)
             Text {
                 visible: String(jrow.modelData.state || "") === "error"
                          && !!jrow.modelData.error
@@ -988,26 +988,26 @@ Item {
         }
     }
 
-    // ---- fondo desenfocado de la lista abierta --------------------------
-    // La portada de la lista, ampliada y desenfocada detras de la cabecera
-    // y de las filas (referencia). El velo en degradado deja el texto
-    // legible y se funde con el fondo en la mitad inferior.
+    // ---- blurred background of the open list ----------------------------
+    // The cover of the list, enlarged and blurred behind the header and the
+    // rows (reference). The gradient veil keeps the text readable and melts
+    // into the background on the lower half.
     Item {
         anchors.fill: parent
         z: -1
         visible: page.showingTracks
         clip: true
 
-        // Desenfoque REAL en C++ (rart + el pipeline del wash): la app va
-        // con el backend software, donde `MultiEffect` no dibuja nada y
-        // el fondo salia plano. RoundedArt se encarga de la descarga, el
-        // cache y de repintar cuando el C++ termina.
+        // REAL blur in C++ (rart plus the wash pipeline): the app runs on the
+        // software backend, where `MultiEffect` draws nothing and the background
+        // came out flat. RoundedArt takes care of the download, the cache and of
+        // repainting when C++ finishes.
         //
-        // Va como TARJETA, no a sangre: mismos margenes que los demas
-        // paneles (Theme.panelMargin) y radio Theme.rXl, redondeado en el
-        // C++ (el alfa lo pone rart, un `clip` de Rectangle no recorta las
-        // esquinas). El rectangulo que hacia de fondo llegaba cuadrado
-        // hasta los bordes de la pantalla y desentonaba con las islas.
+        // It goes as a CARD, not edge to edge: same margins as the other panels
+        // (Theme.panelMargin) and Theme.rXl radius, rounded in C++ (rart sets the
+        // alpha; a `clip` on a Rectangle does not round the corners). The
+        // rectangle that used to be the background reached square to the screen
+        // edges and clashed with the islands.
         RoundedArt {
             id: listBgArt
             anchors.fill: parent
@@ -1051,18 +1051,17 @@ Item {
             Layout.fillHeight: true
             visible: page.showingTracks
             spacing: Theme.panelGap
-            // El fondo es una TARJETA con esquinas de Theme.rXl: sin aire
-            // dentro, la portada y la primera fila pisaban el arco de la
-            // esquina y parecia todo desplazado (el fondo iba a sangre
-            // antes de convertirlo en tarjeta).
+            // The background is a CARD with Theme.rXl corners: with no air inside,
+            // the cover and the first row stepped on the corner arc and everything
+            // looked shifted (the background was edge to edge before it became a
+            // card).
             Layout.margins: Theme.s3
 
-            // ---- cabecera de la lista (referencia: Liner) --------------
-            // Portada 168, titulo 30 en negrita, autor 18 y las pastillas
-            // de datos. Debajo, la fila de acciones: Reproducir todo +
-            // aleatorio a la izquierda; buscar, anadir, descargar y el
-            // menu a la derecha. Radios de 9 px y 32 de alto, como la
-            // referencia (no pastillas de 36).
+            // ---- list header (reference: Liner) -------------------------
+            // Cover 168, title 30 bold, author 18 and the data pills. Under them, the
+            // row of actions: Play all + shuffle on the left; search, add, download
+            // and the menu on the right. 9 px radii and 32 high, as in the reference
+            // (not 36 px pills).
             RowLayout {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.s1
@@ -1123,7 +1122,7 @@ Item {
                         maximumLineCount: 1
                     }
 
-                    // Pastillas de datos: año y "N canciones · duracion".
+                    // Data pills: year and the track count with the total length.
                     RowLayout {
                         Layout.topMargin: 12
                         spacing: 6
@@ -1197,9 +1196,9 @@ Item {
                 Layout.fillWidth: true
                 spacing: 8
 
-                // Reproducir todo: pastilla clara (como la referencia, que
-                // usa el boton primario del tema: fondo casi blanco y texto
-                // oscuro), no el color de acento.
+                // Play all: light pill (like the reference, which uses the primary
+                // button of the theme: near white background and dark text), not the
+                // accent colour.
                 Rectangle {
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     implicitWidth: playAllRow.implicitWidth + 44
@@ -1234,7 +1233,7 @@ Item {
                     }
                 }
 
-                // Aleatorio: 52 de ancho, mismo alto y radio.
+                // Shuffle: 52 wide, same height and radius.
                 Rectangle {
                     Layout.preferredWidth: Theme.touch ? 56 : 52
                     Layout.preferredHeight: Theme.touch ? 40 : 32
@@ -1260,7 +1259,7 @@ Item {
 
                 Item { Layout.fillWidth: true }
 
-                // Descarga de la lista (con su progreso)
+                // Download of the list (with its progress)
                 Rectangle {
                     id: dlBtn
                     Layout.preferredWidth: Theme.touch ? 40 : 32
@@ -1333,7 +1332,7 @@ Item {
                     }
                 }
 
-                // Desinstalar (solo si ya esta descargada)
+                // Uninstall (only when it is already downloaded)
                 Rectangle {
                     Layout.preferredWidth: Theme.touch ? 40 : 32
                     Layout.preferredHeight: Theme.touch ? 40 : 32
@@ -1361,7 +1360,7 @@ Item {
                     }
                 }
 
-                // Menu de la lista (…)
+                // Menu of the list (...)
                 Rectangle {
                     Layout.preferredWidth: Theme.touch ? 40 : 32
                     Layout.preferredHeight: Theme.touch ? 40 : 32
@@ -1388,16 +1387,16 @@ Item {
                     }
                 }
             }
-            // ---- segunda fila (solo movil): buscar + anadir a cola ---
-            // No caben en la fila de arriba (el buscador solo ya
-            // ocupa 220 dp de los 372 utiles).
+            // ---- second row (phone only): search + add to queue ---
+            // They do not fit in the row above (the search box alone takes
+            // 220 dp out of the 372 usable).
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 8
                 visible: Theme.touch
-                // Buscar en la lista: 220 x 32, radio 9 y fondo tenue.
+                // Search in the list: 220 x 32, radius 9 and a faint background.
                 Rectangle {
-                    // En el movil ocupa todo el ancho que sobra.
+                    // On the phone it takes all the width left over.
                     Layout.fillWidth: true
                     Layout.preferredWidth: 220
                     Layout.preferredHeight: Theme.touch ? 40 : 32
@@ -1441,7 +1440,7 @@ Item {
 
                 Item { Layout.preferredWidth: 4 }
 
-                // Anadir a la cola
+                // Add to queue
                 Rectangle {
                     Layout.preferredHeight: Theme.touch ? 40 : 32
                     implicitWidth: qlRow.implicitWidth + 44
@@ -1480,10 +1479,10 @@ Item {
             }
             }
 
-            // Lista de pistas: filas de altura fija, reutilizadas al
-            // desplazar (reuseItems + cacheBuffer) para no gastar RAM.
-            // Sin tarjeta alrededor: las filas van sobre el fondo
-            // desenfocado de la portada, como en la referencia.
+            // Track list: fixed height rows, reused while scrolling
+            // (reuseItems + cacheBuffer) so they do not eat RAM. No card
+            // around them: the rows sit over the blurred cover of the
+            // list, as in the reference.
             ListView {
                 id: tracksList
                 Layout.fillWidth: true
@@ -1605,12 +1604,12 @@ Item {
                         spacing: Theme.s3
                         transform: Translate { x: trow.dx }
 
-                        // Numero de la pista (posicion en la lista, no en el
-                        // filtro): como en la referencia.
+                        // Track number (position in the list, not in the filter):
+                        // as in the reference.
                         Text {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredWidth: 24
-                            // Numero a dos cifras ("01"), como la referencia.
+                            // Number in two digits ("01"), as in the reference.
                             text: {
                                 const n = (trow.modelData && trow.modelData._listIndex !== undefined)
                                           ? (trow.modelData._listIndex + 1) : (trow.index + 1)
@@ -1685,8 +1684,8 @@ Item {
                             font.pixelSize: Theme.tMd
                         }
 
-                        // Menu de la pista (⋮), tambien con el raton: en
-                        // movil no hay click derecho.
+                        // Menu of the track (⋮), with the mouse too: on a phone
+                        // there is no right click.
                         Rectangle {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredWidth: 26
@@ -1717,9 +1716,9 @@ Item {
                     }
                 }
 
-            // Lista vacia por el filtro: se dice, no se deja en blanco.
-            // (Va dentro de un Item porque el Island coloca a sus hijos en
-            // un ColumnLayout y ahi no se puede anclar.)
+            // Empty list because of the filter: say so instead of leaving it
+            // blank. (It sits inside an Item because Island puts its children in
+            // a ColumnLayout, where anchoring does not work.)
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: (page.listFilter !== ""
@@ -1806,9 +1805,9 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
 
-                // Buscar en la biblioteca (filtra las tarjetas al escribir).
-                // En el movil viejo una lupa que abre el campo en su propia
-                // fila: aqui no cabe (200 dp de 372).
+                // Search in the library (filters the cards as you type). On an
+                // old phone, a magnifier that opens the field on its own row:
+                // it does not fit here (200 dp out of 372).
                 Rectangle {
                     visible: !Theme.touch
                     Layout.preferredWidth: 200
@@ -1854,8 +1853,8 @@ Item {
                     }
                 }
 
-                // Phone: la lupa abre el filtro en su propia fila (el campo
-                // de 200 dp no cabe en esta).
+                // Phone: the magnifier opens the filter on its own row (the 200
+                // dp field does not fit in this one).
                 Rectangle {
                     visible: Theme.touch
                     Layout.preferredWidth: 40
@@ -1889,8 +1888,8 @@ Item {
                     }
                 }
 
-                // Crear / añadir una lista por URL: el formulario se
-                // despliega desde aqui en vez de ocupar sitio siempre.
+                // Create / add a list by URL: the form unfolds from here
+                // instead of taking room all the time.
                 Rectangle {
                     Layout.preferredHeight: Theme.touch ? 40 : Theme.pillH
                     implicitWidth: Math.max(Theme.touch ? 40 : 0,
@@ -1936,8 +1935,8 @@ Item {
                 }
             }
 
-            // ---- filtro de la biblioteca (solo movil) --------------------
-            // Se despliega desde la lupa y ocupa todo el ancho.
+            // ---- library filter (phone only) --------------------
+            // It unfolds from the magnifier and takes the full width.
             RowLayout {
                 Layout.fillWidth: true
                 visible: Theme.touch && page.libSearchOpen
@@ -2151,8 +2150,8 @@ Item {
                     catalog.addPlaylist(nameInput.text, urlInput.text)
                     urlInput.text = ""
                     nameInput.text = ""
-                    // El formulario se recoge al terminar: la biblioteca
-                    // vuelve a estar limpia.
+                    // The form folds back when it is done: the library looks
+                    // clean again.
                     page.addListOpen = false
                 }
             }
@@ -2694,8 +2693,8 @@ Item {
                         height: GridView.view.cellHeight
 
                         title: modelData.name || ""
-                        // Sin contar pistas no se enseña la URL cruda
-                        // (era ilegible y ocupaba dos lineas).
+                        // With no track count the raw URL is not shown (it was
+                        // unreadable and took two lines).
                         subtitle: (modelData.count || 0) > 0
                                   ? modelData.count + " pistas" : ""
 

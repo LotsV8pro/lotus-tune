@@ -44,8 +44,8 @@ ADD_URL = (
 )
 REFRESH_URL = "https://music.youtube.com/"
 
-# Google rechaza inicios de sesion desde navegadores embebidos que no reconoce.
-# WebKitGTK comparte motor con Safari, asi que nos identificamos como Safari/mac.
+# Google refuses logins from embedded browsers it does not know.
+# WebKitGTK shares the engine with Safari, so we identify as Safari/mac.
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -92,8 +92,8 @@ def _stored_header():
     try:
         with open(SESSION_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        # Las sesiones nuevas guardan ya la cabecera filtrada; las viejas
-        # traen google.com y youtube.com mezclados y hay que deduplicar.
+        # New sessions already save the filtered header; old ones carry
+        # google.com and youtube.com mixed and have to be deduplicated.
         return _dedupe_header(
             data.get("youtube_cookie_header") or data.get("cookie_header", "")
         )
@@ -172,11 +172,11 @@ def _session_state(header):
 
 
 def cmd_status():
-    # cookies.txt es la fuente de verdad (lo que lee yt-dlp); el header del
-    # ytm_session.json se usa si el fichero Netscape no estuviera. En ambos
-    # casos solo viajan las cookies de YouTube: mezclarlas con las de
-    # google.com hacia que el servidor respondiera CookieMismatch y la
-    # sesion se daba por caducada en cada reinicio.
+    # cookies.txt is the source of truth (what yt-dlp reads); the header of
+    # ytm_session.json is used when the Netscape file is not there. In both
+    # cases only the YouTube cookies travel: mixing them with the google.com
+    # ones made the server answer CookieMismatch and the session was taken
+    # as expired on every restart.
     header = _cookies_txt_header() or _stored_header()
     if not _usable(header):
         out("STATUS error sin-sesion")
@@ -215,7 +215,7 @@ def _write_cookies(cookies):
         subdom = "TRUE" if domain.startswith(".") else "FALSE"
         rows.append((domain, subdom, path, secure, str(expires), name, value))
 
-    # Mas especifico primero, como hace un navegador.
+    # Most specific first, the way a browser does it.
     rows.sort(key=lambda r: (r[0].count("."), r[0]), reverse=True)
 
     header = "; ".join(f"{r[5]}={r[6]}" for r in rows)
@@ -329,8 +329,8 @@ def cmd_login(url=LOGIN_URL, timeout_min=12):
         else:
             out(f"NAV {uri}")
             if host.startswith("consent.") or host.startswith("accounts.google.com"):
-                # Muro de consentimiento ("Antes de continuar en YouTube") y
-                # pantallas intermedias de Google: pulsar Aceptar solo.
+                # Consent wall ("Before you continue to YouTube") and the intermediate
+                # Google screens: press Accept only.
                 js = (
                     "(function(){try{"
                     "var re=/acept|accept|agree|akkoord|akzept|acuerdo|aceitar/i;"

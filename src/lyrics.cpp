@@ -2320,8 +2320,8 @@ void Lyrics::publishLines()
     obj.insert(QStringLiteral("offset"), m_offset);
     obj.insert(QStringLiteral("status"),
                m_hasSynced ? QStringLiteral("ok") : QStringLiteral("none"));
-    // Letra sin tiempos: la app enseña sus dos primeras lineas y el widget
-    // del movil hace lo mismo con este mismo texto.
+    // Plain lyrics: the app shows their first two lines and the mobile
+    // widget does the same with this same text.
     if (!m_plain.isEmpty())
         obj.insert(QStringLiteral("plain"), m_plain);
     obj.insert(QStringLiteral("lines"), lines);
@@ -2671,8 +2671,8 @@ static bool isInstrumental(const QString &norm)
 // The last word of a line usually inherits the end of the line: the
 // sources mark the end of the phrase, not the end of the word. When the
 // line is long the karaoke front stays on that last word for seconds and
-// the phrase looks like it is still being sung (the user noticed it: "las
-// frases se alargan más de lo que deberían"). The word is cut to what the
+// the phrase looks like it is still being sung (the user noticed it: "the
+// lines stretch longer than they should"). The word is cut to what the
 // other words of the line take.
 void Lyrics::clampStretchedWord(LrcLine &line)
 {
@@ -2719,12 +2719,12 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
     const QString t = norm(title);
     const QString a = norm(artist);
     // Only the HEADER of the lyrics carries the title/artist ("Title -
-    // Artist", "Artist: Title", the credits of the video…). Applying this
+    // Artist", "Artist: Title", the credits of the video...). Applying this
     // rule to the whole song deleted the chorus of any track whose title
     // is sung in it: "I Hate Everything About You" lost 6 lines out of 34
     // and the same happened with every repeated hook.
     const int headerLines = 4;
-    // Some sources cut the artist ("…-Avenged"): the first word identifies
+    // Some sources cut the artist ("...-Avenged"): the first word identifies
     // the header too. `a` has no spaces (norm removes them), so the word
     // is taken from the raw name.
     QString aFirst;
@@ -3233,7 +3233,7 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
                     .value(QStringLiteral("subtitle")).toObject()
                     .value(QStringLiteral("subtitle_body")).toString();
             // Sometimes the body is not an LRC text but a JSON array with
-            // the line and its time: [{"text":…,"time":{"total":…}}].
+            // the line and its time: [{"text":...,"time":{"total":...}}].
             if (lrc.trimmed().startsWith(QLatin1Char('['))) {
                 QVector<LrcLine> lines;
                 const QJsonArray arr =

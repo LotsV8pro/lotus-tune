@@ -1,23 +1,23 @@
-#!/usr/bin/env bash
-# ---------------------------------------------------------------------------
-# lotus-tune — instalador de una sola orden (Linux)
+# !/usr/bin/env bash
+#  ---------------------------------------------------------------------------
+#  lotus-tune: one command installer (Linux)
 #
-#   curl -fsSL https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh -o install.sh
-#   bash install.sh
+#    curl -fsSL https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh -o install.sh
+#    bash install.sh
 #
-# Opciones:
-#   --prefix RUTA   dónde instalar (por defecto ~/.local; el binario acaba en
-#                   <prefix>/bin y los accesos en <prefix>/share/...)
-#   --system        instalar en /usr/local (necesita sudo)
-#   --no-deps       no intentar instalar las dependencias del sistema
-#   --deps-only     instalar solo las dependencias y salir
-#   --no-pull       no hacer git pull en una copia que ya existe
-#   --jobs N        hilos de compilación (por defecto: nproc)
-#   --fetch         descargar el tarball de GitHub en vez de clonar con git
+#  Options:
+#    --prefix PATH   where to install (default ~/.local; the binary ends in
+#                    <prefix>/bin and the entries in <prefix>/share/...)
+#    --system        install into /usr/local (needs sudo)
+#    --no-deps       do not try to install the system dependencies
+#    --deps-only     install only the dependencies and exit
+#    --no-pull       do not run git pull on a copy that already exists
+#    --jobs N        build threads (default: nproc)
+#    --fetch         download the GitHub tarball instead of cloning with git
 #
-# Se puede reusar la carpeta: la segunda ejecución compila incrementalmente.
-# Variables de entorno equivalentes: PREFIX y JOBS.
-# ---------------------------------------------------------------------------
+#  The folder can be reused: a second run builds incrementally.
+#  Environment variables with the same effect: PREFIX and JOBS.
+#  ---------------------------------------------------------------------------
 
 set -euo pipefail
 
@@ -39,7 +39,7 @@ sudo_do() {  # sólo pide contraseña si de verdad hay que instalar
     if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
-# ── Argumentos ───────────────────────────────────────────────────────────────
+# -- Arguments ---------------------------------------------------------------
 while [ $# -gt 0 ]; do
     case "$1" in
         --prefix)    PREFIX="$2"; shift 2 ;;
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# ── ¿Estamos ya dentro de una copia del repo? ────────────────────────────────
+# -- Are we already inside a copy of the repo? -------------------------------
 if [ -f ./CMakeLists.txt ] && grep -q 'project(lotus-tune' ./CMakeLists.txt 2>/dev/null; then
     SRC="$(pwd)"
     msg "usando la copia existente: $SRC"
@@ -69,7 +69,7 @@ elif [ "$CLONE_GIT" = 1 ] && command -v git >/dev/null 2>&1; then
         git clone --depth=1 "$REPO_URL" "$SRC"
     fi
 else
-    # Sin git (o --fetch): tarball del master
+    # Without git (or with --fetch): tarball of master
     if [ "$DO_PULL" = 1 ] || [ ! -d "$SRC" ]; then
         msg "descargando tarball del master"
         mkdir -p "$SRC"
@@ -79,7 +79,7 @@ else
 fi
 [ -f "$SRC/CMakeLists.txt" ] || die "no hay fuente en $SRC — borra la carpeta y repite"
 
-# ── Dependencias ─────────────────────────────────────────────────────────────
+# -- Dependencies ------------------------------------------------------------
 have() { command -v "$1" >/dev/null 2>&1; }
 NEED=""
 if ! have cmake || ! have ninja || ! have g++ || ! have mpv || ! have yt-dlp; then
@@ -107,7 +107,7 @@ elif [ "${DEPS_ONLY:-0}" = 1 ]; then
     exit 0
 fi
 
-# ── Compilar ────────────────────────────────────────────────────────────────
+# -- Build -------------------------------------------------------------------
 msg "configurando (Release → $PREFIX)…"
 cmake -S "$SRC" -B "$SRC/build" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
@@ -117,7 +117,7 @@ cmake --build "$SRC/build" --parallel "$JOBS"
 
 if [ "${DEPS_ONLY:-0}" = 1 ]; then exit 0; fi
 
-# ── Instalar ────────────────────────────────────────────────────────────────
+# -- Install -----------------------------------------------------------------
 msg "instalando en $PREFIX…"
 if [ -w "$PREFIX" ] || [ -w "$(dirname "$PREFIX")" ]; then
     cmake --install "$SRC/build"
@@ -125,14 +125,14 @@ else
     sudo_do cmake --install "$SRC/build"
 fi
 
-# ── Comprobación y aviso final ──────────────────────────────────────────────
+# -- Check and final notice --------------------------------------------------
 BIN="$PREFIX/bin/lotus-tune"
 [ -x "$BIN" ] || die "la instalación no dejó el binario en $BIN"
 
-# qt.conf junto al binario: direccciona las rutas de importación de QML del
-# módulo embebido LotusTune. Sin él el launcher fallaría con
-# «Module LotusTune contains no type named Main» (el binario de cmake
-# --install no las lleva integradas).
+# qt.conf next to the binary: it points the QML import paths at the embedded
+# LotusTune module. Without it the launcher fails with
+# "Module LotusTune contains no type named Main" (the binary built by cmake
+# --install does not carry them inside).
 QTCONF_SRC="$SRC/qt.conf"
 if [ -f "$QTCONF_SRC" ] && [ ! -f "$(dirname "$BIN")/qt.conf" ]; then
     cp "$QTCONF_SRC" "$(dirname "$BIN")/qt.conf"

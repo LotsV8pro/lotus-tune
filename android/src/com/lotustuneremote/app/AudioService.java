@@ -1,14 +1,13 @@
 /**
- * Servicio en primer plano para que la musica siga sonando con la app en
- * segundo plano o la pantalla apagada (Android 8+ mata o suspende el
- * proceso si no hay un foreground service del tipo mediaPlayback).
+ * Foreground service so the music keeps playing with the app in the
+ * background or the screen off (Android 8+ kills or suspends the process
+ * when there is no foreground service of the mediaPlayback type).
  *
- * La notificacion reutiliza las mismas acciones que el widget
- * (PlayerWidget.ACTION_*), asi que ambas vias de control comparten el
- * buzon que sondea el C++. Ademas publica un MediaSession con la caratula
- * y los datos de la pista: es lo que hace que el sistema (pantalla de
- * bloqueo, ajustes rapidos, relojes, coche) muestre los controles buenos y
- * no una notificacion de texto.
+ * The notification reuses the same actions as the widget
+ * (PlayerWidget.ACTION_*), so both control paths share the mailbox that
+ * C++ polls. It also publishes a MediaSession with the artwork and the
+ * track data: that is what makes the system (lock screen, quick settings,
+ * watches, car) show the right controls instead of a text notification.
  */
 package com.lotustuneremote.app;
 
@@ -40,15 +39,15 @@ public class AudioService extends Service
 
     private PowerManager.WakeLock sWake = null;
 
-    // Apagado con retardo: al acabar una pista el reproductor pasa un
-    // instante por "stopped" y si se paraba el servicio en ese hueco el
-    // proceso se quedaba sin primer plano (MIUI lo congela) y la pista
-    // siguiente no llegaba a sonar. Se deja un margen y se cancela si
-    // vuelve a arrancar.
-    // Foco de audio: sin el, MIUI (AudioHardening) silencia la musica en
-    // segundo plano ("background playback would be muted") y el
-    // reproductor se queda parado a los pocos cientos de milisegundos de
-    // empezar cada pista. Pidiendolo, la app es la duena del audio.
+    // Delayed stop: when a track ends the player goes through "stopped"
+    // for an instant, and if the service was stopped in that gap the
+    // process lost its foreground state (MIUI freezes it) and the next
+    // track never started. A margin is left and the stop is cancelled when
+    // playback starts again.
+    // Audio focus: without it, MIUI (AudioHardening) mutes the music in
+    // the background ("background playback would be muted") and the player
+    // stops a few hundred milliseconds into every track. Asking for it
+    // makes the app the owner of the audio.
     private static AudioManager sAudio = null;
     private static AudioFocusRequest sFocusReq = null;
     private static AudioManager.OnAudioFocusChangeListener sFocusListener = null;
@@ -58,14 +57,14 @@ public class AudioService extends Service
     private static Runnable sStopRunnable = null;
     private static final long STOP_DELAY_MS = 15000L;
 
-    // Estado compartido con PlayerWidget (mismo proceso).
+    // State shared with PlayerWidget (same process).
     private static Context sApp = null;
     private static MediaSession sSession = null;
     private static Bitmap sArt = null;
-    private static String sArtLoaded = "\u0000";   // URL de la que salio sArt
+    private static String sArtLoaded = "\u0000";   // URL sArt came from
     private static boolean sArtBusy = false;
 
-    /** Arranca (o actualiza) el servicio. Lo llama la app al empezar a sonar. */
+    /** Starts (or updates) the service. The app calls it when playback begins. */
     public static void start(Context c)
     {
         if (c == null)
@@ -79,10 +78,10 @@ public class AudioService extends Service
     }
 
     /**
-     * Para el servicio cuando la reproduccion termina, pero con margen:
-     * entre el fin de una pista y el arranque de la siguiente el estado
-     * pasa por "stopped" y apagarlo ahi dejaba el proceso sin primer
-     * plano justo cuando mas falta hace.
+     * Stops the service when playback ends, but with a margin: between the
+     * end of one track and the start of the next the state goes through
+     * "stopped", and stopping it there left the process without its
+     * foreground state right when it is needed the most.
      */
     public static void stop(Context c)
     {
@@ -114,10 +113,11 @@ public class AudioService extends Service
         if (c == null)
             return;
         final Context app = c.getApplicationContext();
-        // El C++ llama desde el hilo de Qt, que NO tiene Looper: crear ahi
-        // el MediaSession (lo hace internamente un Handler) lanzaba
-        // NullPointerException y el aviso se quedaba sin repintar. Todo lo
-        // que toca notificacion/sesion pasa al hilo principal.
+        // C++ calls from the Qt thread, which has NO Looper: creating the
+        // MediaSession there (it builds a Handler internally) threw
+        // NullPointerException and the notification was never repainted.
+        // Everything that touches the notification/session moves to the main
+        // thread.
         if (Looper.myLooper() == Looper.getMainLooper()) {
             doRefresh(app);
             return;
@@ -128,10 +128,11 @@ public class AudioService extends Service
     }
 
     /**
-     * Solo la posicion de la sesion (cada segundo): la tarjeta de medios del
-     * sistema extrapola entre refrescos, asi que con esto la barra no se
-     * queda atras al cambiar de pista ni se adelanta al volver de segundo
-     * plano. No repinta el aviso.
+     * Only the position of the session (every second): the system media
+     * card extrapolates between refreshes, so with this the bar does not
+     * fall behind when the track changes and does not run ahead when the
+     * app comes back from the background. It does not repaint the
+     * notification.
      */
     static void syncPosition(Context c)
     {
@@ -153,9 +154,9 @@ public class AudioService extends Service
         ensureSession(sApp);
         loadArt(sApp);
         updateSession();
-        // El widget se refresca aqui: sin esto se queda con el RemoteViews
-        // de la ultima vez (o con el que monto el lanzador al añadirlo) y
-        // los botones nuevos no llegan nunca.
+        // The widget is refreshed here: without this it keeps the RemoteViews
+        // of the last time (or the one the launcher mounted when it was added)
+        // and the new buttons never arrive.
         PlayerWidget.attach(sApp);
         PlayerWidget.render(sApp);
         beat(sApp);
@@ -164,7 +165,8 @@ public class AudioService extends Service
             if (nm != null)
                 nm.notify(NOTIF_ID, build(sApp));
         } catch (Throwable t) {
-            // Sin canal (o sin permiso) el servicio sigue: solo no se ve.
+            // With no channel (or no permission) the service goes on, it is just
+            // not seen.
         }
     }
 
@@ -189,15 +191,15 @@ public class AudioService extends Service
         if (sSession != null || c == null)
             return;
         MediaSession s = new MediaSession(c, "LotusTune");
-        // El sistema pregunta por aqui (cascos, reloj, coche): se traduce a
-        // las mismas acciones del widget y el C++ las ejecuta.
+        // The system asks through here (headphones, watch, car): it is turned
+        // into the same actions as the widget and C++ runs them.
         s.setCallback(new MediaSession.Callback() {
             @Override public void onPlay() { push("PLAY"); }
             @Override public void onPause() { push("PAUSE"); }
             @Override public void onSkipToNext() { push("NEXT"); }
             @Override public void onSkipToPrevious() { push("PREV"); }
-            // Botones extra de las tarjetas de medios del sistema (MIUI,
-            // Samsung, coche...): llegan como acciones personalizadas.
+            // Extra buttons of the system media cards (MIUI, Samsung, car...):
+            // they arrive as custom actions.
             @Override public void onCustomAction(String action, android.os.Bundle args)
             {
                 android.util.Log.i("LotusTune", "[media] accion propia: " + action);
@@ -209,7 +211,7 @@ public class AudioService extends Service
         sSession = s;
     }
 
-    /** Pide el foco de audio (una vez; repetirlo es inofensivo). */
+    /** Asks for the audio focus (once; asking again does no harm). */
     private static void ensureFocus(Context c)
     {
         AudioManager am = (AudioManager) c.getSystemService(Context.AUDIO_SERVICE);
@@ -226,11 +228,10 @@ public class AudioService extends Service
                         sPausedByLoss = false;
                         push("PAUSE");
                     } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                        // Llamada, aviso, video corto: pausar y reanudar
-                        // cuando nos devuelvan el foco, PERO solo si de
-                        // verdad estaba sonando. Si el usuario lo habia
-                        // pausado a mano, al volver del video se queda en
-                        // pausa (antes se reanudaba solo).
+                        // Call, notification, short video: pause and resume when the focus comes
+                        // back, BUT only when it really was playing. If the user had paused it
+                        // by hand, it stays paused after the video (it used to resume on its
+                        // own).
                         sPausedByLoss = PlayerWidget.sPlaying;
                         push("PAUSE");
                     } else if (change == AudioManager.AUDIOFOCUS_GAIN
@@ -282,12 +283,12 @@ public class AudioService extends Service
         PlayerWidget.sSeq++;
     }
 
-    // ---- latido del widget de letra -----------------------------------
-    // La letra del widget se calcula con los ficheros que publica el motor
-    // (lyrics.json / lyrics-runtime.json). El QML ya empuja la linea cada
-    // 250 ms, pero si la actividad muere el widget se quedaba congelado.
-    // Este latido de 1 Hz, solo mientras suena, mira el reloj publicado y
-    // repinta unicamente cuando cambia la linea (no en cada segundo).
+    // ---- heartbeat of the lyrics widget --------------------------------
+    // The lyrics of the widget are worked out from the files the engine
+    // publishes (lyrics.json / lyrics-runtime.json). QML already pushes the
+    // line every 250 ms, but when the activity died the widget froze.
+    // This 1 Hz heartbeat, only while playing, reads the published clock
+    // and repaints only when the line changes (not every second).
     private static Handler sBeatHandler = null;
     private static Runnable sBeatRunnable = null;
 
@@ -337,18 +338,18 @@ public class AudioService extends Service
                           | PlaybackState.ACTION_PLAY_PAUSE
                           | PlaybackState.ACTION_SKIP_TO_NEXT
                           | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
-                // Acciones propias: la tarjeta de medios del sistema las
-                // pinta como botones (aleatorio y me gusta) en las ROM que
-                // las soportan; en las que no, se ignoran sin romper nada.
+                // Actions of its own: the system media card paints them as buttons
+                // (shuffle and like) on the ROMs that support them; on the others they
+                // are ignored without breaking anything.
                 .addCustomAction(new PlaybackState.CustomAction.Builder(
                         "SHUFFLE", "Aleatorio", R.drawable.ic_w_shuffle).build())
                 .addCustomAction(new PlaybackState.CustomAction.Builder(
                         "FAV", "Me gusta", R.drawable.ic_w_heart_outline).build());
-        // Sin posicion/duracion a proposito: asi el sistema no pinta una
-        // barra de progreso que no se puede arrastrar.
-        // Con velocidad 1 y una posicion valida el sistema extrapola solo:
-        // la barra del aviso avanza sin que la app tenga que refrescar
-        // cada segundo.
+        // No position or duration on purpose: that way the system does not
+        // paint a progress bar that cannot be dragged.
+        // With speed 1 and a valid position the system extrapolates on its
+        // own: the bar of the notification moves without the app refreshing it
+        // every second.
         ps.setState(PlayerWidget.sPlaying ? PlaybackState.STATE_PLAYING
                                           : PlaybackState.STATE_PAUSED,
                     PlayerWidget.sPosMs, PlayerWidget.sPlaying ? 1f : 0f);
@@ -357,7 +358,7 @@ public class AudioService extends Service
 
     // ---- caratula -----------------------------------------------------
 
-    /** Descarga la caratula (URL de i.ytimg) en segundo plano y repinta. */
+    /** Downloads the artwork (i.ytimg URL) in the background and repaints. */
     private static void loadArt(Context c)
     {
         String url = PlayerWidget.sArt == null ? "" : PlayerWidget.sArt.trim();
@@ -412,7 +413,7 @@ public class AudioService extends Service
         }).start();
     }
 
-    /** Caratula ya descargada (null si no hay): la usa el widget. */
+    /** Artwork already downloaded (null when there is none): the widget uses it. */
     static Bitmap artBitmap()
     {
         return sArt;
@@ -485,7 +486,7 @@ public class AudioService extends Service
             sWake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
                                    "lotustune:playback");
             sWake.setReferenceCounted(false);
-            sWake.acquire(6 * 60 * 60 * 1000L);   // tope de 6 h por si acaso
+            sWake.acquire(6 * 60 * 60 * 1000L);   // 6 h cap, just in case
         }
     }
 

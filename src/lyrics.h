@@ -188,7 +188,7 @@ private:
     // know which handler has to process the answer.
     enum class Stage {
         YtmSearch,        // POST /youtubei/v1/search  (candidates)
-        YtmNext,          // POST /youtubei/v1/next    («Lyrics» tab)
+        YtmNext,          // POST /youtubei/v1/next    ("Lyrics" tab)
         YtmBrowse,        // POST /youtubei/v1/browse  (lyrics with timings)
         LrclibGet,        // GET /api/get
         LrclibSearch,     // GET /api/search
@@ -392,7 +392,7 @@ private:
     int m_gen = 0;
     QStringList m_ytmIds;       // candidate videos from YouTube Music
     int m_ytmIdx = 0;           // candidate in progress
-    QString m_ytmBrowseId;      // browseId «MPLYt_*» of the current lyrics
+    QString m_ytmBrowseId;      // browseId `MPLYt_*` of the current lyrics
     // True when the exact video m_videoId has already been tried and had
     // no lyrics: the title search then works as a fallback (once).
     bool m_exactTried = false;

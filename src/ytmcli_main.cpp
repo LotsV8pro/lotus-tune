@@ -806,10 +806,10 @@ QString subtitleOf(const Json &renderer)
 QString bestThumb(const Json &node)
 {
     const QJsonObject o = node.toObject();
-    // playlistPanelVideoRenderer (las radios) y los renderers compactos
-    // llevan la miniatura como una lista `thumbnails` directamente bajo
-    // `thumbnail`, sin musicThumbnailRenderer: esa forma se colaba y la
-    // pista se quedaba sin portada.
+    // playlistPanelVideoRenderer (the radios) and the compact renderers
+    // carry the thumbnail as a `thumbnails` list directly under `thumbnail`,
+    // with no musicThumbnailRenderer: that shape slipped through and the
+    // track was left with no cover.
     const QJsonArray flat =
         o.value(QLatin1String("thumbnail"))
             .toObject()
@@ -889,7 +889,7 @@ void walkTexts(const Json &node, QStringList *out)
     }
 }
 
-// python _length_text → duration of a playlist track row.
+// python _length_text -> duration of a playlist track row.
 double lengthOf(const Json &renderer)
 {
     const QJsonObject o = renderer.toObject();
@@ -1062,7 +1062,7 @@ QJsonObject trackOf(const Json &renderer)
     QString artist;
     const QString byline = flexText(renderer, 1);
     if (!byline.isEmpty()) {
-        // separators "·"/"," between artists in YT Music become ", ".
+        // separators "·" and "," between artists in YT Music become ", ".
         artist = byline;
         artist.replace(kSepArtistRe, QStringLiteral(", "));
         artist.remove(QRegularExpression(QStringLiteral("[-,\\s]+$")));
@@ -1672,10 +1672,10 @@ QJsonArray artistDiscography(const QString &bidIn)
 }
 
 // ---- artist page: the sections the app paints (python artist_page) --------
-// The artist page (UC…/MPC…) is a pile of shelves: "Canciones más
-// escuchadas" (playable rows), "Álbumes", "Singles y EPs", "Radios" and
-// "Puede que también te guste". The discography (MPAD…) is asked separately
-// because it is the complete list of releases, which the shelves cut to 10.
+// The artist page (UC.../MPC...) is a pile of shelves: top songs (playable
+// rows), albums, singles and EPs, radios and similar artists. The
+// discography (MPAD...) is asked separately because it is the complete
+// list of releases, which the shelves cut to 10.
 
 // python _plain_text.
 QString plainText(const Json &node)
@@ -2241,8 +2241,8 @@ QJsonObject playlistInfoObj(const QString &listId)
     };
 }
 
-// python album_playlist_id: la lista de audio (OLAK5uy…) que YouTube Music
-// crea para un disco. Es lo que necesita yt-dlp para descargarlo entero.
+// python album_playlist_id: the audio list (OLAK5uy...) YouTube Music
+// creates for a record. It is what yt-dlp needs to download it whole.
 QString albumPlaylistId(const QString &browseId)
 {
     const NetResult r = browseJson(browseId);
@@ -2344,7 +2344,8 @@ int searchRank(const QJsonObject &e, const QString &query)
     const QString ch = e.value(QLatin1String("channel")).toString();
     const QString title = e.value(QLatin1String("title")).toString();
     int typ;
-    // python splits by U+2022 (bullet): "Canción • Artista".
+    // python splits by U+2022 (bullet), the one YT Music puts between the
+    // song and the artist.
     const QStringList parts = ch.toLower().split(QChar(0x2022));
     const QString kind = parts.isEmpty() ? QString()
                                          : parts.first().trimmed();

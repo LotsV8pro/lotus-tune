@@ -41,11 +41,11 @@ class Player : public QObject
     // Track requested but whose stream is still being resolved/loaded in
     // mpv (it does not sound yet). It lets the UI show a waiting state.
     Q_PROPERTY(bool loading READ loading NOTIFY stateChanged)
-    // Ultimo fallo de reproduccion/descarga, ya en lenguaje humano
-    // ("Tu operador ha bloqueado la descarga (403)..."). Vacio = sin error.
+    // Last playback/download error, already in human language (for example
+    // "Your carrier has blocked the download (403)..."). Empty = no error.
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
-    // Duracion conocida por la interfaz (la que trae la lista de YouTube
-    // Music) para pistas que ya estan en cache y no se vuelven a resolver.
+    // Duration known by the interface (the one the YouTube Music list
+    // brings) for tracks already cached that are not resolved again.
     Q_PROPERTY(double hintDuration WRITE setHintDuration)
 
 public:
@@ -66,7 +66,7 @@ public:
     // A track was asked for but does not sound yet (resolving/loading)?
     bool loading() const { return m_loading; }
     QString lastError() const { return m_lastError; }
-    // La interfaz avisa de la duracion que conoce antes de cargar.
+    // The interface reports the duration it knows before loading.
     void setHintDuration(double secs) { m_hintDur = secs; }
     // URL/page of the current track (for MPRIS' xesam:url). It is a
     // property (not only a method): the QML reads it and it was undefined.
@@ -80,17 +80,17 @@ public:
     Q_INVOKABLE void setVolume(int v);
     // Changes mpv's --ytdl-format selector on the fly (through IPC).
     Q_INVOKABLE void setQuality(const QString &q);
-    // Estado del widget de pantalla de inicio y de la notificacion.
+    // State of the home screen widget and of the notification.
     Q_INVOKABLE void updateWidget(const QString &title, const QString &artist,
                                   bool playing, bool shuffle, int repeat,
                                   bool fav, const QString &artUrl,
                                   double position, double duration);
-    // Solo la posicion: la tarjeta de medios del sistema y el widget la
-    // extrapolan entre refrescos, asi que basta con corregirla cada
-    // segundo (no repinta el aviso entero).
+    // Position only: the system media card and the widget extrapolate it
+    // between refreshes, so correcting it once a second is enough (it does
+    // not repaint the whole notification).
     Q_INVOKABLE void syncMediaProgress(double position);
-    // Widget de la letra: anterior, actual y siguiente. El QML solo lo
-    // llama cuando cambia el indice (no en cada frame).
+    // Lyrics widget: previous, current and next line. The QML only calls it
+    // when the index changes (not on every frame).
     Q_INVOKABLE void updateLyricsWidget(const QString &prev, const QString &line,
                                         const QString &next);
     // Pre-resolves the direct stream URL of `url` in the background (yt-dlp
@@ -138,9 +138,9 @@ signals:
     void seeked(double seconds);
     // A track finished on its own (eof) or failed to play (error).
     void endOfFile(bool ok);
-    // Cambia el ultimo error mostrable (vacio = se limpia).
+    // Changes the last showable error (empty = it is cleared).
     void lastErrorChanged();
-    // Accion pedida desde el widget de inicio o la notificacion
+    // Action requested from the home widget or the notification
     // ("TOGGLE", "NEXT", "PREV", "SHUFFLE", "REPEAT", "FAV").
     void widgetAction(const QString &action);
 #ifdef Q_OS_ANDROID
@@ -175,12 +175,12 @@ private:
     // app already uses for the lyrics).
     class QMediaPlayer *m_androidPlayer = nullptr;
     class QAudioOutput *m_androidAudio = nullptr;
-    // Abre un fichero local en el reproductor de Qt midiendo antes su
-    // duracion (los MP4 fragmentados de YouTube dan 0:00 si no).
+    // Opens a local file in the Qt player, measuring its duration first
+    // (YouTube's fragmented MP4 give 0:00 otherwise).
     void androidPlayLocalFile(const QString &path);
-    // Fin de pista del reproductor de Qt, con anti-rebote: tras cargar la
-    // siguiente el backend sigue entregando posiciones de la anterior y el
-    // aviso se repetia (saltaba varias canciones de golpe).
+    // End of track of the Qt player, with debounce: after loading the next
+    // one the backend still delivers positions of the previous one and the
+    // report repeated (it skipped several songs at once).
     void androidEndOfTrack(const char *why);
     class QNetworkAccessManager *m_apiNet = nullptr;
     // Asks the API for the direct stream of a YouTube video.
@@ -217,12 +217,12 @@ private:
     // solve the ~2.9 MiB player JS does not get re-parsed per track.
     QString m_preprocessed;
     QString m_preprocessedFor;
-    // Vigilante de la cadena de resolucion (Android): si una peticion o el
-    // solver JS se quedan colgados, la cadena se abandona para que la
-    // siguiente pista pueda resolverse. Sin esto, una sola resolucion
-    // fallida dejaba el reproductor sin poder cambiar de cancion.
+    // Resolve chain watchdog (Android): if a request or the JS solver
+    // hangs, the chain is abandoned so the next track can be resolved.
+    // Without this, a single failed resolution left the player unable to
+    // change songs.
     QTimer *m_chainTimer = nullptr;
-    int m_lastMedium = -1;      // ultimo transporte de red conocido
+    int m_lastMedium = -1;      // last known network transport
     void abortChain(const QString &why);
     void waitForStreamAndFetch(const QString &track, int attempt);
     QTimer *m_solverTimer = nullptr;
@@ -230,25 +230,25 @@ private:
     // The input of the solve in flight: a "solver busy" answer re-posts
     // it once the WebView frees up.
     QString m_solverInput;
-    // La descarga del audio la hace Java (MediaFetch): HttpsURLConnection
-    // es el stack HTTP del sistema (el que usan OkHttp/Media3/Chrome) y el
-    // único que los nodos del operador no rechazan con 403.
+    // Java does the audio download (MediaFetch): HttpsURLConnection is the
+    // system HTTP stack (the one OkHttp/Media3/Chrome use) and the only
+    // one the carrier nodes do not reject with 403.
     QString m_fetching;
-    // Pistas cuya descarga esta esperando a que se abra la ventana del
-    // preanuncio de YouTube (no se reintentan ni se duplican).
+    // Tracks whose download is waiting for YouTube's pre-announce window
+    // to open (they are not retried nor duplicated).
     QSet<QString> m_fetchDeferred;
-    QTimer *m_fetchPoll = nullptr;                  // sondeo del descargador
-    // Widget de inicio + notificacion: sondeo del buzon de acciones.
+    QTimer *m_fetchPoll = nullptr;                  // downloader poll
+    // Home widget + notification: poll of the actions inbox.
     QTimer *m_widgetPoll = nullptr;
     int m_widgetSeq = -1;
     void pollWidgetActions();
     void setBackgroundPlayback(bool on);
     QHash<QString, QString> m_audioLocal;           // track -> local file
     QHash<QString, bool> m_audioPlay;               // track -> play on done
-    QHash<QString, int> m_audioTries;               // track -> reintentos
-    // Una descarga a la vez: los nodos del operador comparten IP (CGNAT) y
-    // varias descargas simultáneas empiezan a devolver 403.
-    QList<QPair<QString, QString>> m_audioQueue;    // (track, url) en espera
+    QHash<QString, int> m_audioTries;               // track -> retries
+    // One download at a time: the carrier nodes share an IP (CGNAT) and
+    // several simultaneous downloads start answering 403.
+    QList<QPair<QString, QString>> m_audioQueue;    // (track, url) waiting
     void pumpAudioQueue();
     void audioFetchDone(const QString &track, const QString &path, bool ok);
     void pollAudioFetch();
@@ -268,24 +268,26 @@ private:
     // resolve cache (QMediaPlayer plays nothing). There is just one chain
     // at a time.
     ResolveJob *m_chainJob = nullptr;
-    // Pista que el usuario pidio mientras la cadena estaba ocupada con
-    // otra: se resuelve en cuanto la actual acabe. Sin esta espera, la
-    // peticion nueva clobberaba el estado de la cadena en vuelo y el
-    // solver contestaba "busy" -> se abandonaba todo y la pista no sonaba.
+    // Track the user asked for while the chain was busy with another one:
+    // it is resolved as soon as the current one ends. Without this wait,
+    // the new request clobbered the state of the chain in flight and the
+    // solver answered "busy" -> everything was abandoned and the track
+    // did not play.
     QString m_apWanted;
-    // Arranca la cadena para `url` (una sola a la vez; si hay otra en
-    // vuelo, la deja apuntada en m_apWanted). `forDownload` marca la cadena
-    // como pedida por el panel de descargas (no se reproduce nada).
+    // Starts the chain for `url` (one at a time; if another one is in
+    // flight, it is noted in m_apWanted). `forDownload` marks the chain as
+    // requested by the downloads panel (nothing is played).
     void beginChain(const QString &url, bool forDownload = false);
-    // Cola de resoluciones pedidas por las descargas (una a la vez y solo
-    // cuando el reproductor no esta usando la cadena).
+    // Queue of resolutions requested by the downloads (one at a time and
+    // only when the player is not using the chain).
     QStringList m_dlQueue;
-    // URL que la cadena en vuelo esta resolviendo PARA UNA DESCARGA ("" si
-    // la cadena es de reproduccion).
+    // URL the chain in flight is resolving FOR A DOWNLOAD ("" if the chain
+    // belongs to playback).
     QString m_dlChainUrl;
     void startNextDownloadResolve();
-    // Cierra la cadena en curso y da paso a la siguiente / a la cola de
-    // resoluciones. Todas las salidas (exito, error, timeout) pasan aqui.
+    // Closes the chain in progress and gives way to the next one / to the
+    // resolve queue. Every exit (success, error, timeout) goes through
+    // here.
     void endChain();
 #endif
     class QLocalSocket *m_sock = nullptr;
@@ -370,21 +372,21 @@ private:
     bool m_posDirty = false;
     double m_position = 0.0;
     double m_duration = 0.0;
-    // Android: el reproductor de Qt no siempre avisa del final (algunos
-    // backends se paran en silencio). Con estas dos marcas el fin se emite
-    // una sola vez, venga de mediaStatusChanged o del respaldo por
-    // posicion >= duracion.
+    // Android: the Qt player does not always report the end (some backends
+    // stop silently). With these two marks the end is emitted only once,
+    // whether it comes from mediaStatusChanged or from the position >=
+    // duration fallback.
     bool m_endFired = false;
-    qint64 m_endBlockUntil = 0; // ms epoch: anti-rebote del fin de pista
-    qint64 m_mediaDurMs = 0;   // duracion leida del fichero (mvhd/EBML)
-    double m_hintDur = 0.0;    // duracion conocida por la interfaz
+    qint64 m_endBlockUntil = 0; // ms epoch: end of track debounce
+    qint64 m_mediaDurMs = 0;   // duration read from the file (mvhd/EBML)
+    double m_hintDur = 0.0;    // duration known by the interface
     int m_volume = 70;
     qint64 m_lastPosEmit = 0;
 
-    // Vigilante del reproductor de Android: si dice que esta sonando pero
-    // la posicion deja de avanzar (el backend se queda mudo en segundo
-    // plano), lo reanuda o recarga la pista. Tambien cierra el caso del
-    // fin de pista que nunca avisa.
+    // Android player watchdog: if it says it is playing but the position
+    // stops advancing (the backend goes mute in the background), it
+    // resumes it or reloads the track. It also closes the end of track
+    // case that never reports.
     QTimer m_stallTimer;
     double m_stallPos = -1.0;
     int m_stallTicks = 0;

@@ -69,20 +69,20 @@ Rectangle {
     property bool scrubbing: false
     property real scrubPos: 0
 
-    // ---- posicion pintada (suave) ------------------------------------
-    // El motor entrega la posicion a saltos (en Android cada ~100 ms, en
-    // escritorio aun menos a menudo): pintarla tal cual hace que la linea
-    // avance a tirones. `shownPosition` la desliza a la frecuencia de la
-    // pantalla y cada aviso del motor solo corrige la deriva, asi que la
-    // barra se mueve continua incluso a 60 Hz.
+    // ---- painted position (smoothed) ----------------------------------
+    // The engine hands the position over in steps (every ~100 ms on Android,
+    // less often on the desktop): painting it as it comes makes the line
+    // jump. `shownPosition` slides it at the refresh rate of the screen and
+    // every notice from the engine only corrects the drift, so the bar moves
+    // smoothly even at 60 Hz.
     property real shownPosition: 0
     property bool _shownSynced: false
 
     function syncShownPosition() {
         if (bar.scrubbing)
             return
-        // Salto directo: primer valor, pausa o un cambio grande (seek o
-        // pista nueva). Si no, correccion repartida en varios frames.
+        // Direct jump: first value, pause or a big change (seek or new track).
+        // Otherwise, the correction is spread over several frames.
         if (!bar._shownSynced || !bar.playing
             || Math.abs(bar.position - bar.shownPosition) > 1.0) {
             bar.shownPosition = bar.position
@@ -95,8 +95,8 @@ Rectangle {
     onPlayingChanged: syncShownPosition()
     Component.onCompleted: syncShownPosition()
 
-    // Avanza sola entre avisos del motor, con el tiempo real de cada frame
-    // (nada de sumar un valor fijo: se adapta a 60/120/165 Hz).
+    // It advances on its own between notices from the engine, with the real
+    // time of each frame (no adding a fixed value: it adapts to 60/120/165 Hz).
     FrameAnimation {
         running: bar.playing && bar.duration > 0 && !bar.scrubbing
         onTriggered: {
@@ -120,9 +120,9 @@ Rectangle {
     // floats a step above it, so the two read as one stack.
     readonly property int pillW: compact ? width : Math.min(width, 720)
 
-    // La barra SIGUE al dedo al tirar hacia arriba: el gesto se ve, no
-    // solo se intuye. Sin Behavior durante el arrastre (iria con retraso
-    // respecto al dedo); al soltar vuelve sola con una animacion corta.
+    // The bar FOLLOWS the finger when pulled up: the gesture is visible, not
+    // just guessed. No Behavior while dragging (it would lag behind the
+    // finger); on release it goes back on its own with a short animation.
     transform: Translate { x: bar.dragX; y: -bar.pull }
     // The sideways follow returns to rest with a short spring: it is only
     // a confirmation that the swipe was understood.
@@ -147,9 +147,9 @@ Rectangle {
     readonly property color _ink: Theme.onAccent(Sys.accent)
 
     // ---- reusable icon button ---------------------------------------
-    // Icono de la barra, con el mismo lenguaje que la barra lateral de la
-    // referencia (Liner): sin caja ni circulo de fondo, icono suelto; el
-    // inactivo al 62 %, el resto al pasar el raton y el activo a tope.
+    // Icon of the bar, in the same language as the sidebar of the reference
+    // (Liner): no box and no background circle, a bare icon; the inactive one
+    // at 62 %, the rest on hover and the active one at full.
     component BarButton: Rectangle {
         id: bb
         property string kind: "play"
@@ -179,12 +179,11 @@ Rectangle {
         TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
     }
 
-    // ---- zona arrastrable: TODA la barra ------------------------------
-    // Antes solo se podia arrastrar desde la linea (20 dp): con el dedo era
-    // practicamente imposible acertar. Ahora se arrastra desde cualquier
-    // punto libre de la isla (caratula, titulo, huecos). Los botones siguen
-    // encima y se comen sus propios toques; la linea conserva su arrastre
-    // para buscar.
+    // ---- draggable zone: the WHOLE bar ------------------------------
+    // It used to be draggable from the line only (20 dp): with a finger that
+    // was close to impossible to hit. Now any free spot of the island drags
+    // it (cover, title, gaps). The buttons stay on top and eat their own
+    // touches; the line keeps its drag for seeking.
     MouseArea {
         id: barDrag
         // Only the pill: the transparent air around it belongs to the page.
@@ -192,9 +191,9 @@ Rectangle {
         property real startY: 0
         property real startX: 0
         property bool dragging: false
-        // Deslizar en horizontal cambia de cancion (siguiente/anterior),
-        // como en cualquier reproductor de movil. Se distingue del gesto
-        // vertical (que abre el cine) por el eje dominante.
+        // Sliding horizontally changes track (next/previous), like in any phone
+        // player. The dominant axis tells it apart from the vertical gesture
+        // (which opens the cinema).
         property bool sideways: false
 
         function sceneY(m) {
@@ -214,19 +213,19 @@ Rectangle {
                 return
             const dy = startY - sceneY(m)
             const dx = sceneX(m) - startX
-            // Un gesto empieza tarde a proposito: un clic con el pulso
-            // tembloroso sobre un boton no puede acabar cambiando de
-            // cancion ni abriendo el cine (era lo que pasaba "a veces").
+            // A gesture starts late on purpose: a click with a shaky pulse on a
+            // button cannot end up changing track or opening the cinema (it used to
+            // happen "sometimes").
             if (!dragging && !sideways && (Math.abs(dx) > 26 || dy > 16)) {
-                // Gana el eje que mas se ha movido: un dedo que sube abre
-                // el cine, uno que cruza cambia de pista.
+                // The axis that moved the most wins: a finger going up opens the
+                // cinema, one crossing the bar changes track.
                 if (Math.abs(dx) > Math.abs(dy) * 1.6)
                     sideways = true
                 else if (dy > 16)
                     dragging = true
             }
             if (sideways) {
-                // Se sigue al dedo un poco, solo como confirmacion visual.
+                // The finger is followed a little, only as visual confirmation.
                 bar.pull = 0
                 bar.dragX = Math.max(-70, Math.min(70, dx * 0.25))
             } else if (dragging) {
@@ -362,11 +361,10 @@ Rectangle {
                         function posAt(mouse) {
                             return Math.max(0, Math.min(1, mouse.x / width)) * bar.duration
                         }
-                        // Coordenadas de ESCENA, no locales: la barra se mueve
-                        // con el dedo al arrastrar, y con coordenadas locales
-                        // el gesto se anulaba a si mismo (el dedo "volvia" al
-                        // mismo sitio respecto de la barra). Verificado: sin
-                        // esto el swipe acababa haciendo un seek.
+                        // SCENE coordinates, not local ones: the bar moves with the finger while
+                        // dragging, and with local coordinates the gesture cancelled itself (the
+                        // finger "went back" to the same spot relative to the bar). Checked:
+                        // without this the swipe ended up seeking.
                         function sceneAt(mouse) {
                             return mapToItem(null, mouse.x, mouse.y)
                         }
@@ -402,8 +400,8 @@ Rectangle {
                                 if (bar.pull > 26) {
                                     if (typeof sfx !== "undefined")
                                         sfx.play("tap")
-                                    // La vista se abre subiendo desde abajo,
-                                    // con la misma direccion del gesto.
+                                    // The view opens rising from the bottom, with the same direction as the
+                                    // gesture.
                                     bar.cinemaRequested()
                                 }
                             } else {
@@ -905,10 +903,9 @@ Rectangle {
                     }
                 }
 
-                // Transport: centred, big enough for a thumb, with air on
-                // both sides. Aleatorio y repetir van AQUI tambien en el
-                // movil: son los dos controles que faltaban en la barra y
-                // no hay otro sitio donde esten a mano.
+                // Transport: centred, big enough for a thumb, with air on both sides.
+                // Shuffle and repeat go HERE on the phone too: they were the two controls
+                // missing from the bar and there is no other place within reach.
                 RowLayout {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 44
@@ -984,8 +981,8 @@ Rectangle {
                                 sfx.play("toggle")
                             bar.repeatToggled()
                         }
-                        // Modo "repetir la cancion": una "1" pequeña en la
-                        // esquina, igual que en la barra de escritorio.
+                        // "Repeat the song" mode: a small "1" in the corner, like in the desktop
+                        // bar.
                         Rectangle {
                             visible: bar.repeatMode === 2
                             anchors.right: parent.right

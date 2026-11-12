@@ -30,17 +30,17 @@ Item {
     // the column starts at the edge of the area instead of being centred.
     // Panel and Now Playing stay centred (default).
     property bool leftAlign: false
-    // Dueto (Sonora style): cuando la fuente marca las lineas de la
-    // segunda voz (`secondary`), la voz principal se va a la IZQUIERDA y
-    // la segunda a la DERECHA, de modo que se ve quien canta cada frase.
-    // Sin marcas de dueto nada cambia (todo sigue centrado o alineado a la
-    // izquierda segun `leftAlign`).
+    // Duet (Sonora style): when the source tags the lines of the second
+    // voice (`secondary`), the lead goes to the LEFT and the second voice
+    // to the RIGHT, so the reader sees who sings each phrase. With no
+    // duet tags nothing changes (everything stays centred, or left
+    // aligned when `leftAlign` is set).
     property bool duetSides: false
     // Sync pill: top centre (cinema mode) and visible while the controls
     // are around (`pillShown`). By default: bottom right, on hover.
     property bool pillTop: false
-    // El ajuste fino de sincronia es util en el panel, pero en el cinema
-    // (pantalla completa, sin sitio) sobra: se apaga desde ahi.
+    // Fine sync is useful in the panel, but in the cinema (fullscreen, no
+    // room) it is in the way: it is switched off from there.
     property bool syncAdjustAllowed: true
     property bool pillShown: false
     // Real background colour of the panel; the edges fade into it.
@@ -100,14 +100,14 @@ Item {
     readonly property string errorText: lyr ? String(lyr.error || "") : ""
 
     readonly property bool showSynced: hasSynced && lines.length > 0
-    // Solo se interpola la letra (60 Hz) cuando de verdad se esta viendo.
-    // Estas vistas viven siempre (panel derecho, cinema..., abiertas o no)
-    // y, con una cancion con letra sonando, sus temporizadores se comian un
-    // nucleo entero en el movil aunque el panel estuviera cerrado.
+    // The lyrics are only interpolated (60 Hz) while the view is really on
+    // screen. These views always exist (right panel, cinema..., open or
+    // not) and, with a synced song playing, their timers ate a whole core
+    // on the phone even with the panel closed.
     property bool live: false
-    // ¿La cancion tiene dos voces? Solo si la fuente lo dice: se mira si
-    // alguna linea viene marcada como `secondary` (segunda voz). Asi el
-    // reparto a los lados no se inventa en canciones de un solo cantante.
+    // Does the song have two voices? Only if the source says so: this
+    // checks whether any line is tagged `secondary` (second voice), so the
+    // side split is not invented on single-singer songs.
     readonly property bool duet: {
         if (!duetSides)
             return false
@@ -139,8 +139,8 @@ Item {
     // The padding above/below allows pinning any line at that height, and
     // `following` decides whether we follow the singing or respect a manual
     // scroll.
-    // Altura a la que queda fijada la linea activa (0 = arriba, 0.5 =
-    // centrada). El cinema lo baja a ~0.34 para que se vean las que vienen.
+    // Height the active line is pinned at (0 = top, 0.5 = centred). The
+    // cinema lowers it to about 0.34 so the coming lines stay visible.
     property real pinFrac: 0.5
     readonly property real pinTop: Math.max(56, Math.floor(height * pinFrac))
     readonly property real pinBottom: Math.max(56, Math.ceil(height * (1 - pinFrac)))
@@ -208,7 +208,7 @@ Item {
     // RichText approach produced.
     //
     // Inside a word the front does not move per letter: the widget's maths
-    // spread the word evenly over its letters, so a long word ("corazón")
+    // spread the word evenly over its letters, so a long word ("corazon")
     // took four times longer than a short one ("y") in the same phrase.
     // Here the word's time is shared by its SYLLABLES, which is how it is
     // actually sung; within a syllable the letters still fill one by one.
@@ -793,7 +793,7 @@ Item {
     // After a manual scroll the lyrics go back to the singing line on
     // their own (4 s without touching the list, enough to read a verse): a
     // scroll left the active line where it was, off the centre, and it
-    // never came back until the "Seguir la canción" pill was pressed.
+    // never came back until the "Seguir la cancion" pill was pressed.
     Timer {
         id: refollow
         interval: 4000
@@ -808,8 +808,8 @@ Item {
     // The column reflows a frame or two after the active line changes (that
     // row grows and the ones below move): the first scroll was aimed at the
     // box measured BEFORE that, so the line stayed a little off the pin and
-    // every change left it a bit further up ("se va para arriba y no se
-    // mantiene"). This cheap check (some arithmetic, 20 times per second)
+    // every change left it a bit further up ("it climbs and does not
+    // stay"). This cheap check (some arithmetic, 20 times per second)
     // looks at the real position and corrects it until it matches.
     Timer {
         id: pinWatch
@@ -838,8 +838,8 @@ Item {
         Qt.callLater(function () { scrollToActive(true) })
     }
 
-    // Al abrirse el panel/cinema hay que ponerse al dia: mientras estaba
-    // cerrado no se interpolaba ni se recalculaba la linea activa.
+    // Opening the panel or the cinema has to catch up: while it was closed
+    // the position was not interpolated and the active line not recomputed.
     onLiveChanged: {
         if (!lv.live || !lv.showSynced)
             return
@@ -994,7 +994,7 @@ Item {
                                                               Number(modelData.end || 0))
                     readonly property real instrSpan: Math.max(0.6,
                                                                instrEnd - instrStart)
-                    // Segunda voz del dueto: su frase sale desde la derecha.
+                    // Second duet voice: its phrase comes in from the right.
                     readonly property bool sec: modelData.secondary === true
 
                     // With word timings the active line is drawn by a
@@ -1005,9 +1005,9 @@ Item {
                                                        && !rrow.instrumental
                     readonly property bool filling: karaokeRow && lv.activeSung > 0
 
-                    // Dueto: la voz principal empieza a la izquierda y la
-                    // segunda se pega a la derecha (con un pequeño margen
-                    // para que no toque el borde de la columna).
+                    // Duet: the lead starts on the left and the second voice
+                    // sticks to the right (with a small margin so it does not
+                    // touch the edge of the column).
                     readonly property real padL: lv.duet && !rrow.sec ? 6 : 0
                     readonly property real padR: lv.duet && rrow.sec ? 6 : 0
                     readonly property real textW: Math.max(1, rrow.width - padL - padR)
@@ -1063,7 +1063,7 @@ Item {
                                       ? editBase.contentHeight
                                       : base.implicitHeight)
                     // The opacity goes up on hover: the line under the
-                    // cursor is marked as «clickable» (it jumps to that moment).
+                    // cursor is marked as clickable (it jumps to that moment).
                     // All of that, multiplied by the edge fade. The rows
                     // outside the window fade out: they keep their place
                     // (the list never reflows) but take no ink.

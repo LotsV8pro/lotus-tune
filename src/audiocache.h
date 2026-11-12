@@ -4,26 +4,26 @@
 #include <QString>
 #include <QStringList>
 
-// Control del peso que deja la app en el disco.
+// Control of the weight the app leaves on disk.
 //
-// En Android cada pista que suena se descarga a
-// cache/audio_<videoId>.bin (4-8 MB). Sin tope, una biblioteca de 200
-// pistas deja ~1 GB y Android acaba borrando el cache por su cuenta (y
-// entonces "desaparecen" pistas que ayer sonaban). Esto mantiene un
-// limite configurable y borra primero lo que hace mas tiempo que no se
-// usa (LRU por fecha de modificacion).
+// On Android every track that plays is downloaded to
+// cache/audio_<videoId>.bin (4-8 MB). With no cap, a library of 200 tracks
+// leaves ~1 GB and Android ends up clearing the cache on its own (and then
+// tracks that played yesterday "disappear"). This keeps a configurable
+// limit and deletes first what has not been used for the longest (LRU by
+// modification date).
 //
-// En escritorio el audio no se cachea (mpv hace streaming), asi que el
-// barrido de audio_*.bin es un no-op; sirve igual para limpiar restos.
+// On the desktop the audio is not cached (mpv streams), so the sweep of
+// audio_*.bin is a no-op; it still clears leftovers.
 class AudioCache : public QObject
 {
     Q_OBJECT
-    // Tamano actual del cache de audio, en bytes / en ficheros.
+    // Current size of the audio cache, in bytes / in files.
     Q_PROPERTY(qint64 bytes READ bytes NOTIFY changed)
     Q_PROPERTY(int files READ files NOTIFY changed)
-    // Tope en MB (0 = sin limite). Se guarda en la configuracion.
+    // Cap in MB (0 = no limit). It is saved in the settings.
     Q_PROPERTY(int limitMB READ limitMB WRITE setLimitMB NOTIFY changed)
-    // "320 MB de 1 GB" para la pantalla de ajustes.
+    // "320 MB of 1 GB" for the settings screen.
     Q_PROPERTY(QString summary READ summary NOTIFY changed)
 
 public:
@@ -37,14 +37,14 @@ public:
     void setLimitMB(int mb);
     QString summary() const;
 
-    // Borra las pistas mas antiguas hasta bajar del limite (con margen:
-    // deja el cache al 90% del tope, para no estar borrando en cada
-    // descarga). `protect` es el videoId que se esta reproduciendo ahora:
-    // ese fichero no se toca nunca.
+    // Deletes the oldest tracks until it is under the limit (with margin:
+    // it leaves the cache at 90% of the cap, so it is not deleting on every
+    // download). `protect` is the videoId playing right now: that file is
+    // never touched.
     Q_INVOKABLE int prune(const QString &protect = QString());
-    // Borra todo el cache de audio.
+    // Deletes the whole audio cache.
     Q_INVOKABLE int clear();
-    // Restos de descargas interrumpidas (.part) de mas de una hora.
+    // Leftovers of interrupted downloads (.part) older than an hour.
     Q_INVOKABLE int prunePartials();
 
     // Solo para los tests: cambia el directorio que se barre.
