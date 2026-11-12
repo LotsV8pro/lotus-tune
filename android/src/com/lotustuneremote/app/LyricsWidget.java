@@ -53,8 +53,8 @@ public class LyricsWidget extends AppWidgetProvider
     // resto de la frase espera apagado. Un widget no puede mover una frontera,
     // asi que el color avanza letra a letra: cada repintado son dos textos
     // pequenos, no un bitmap.
-    private static final int INK_SUNG = 0xFFFFFFFF;
-    private static final int INK_DIM = 0x7AFFFFFF;
+    private static final int INK_SUNG = 0xF2111318;
+    private static final int INK_DIM = 0x5C111318;
 
     // Repintador de la frontera del canto: duerme hasta que cambia la
     // siguiente letra y solo corre con la pantalla encendida.
