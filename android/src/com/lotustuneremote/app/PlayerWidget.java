@@ -84,7 +84,10 @@ public class PlayerWidget extends AppWidgetProvider
     {
         sPosMs = Math.max(0, posMs);
         render(sCtx);
-        LyricsWidget.render(sCtx);   // su barra tambien avanza
+        // El widget de letra lleva la misma barra, pero repintarlo entero (con
+        // la caratula) cada segundo era lo mas caro que hacia: solo necesita
+        // el numero de la barra.
+        LyricsWidget.progressOnly(sCtx, sPosMs);
     }
 
     public static String pendingAction()

@@ -82,6 +82,16 @@ should:
 A file caught mid write can arrive truncated. When the JSON cannot be read,
 drop it and try again on the next read; do not cache the error.
 
+## Consumers in this repo
+
+The Android home-screen widget (`android/src/com/lotustuneremote/app/LyricsWidget.java`)
+reads both files so it paints the same lyrics as the app with the app closed.
+When the line carries `w`, it lights the words already sung and keeps the rest
+dimmed, like the desktop view. The front moves letter by letter: a widget can
+only be redrawn from the process that owns it, so repainting at 60 Hz would
+cost battery for nothing. It is redrawn only when the front reaches another
+letter, only while the song plays, and only with the screen on.
+
 ## Example
 
 ```json

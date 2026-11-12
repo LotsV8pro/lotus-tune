@@ -15,6 +15,11 @@
  * como respaldo (letra solo de texto de versiones antiguas, o mientras el
  * motor aun no ha escrito nada).
  *
+ * Cuando la letra trae los tiempos de cada palabra (lyrics.json con `w`), la
+ * linea activa se pinta como en la app: lo ya cantado en blanco y lo que
+ * falta apagado. La frontera avanza letra a letra y solo se repinta cuando
+ * cae en otra letra, con la pantalla encendida y mientras suena.
+ *
  * Acciones: las mismas que el widget de reproduccion (TOGGLE, NEXT, PREV,
  * SHUFFLE, REPEAT, FAV).
  */
@@ -27,6 +32,12 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.PowerManager;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.View;
 import android.widget.RemoteViews;
 
@@ -36,9 +47,22 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.util.Arrays;
 
 public class LyricsWidget extends AppWidgetProvider
 {
+    // El karaoke de la app, con sus dos tintas: lo cantado se enciende y el
+    // resto de la frase espera apagado. Un widget no puede mover una frontera,
+    // asi que el color avanza letra a letra: cada repintado son dos textos
+    // pequenos, no un bitmap.
+    private static final int INK_SUNG = 0xFFFFFFFF;
+    private static final int INK_DIM = 0x7AFFFFFF;
+
+    // Repintador de la frontera del canto: duerme hasta que cambia la
+    // siguiente letra y solo corre con la pantalla encendida.
+    private static Handler sFrontHandler = null;
+    private static Runnable sFrontRunnable = null;
+
     // Fallback trio: the QML pushes it when the index changes.
     public static volatile String sPrev = "";
     public static volatile String sLine = "";
@@ -63,8 +87,15 @@ public class LyricsWidget extends AppWidgetProvider
         String status = "";
         String plain = "";
         double offset = 0;
+        boolean karaoke = false;
         double[] t = new double[0];
         String[] text = new String[0];
+        // Word timings of every line, already mapped to character ranges of
+        // its own text. Empty arrays on lines without them.
+        double[][] wT = new double[0][];
+        double[][] wE = new double[0][];
+        int[][] wA = new int[0][];
+        int[][] wB = new int[0][];
     }
 
     /** Copia cacheada de files/lyrics-runtime.json. */
@@ -108,18 +139,23 @@ public class LyricsWidget extends AppWidgetProvider
         if (c == null)
             return;
         sCtx = c.getApplicationContext();
-        String[] trio = publishedTrio(sCtx);
-        if (trio == null)
+        Shot s = shotAt(sCtx);
+        if (s.p == null) {
+            stopFront();
             return;                       // no hay estado: manda el QML
-        String prev = trio[0] == null ? "" : trio[0].trim();
-        String line = trio[1] == null ? "" : trio[1].trim();
-        String next = trio[2] == null ? "" : trio[2].trim();
+        }
+        String prev = s.prev.trim();
+        String line = s.line.trim();
+        String next = s.next.trim();
         if (line.isEmpty())
             line = PlayerWidget.sTitle.isEmpty()
                     ? "Sin letra" : "Sin letra para esta cancion";
         if (sShownLine != null && sShownLine.equals(line)
-                && sShownPrev.equals(prev) && sShownNext.equals(next))
-            return;                       // misma linea: nada que animar
+                && sShownPrev.equals(prev) && sShownNext.equals(next)) {
+            // Same line: the only thing that can move is the singing front.
+            armFront(sCtx);
+            return;
+        }
         render(sCtx);
     }
 
@@ -152,14 +188,14 @@ public class LyricsWidget extends AppWidgetProvider
 
         // The published state first (the same one the app paints); when there is
         // nothing of the current track, the trio the QML pushes.
+        Shot s = shotAt(context);
         String prev;
         String line;
         String next;
-        String[] published = publishedTrio(context);
-        if (published != null) {
-            prev = published[0];
-            line = published[1];
-            next = published[2];
+        if (s.p != null) {
+            prev = s.prev;
+            line = s.line;
+            next = s.next;
         } else {
             prev = sPrev == null ? "" : sPrev;
             line = sLine == null ? "" : sLine;
@@ -171,11 +207,13 @@ public class LyricsWidget extends AppWidgetProvider
         if (line.isEmpty())
             line = PlayerWidget.sTitle.isEmpty()
                     ? "Sin letra" : "Sin letra para esta cancion";
-        // It is decided once for all the widgets placed on the screen.
+        // Se decide una vez para todos los widgets de la pantalla.
         final boolean lineChanged = sShownLine != null && !sShownLine.equals(line);
         sShownPrev = prev;
         sShownLine = line;
         sShownNext = next;
+        final CharSequence lineSeq = (s.p != null && line.equals(s.line))
+                ? lineText(s) : line;
 
         for (int id : ids) {
             RemoteViews v = new RemoteViews(context.getPackageName(),
@@ -198,9 +236,9 @@ public class LyricsWidget extends AppWidgetProvider
             // (it is at 1) or reinflates it (it is at 0), the 0->1 or 1->0 jump
             // animates.
             fill(v, R.id.l_prev_line, R.id.l_line, R.id.l_next,
-                 prev, line, next);
+                 prev, lineSeq, next);
             fill(v, R.id.l_prev_line2, R.id.l_line2, R.id.l_next2,
-                 prev, line, next);
+                 prev, lineSeq, next);
             if (lineChanged)
                 v.showNext(R.id.l_flip);
 
@@ -255,42 +293,63 @@ public class LyricsWidget extends AppWidgetProvider
                     openApp(context));
             m.updateAppWidget(id, v);
         }
+        // Con la linea en pantalla, el karaoke toma el relevo hasta la siguiente.
+        armFront(context);
     }
 
     // ---- lectura del estado publicado ---------------------------------
 
+    /** Lo que se pinta ahora: tres lineas y de donde salen. */
+    private static final class Shot
+    {
+        String prev = "";
+        String line = "";
+        String next = "";
+        Published p = null;      // null: manda el trio que empuja el QML
+        int idx = -1;            // linea activa dentro de Published
+        double pos = 0;          // segundo que suena, con el offset ya sumado
+    }
+
     /**
      * Anterior/actual/siguiente calculadas con el mismo reloj que la app.
-     * Devuelve null si el estado publicado no es de la pista que suena
+     * Devuelve el estado publicado vacio si no es de la pista que suena
      * (entonces manda el trio del QML).
      */
-    private static String[] publishedTrio(Context c)
+    private static Shot shotAt(Context c)
     {
+        Shot out = new Shot();
         Published p = loadPublished(c);
         if (p == null || p.trackKey.isEmpty())
-            return null;
+            return out;
         final String key = PlayerWidget.sArtist.trim()
                 + " - " + PlayerWidget.sTitle.trim();
         if (!key.equals(p.trackKey))
-            return null;
+            return out;
 
+        out.p = p;
         // "ok" = lyrics with timings; "none" = no lyrics or plain text only;
         // "loading" = the search is still going (or nothing has arrived yet).
-        if ("loading".equals(p.status))
-            return new String[] { "", "Cargando letra…", "" };
+        if ("loading".equals(p.status)) {
+            out.line = "Cargando letra…";
+            return out;
+        }
 
         if ("ok".equals(p.status) && p.t.length > 0) {
             final double pos = positionNow(c, p);
+            out.pos = pos;
             int idx = lineIndexAt(p.t, pos);
             if (idx < 0) {
                 // Before the first line (instrumental intro): a symbol and, as the
                 // "next" one, the first thing that will be sung.
-                return new String[] { "", "♪", p.text[0] };
+                out.line = "♪";
+                out.next = p.text[0];
+                return out;
             }
-            String prev = idx > 0 ? p.text[idx - 1] : "";
-            String line = p.text[idx];
-            String next = idx + 1 < p.text.length ? p.text[idx + 1] : "";
-            return new String[] { prev, line, next };
+            out.idx = idx;
+            out.prev = idx > 0 ? p.text[idx - 1] : "";
+            out.line = p.text[idx];
+            out.next = idx + 1 < p.text.length ? p.text[idx + 1] : "";
+            return out;
         }
 
         if (!p.plain.isEmpty()) {
@@ -309,12 +368,255 @@ public class LyricsWidget extends AppWidgetProvider
                     break;
                 }
             }
-            if (!line.isEmpty())
-                return new String[] { "", line, next };
+            out.line = line;
+            out.next = next;
+            return out;
         }
 
         // The track has its lyrics resolved but there is nothing to show.
-        return new String[] { "", "", "" };
+        return out;
+    }
+
+    // ---- karaoke -------------------------------------------------------
+    // La misma idea que en la app: las palabras de la linea llevan sus
+    // tiempos y lo ya cantado se enciende mientras el resto espera apagado.
+    // Aqui la frontera salta letra a letra (un widget no tiene fotogramas) y
+    // solo se repinta cuando cae en otra letra, asi que cuesta un par de
+    // textos pequenos por segundo y no un temporizador a 60 Hz.
+
+    /**
+     * Palabras de la linea como {t, e, primera letra, ultima letra}. Se busca
+     * el texto de cada palabra dentro de la linea, como en el QML, porque las
+     * palabras pueden venir con el espacio incluido.
+     */
+    private static double[][] wordSpans(String text, JSONArray words)
+    {
+        if (text == null || text.isEmpty() || words == null || words.length() == 0)
+            return null;
+        final String s = text;
+        double[][] out = new double[words.length()][];
+        int from = 0;
+        int n = 0;
+        for (int i = 0; i < words.length(); ++i) {
+            JSONObject w = words.optJSONObject(i);
+            if (w == null)
+                continue;
+            String core = w.optString("text", "").trim();
+            if (core.isEmpty())
+                continue;
+            int at = s.indexOf(core, from);
+            if (at < 0)
+                at = s.indexOf(core);
+            if (at < 0)
+                at = Math.min(from, s.length());
+            int len = Math.min(core.length(), s.length() - at);
+            if (len <= 0)
+                continue;
+            double t = w.optDouble("t", 0);
+            double e = w.optDouble("e", 0);
+            if (!(e > t))
+                e = t + 0.2;
+            out[n++] = new double[] { t, e, at, at + len };
+            from = at + Math.max(1, core.length());
+        }
+        if (n == 0)
+            return null;
+        return Arrays.copyOf(out, n);
+    }
+
+    /** Sangrado de `s.line`, con las palabras ya cantadas en blanco. */
+    private static CharSequence lineText(Shot s)
+    {
+        if (s.p == null || s.idx < 0 || !s.p.karaoke
+                || s.idx >= s.p.wT.length || s.p.wT[s.idx] == null
+                || s.p.wT[s.idx].length == 0)
+            return s.line;
+        final String text = s.line;
+        if (text.isEmpty())
+            return text;
+        int front = (int) Math.floor(frontFor(s.p, s.idx, s.pos));
+        front = Math.max(0, Math.min(text.length(), front));
+        // Antes de la primera palabra la frase entera espera apagada, como en
+        // la app; la tinta clara solo cubre lo ya cantado.
+        SpannableString span = new SpannableString(text);
+        if (front > 0)
+            span.setSpan(new ForegroundColorSpan(INK_SUNG), 0, front,
+                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (front < text.length())
+            span.setSpan(new ForegroundColorSpan(INK_DIM), front, text.length(),
+                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return span;
+    }
+
+    /** Frontera del canto (caracter fraccionario) de la linea `idx`. */
+    private static double frontFor(Published p, int idx, double pos)
+    {
+        double[] ts = (idx >= 0 && idx < p.wT.length) ? p.wT[idx] : null;
+        if (ts == null || ts.length == 0)
+            return 0;
+        double at = 0;
+        for (int k = 0; k < ts.length; ++k) {
+            if (pos < ts[k])
+                break;
+            final int a = p.wA[idx][k];
+            final int b = p.wB[idx][k];
+            final double e = p.wE[idx][k];
+            if (!(e > ts[k]) || b <= a) {
+                at = b;                   // palabra sin duracion o sin letras
+                continue;
+            }
+            final double f = Math.min(1.0, (pos - ts[k]) / (e - ts[k]));
+            at = a + (b - a) * f;
+        }
+        return at;
+    }
+
+    /**
+     * Milisegundos hasta que la frontera caiga en otra letra. Devuelve -1
+     * cuando la linea ya se ha cantado entera (la siguiente la trae el latido
+     * de 1 Hz).
+     */
+    private static long nextFrontDelay(Published p, int idx, double pos)
+    {
+        double[] ts = (idx >= 0 && idx < p.wT.length) ? p.wT[idx] : null;
+        if (ts == null || ts.length == 0)
+            return -1;
+        for (int k = 0; k < ts.length; ++k) {
+            final double t0 = ts[k];
+            final double t1 = p.wE[idx][k];
+            final int a = p.wA[idx][k];
+            final int b = p.wB[idx][k];
+            if (pos < t0)
+                return msUntil(t0 - pos);
+            if (!(t1 > t0) || b <= a)
+                continue;
+            if (pos < t1) {
+                final double at = a + (b - a) * (pos - t0) / (t1 - t0);
+                final double next = Math.floor(at) + 1.0;
+                if (next > b)
+                    return msUntil(t1 - pos);
+                return msUntil(t0 + (t1 - t0) * (next - a) / (b - a) - pos);
+            }
+        }
+        return -1;
+    }
+
+    private static long msUntil(double secs)
+    {
+        long ms = (long) Math.ceil(secs * 1000.0);
+        if (ms < 60L)
+            ms = 60L;                     // nunca mas de ~16 repintados/s
+        if (ms > 1000L)
+            ms = 1000L;                   // el resto lo cubre el latido del servicio
+        return ms;
+    }
+
+    /** Programa la siguiente letra cantada; sin karaoke, apaga el reloj. */
+    static void armFront(final Context context)
+    {
+        if (context == null)
+            return;
+        final Context app = context.getApplicationContext();
+        Shot s = shotAt(app);
+        if (!PlayerWidget.sPlaying || s.p == null || s.idx < 0) {
+            stopFront();
+            return;
+        }
+        // Pantalla apagada: nadie mira el widget. El latido de 1 Hz vuelve a
+        // armarlo en cuanto se enciende.
+        PowerManager pm = (PowerManager)
+                app.getSystemService(Context.POWER_SERVICE);
+        if (pm != null && !pm.isInteractive()) {
+            stopFront();
+            return;
+        }
+        final long delay = nextFrontDelay(s.p, s.idx, s.pos);
+        if (delay < 0) {
+            stopFront();
+            return;
+        }
+        if (sFrontHandler == null)
+            sFrontHandler = new Handler(Looper.getMainLooper());
+        if (sFrontRunnable == null) {
+            sFrontRunnable = new Runnable() {
+                @Override public void run()
+                {
+                    if (!PlayerWidget.sPlaying) {
+                        stopFront();
+                        return;
+                    }
+                    PowerManager pm = (PowerManager)
+                            app.getSystemService(Context.POWER_SERVICE);
+                    if (pm != null && !pm.isInteractive()) {
+                        // Pantalla apagada: nadie mira el widget y despertar
+                        // cada 200 ms es bateria pura. El latido de 1 Hz lo
+                        // vuelve a armar al encenderse.
+                        return;
+                    }
+                    renderFront(app);
+                    armFront(app);
+                }
+            };
+        }
+        sFrontHandler.removeCallbacks(sFrontRunnable);
+        sFrontHandler.postDelayed(sFrontRunnable, delay);
+    }
+
+    static void stopFront()
+    {
+        if (sFrontHandler != null && sFrontRunnable != null)
+            sFrontHandler.removeCallbacks(sFrontRunnable);
+    }
+
+    /** Barra de progreso sola (llega cada segundo): un entero, nada mas. */
+    static void progressOnly(Context context, long posMs)
+    {
+        if (context == null)
+            return;
+        PowerManager pm = (PowerManager)
+                context.getSystemService(Context.POWER_SERVICE);
+        if (pm != null && !pm.isInteractive())
+            return;                       // pantalla apagada: nadie lo ve
+        AppWidgetManager m = AppWidgetManager.getInstance(context);
+        int[] ids = m.getAppWidgetIds(
+                new ComponentName(context, LyricsWidget.class));
+        if (ids == null || ids.length == 0)
+            return;
+        final long dur = Math.max(1L, PlayerWidget.sDurMs);
+        final int prog = (int) Math.min(1000L,
+                Math.max(0L, posMs * 1000L / dur));
+        for (int id : ids) {
+            RemoteViews v = new RemoteViews(context.getPackageName(),
+                                            R.layout.widget_lyrics);
+            v.setProgressBar(R.id.l_progress, 1000, prog, false);
+            m.updateAppWidget(id, v);
+        }
+    }
+
+    /**
+     * Repintado barato: solo las dos copias de la linea activa, con las
+     * palabras ya cantadas encendidas. Sin caratula, sin barra, sin botones.
+     */
+    static void renderFront(Context context)
+    {
+        if (context == null)
+            return;
+        AppWidgetManager m = AppWidgetManager.getInstance(context);
+        int[] ids = m.getAppWidgetIds(
+                new ComponentName(context, LyricsWidget.class));
+        if (ids == null || ids.length == 0)
+            return;
+        Shot s = shotAt(context);
+        if (s.p == null || s.idx < 0)
+            return;
+        final CharSequence seq = lineText(s);
+        for (int id : ids) {
+            RemoteViews v = new RemoteViews(context.getPackageName(),
+                                            R.layout.widget_lyrics);
+            v.setTextViewText(R.id.l_line, seq);
+            v.setTextViewText(R.id.l_line2, seq);
+            m.updateAppWidget(id, v);
+        }
     }
 
     /** Posicion de la pista ahora, extrapolando desde la marca publicada. */
@@ -379,27 +681,43 @@ public class LyricsWidget extends AppWidgetProvider
             n.status = o.optString("status", "");
             n.plain = o.optString("plain", "");
             n.offset = o.optDouble("offset", 0);
+            n.karaoke = o.optBoolean("karaoke", false);
             JSONArray arr = o.optJSONArray("lines");
-            int count = arr == null ? 0 : arr.length();
-            n.t = new double[count];
-            n.text = new String[count];
+            final int count = arr == null ? 0 : arr.length();
+            double[] t = new double[count];
+            String[] text = new String[count];
+            double[][] wT = new double[count][];
+            double[][] wE = new double[count][];
+            int[][] wA = new int[count][];
+            int[][] wB = new int[count][];
             int kept = 0;
             for (int i = 0; i < count; ++i) {
                 JSONObject lo = arr.optJSONObject(i);
                 if (lo == null || !lo.has("t"))
                     continue;
-                n.t[kept] = lo.optDouble("t", 0);
-                n.text[kept] = lo.optString("text", "♪");
+                t[kept] = lo.optDouble("t", 0);
+                text[kept] = lo.optString("text", "♪").trim();
+                double[][] spans = wordSpans(text[kept], lo.optJSONArray("w"));
+                if (spans != null) {
+                    wT[kept] = new double[spans.length];
+                    wE[kept] = new double[spans.length];
+                    wA[kept] = new int[spans.length];
+                    wB[kept] = new int[spans.length];
+                    for (int k = 0; k < spans.length; ++k) {
+                        wT[kept][k] = spans[k][0];
+                        wE[kept][k] = spans[k][1];
+                        wA[kept][k] = (int) spans[k][2];
+                        wB[kept][k] = (int) spans[k][3];
+                    }
+                }
                 kept++;
             }
-            if (kept != count) {
-                double[] t = new double[kept];
-                String[] text = new String[kept];
-                System.arraycopy(n.t, 0, t, 0, kept);
-                System.arraycopy(n.text, 0, text, 0, kept);
-                n.t = t;
-                n.text = text;
-            }
+            n.t = Arrays.copyOf(t, kept);
+            n.text = Arrays.copyOf(text, kept);
+            n.wT = Arrays.copyOf(wT, kept);
+            n.wE = Arrays.copyOf(wE, kept);
+            n.wA = Arrays.copyOf(wA, kept);
+            n.wB = Arrays.copyOf(wB, kept);
             n.mtime = mtime;
             n.length = length;
             sPublished = n;
@@ -460,7 +778,7 @@ public class LyricsWidget extends AppWidgetProvider
 
     /** Pinta el trio de lineas en una de las dos copias del bloque. */
     private static void fill(RemoteViews v, int prevId, int lineId, int nextId,
-                             String prev, String line, String next)
+                             String prev, CharSequence line, String next)
     {
         v.setTextViewText(lineId, line);
         v.setTextViewText(nextId, next);
