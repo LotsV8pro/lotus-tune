@@ -86,12 +86,18 @@ drop it and try again on the next read; do not cache the error.
 
 The Android home-screen widget (`android/src/com/lotustuneremote/app/LyricsWidget.java`)
 reads both files so it paints the same lyrics as the app with the app closed.
-When the line carries `w`, it lights the words already sung and keeps the rest
-dimmed, like the desktop view. The front moves letter by letter: a widget can
-only be redrawn from the process that owns it and its text cannot be filled
-by pixels, so repainting at 60 Hz would cost battery without showing anything
-new between two letters. It is redrawn only when the front reaches another
-letter, only while the song plays, and only with the screen on.
+When the line carries `w`, it lights what is already sung and keeps the rest
+dimmed, like the desktop view. Each row is two stacked texts: the dim one
+underneath, the bright one on top with its max width set to the singing front.
+Moving that width moves the front in whole pixels, so the sweep is the same
+one the app paints. It runs at about 12 Hz, which is as fast as the MIUI host
+applies a RemoteViews update: each frame carries only the two widths and every
+tenth one repeats the whole block, in case the host reinflated the tree. The
+frames only run while the song plays and the screen is on.
+
+A widget cannot blur the wallpaper behind it: RemoteViews is painted over the
+wallpaper with no access to it. The "glass" is a thin white veil with a 1 dp
+border, and the dark ink carries a white halo so it stays legible.
 
 The widget shows nothing but the lyrics: the previous line, the one being sung
 and the next one. Tapping it opens the app; the controls stay in the playback

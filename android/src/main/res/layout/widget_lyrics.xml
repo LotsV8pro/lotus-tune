@@ -2,11 +2,12 @@
 <!-- Widget de LETRA: solo la letra (anterior, actual y siguiente), sin
      cabecera, sin barra y sin botones. Un widget no puede desenfocar lo que
      tiene detras (RemoteViews no llega al fondo de pantalla), asi que el
-     "cristal" es una tarjeta translucida: se ve el fondo por debajo, sin
-     difuminar.
-     Dos copias identicas dentro de un ViewFlipper: al cambiar de linea se
-     enseña la otra copia con un fundido + deslizamiento (solo cuando
-     cambia, no en cada repintado del karaoke).
+     "cristal" es un velo blanco muy fino: se ve el fondo entero, solo un poco
+     mas claro, y la letra oscura se lee por el halo blanco.
+     La linea activa va en dos capas por fila: debajo la frase entera en tinta
+     apagada y encima la misma frase en tinta fuerte. La de encima lleva el
+     ancho maximo puesto al vuelo (TextView.setMaxWidth): crece pixel a pixel y
+     deja al descubierto lo ya cantado, como el barrido de la app.
      Tocar la letra abre la app. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/l_root"
@@ -18,129 +19,135 @@
     android:paddingTop="14dp"
     android:paddingBottom="14dp">
 
-    <ViewFlipper
-        android:id="@+id/l_flip"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:inAnimation="@anim/lw_line_in"
-        android:animateFirstView="false">
+        android:orientation="vertical"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/l_prev_line"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:textColor="#5711141A"
+            android:textSize="13sp"
+            android:shadowColor="#66FFFFFF"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="6"
+            android:text="" />
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:layout_marginBottom="5dp"
             android:orientation="vertical"
             android:gravity="center">
 
-            <TextView
-                android:id="@+id/l_prev_line"
-                android:layout_width="match_parent"
+            <FrameLayout
+                android:id="@+id/l_rowA0"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#59111318"
-                android:textSize="13sp"
-                android:shadowColor="#66FFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="9"
-                android:text="" />
+                android:layout_gravity="center_horizontal">
 
-            <TextView
-                android:id="@+id/l_line"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:layout_marginBottom="5dp"
-                android:maxLines="4"
-                android:lineSpacingExtra="2dp"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#F2111318"
-                android:textSize="24sp"
-                android:textStyle="bold"
-                android:shadowColor="#8CFFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="14"
-                android:text="" />
+                <TextView
+                    android:id="@+id/l_dimA0"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="none"
+                    android:gravity="start"
+                    android:textAlignment="viewStart"
+                    android:textColor="#6B11141A"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:shadowColor="#99FFFFFF"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="8"
+                    android:text="" />
 
-            <TextView
-                android:id="@+id/l_next"
-                android:layout_width="match_parent"
+                <TextView
+                    android:id="@+id/l_sunA0"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
+                    android:maxLines="1"
+                    android:ellipsize="none"
+                    android:gravity="start"
+                    android:textAlignment="viewStart"
+                    android:textColor="#F011141A"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:shadowColor="#99FFFFFF"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="8"
+                    android:text="" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/l_rowA1"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#99111318"
-                android:textSize="14sp"
-                android:shadowColor="#66FFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="9"
-                android:text=" " />
+                android:layout_gravity="center_horizontal">
+
+                <TextView
+                    android:id="@+id/l_dimA1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:maxLines="1"
+                    android:ellipsize="none"
+                    android:gravity="start"
+                    android:textAlignment="viewStart"
+                    android:textColor="#6B11141A"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:shadowColor="#99FFFFFF"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="8"
+                    android:text="" />
+
+                <TextView
+                    android:id="@+id/l_sunA1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
+                    android:maxLines="1"
+                    android:ellipsize="none"
+                    android:gravity="start"
+                    android:textAlignment="viewStart"
+                    android:textColor="#F011141A"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:shadowColor="#99FFFFFF"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="8"
+                    android:text="" />
+            </FrameLayout>
         </LinearLayout>
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/l_next"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:gravity="center">
-
-            <TextView
-                android:id="@+id/l_prev_line2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#59111318"
-                android:textSize="13sp"
-                android:shadowColor="#66FFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="9"
-                android:text="" />
-
-            <TextView
-                android:id="@+id/l_line2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:layout_marginBottom="5dp"
-                android:maxLines="4"
-                android:lineSpacingExtra="2dp"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#F2111318"
-                android:textSize="24sp"
-                android:textStyle="bold"
-                android:shadowColor="#8CFFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="14"
-                android:text="" />
-
-            <TextView
-                android:id="@+id/l_next2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#99111318"
-                android:textSize="14sp"
-                android:shadowColor="#66FFFFFF"
-                android:shadowDx="0"
-                android:shadowDy="1"
-                android:shadowRadius="9"
-                android:text=" " />
-        </LinearLayout>
-    </ViewFlipper>
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:textAlignment="center"
+            android:textColor="#8C11141A"
+            android:textSize="14sp"
+            android:shadowColor="#66FFFFFF"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="6"
+            android:text=" " />
+    </LinearLayout>
 </FrameLayout>
