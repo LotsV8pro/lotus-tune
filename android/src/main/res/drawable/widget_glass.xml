@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fondo del widget de letra: un velo, no una caja. Un RemoteViews no puede
+     leer ni desenfocar el fondo de pantalla (lo pinta el launcher por debajo),
+     asi que lo de atras se ve tal cual, sin blur; el velo solo baja el brillo
+     lo justo para que la letra blanca se lea tambien sobre un fondo claro.
+     Tono azul muy oscuro, no negro, y el borde blanco fino de una tarjeta de
+     cristal; con el velo a media opacidad el fondo se sigue viendo. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <gradient
+        android:angle="90"
+        android:startColor="#A1101218"
+        android:endColor="#70101218" />
+    <corners android:radius="22dp" />
+    <stroke
+        android:width="1dp"
+        android:color="#2EFFFFFF" />
+</shape>

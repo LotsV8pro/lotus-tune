@@ -42,8 +42,8 @@ android {
         targetSdk 34
         // The same number as CMakeLists (1.2.1 -> 10201): if it goes down,
         // the system rejects the install as a "downgrade".
-        versionCode 20003
-        versionName "2.0.3"
+        versionCode 20004
+        versionName "2.0.4"
     }
 
     // One key for every build. The debug key of each machine changes (the

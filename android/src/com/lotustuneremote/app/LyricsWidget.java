@@ -1,10 +1,9 @@
 /**
  * Segundo widget de pantalla de inicio: la LETRA de la cancion que suena.
  *
- * No tiene estado propio de reproduccion: titulo, artista, caratula, play,
- * aleatorio y "me gusta" los lee de PlayerWidget (los dos widgets son el
- * mismo reproductor visto de otra forma), y las acciones vuelven por el
- * mismo buzon que sondea el C++.
+ * No tiene estado propio de reproduccion: si suena, el titulo y la posicion
+ * los lee de PlayerWidget (los dos widgets son el mismo reproductor visto de
+ * otra forma).
  *
  * La letra sale del MISMO sitio que en la app: los ficheros que el motor
  * publica en files/ (lyrics.json con las lineas y el ajuste, y
@@ -20,8 +19,8 @@
  * falta apagado. La frontera avanza letra a letra y solo se repinta cuando
  * cae en otra letra, con la pantalla encendida y mientras suena.
  *
- * Acciones: las mismas que el widget de reproduccion (TOGGLE, NEXT, PREV,
- * SHUFFLE, REPEAT, FAV).
+ * Es solo la letra: sin cabecera, sin barra y sin botones. Tocar el widget
+ * abre la app, y los controles se quedan en el widget de reproduccion.
  */
 package com.lotustuneremote.app;
 
@@ -31,7 +30,6 @@ import android.appwidget.AppWidgetProvider;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
@@ -218,79 +216,21 @@ public class LyricsWidget extends AppWidgetProvider
         for (int id : ids) {
             RemoteViews v = new RemoteViews(context.getPackageName(),
                                             R.layout.widget_lyrics);
-            Bitmap art = AudioService.artBitmap();
-            if (art != null) {
-                v.setImageViewBitmap(R.id.l_art, art);
-                v.setViewVisibility(R.id.l_art, View.VISIBLE);
-            } else {
-                v.setViewVisibility(R.id.l_art, View.GONE);
-            }
-            v.setTextViewText(R.id.l_title,
-                    PlayerWidget.sTitle.isEmpty()
-                            ? "Lotus Tune" : PlayerWidget.sTitle);
-            v.setTextViewText(R.id.l_artist, PlayerWidget.sArtist);
-
-            // Two copies of the block, both filled (so the text is right whichever
-            // is painted). On a line change it moves to the other copy with
-            // showNext(), which always alternates: whether the host reuses the tree
-            // (it is at 1) or reinflates it (it is at 0), the 0->1 or 1->0 jump
-            // animates.
+            // Las dos copias del bloque, rellenas (el texto tiene que estar
+            // bien en la que se pinte). Al cambiar de linea se pasa a la otra
+            // con showNext(), que siempre alterna: tanto si el host reusa el
+            // arbol (esta en 1) como si lo reinfla (esta en 0), el salto 0->1
+            // o 1->0 anima.
             fill(v, R.id.l_prev_line, R.id.l_line, R.id.l_next,
                  prev, lineSeq, next);
             fill(v, R.id.l_prev_line2, R.id.l_line2, R.id.l_next2,
                  prev, lineSeq, next);
             if (lineChanged)
                 v.showNext(R.id.l_flip);
-
-            // Thin progress bar, as in the playback widget.
-            final long dur = Math.max(1L, PlayerWidget.sDurMs);
-            int prog = (int) Math.min(1000L,
-                    Math.max(0L, PlayerWidget.sPosMs * 1000L / dur));
-            v.setProgressBar(R.id.l_progress, 1000, prog, false);
-
-            v.setImageViewResource(R.id.l_play,
-                    PlayerWidget.sPlaying
-                            ? R.drawable.ic_w_pause : R.drawable.ic_w_play);
-            v.setImageViewResource(R.id.l_fav,
-                    PlayerWidget.sFav
-                            ? R.drawable.ic_w_heart
-                            : R.drawable.ic_w_heart_outline);
-            v.setImageViewResource(R.id.l_repeat,
-                    PlayerWidget.sRepeat == 2
-                            ? R.drawable.ic_w_repeat_one
-                            : R.drawable.ic_w_repeat);
-            v.setInt(R.id.l_repeat, "setColorFilter",
-                    PlayerWidget.sRepeat == 0 ? 0xFF8A8A93 : 0xFFE0525F);
-            v.setInt(R.id.l_shuffle, "setColorFilter",
-                    PlayerWidget.sShuffle ? 0xFFE0525F : 0xFF8A8A93);
-            v.setInt(R.id.l_fav, "setColorFilter",
-                    PlayerWidget.sFav ? 0xFFE0525F : 0xFFFFFFFF);
-            v.setInt(R.id.l_play, "setColorFilter", 0xFFFFFFFF);
-            v.setInt(R.id.l_prev, "setColorFilter", 0xFFFFFFFF);
-            v.setInt(R.id.l_next_btn, "setColorFilter", 0xFFFFFFFF);
-
-            v.setOnClickPendingIntent(R.id.l_play,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_TOGGLE, 1));
-            v.setOnClickPendingIntent(R.id.l_next_btn,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_NEXT, 2));
-            v.setOnClickPendingIntent(R.id.l_prev,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_PREV, 3));
-            v.setOnClickPendingIntent(R.id.l_shuffle,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_SHUFFLE, 4));
-            v.setOnClickPendingIntent(R.id.l_repeat,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_REPEAT, 5));
-            v.setOnClickPendingIntent(R.id.l_fav,
-                    PlayerWidget.intentFor(context,
-                            PlayerWidget.ACTION_FAV, 6));
-            // Touching the header opens the app (like the music widget of any
-            // player).
-            v.setOnClickPendingIntent(R.id.l_head,
-                    openApp(context));
+            // El widget es solo la letra: tocar cualquier parte abre la app.
+            final PendingIntent open = openApp(context);
+            if (open != null)
+                v.setOnClickPendingIntent(R.id.l_root, open);
             m.updateAppWidget(id, v);
         }
         // Con la linea en pantalla, el karaoke toma el relevo hasta la siguiente.
@@ -566,31 +506,6 @@ public class LyricsWidget extends AppWidgetProvider
     {
         if (sFrontHandler != null && sFrontRunnable != null)
             sFrontHandler.removeCallbacks(sFrontRunnable);
-    }
-
-    /** Barra de progreso sola (llega cada segundo): un entero, nada mas. */
-    static void progressOnly(Context context, long posMs)
-    {
-        if (context == null)
-            return;
-        PowerManager pm = (PowerManager)
-                context.getSystemService(Context.POWER_SERVICE);
-        if (pm != null && !pm.isInteractive())
-            return;                       // pantalla apagada: nadie lo ve
-        AppWidgetManager m = AppWidgetManager.getInstance(context);
-        int[] ids = m.getAppWidgetIds(
-                new ComponentName(context, LyricsWidget.class));
-        if (ids == null || ids.length == 0)
-            return;
-        final long dur = Math.max(1L, PlayerWidget.sDurMs);
-        final int prog = (int) Math.min(1000L,
-                Math.max(0L, posMs * 1000L / dur));
-        for (int id : ids) {
-            RemoteViews v = new RemoteViews(context.getPackageName(),
-                                            R.layout.widget_lyrics);
-            v.setProgressBar(R.id.l_progress, 1000, prog, false);
-            m.updateAppWidget(id, v);
-        }
     }
 
     /**

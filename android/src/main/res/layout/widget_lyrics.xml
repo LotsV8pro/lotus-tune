@@ -1,153 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Widget de LETRA: cabecera (caratula + titulo + artista), barra de
-     progreso, los controles y, DEBAJO, la letra (anterior, actual y
-     siguiente). El bloque de letra lleva weight=1, asi que al estirar el
-     widget el espacio extra se lo queda la letra.
-     Todo es RemoteViews (ImageView + TextViews). -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Widget de LETRA: solo la letra (anterior, actual y siguiente), sin
+     cabecera, sin barra y sin botones. Un widget no puede desenfocar lo que
+     tiene detras (RemoteViews no llega al fondo de pantalla), asi que el
+     "cristal" es una tarjeta translucida: se ve el fondo por debajo, sin
+     difuminar.
+     Dos copias identicas dentro de un ViewFlipper: al cambiar de linea se
+     enseña la otra copia con un fundido + deslizamiento (solo cuando
+     cambia, no en cada repintado del karaoke).
+     Tocar la letra abre la app. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/l_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@drawable/widget_bg"
-    android:padding="12dp">
+    android:background="@drawable/widget_glass"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:paddingTop="14dp"
+    android:paddingBottom="14dp">
 
-    <LinearLayout
-        android:id="@+id/l_head"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center">
-
-        <ImageView
-            android:id="@+id/l_art"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginEnd="10dp"
-            android:scaleType="centerCrop"
-            android:contentDescription="Caratula"
-            android:visibility="gone" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/l_title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#FFFFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:text="Lotus Tune" />
-
-            <TextView
-                android:id="@+id/l_artist"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:textAlignment="center"
-                android:textColor="#99FFFFFF"
-                android:textSize="11sp"
-                android:text="" />
-        </LinearLayout>
-    </LinearLayout>
-
-    <ProgressBar
-        android:id="@+id/l_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="3dp"
-        android:layout_marginTop="8dp"
-        android:max="1000"
-        android:progress="0"
-        android:progressTint="#FFE0525F"
-        android:progressBackgroundTint="#33FFFFFF" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:layout_marginTop="4dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-
-        <ImageView
-            android:id="@+id/l_fav"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Me gusta"
-            android:src="@drawable/ic_w_heart_outline" />
-
-        <ImageView
-            android:id="@+id/l_prev"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:padding="11dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Anterior"
-            android:src="@drawable/ic_w_prev" />
-
-        <ImageView
-            android:id="@+id/l_play"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1.3"
-            android:padding="8dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Reproducir"
-            android:src="@drawable/ic_w_play" />
-
-        <ImageView
-            android:id="@+id/l_next_btn"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:padding="11dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Siguiente"
-            android:src="@drawable/ic_w_next" />
-
-        <ImageView
-            android:id="@+id/l_repeat"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Bucle"
-            android:src="@drawable/ic_w_repeat" />
-
-        <ImageView
-            android:id="@+id/l_shuffle"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:contentDescription="Aleatorio"
-            android:src="@drawable/ic_w_shuffle" />
-    </LinearLayout>
-
-    <!-- Letra debajo de los controles. Dos copias identicas dentro de un
-         ViewFlipper: al cambiar de linea se enseña la otra copia con un
-         fundido + deslizamiento (solo cuando cambia, no en cada refresco
-         de la barra). -->
     <ViewFlipper
         android:id="@+id/l_flip"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginTop="6dp"
+        android:layout_height="match_parent"
         android:inAnimation="@anim/lw_line_in"
         android:animateFirstView="false">
 
@@ -156,48 +30,58 @@
             android:layout_height="match_parent"
             android:orientation="vertical"
             android:gravity="center">
-        <TextView
-            android:id="@+id/l_prev_line"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#59FFFFFF"
-            android:textSize="12sp"
-            android:text="" />
 
-        <TextView
-            android:id="@+id/l_line"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="3"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#FFFFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:shadowColor="#99000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text="" />
+            <TextView
+                android:id="@+id/l_prev_line"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#66FFFFFF"
+                android:textSize="13sp"
+                android:shadowColor="#E6000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="9"
+                android:text="" />
 
-        <TextView
-            android:id="@+id/l_next"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#99FFFFFF"
-            android:textSize="13sp"
-            android:text=" " />
+            <TextView
+                android:id="@+id/l_line"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
+                android:maxLines="4"
+                android:lineSpacingExtra="2dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#FFFFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:shadowColor="#FF000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="14"
+                android:text="" />
+
+            <TextView
+                android:id="@+id/l_next"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#99FFFFFF"
+                android:textSize="14sp"
+                android:shadowColor="#E6000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="9"
+                android:text=" " />
         </LinearLayout>
 
         <LinearLayout
@@ -205,48 +89,58 @@
             android:layout_height="match_parent"
             android:orientation="vertical"
             android:gravity="center">
-        <TextView
-            android:id="@+id/l_prev_line2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#59FFFFFF"
-            android:textSize="12sp"
-            android:text="" />
 
-        <TextView
-            android:id="@+id/l_line2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="3"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#FFFFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:shadowColor="#99000000"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="3"
-            android:text="" />
+            <TextView
+                android:id="@+id/l_prev_line2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#66FFFFFF"
+                android:textSize="13sp"
+                android:shadowColor="#E6000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="9"
+                android:text="" />
 
-        <TextView
-            android:id="@+id/l_next2"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:gravity="center"
-            android:textAlignment="center"
-            android:textColor="#99FFFFFF"
-            android:textSize="13sp"
-            android:text=" " />
+            <TextView
+                android:id="@+id/l_line2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
+                android:maxLines="4"
+                android:lineSpacingExtra="2dp"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#FFFFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:shadowColor="#FF000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="14"
+                android:text="" />
+
+            <TextView
+                android:id="@+id/l_next2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:textAlignment="center"
+                android:textColor="#99FFFFFF"
+                android:textSize="14sp"
+                android:shadowColor="#E6000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="9"
+                android:text=" " />
         </LinearLayout>
     </ViewFlipper>
-</LinearLayout>
+</FrameLayout>
