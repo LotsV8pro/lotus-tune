@@ -80,10 +80,10 @@ if [ -d "$ASSET_QML" ]; then
     cp -f "$ROOT"/qml/*.qml "$ROOT"/qml/*.js "$ASSET_QML"/
 fi
 
-# androiddeployqt skips "Create rcc bundle" when the .rcc is already there, so
-# a QML edit never made it into the APK (the phone kept running the old UI).
-# Delete it and let the deploy step rebuild it from the synced copy.
-rm -f "$BUILD/android-build/assets/android_rcc_bundle.rcc"
+# androiddeployqt builds assets/android_rcc_bundle.rcc BEFORE copying the
+# assets into the build directory, so it bundles the previous build's QML
+# (a new file was missing from the APK and the phone kept the old layout).
+# The bundle is regenerated below, once the copy is done.
 
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
@@ -100,6 +100,15 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
 # (it fails afterwards on a missing dep file, a bug of Qt 6.6, but Gradle
 # does the job).
 cmake --build "$BUILD" --target apk || true
+
+# androiddeployqt builds assets/android_rcc_bundle.rcc before it copies
+# android/assets into the build tree, so that first bundle carries the
+# previous build's QML. The copies are in place now: drop the bundle and let
+# a second pass build it from them (the app reads it at startup and a stale
+# one keeps the old layout on screen).
+rm -f "$BUILD/android-build/assets/android_rcc_bundle.rcc"
+cmake --build "$BUILD" --target apk || true
+
 cmake --build "$BUILD" --target lotus-tune
 mkdir -p "$BUILD/android-build/libs/arm64-v8a"
 cp "$BUILD"/liblotus-tune_*.so "$BUILD/android-build/libs/arm64-v8a/" 2>/dev/null || true
@@ -112,7 +121,8 @@ if [ -f "$APK" ]; then
     # which is exactly what the release shipped once. The listing is read
     # into a variable: `unzip | grep -q` fails on SIGPIPE with pipefail.
     listing="$(unzip -l "$APK")"
-    for entry in assets/qt_qml.rcc assets/android_rcc_bundle/qmldir; do
+    for entry in assets/qt_qml.rcc assets/android_rcc_bundle/qmldir \
+                 assets/android_rcc_bundle.rcc; do
         case "$listing" in
             *"$entry"*) ;;
             *)
@@ -121,6 +131,24 @@ if [ -f "$APK" ]; then
                 ;;
         esac
     done
+    # A stale rcc installs and runs the previous UI, which looks like "the
+    # change did nothing". Names inside the bundle are UTF-16BE and the
+    # files are compressed, so grep cannot see them.
+    if command -v python3 >/dev/null 2>&1; then
+        tmpdir="$(mktemp -d)"
+        unzip -q -o "$APK" assets/android_rcc_bundle.rcc -d "$tmpdir"
+        if ! python3 - "$tmpdir/assets/android_rcc_bundle.rcc" <<'PY'
+import sys
+data = open(sys.argv[1], "rb").read()
+sys.exit(0 if "Main.qml".encode("utf-16-be") in data else 1)
+PY
+        then
+            echo "el bundle QML del APK esta vacio o es viejo" >&2
+            rm -rf "$tmpdir"
+            exit 1
+        fi
+        rm -rf "$tmpdir"
+    fi
     echo
     echo "APK: $APK ($(du -h "$APK" | cut -f1))"
     echo "Para instalarlo en un movil:  adb install -r \"$APK\""

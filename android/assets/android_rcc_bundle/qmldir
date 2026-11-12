@@ -26,3 +26,4 @@ PlaylistEditor 1.0 qml/LotusTune/PlaylistEditor.qml
 LyricsView 1.0 qml/LotusTune/LyricsView.qml
 FullscreenLyrics 1.0 qml/LotusTune/FullscreenLyrics.qml
 CinemaLeft 1.0 qml/LotusTune/CinemaLeft.qml
+CinemaTransport 1.0 qml/LotusTune/CinemaTransport.qml

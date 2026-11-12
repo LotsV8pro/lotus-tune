@@ -40,19 +40,34 @@ android {
         applicationId "com.lotustuneremote.app"
         minSdk 24
         targetSdk 34
-        // El mismo numero que CMakeLists (1.2.1 -> 10201): si baja, el
-        // sistema rechaza la instalacion por "downgrade".
-        versionCode 20000
-        versionName "2.0.0"
+        // The same number as CMakeLists (1.2.1 -> 10201): if it goes down,
+        // the system rejects the install as a "downgrade".
+        versionCode 20001
+        versionName "2.0.1"
+    }
+
+    // One key for every build. The debug key of each machine changes (the
+    // CI runner generates a new one per job), so an APK from one build
+    // could not be installed over another: Android answered
+    // INSTALL_FAILED_UPDATE_INCOMPATIBLE and the user had to uninstall,
+    // losing the session. This key travels in the repo, so any build of
+    // any version updates the previous one in place.
+    signingConfigs {
+        lotus {
+            storeFile file('../../android/lotus-tune.keystore')
+            storePassword 'lotustune'
+            keyAlias 'lotus'
+            keyPassword 'lotustune'
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.lotus
+        }
         release {
-            // Signed with the debug key so the APK can be installed
-            // without a key store (the release workflow signs it with the
-            // real one when the secrets are present).
             minifyEnabled false
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.lotus
         }
     }
 

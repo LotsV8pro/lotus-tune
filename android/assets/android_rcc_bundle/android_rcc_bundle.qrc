@@ -31,5 +31,6 @@
 <file>qml/LotusTune/LyricsView.qml</file>
 <file>qml/LotusTune/FullscreenLyrics.qml</file>
 <file>qml/LotusTune/CinemaLeft.qml</file>
+    <file>qml/LotusTune/CinemaTransport.qml</file>
 </qresource>
 </RCC>

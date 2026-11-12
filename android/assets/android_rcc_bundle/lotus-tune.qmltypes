@@ -25,4 +25,5 @@
 <qmlobject module="LotusTune" name="LyricsView" elementName="LyricsView" typeName="LyricsView" version="1.0"/>
 <qmlobject module="LotusTune" name="FullscreenLyrics" elementName="FullscreenLyrics" typeName="FullscreenLyrics" version="1.0"/>
 <qmlobject module="LotusTune" name="CinemaLeft" elementName="CinemaLeft" typeName="CinemaLeft" version="1.0"/>
+<qmlobject module="LotusTune" name="CinemaTransport" elementName="CinemaTransport" typeName="CinemaTransport" version="1.0"/>
 </qmltypes>

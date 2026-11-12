@@ -2,25 +2,25 @@ import QtQuick
 import QtQuick.Layouts
 import "theme.js" as Theme
 
-// Cinema (pantalla completa): la distribucion de la referencia.
+// Cinema (fullscreen): the reference layout.
 //
 //   +----------------------------------+---------------------------+
-//   | portada                          |                           |
-//   | titulo + corazon                 |        letra              |
-//   | artista                          |  (voz principal izquierda, |
-//   | ---- progreso ---- 5:30    8:00  |   segunda voz a la derecha)|
-//   | aleatorio < > play > ↻  volumen  |                           |
+//   | cover                            |                           |
+//   | title + heart                    |           lyrics          |
+//   | artist                           |  (lead voice on the left, |
+//   | ---- progress ---- 5:30    8:00  | second voice on the right)|
+//   | shuffle < > play > repeat volume |                           |
 //   +----------------------------------+---------------------------+
 //
-// El bloque de la izquierda es `CinemaLeft.qml` (se usa tambien, apilado,
-// en el movil, donde no caben dos columnas). El transporte vive DENTRO de
-// la vista (el cinema tapa la barra: `bottomInset` = 0 en Main.qml), asi
-// que la pantalla se basta sola. Cerrar va arriba a la derecha, con la
-// cola a su izquierda.
+// The left block is `CinemaLeft.qml` (it is also used, stacked, on the
+// phone, where two columns do not fit). The transport lives INSIDE the
+// view (the cinema covers the bar: `bottomInset` = 0 in Main.qml), so the
+// screen stands on its own. Close sits top right, with the queue to its
+// left.
 //
-// La letra es `LyricsView` - el mismo motor que el panel y Now Playing -
-// con `duetSides: true`: cuando la fuente marca dos voces, las frases de
-// la segunda salen desde el lado derecho, como en Sonora.
+// The lyrics are `LyricsView` - the same engine as the panel and Now
+// Playing - with `duetSides: true`: when the source tags two voices, the
+// second voice's phrases come in from the right side, like in Sonora.
 Rectangle {
     id: fl
     anchors.fill: parent
@@ -30,13 +30,13 @@ Rectangle {
     anchors.bottomMargin: fl.bottomInset
     color: "transparent"
     visible: opacity > 0.01
-    // Al bajar con el dedo la vista se desvanece un poco: el movimiento y
-    // la transparencia cuentan la misma historia.
+    // Pulling down with a finger fades the view a little: the movement and
+    // the transparency tell the same story.
     opacity: (open ? 1 : 0) * pullFade
     z: 72
 
     property bool open: false
-    // La app en primer plano (ver RightPanel).
+    // The app is in the foreground (see RightPanel).
     property bool appActive: true
     property string title: ""
     property string artist: ""
@@ -53,8 +53,8 @@ Rectangle {
     property bool shuffleOn: false
     property int repeatVal: 0
     property bool liked: false
-    // Volumen del reproductor (0..130, el mismo rango que la barra). El
-    // cinema no tenia control de volumen: habia que salir a la barra.
+    // Player volume (0..130, the same range as the bar). The cinema had no
+    // volume control: you had to leave it and use the bar.
     property int volume: 70
     // Height the overlay must lift to leave the real playback bar visible
     // below (Main: bar height +, on the phone, tab bar + gap + margin).
@@ -68,10 +68,10 @@ Rectangle {
     signal shuffleRequested()
     signal repeatRequested()
     signal likeRequested()
-    // Volumen pedido desde el cinema (0..130).
+    // Volume asked for from the cinema (0..130).
     signal volumeWanted(int value)
-    // La cola ya no vive en la barra: se abre desde aqui (arriba a la
-    // derecha, simetrica con el boton de cerrar).
+    // The queue no longer lives in the bar: it opens from here (top right,
+    // symmetric with the close button).
     signal queueRequested()
     // Right click on the artwork: the same track menu as in the lists
     // (radio, queue, library...). Click on the artist: open their page.
@@ -81,27 +81,27 @@ Rectangle {
     // button on the phone).
     signal swipeDown()
 
-    // The properties (title/artist/thumb/videoId/…) are bound from
+    // The properties (title/artist/thumb/videoId/...) are bound from
     // Main.qml to the current values, so the cinema keeps them fresh
     // while it is open: bindings update themselves (an imperative copy
     // here would kill the binding and freeze the cover and the title).
     Behavior on opacity {
         NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic }
     }
-    // Entra subiendo desde abajo (donde estaba la barra): el gesto de
-    // arrastre y la vista completa son el mismo movimiento. Es un
-    // translate (se resuelve en el compositor), no un relayout, asi que
-    // va a la frecuencia de la pantalla (120 Hz si el movil la tiene).
+    // It comes in rising from below (where the bar was): the drag gesture
+    // and the full view are the same movement. It is a translate (solved
+    // in the compositor), not a relayout, so it runs at the screen rate
+    // (120 Hz if the phone has it).
     property real revealOffset: fl.open ? 0 : fl.height * 0.14
     Behavior on revealOffset {
         NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
     }
 
-    // ---- arrastrar hacia abajo: cerrar ------------------------------
-    // El gesto de entrada, al reves: la vista baja con el dedo y, si se
-    // pasa del umbral, se cierra sola. Vale en la portada, el titulo, el
-    // fondo y (por el rebote de la letra) tambien sobre la letra. Las
-    // animaciones son transform/opacity: van a la frecuencia de pantalla.
+    // ---- drag down: close -------------------------------------------
+    // The entrance gesture, backwards: the view drops with the finger and,
+    // past the threshold, closes on its own. Works on the cover, the title,
+    // the background and (via the lyrics bounce) over the lyrics too. The
+    // animations are transform/opacity: they run at the screen rate.
     property real pullDown: 0
     readonly property real pullLimit: fl.height * 0.45
     readonly property real pullFade: 1 - Math.min(0.85, fl.pullDown / (fl.height * 0.6))
@@ -113,9 +113,9 @@ Rectangle {
         duration: 200
         easing.type: Easing.OutCubic
     }
-    // Soltar pasado el umbral: la vista SIGUE bajando mientras se funde.
-    // Antes, al cerrar se ponia pullDown a 0 de golpe y la vista subia de
-    // vuelta para luego desaparecer: ese era el salto que se veia.
+    // Releasing past the threshold: the view KEEPS going down while it
+    // fades. Before, closing set pullDown to 0 in one go and the view rose
+    // back up and then vanished: that was the jump you could see.
     NumberAnimation {
         id: closeOut
         target: fl
@@ -232,11 +232,11 @@ Rectangle {
         }
     }
 
-    // ---- fondo arrastrable (bajar = cerrar) -------------------------------
-    // Detras del contenido: los botones y la letra reciben el toque primero,
-    // asi que este MouseArea solo actua en el fondo. Antes habia un
-    // DragHandler global que se quedaba con el gesto y dejaba botones como
-    // "siguiente" sin respuesta.
+    // ---- draggable background (pull down = close) -------------------------
+    // Behind the content: the buttons and the lyrics take the touch first,
+    // so this MouseArea only acts on the background. Before there was a
+    // global DragHandler that swallowed the gesture and left buttons like
+    // "next" without an answer.
     Item {
         id: sheetDrag
         anchors.fill: parent
@@ -285,11 +285,12 @@ Rectangle {
         }
     }
 
-    // ---- contenido: info a la IZQUIERDA, letra a la DERECHA ---------------
-    // La distribucion de la referencia: la portada con el titulo, el
-    // artista, el progreso y los controles debajo, en una columna; la
-    // letra ocupa la otra mitad, mas ancha. En el movil no caben dos
-    // columnas: el panel se apila arriba y la letra debajo.
+    // ---- content: info on the LEFT, lyrics on the RIGHT -------------------
+    // The reference layout: the cover with the title, the artist, the
+    // progress and the controls below it, in one column; the lyrics take
+    // the other half, a wider one. On the phone two columns do not fit:
+    // the cover and the title go on top, the lyrics follow and the
+    // progress with the transport close the screen at the bottom.
     Item {
         id: content
         anchors.fill: parent
@@ -303,7 +304,7 @@ Rectangle {
         readonly property real coverSize: Math.round(
             Theme.clamp(Math.min(leftW - Theme.s2, height * 0.46), 120, 360))
 
-        // ---- ESCRITORIO: dos columnas ----------------------------------
+        // ---- DESKTOP: two columns --------------------------------------
         RowLayout {
             anchors.fill: parent
             visible: content.wide
@@ -342,8 +343,8 @@ Rectangle {
                 onArtistRequested: (name) => fl.artistRequested(name)
             }
 
-            // Letra: la columna de la derecha, alineada a la izquierda y
-            // con las voces a los lados cuando la fuente marca dueto.
+            // Lyrics: the right column, left aligned, with the voices on
+            // the sides when the source tags a duet.
             LyricsView {
                 id: lyric
                 Layout.fillWidth: true
@@ -381,7 +382,7 @@ Rectangle {
             }
         }
 
-        // ---- MOVIL: una columna ----------------------------------------
+        // ---- PHONE: one column -----------------------------------------
         ColumnLayout {
             anchors.fill: parent
             visible: !content.wide
@@ -391,6 +392,9 @@ Rectangle {
                 id: leftPhone
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
+                // Cover, title and artist only: the progress and the
+                // transport go below the lyrics.
+                showTransport: false
 
                 ink: fl.ink
                 inkDim: fl.inkDim
@@ -431,21 +435,46 @@ Rectangle {
                 edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
                 leftAlign: false
                 duetSides: true
-                // Phone: the lyrics live under the cover, in the bottom
-                // half. That cell is the one that decides light or dark ink.
+                // Phone: the lyrics sit between the cover and the
+                // transport, in the middle of the screen. That cell is the
+                // one that decides light or dark ink.
                 zone: 7
                 pinFrac: 0.50
                 pillTop: true
                 syncAdjustAllowed: false
                 pillShown: false
             }
+
+            // Progress bar and transport, at the bottom: the cover is on
+            // top, the lyrics in the middle and the controls close the
+            // screen, the way the phone players lay it out.
+            CinemaTransport {
+                Layout.fillWidth: true
+                ink: fl.ink
+                inkDim: fl.inkDim
+                position: fl.position
+                duration: fl.duration
+                playing: fl.playing
+                shuffleOn: fl.shuffleOn
+                repeatVal: fl.repeatVal
+                volume: fl.volume
+                centered: true
+
+                onToggleRequested: fl.toggleRequested()
+                onNextRequested: fl.nextRequested()
+                onPrevRequested: fl.prevRequested()
+                onSeekRequested: (secs) => fl.seekRequested(secs)
+                onShuffleRequested: fl.shuffleRequested()
+                onRepeatRequested: fl.repeatRequested()
+                onVolumeWanted: (v) => fl.volumeWanted(v)
+            }
         }
     }
 
-    // ---- cerrar (arriba a la DERECHA) + cola -------------------------------
-    // La referencia pone el boton de cerrar en la esquina superior derecha;
-    // la cola queda a su izquierda, como una pareja de acciones de la
-    // ventana. Back/Esc sigue cerrando tambien (goBack de Main).
+    // ---- close (top RIGHT) + queue -----------------------------------------
+    // The reference puts the close button in the top right corner; the
+    // queue sits to its left, as a pair of window actions. Back/Esc still
+    // closes too (Main's goBack).
     Rectangle {
         id: closeBtn
         anchors.right: parent.right
