@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 
 project(lotus-tune
-    VERSION 2.0.1
+    VERSION 2.0.2
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -94,12 +94,21 @@ if(LOTUS_TMCLI)
         target_link_options(lotus-ytmcli PRIVATE -nostdlib++)
         target_include_directories(lotus-ytmcli SYSTEM PRIVATE
             ${CMAKE_SOURCE_DIR}/third_party/openssl)
-        # OpenSSL transport: link the same packaged libs (their SONAME are
-        # libssl.so / libcrypto.so, resolved from LD_LIBRARY_PATH when the
-        # helper is launched).
+        # OpenSSL transport. tools/build-android.sh downloads the arm64
+        # libraries into the build tree: the helper needs them to link, and
+        # Qt needs them at runtime for any HTTPS connection.
+        set(OPENSSL_ANDROID_DIR "${CMAKE_BINARY_DIR}/openssl/arm64-v8a"
+            CACHE PATH "OpenSSL 3 for Android arm64 (libssl_3.so, libcrypto_3.so)")
+        if(NOT EXISTS "${OPENSSL_ANDROID_DIR}/libssl_3.so"
+           OR NOT EXISTS "${OPENSSL_ANDROID_DIR}/libcrypto_3.so")
+            message(FATAL_ERROR
+                "OpenSSL para Android no esta en ${OPENSSL_ANDROID_DIR}.\n"
+                "Construye el APK con tools/build-android.sh (lo descarga) o pasa "
+                "-DOPENSSL_ANDROID_DIR=<carpeta con libssl_3.so y libcrypto_3.so>.")
+        endif()
         target_link_libraries(lotus-ytmcli PRIVATE
-            ${CMAKE_SOURCE_DIR}/build-android/android-build/libs/arm64-v8a/libssl_3.so
-            ${CMAKE_SOURCE_DIR}/build-android/android-build/libs/arm64-v8a/libcrypto_3.so)
+            ${OPENSSL_ANDROID_DIR}/libssl_3.so
+            ${OPENSSL_ANDROID_DIR}/libcrypto_3.so)
         # Derive the absolute libc++_shared.so path from the toolchain's
         # own bin directory (ANDROID_NDK_ROOT is not always exported).
         get_filename_component(_lotus_ndk_bin "${CMAKE_AR}" DIRECTORY)

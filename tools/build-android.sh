@@ -85,6 +85,37 @@ fi
 # (a new file was missing from the APK and the phone kept the old layout).
 # The bundle is regenerated below, once the copy is done.
 
+# ---------------------------------------------------------------------------
+# OpenSSL 3 for arm64. Qt for Android dlopens libssl_3.so for every HTTPS
+# connection and does not ship it, and the NDK does not carry it either.
+# Without it the phone logs "No functional TLS backend was found": no
+# covers, no update check and the native helper cannot reach YouTube.
+# Same prebuilt Qt's own examples point at (KDAB), pinned by commit and by
+# hash so a silent change in the binaries cannot break the phone again.
+OPENSSL_DIR="$BUILD/openssl/arm64-v8a"
+OPENSSL_COMMIT=b71f1470962019bd89534a2919f5925f93bc5779
+
+fetch_openssl() {
+    local name="$1" want="$2" dest="$OPENSSL_DIR/$1" got
+    if [ -f "$dest" ] && [ "$(sha256sum "$dest" | cut -d' ' -f1)" = "$want" ]; then
+        return 0
+    fi
+    mkdir -p "$OPENSSL_DIR"
+    echo "OpenSSL: $name"
+    curl -fsSL --retry 3 -o "$dest" \
+        "https://raw.githubusercontent.com/KDAB/android_openssl/$OPENSSL_COMMIT/ssl_3/arm64-v8a/$name"
+    got="$(sha256sum "$dest" | cut -d' ' -f1)"
+    if [ "$got" != "$want" ]; then
+        echo "el sha256 de $name no coincide ($got)" >&2
+        exit 1
+    fi
+}
+
+fetch_openssl libssl_3.so \
+    01d2bd0baac626efd3309f35f99c4b826dd9b885a7e4d14d5b12b3603d3a407f
+fetch_openssl libcrypto_3.so \
+    1e6c12ae0c2dadfe9d178d7f80f0ab248a1877a234066098bf5594e5205e5740
+
 cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI=arm64-v8a \
@@ -93,7 +124,8 @@ cmake -S "$ROOT" -B "$BUILD" -G Ninja \
     -DQt6_DIR="$QT_PREFIX/lib/cmake/Qt6" \
     -DQT_HOST_PATH="$QT_HOST_PATH" \
     -DCMAKE_FIND_ROOT_PATH="$QT_PREFIX" \
-    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH
+    -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=BOTH \
+    -DOPENSSL_ANDROID_DIR="$OPENSSL_DIR"
 
 # The APK is built in two steps: the shared library with CMake and the
 # package with Gradle. The "apk" target of Qt writes the Gradle project
@@ -112,6 +144,16 @@ cmake --build "$BUILD" --target apk || true
 cmake --build "$BUILD" --target lotus-tune
 mkdir -p "$BUILD/android-build/libs/arm64-v8a"
 cp "$BUILD"/liblotus-tune_*.so "$BUILD/android-build/libs/arm64-v8a/" 2>/dev/null || true
+
+# The catalogue helper is its own executable, so the app target does not
+# build it: it never reached the APK and every list failed on the phone
+# with "No se pudo ejecutar libytmcli.so" (the "Me gusta" tab did nothing).
+# It goes to libs/<abi>/ because that is the only directory the APK packs.
+cmake --build "$BUILD" --target lotus-ytmcli
+cp "$BUILD/libytmcli.so" "$BUILD/android-build/libs/arm64-v8a/"
+cp "$OPENSSL_DIR/libssl_3.so" "$OPENSSL_DIR/libcrypto_3.so" \
+    "$BUILD/android-build/libs/arm64-v8a/"
+
 ( cd "$BUILD/android-build" && ./gradlew assembleDebug --no-daemon )
 
 APK="$BUILD/android-build/build/outputs/apk/debug/lotus-tune-debug.apk"
@@ -122,7 +164,10 @@ if [ -f "$APK" ]; then
     # into a variable: `unzip | grep -q` fails on SIGPIPE with pipefail.
     listing="$(unzip -l "$APK")"
     for entry in assets/qt_qml.rcc assets/android_rcc_bundle/qmldir \
-                 assets/android_rcc_bundle.rcc; do
+                 assets/android_rcc_bundle.rcc \
+                 lib/arm64-v8a/libytmcli.so \
+                 lib/arm64-v8a/libssl_3.so \
+                 lib/arm64-v8a/libcrypto_3.so; do
         case "$listing" in
             *"$entry"*) ;;
             *)
