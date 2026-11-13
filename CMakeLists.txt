@@ -197,7 +197,14 @@ foreach(ts IN LISTS LOTUS_TS_FILES)
             "Falta la traduccion compilada de ${ts}.\n"
             "Genera los .qm con:  bash tools/update-translations.sh")
     endif()
-    if("${ts}" IS_NEWER_THAN "${qm}")
+    # IS_NEWER_THAN also says yes when the two stamps are the same, and a
+    # fresh clone gives every file the same one: the guard then stopped every
+    # CI build. A couple of seconds of margin keeps the real case (a .ts
+    # edited after its .qm) failing and leaves a checkout alone.
+    file(TIMESTAMP "${ts}" ts_time "%s")
+    file(TIMESTAMP "${qm}" qm_time "%s")
+    math(EXPR qm_lag "${ts_time} - ${qm_time}")
+    if(qm_lag GREATER 2)
         message(FATAL_ERROR
             "${qm} es anterior a ${ts}.\n"
             "Genera los .qm con:  bash tools/update-translations.sh")
