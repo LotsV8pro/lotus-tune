@@ -19,6 +19,13 @@ Music player for YouTube Music and SoundCloud, written in Qt 6/QML. Plays throug
 - Downloads with `yt-dlp` into the folder you pick and keeps a local library.
 - Publishes MPRIS for the system controls and Discord Rich Presence.
 - On Android it is the same interface, in an ARM64 APK.
+- Interface in English and Spanish, or following the system language.
+
+## What's new
+
+2.0.7 brings the two languages and stops the library from going empty without a reason: when the playlists of the account do not arrive, Library says what failed, and Settings copies a diagnostics block to send with the report.
+
+The whole history, version by version, is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Lyrics
 
