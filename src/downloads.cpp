@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <QFile>
 #include <QFileInfo>
+#include <QLocale>
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -98,8 +99,8 @@ QString humanBytes(qint64 bytes)
         return QStringLiteral("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
     if (mb < 1000.0)
         return QStringLiteral("%1 MB").arg(qRound(mb));
-    return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
-            .replace(QLatin1Char('.'), QLatin1Char(','));
+    // The decimal separator follows the language (1,5 GB / 1.5 GB).
+    return QStringLiteral("%1 GB").arg(QLocale().toString(mb / 1024.0, 'f', 1));
 }
 
 // Stable cover of a YouTube video: the thumbnails yt-dlp returns carry a
@@ -278,7 +279,7 @@ void Downloads::setPlayer(Player *player)
             return;
         m_androidPoll.stop();
         m_androidResolving.clear();
-        androidTrackFailed(QStringLiteral("No se pudo resolver el audio (%1).")
+        androidTrackFailed(tr("No se pudo resolver el audio (%1).")
                                .arg(why));
     });
 #else
@@ -502,7 +503,7 @@ QString Downloads::uniqueListFolder(const QString &seg, const QString &url) cons
         if (!QDir(m_folder + QLatin1Char('/') + cand).exists())
             return cand;
     }
-    return QStringLiteral("%1 (%2)")
+    return tr("%1 (%2)")
         .arg(seg)
         .arg(QDateTime::currentMSecsSinceEpoch());
 }
@@ -562,7 +563,7 @@ void Downloads::downloadTrack(const QString &url, const QString &title,
     const QString a = artist.trimmed();
     j.name = a.isEmpty() ? t : a + QStringLiteral(" - ") + t;
     if (j.name.trimmed().isEmpty())
-        j.name = QStringLiteral("Pista");
+        j.name = tr("Pista");
     enqueue(j);
 }
 
@@ -779,7 +780,7 @@ void Downloads::startNext()
     const QStorageInfo storage(m_folder);
     if (storage.isValid() && storage.bytesAvailable() > 0
         && storage.bytesAvailable() < 50 * 1024 * 1024) {
-        failJob(idx, QStringLiteral("Espacio insuficiente en disco (menos de 50 MB disponibles)."));
+        failJob(idx, tr("Espacio insuficiente en disco (menos de 50 MB disponibles)."));
         return;
     }
 
@@ -800,12 +801,12 @@ void Downloads::startNext()
         j.folder = seg;
         const QString dir = m_folder + QLatin1Char('/') + seg;
         if (!QDir().mkpath(dir)) {
-            failJob(idx, QStringLiteral("No se pudo crear la carpeta «%1». "
+            failJob(idx, tr("No se pudo crear la carpeta «%1». "
                                         "Comprueba los permisos.").arg(dir));
             return;
         }
         if (!QFileInfo(dir).isWritable()) {
-            failJob(idx, QStringLiteral("La carpeta de descargas no tiene "
+            failJob(idx, tr("La carpeta de descargas no tiene "
                                         "permiso de escritura: %1").arg(dir));
             return;
         }
@@ -828,7 +829,7 @@ void Downloads::startNext()
             + QStringLiteral("/%(playlist_index|)s%(title)s.%(ext)s");
     } else {
         if (!QDir().mkpath(m_folder) || !QFileInfo(m_folder).isWritable()) {
-            failJob(idx, QStringLiteral("No se puede escribir en la carpeta de "
+            failJob(idx, tr("No se puede escribir en la carpeta de "
                                         "descargas: %1").arg(m_folder));
             return;
         }
@@ -899,7 +900,7 @@ void Downloads::startNext()
     m_proc.setArguments(args);
     m_proc.start();
     if (!m_proc.waitForStarted(3000)) {
-        failJob(idx, QStringLiteral("No se pudo ejecutar yt-dlp. "
+        failJob(idx, tr("No se pudo ejecutar yt-dlp. "
                                     "¿Está instalado?"));
     }
 }
@@ -983,7 +984,7 @@ QString Downloads::friendlyError(const QString &raw)
 {
     const QString r = raw.trimmed();
     if (r.isEmpty())
-        return QStringLiteral("La descarga falló.");
+        return tr("La descarga falló.");
 
     const QString low = r.toLower();
     auto has = [&low](const char *needle) {
@@ -992,32 +993,32 @@ QString Downloads::friendlyError(const QString &raw)
 
     if (has("ffmpeg") || has("ffprobe") || has("postprocessing")
         || has("post-process"))
-        return QStringLiteral("Falta ffmpeg para procesar el audio.");
+        return tr("Falta ffmpeg para procesar el audio.");
     if (has("does not exist") || has("not found") || has("unavailable")
         || has("404") || has("removed"))
-        return QStringLiteral("La lista no existe, es privada o ya no está "
+        return tr("La lista no existe, es privada o ya no está "
                               "disponible.");
     if (has("private") || has("members-only") || has("sign in")
         || has("login") || has("logged") || has("cookies")
         || has("account"))
-        return QStringLiteral("Contenido privado: inicia sesión en Ajustes y "
+        return tr("Contenido privado: inicia sesión en Ajustes y "
                               "vuelve a intentarlo.");
     if (has("unsupported url") || has("is not a valid url")
         || has("invalid url"))
-        return QStringLiteral("La dirección no es compatible.");
+        return tr("La dirección no es compatible.");
     if (has("timed out") || has("timeout") || has("temporary failure")
         || has("getaddrinfo") || has("unable to download") || has("network")
         || has("connection") || has("resolve") || has("http error")
         || has("ssl"))
-        return QStringLiteral("Fallo de red. Comprueba tu conexión e "
+        return tr("Fallo de red. Comprueba tu conexión e "
                               "inténtalo de nuevo.");
     if (has("no space") || has("disk") || has("read-only")
         || has("permission denied"))
-        return QStringLiteral("No hay espacio o la carpeta de descargas no "
+        return tr("No hay espacio o la carpeta de descargas no "
                               "tiene permiso de escritura.");
     if (has("requested format is not available")
         || has("no video formats") || has("no formats"))
-        return QStringLiteral("No hay ningún formato de audio disponible.");
+        return tr("No hay ningún formato de audio disponible.");
 
     // No match: use the original message (already trimmed by yt-dlp).
     return r;
@@ -1204,7 +1205,7 @@ void Downloads::finishJob(int code)
     if (m_cancelling) {
         // Cancelled halfway: it deletes the partial leftovers so no trash is left.
         removePartials(dir);
-        setJob(idx, QStringLiteral("error"), QStringLiteral("Cancelado"));
+        setJob(idx, QStringLiteral("error"), tr("Cancelado"));
         m_cancelling = false;
         m_busy = false;
         emit jobsChanged();
@@ -1218,7 +1219,7 @@ void Downloads::finishJob(int code)
          // a failure too: yt-dlp can exit with 0 and have written
          // nothing.
         if (job.playlist && countAudioFiles(dir) == 0) {
-            const QString msg = QStringLiteral("La lista está vacía o no se "
+            const QString msg = tr("La lista está vacía o no se "
                                                "pudo descargar ninguna pista.");
             setJob(idx, QStringLiteral("error"), msg);
             emit jobsChanged();
@@ -1265,7 +1266,7 @@ void Downloads::cancelAll()
     for (int i = 0; i < m_jobs.size(); ++i) {
         const QString s = m_jobs.at(i).state;
         if (s == QLatin1String("queued") || s == QLatin1String("paused"))
-            setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));
+            setJob(i, QStringLiteral("error"), tr("Cancelado"));
     }
 
 #ifdef Q_OS_ANDROID
@@ -1278,7 +1279,7 @@ void Downloads::cancelAll()
         m_busy = false;
         androidAbort();
         removePartials(dir);
-        setJob(idx, QStringLiteral("error"), QStringLiteral("Cancelado"));
+        setJob(idx, QStringLiteral("error"), tr("Cancelado"));
         emit jobsChanged();
         emit changed();
         emit activeProgressChanged();
@@ -1316,12 +1317,12 @@ void Downloads::startAndroidJob(int index)
         j.folder = seg;
         dir = m_folder + QLatin1Char('/') + seg;
         if (!QDir().mkpath(dir)) {
-            failJob(index, QStringLiteral("No se pudo crear la carpeta «%1». "
+            failJob(index, tr("No se pudo crear la carpeta «%1». "
                                           "Comprueba los permisos.").arg(dir));
             return;
         }
         if (!QFileInfo(dir).isWritable()) {
-            failJob(index, QStringLiteral("La carpeta de descargas no tiene "
+            failJob(index, tr("La carpeta de descargas no tiene "
                                           "permiso de escritura: %1").arg(dir));
             return;
         }
@@ -1336,7 +1337,7 @@ void Downloads::startAndroidJob(int index)
             mf.write(QJsonDocument(meta).toJson(QJsonDocument::Compact));
     } else if (!QDir().mkpath(m_folder)
                || !QFileInfo(m_folder).isWritable()) {
-        failJob(index, QStringLiteral("No se puede escribir en la carpeta de "
+        failJob(index, tr("No se puede escribir en la carpeta de "
                                       "descargas: %1").arg(m_folder));
         return;
     }
@@ -1369,7 +1370,7 @@ void Downloads::startAndroidJob(int index)
 
     const QString cli = AppPaths::pythonProgram();
     if (cli.isEmpty() || !QFile::exists(cli)) {
-        failJob(index, QStringLiteral("Falta el asistente nativo (libytmcli.so)."));
+        failJob(index, tr("Falta el asistente nativo (libytmcli.so)."));
         return;
     }
     QStringList args{
@@ -1403,7 +1404,7 @@ void Downloads::startAndroidJob(int index)
     m_androidList.setArguments(args);
     m_androidList.start();
     if (!m_androidList.waitForStarted(3000)) {
-        failJob(index, QStringLiteral("No se pudo ejecutar el asistente de "
+        failJob(index, tr("No se pudo ejecutar el asistente de "
                                       "descargas."));
     }
 }
@@ -1418,7 +1419,7 @@ void Downloads::androidListFinished(int code)
     if (code != 0) {
         QString err = QString::fromUtf8(m_androidList.readAllStandardError()).trimmed();
         if (err.isEmpty())
-            err = QStringLiteral("No se pudo leer la lista (código %1).").arg(code);
+            err = tr("No se pudo leer la lista (código %1).").arg(code);
         failJob(idx, friendlyError(err));
         return;
     }
@@ -1446,7 +1447,7 @@ void Downloads::androidListFinished(int code)
         m_androidTracks.append(t);
     }
     if (m_androidTracks.isEmpty()) {
-        failJob(idx, QStringLiteral("La lista está vacía o no se pudo leer "
+        failJob(idx, tr("La lista está vacía o no se pudo leer "
                                     "ninguna pista."));
         return;
     }
@@ -1483,7 +1484,7 @@ void Downloads::androidNextTrack()
     emit jobsChanged();
     emit activeProgressChanged();
     if (!m_player) {
-        failJob(m_current, QStringLiteral("El reproductor no está disponible "
+        failJob(m_current, tr("El reproductor no está disponible "
                                           "para resolver el audio."));
         return;
     }
@@ -1501,7 +1502,7 @@ void Downloads::androidStartFetch(const QString &direct)
     const AndroidTrack &t = m_androidTracks.at(m_androidIndex);
 
     if (!QJniObject::isClassAvailable("com/lotustuneremote/app/MediaDownload")) {
-        androidTrackFailed(QStringLiteral("Esta versión de la app no trae el "
+        androidTrackFailed(tr("Esta versión de la app no trae el "
                                           "descargador. Reinstálala."));
         return;
     }
@@ -1560,7 +1561,7 @@ void Downloads::androidPollTick()
         if (++m_androidResolveTicks > 120) {   // ~36 s
             m_androidPoll.stop();
             m_androidResolving.clear();
-            androidTrackFailed(QStringLiteral("No se pudo resolver el audio de "
+            androidTrackFailed(tr("No se pudo resolver el audio de "
                                               "la pista (tiempo agotado)."));
         }
         return;
@@ -1590,7 +1591,7 @@ void Downloads::androidPollTick()
     if (status == QLatin1String("done")) {
         const QFileInfo fi(m_androidOutPath);
         if (!fi.isFile() || fi.size() < 4096) {
-            androidTrackFailed(QStringLiteral("El archivo descargado llegó vacío."));
+            androidTrackFailed(tr("El archivo descargado llegó vacío."));
             return;
         }
         writeTrackInfo(m_androidOutPath, m_androidTracks.at(m_androidIndex));
@@ -1625,7 +1626,7 @@ void Downloads::androidPollTick()
         });
         return;
     }
-    androidTrackFailed(QStringLiteral("No se pudo descargar la pista (%1).")
+    androidTrackFailed(tr("No se pudo descargar la pista (%1).")
                            .arg(status));
 }
 
@@ -1684,7 +1685,7 @@ QString Downloads::artistForPath(const QString &dir) const
     const QDir root(m_folder);
     const QString rel = root.relativeFilePath(dir);
     if (rel.isEmpty() || rel == QLatin1String("."))
-        return QStringLiteral("Local");
+        return tr("Local");
     return rel.section(QLatin1Char('/'), 0, 0);
 }
 
@@ -2364,7 +2365,7 @@ void Downloads::removeList(const QString &folder)
                                        : m_jobs[i].folder != f)
             continue;
         if (m_jobs[i].state == QLatin1String("queued"))
-            setJob(i, QStringLiteral("error"), QStringLiteral("Cancelado"));
+            setJob(i, QStringLiteral("error"), tr("Cancelado"));
         else if (i == m_current)
             killCurrent = true;
     }

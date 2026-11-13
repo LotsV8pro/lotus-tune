@@ -1,4 +1,4 @@
-# !/usr/bin/env bash
+#!/usr/bin/env bash
 #  ---------------------------------------------------------------------------
 #  lotus-tune: one command installer (Linux)
 #
@@ -58,6 +58,18 @@ done
 if [ -f ./CMakeLists.txt ] && grep -q 'project(lotus-tune' ./CMakeLists.txt 2>/dev/null; then
     SRC="$(pwd)"
     msg "usando la copia existente: $SRC"
+    # The copy may be behind the repository, and then the build comes out
+    # with week-old code. It is only reported: the folder may hold changes
+    # of the user, so it is not pulled or reset here.
+    if [ "$DO_PULL" = 1 ] && [ -d "$SRC/.git" ] && command -v git >/dev/null 2>&1; then
+        if git -C "$SRC" fetch -q --depth=1 origin master 2>/dev/null; then
+            BEHIND="$(git -C "$SRC" rev-list --count HEAD..FETCH_HEAD 2>/dev/null || echo 0)"
+            if [ "${BEHIND:-0}" != "0" ]; then
+                msg "AVISO: esta copia va $BEHIND commits por detrás de master y se
+     compila tal cual. Para traer lo último:  git -C \"$SRC\" pull --ff-only"
+            fi
+        fi
+    fi
 elif [ "$CLONE_GIT" = 1 ] && command -v git >/dev/null 2>&1; then
     if [ -d "$SRC" ] && [ "$DO_PULL" = 1 ]; then
         msg "actualizando copia existente en $SRC"
@@ -129,22 +141,46 @@ fi
 BIN="$PREFIX/bin/lotus-tune"
 [ -x "$BIN" ] || die "la instalación no dejó el binario en $BIN"
 
-# qt.conf next to the binary: it points the QML import paths at the embedded
-# LotusTune module. Without it the launcher fails with
-# "Module LotusTune contains no type named Main" (the binary built by cmake
-# --install does not carry them inside).
-QTCONF_SRC="$SRC/qt.conf"
-if [ -f "$QTCONF_SRC" ] && [ ! -f "$(dirname "$BIN")/qt.conf" ]; then
-    cp "$QTCONF_SRC" "$(dirname "$BIN")/qt.conf"
-    msg "qt.conf instalado junto al binario"
+# The version is read from the binary itself (--version), not from the dates
+# of the files: that is the only way to know which build is installed.
+VER="$("$BIN" --version 2>/dev/null | awk '{print $2}')"
+
+# No qt.conf is installed next to the binary: the QML of the app is compiled
+# into it under :/LotusTune and the binary adds that root to the engine's
+# import path (src/main.cpp). A qt.conf here used to point at the source tree
+# of the machine that built it, which is why the .deb only worked there.
+
+# The entry of the menu has to launch THIS binary. With `Exec=lotus-tune` the
+# name goes through the PATH and an older copy (a distro package in /usr/bin,
+# a binary left in the source tree) can end up being the one that opens. The
+# path is written in full.
+DESKTOP_DIR="$PREFIX/share/applications"
+for desk in "$DESKTOP_DIR/lotus-tune.desktop" "$DESKTOP_DIR/lotustune.desktop"; do
+    [ -f "$desk" ] || continue
+    sed -i "s|^Exec=.*|Exec=\"$BIN\" %u|" "$desk"
+    msg "menú: $(basename "$desk") abre $BIN"
+done
+
+# Other copies on the machine: they are the usual reason for the menu opening
+# an older build after a rebuild. Reported, never deleted.
+OLD=""
+for cand in /usr/bin/lotus-tune /usr/local/bin/lotus-tune "$SRC/lotus-tune"; do
+    [ -f "$cand" ] || continue
+    [ "$(readlink -f "$cand")" = "$(readlink -f "$BIN")" ] && continue
+    OLD="$OLD
+       $cand"
+done
+if [ -n "$OLD" ]; then
+    msg "AVISO: hay otra copia de la app instalada:$OLD
+     el menú ya abre la nueva; esa copia solo se usa si la lanzas a mano."
 fi
-msg "instalado: $BIN"
+
 case ":$PATH:" in
     *":$PREFIX/bin:"*) ;;
-    *) msg "AVISO: añade $PREFIX/bin al PATH para lanzarlo desde el menú:
+    *) msg "AVISO: añade $PREFIX/bin al PATH para lanzarlo desde una terminal:
      echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc" ;;
 esac
 command -v update-desktop-database >/dev/null 2>&1 && \
-    update-desktop-database "$PREFIX/share/applications" 2>/dev/null || true
-msg "Listo ✅  Lanzamiento: «lotus-tune» en el menú, o directamente: $BIN
-     (la primera vez busca «Lotus Tune» en tu lanzador — Super en Niri)"
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+msg "Listo: ${VER:-lotus-tune} instalado en $BIN
+     Lanzamiento: «Lotus Tune» en el menú, o directamente: $BIN"

@@ -189,7 +189,7 @@ Item {
                         spacing: Theme.s1
                         Text {
                             Layout.fillWidth: true
-                            text: row.title || "Sin título"
+                            text: row.title || qsTr("Sin título")
                             color: index === qv.currentIndex ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tBase
                             font.weight: index === qv.currentIndex ? Font.DemiBold : Font.Normal
@@ -269,7 +269,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: "La cola está vacía"
+            text: qsTr("La cola está vacía")
             color: Sys.text
             font.pixelSize: Theme.tBase
             font.weight: Font.DemiBold
@@ -277,7 +277,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: "Reproduce algo y aparecerá aquí."
+            text: qsTr("Reproduce algo y aparecerá aquí.")
             color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tSm
             horizontalAlignment: Text.AlignHCenter

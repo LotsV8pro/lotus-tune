@@ -25,6 +25,8 @@ public:
     QString activeId() const { return m_active; }
     void setActiveId(const QString &id);
     Q_INVOKABLE void select(const QString &id);
+    // Rebuilds the list in the current language.
+    void retranslate();
 
     QString searchPrefix(const QString &id) const;
     QVariantMap entry(const QString &id) const;
@@ -35,6 +37,8 @@ signals:
     void activeChanged();
 
 private:
+    void build();
+
     QVariantList m_list;
     QString m_active = QStringLiteral("ytm");
 };

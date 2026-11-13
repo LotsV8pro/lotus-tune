@@ -87,7 +87,7 @@ Item {
             const sname = source ? page.srcName(source) : ""
             var sub = sname
             if (count)
-                sub += (sub ? " · " : "") + count + " pistas"
+                sub += (sub ? " · " : "") + qsTr("%1 pistas").arg(count)
             out.push({ kind: "playlist", title: name || "", sub: sub,
                        thumb: thumb || "", url: url, source: source || "" })
         }
@@ -136,7 +136,7 @@ Item {
             page.openListRequested(!!play)
             console.log("[HomePage] Calling catalog.openUrl for liked music");
             catalog.openUrl("https://music.youtube.com/playlist?list=LM",
-                            "Música que me gusta")
+                            qsTr("Música que me gusta"))
             return
         }
         // Loose song: a single click already plays (it opens neither a list
@@ -204,16 +204,19 @@ Item {
     }
 
     // ---- dated greeting ---------------------------------------------------
-    readonly property string today: {
-        const d = new Date()
-        const dias = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
-        const meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-                       "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-        return dias[d.getDay()] + " " + d.getDate() + " de " + meses[d.getMonth()]
+    // The date follows the language of the interface: Qt.locale() is the one
+    // the Translator sets (QLocale::setDefault), so the month and the day
+    // names come out in the chosen language without a table here. The tag is
+    // an argument and not a global so the binding re-evaluates when the
+    // language changes.
+    function dateLine(tag) {
+        return tag.length >= 0 ? new Date().toLocaleDateString(Qt.locale(), "dddd d MMMM") : ""
     }
+    readonly property string today: dateLine(lang.language)
     readonly property string greeting: {
         const h = new Date().getHours()
-        return h < 12 ? "Buenos días" : (h < 20 ? "Buenas tardes" : "Buenas noches")
+        return h < 12 ? qsTr("Buenos días")
+                      : (h < 20 ? qsTr("Buenas tardes") : qsTr("Buenas noches"))
     }
 
     function videoId(url) {
@@ -275,8 +278,8 @@ Item {
     function recCards() {
         const out = []
         if (page.ytmOk) {
-            out.push({ kind: "liked", title: "Me gusta",
-                       sub: "Tu música que te gusta", icon: "heart" })
+            out.push({ kind: "liked", title: qsTr("Me gusta"),
+                       sub: qsTr("Tu música que te gusta"), icon: "heart" })
         }
         const seen = {}
         // First the artists the user LIKES (their radios are the ones that
@@ -288,8 +291,8 @@ Item {
             if (!artist || seen[artist])
                 continue
             seen[artist] = true
-            out.push({ kind: "radio", title: "Radio de " + artist,
-                       sub: t.title || "Tus favoritos", icon: "radio",
+            out.push({ kind: "radio", title: qsTr("Radio de %1").arg(artist),
+                       sub: t.title || qsTr("Tus favoritos"), icon: "radio",
                        trackId: page.videoId(t.url), thumb: t.thumb || "",
                        artist: artist })
         }
@@ -300,8 +303,8 @@ Item {
             if (!artist || seen[artist])
                 continue
             seen[artist] = true
-            out.push({ kind: "radio", title: "Radio de " + artist,
-                       sub: t.title || "Mix de YouTube", icon: "radio",
+            out.push({ kind: "radio", title: qsTr("Radio de %1").arg(artist),
+                       sub: t.title || qsTr("Mix de YouTube"), icon: "radio",
                        trackId: page.videoId(t.url), thumb: t.thumb || "",
                        artist: artist })
         }
@@ -331,7 +334,7 @@ Item {
                 return false
             }
             page.openListRequested(!!play)
-            catalog.openUrl("https://music.youtube.com/playlist?list=LM", "Me gusta")
+            catalog.openUrl("https://music.youtube.com/playlist?list=LM", qsTr("Me gusta"))
             return true
         }
         if (d.trackId) {
@@ -429,16 +432,16 @@ Item {
 
     // ---- YouTube radios (mood / genre) ------------------------------------
     readonly property var moodRadios: [
-        { q: "éxitos pop 2024", t: "Éxitos pop", s: "Lo más escuchado", icon: "radio" },
-        { q: "reggaeton 2024", t: "Reggaetón", s: "Para la fiesta", icon: "radio" },
-        { q: "lofi hip hop", t: "Lo-fi", s: "Para concentrarte", icon: "radio" },
-        { q: "rock clásico", t: "Rock clásico", s: "Clásicos de siempre", icon: "radio" },
-        { q: "electrónica chill", t: "Electrónica", s: "Beats suaves", icon: "radio" },
-        { q: "jazz relax", t: "Jazz", s: "Relájate", icon: "radio" },
-        { q: "música latina", t: "Latino", s: "Ritmo y sabor", icon: "radio" },
-        { q: "indie alternativo", t: "Indie", s: "Descubre algo nuevo", icon: "radio" },
-        { q: "r&b soul", t: "R&B / Soul", s: "Suave y con groove", icon: "radio" },
-        { q: "clásica para estudiar", t: "Clásica", s: "Enfoque", icon: "radio" }
+        { q: "éxitos pop 2024", t: qsTr("Éxitos pop"), s: qsTr("Lo más escuchado"), icon: "radio" },
+        { q: "reggaeton 2024", t: qsTr("Reggaetón"), s: qsTr("Para la fiesta"), icon: "radio" },
+        { q: "lofi hip hop", t: qsTr("Lo-fi"), s: qsTr("Para concentrarte"), icon: "radio" },
+        { q: "rock clásico", t: qsTr("Rock clásico"), s: qsTr("Clásicos de siempre"), icon: "radio" },
+        { q: "electrónica chill", t: qsTr("Electrónica"), s: qsTr("Beats suaves"), icon: "radio" },
+        { q: "jazz relax", t: qsTr("Jazz"), s: qsTr("Relájate"), icon: "radio" },
+        { q: "música latina", t: qsTr("Latino"), s: qsTr("Ritmo y sabor"), icon: "radio" },
+        { q: "indie alternativo", t: qsTr("Indie"), s: qsTr("Descubre algo nuevo"), icon: "radio" },
+        { q: "r&b soul", t: qsTr("R&B / Soul"), s: qsTr("Suave y con groove"), icon: "radio" },
+        { q: "clásica para estudiar", t: qsTr("Clásica"), s: qsTr("Enfoque"), icon: "radio" }
     ]
 
     // Section title: icon in the accent colour + label in bold and
@@ -570,7 +573,7 @@ Item {
                                 color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                             Text {
-                                text: "Descargas"
+                                text: qsTr("Descargas")
                                 color: dlMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tMd
                                 font.weight: Font.DemiBold
@@ -624,7 +627,7 @@ Item {
                         Text {
                             Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
-                            text: "Buscar canciones, artistas, listas…"
+                            text: qsTr("Buscar canciones, artistas, listas…")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tBase
                             elide: Text.ElideRight
@@ -892,7 +895,7 @@ Item {
                 SectionTitle {
                     Layout.fillWidth: true
                     icon: "disc"
-                    text: "Recomendado para ti"
+                    text: qsTr("Recomendado para ti")
                 }
 
                 ListView {
@@ -948,7 +951,7 @@ Item {
                 SectionTitle {
                     Layout.fillWidth: true
                     icon: "radio"
-                    text: "Radios de YouTube"
+                    text: qsTr("Radios de YouTube")
                 }
 
                 ListView {
@@ -1002,7 +1005,7 @@ Item {
                     SectionTitle {
                         Layout.fillWidth: true
                         icon: "search"
-                        text: "Búsquedas recientes"
+                        text: qsTr("Búsquedas recientes")
                     }
 
                     Rectangle {
@@ -1017,7 +1020,7 @@ Item {
                         Text {
                             id: clearHistBtn
                             anchors.centerIn: parent
-                            text: "Borrar historial"
+                            text: qsTr("Borrar historial")
                             color: clearHistMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.weight: Font.DemiBold
@@ -1037,8 +1040,8 @@ Item {
                     Layout.fillWidth: true
                     visible: page.searchHistory.length === 0
                     text: Theme.touch
-                          ? "Todavía no hay búsquedas. Toca la barra de arriba para buscar."
-                          : "Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+K."
+                          ? qsTr("Todavía no hay búsquedas. Toca la barra de arriba para buscar.")
+                          : qsTr("Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+K.")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                     wrapMode: Text.WordWrap

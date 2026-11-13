@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLocale>
 #include <QSettings>
 
 #include <algorithm>
@@ -35,8 +36,8 @@ QString human(qint64 bytes)
         return QStringLiteral("%1 KB").arg(qMax<qint64>(1, bytes / 1024));
     if (mb < 1000.0)
         return QStringLiteral("%1 MB").arg(qRound(mb));
-    return QStringLiteral("%1 GB").arg(mb / 1024.0, 0, 'f', 1)
-            .replace(QLatin1Char('.'), QLatin1Char(','));
+    // The decimal separator follows the language (1,5 GB / 1.5 GB).
+    return QStringLiteral("%1 GB").arg(QLocale().toString(mb / 1024.0, 'f', 1));
 }
 
 } // namespace
@@ -117,7 +118,7 @@ QString AudioCache::summary() const
     const QString used = human(bytes());
     const int limit = limitMB();
     if (limit <= 0)
-        return tr("%1 en uso (sin limite)").arg(used);
+        return tr("%1 en uso (sin límite)").arg(used);
     return tr("%1 de %2").arg(used, human(qint64(limit) * 1024 * 1024));
 }
 

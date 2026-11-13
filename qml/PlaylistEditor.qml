@@ -74,7 +74,7 @@ Item {
                 }
                 Text {
                     Layout.fillWidth: true
-                    text: pel.createMode ? "Nueva lista" : "Editar lista"
+                    text: pel.createMode ? qsTr("Nueva lista") : qsTr("Editar lista")
                     color: Sys.text
                     font.pixelSize: Theme.tLg
                     font.weight: Font.DemiBold
@@ -110,7 +110,7 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: Theme.s3
                     anchors.verticalCenter: parent.verticalCenter
-                    text: "Nombre de la lista"
+                    text: qsTr("Nombre de la lista")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                 }
@@ -122,7 +122,7 @@ Item {
                 spacing: Theme.s2
 
                 Text {
-                    text: "Privacidad"
+                    text: qsTr("Privacidad")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tMd
                 }
@@ -151,7 +151,7 @@ Item {
                         }
                         Text {
                             id: privLabel
-                            text: privToggle.priv ? "Privada" : "Pública"
+                            text: privToggle.priv ? qsTr("Privada") : qsTr("Pública")
                             color: privToggle.priv ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tMd
                             font.weight: Font.DemiBold
@@ -190,7 +190,7 @@ Item {
                         }
                         Text {
                             id: delLabel
-                            text: "Eliminar"
+                            text: qsTr("Eliminar")
                             color: delHov.hovered ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                             font.weight: Font.DemiBold
@@ -215,7 +215,7 @@ Item {
                     Text {
                         id: cancelLabel
                         anchors.centerIn: parent
-                        text: "Cancelar"
+                        text: qsTr("Cancelar")
                         color: Sys.text
                         font.pixelSize: Theme.tMd
                     }
@@ -235,7 +235,7 @@ Item {
                     Text {
                         id: saveLabel
                         anchors.centerIn: parent
-                        text: pel.createMode ? "Crear" : "Guardar"
+                        text: pel.createMode ? qsTr("Crear") : qsTr("Guardar")
                         // Legible over ANY accent (on Android it comes from
                         // the wallpaper and can be dark - see theme.js).
                         color: enabled ? Theme.onAccentOf(Sys.accent, Theme.onAccent(Sys.accent))

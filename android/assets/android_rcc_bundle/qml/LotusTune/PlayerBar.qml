@@ -518,7 +518,7 @@ Rectangle {
                                     width: Math.min(implicitWidth,
                                                     parent.width - (barHeart.visible
                                                                     ? barHeart.width + Theme.s2 : 0))
-                                    text: bar.title.length ? bar.title : "Sin nada en cola"
+                                    text: bar.title.length ? bar.title : qsTr("Sin nada en cola")
                                     color: bar.title.length ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tMd
                                     font.weight: Font.DemiBold
@@ -586,7 +586,7 @@ Rectangle {
                                 }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
-                                    text: "Cargando…"
+                                    text: qsTr("Cargando…")
                                     color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tXs
                                 }
@@ -855,7 +855,7 @@ Rectangle {
 
                         Text {
                             Layout.fillWidth: true
-                            text: bar.title.length ? bar.title : "Sin nada en cola"
+                            text: bar.title.length ? bar.title : qsTr("Sin nada en cola")
                             color: bar.title.length ? Sys.text
                                                     : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tBase
@@ -865,7 +865,7 @@ Rectangle {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: bar.loading ? "Cargando…"
+                            text: bar.loading ? qsTr("Cargando…")
                                               : (bar.artist.length ? bar.artist : "—")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs

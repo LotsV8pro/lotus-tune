@@ -42,7 +42,7 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:text="Lotus Tune" />
+                android:text="@string/app_label" />
 
             <TextView
                 android:id="@+id/w_artist"

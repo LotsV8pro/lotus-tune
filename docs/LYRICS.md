@@ -86,14 +86,25 @@ drop it and try again on the next read; do not cache the error.
 
 The Android home-screen widget (`android/src/com/lotustuneremote/app/LyricsWidget.java`)
 reads both files so it paints the same lyrics as the app with the app closed.
-When the line carries `w`, it lights what is already sung and keeps the rest
-dimmed, like the desktop view. Each row is two stacked texts: the dim one
-underneath, the bright one on top with its max width set to the singing front.
-Moving that width moves the front in whole pixels, so the sweep is the same
-one the app paints. It runs at about 12 Hz, which is as fast as the MIUI host
-applies a RemoteViews update: each frame carries only the two widths and every
-tenth one repeats the whole block, in case the host reinflated the tree. The
-frames only run while the song plays and the screen is on.
+It paints no karaoke: the active line goes in a single layer, in full ink, and
+fades in when it changes (two steps of `setAlpha` plus a small
+`setTranslationY`, one `setFloat` pair per step). A sweep is not possible from a
+widget: every update makes the launcher measure and draw the whole line again,
+and MIUI applies 16 to 20 per second no matter how many are sent, so a 60 Hz
+front would crawl and cost battery. The app draws in its own window and is not
+bound by that.
+
+The line change is not polled. `lyrics.json` carries the start time of every
+line and `lyrics-runtime.json` the position and the wall clock it belongs to, so
+after each repaint the widget knows how long is left until the next line and
+posts a single delayed callback for that instant. Asking every 120 ms (the QML
+push) and every 400 ms (the service heartbeat) instead put the change 109 ms
+late on average; scheduled, it lands 25 ms after the audio, which is the
+resolution of the clock in the published file. The heartbeat stays as a safety
+net, and nothing is scheduled or sent while the screen is off.
+
+The widget is repainted only when the line changes, plus one full block every
+few repaints in case the host reinflated the tree.
 
 A widget cannot blur the wallpaper behind it: RemoteViews is painted over the
 wallpaper with no access to it. The "glass" is a thin white veil with a 1 dp

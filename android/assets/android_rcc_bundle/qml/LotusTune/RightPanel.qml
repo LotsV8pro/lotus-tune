@@ -50,8 +50,8 @@ Item {
                 // Pill tabs: capsules with a soft accent on the active
                 // one, no underlines or hard lines.
                 Repeater {
-                    model: [ { t: 0, name: "Cola", icon: "queue" },
-                             { t: 1, name: "Letra", icon: "lyrics" } ]
+                    model: [ { t: 0, name: qsTr("Cola"), icon: "queue" },
+                             { t: 1, name: qsTr("Letra"), icon: "lyrics" } ]
                     delegate: Item {
                         id: tabItem
                         required property var modelData

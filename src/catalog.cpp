@@ -15,6 +15,7 @@
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSysInfo>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -181,7 +182,20 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     connect(&m_libraryProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) {
                 const QByteArray out = m_libraryProc.readAllStandardOutput();
+                const QByteArray err = m_libraryProc.readAllStandardError();
                 QVariantList items;
+                m_libraryError.clear();
+                if (code != 0) {
+                    // Nothing is said by the API itself, so at least the
+                    // reason ytmcli gave. Without this the library stayed
+                    // empty with no way to tell a missing session from a
+                    // network error.
+                    const QString tail = QString::fromUtf8(err).trimmed();
+                    m_libraryError = tail.isEmpty()
+                        ? tr("No se pudieron cargar tus listas.")
+                        : tail.section(QLatin1Char('\n'), -1);
+                    qWarning().noquote() << "[catalog] listas:" << m_libraryError;
+                }
                 if (code == 0) {
                     const QJsonDocument doc = QJsonDocument::fromJson(out);
                     for (const QJsonValue &v : doc.array()) {
@@ -450,7 +464,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     if (!lines.isEmpty())
                         message = lines.constLast().trimmed();
                     else
-                        message = QStringLiteral("La acción falló");
+                        message = tr("La acción falló");
                     emit interactionDone(false, message);
                     return;
                 }
@@ -468,7 +482,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 const QString mode = m_plMode;
                 m_plMode.clear();
                 if (code != 0) {
-                    QString msg = QStringLiteral("La operación falló");
+                    QString msg = tr("La operación falló");
                     const QStringList lines =
                         QString::fromUtf8(err).split(QLatin1Char('\n'),
                                                      Qt::SkipEmptyParts);
@@ -513,28 +527,28 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     }
                     m_plAddVideo.clear();
                     refreshYtmLibrary();
-                    emit interactionDone(true, QStringLiteral("Lista creada"));
+                    emit interactionDone(true, tr("Lista creada"));
                     return;
                 }
                 m_plAddVideo.clear();
                 if (mode == QLatin1String("createadd")) {
                     refreshYtmLibrary();
                     emit interactionDone(true,
-                                         QStringLiteral("Lista creada con la pista"));
+                                         tr("Lista creada con la pista"));
                     return;
                 }
                 if (mode == QLatin1String("update")) {
                     refreshYtmLibrary();
-                    emit interactionDone(true, QStringLiteral("Lista actualizada"));
+                    emit interactionDone(true, tr("Lista actualizada"));
                     return;
                 }
                 if (mode == QLatin1String("delete")) {
                     refreshYtmLibrary();
-                    emit interactionDone(true, QStringLiteral("Lista eliminada"));
+                    emit interactionDone(true, tr("Lista eliminada"));
                     return;
                 }
                 if (mode == QLatin1String("move")) {
-                    emit interactionDone(true, QStringLiteral("Lista reordenada"));
+                    emit interactionDone(true, tr("Lista reordenada"));
                     return;
                 }
                 if (mode == QLatin1String("remove")) {
@@ -556,7 +570,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                                              + m_openPlaylistId);
                     emit changed();
                     refreshYtmLibrary();
-                    emit interactionDone(true, QStringLiteral("Quitado de la lista"));
+                    emit interactionDone(true, tr("Quitado de la lista"));
                     return;
                 }
             });
@@ -704,7 +718,7 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                         return;
                     }
                     fail(tail.isEmpty()
-                             ? QStringLiteral("%1 devolvió un error").arg(m_proc.program())
+                             ? tr("%1 devolvió un error").arg(m_proc.program())
                              : tail);
                 }
                 m_busy = false;
@@ -828,7 +842,7 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
     // always best-effort: an explicit user request steps on it without
     // more. Any other operation in flight keeps waiting as before.
     if (m_busy && !cancelBackgroundFetch()) {
-        fail(QStringLiteral("Espera a que termine la operación actual"));
+        fail(tr("Espera a que termine la operación actual"));
         return;
     }
 
@@ -860,7 +874,7 @@ void Catalog::startFetch(const QString &program, const QStringList &args,
 #endif
     m_proc.start();
     if (!m_proc.waitForStarted(3000)) {
-        fail(QStringLiteral("No se pudo ejecutar %1").arg(program));
+        fail(tr("No se pudo ejecutar %1").arg(program));
         m_busy = false;
         emit changed();
     }
@@ -1102,7 +1116,7 @@ void Catalog::search(const QString &query)
         return;
     const QString source = m_sources->activeId();
     if (!m_sources->isReady(source)) {
-        fail(QStringLiteral("La fuente activa no admite búsqueda todavía"));
+        fail(tr("La fuente activa no admite búsqueda todavía"));
         return;
     }
     m_resultsQuery = q;
@@ -1144,7 +1158,7 @@ void Catalog::searchAll(const QString &query, bool everySource)
     // must not be left switched on (the next search would end up in the
     // wrong group).
     if (m_busy) {
-        fail(QStringLiteral("Espera a que termine la operación actual"));
+        fail(tr("Espera a que termine la operación actual"));
         m_multiActive = false;
         return;
     }
@@ -1240,7 +1254,7 @@ void Catalog::openUrl(const QString &url, const QString &name)
 {
     const QString u = url.trimmed();
     if (u.isEmpty()) {
-        fail(QStringLiteral("Pega la URL de una playlist"));
+        fail(tr("Pega la URL de una playlist"));
         return;
     }
     run(u, QStringLiteral("playlist"), name.trimmed());
@@ -1298,7 +1312,7 @@ void Catalog::runRadio(const QString &videoId, const QString &title,
         QStringLiteral("https://www.youtube.com/watch?v=") + v
         + QStringLiteral("&list=RDAMVM") + v;
     run(target, purpose,
-        title.trimmed().isEmpty() ? QStringLiteral("Radio") : title.trimmed());
+        title.trimmed().isEmpty() ? tr("Radio") : title.trimmed());
 }
 
 // ---- Artists -------------------------------------------------------------
@@ -1462,11 +1476,11 @@ void Catalog::resolveAlternate(const QString &artist, const QString &title,
 void Catalog::syncLiked()
 {
     if (m_sources->activeId() != QLatin1String("ytm")) {
-        fail(QStringLiteral("El sync de «Me gusta» es de YouTube Music"));
+        fail(tr("El sync de «Me gusta» es de YouTube Music"));
         return;
     }
     if (!ytmLoggedIn()) {
-        fail(QStringLiteral("Inicia sesión en Ajustes para sincronizar «Me gusta»"));
+        fail(tr("Inicia sesión en Ajustes para sincronizar «Me gusta»"));
         return;
     }
     // Manual button: it forces the network fetch of the "liked" set (it
@@ -1485,18 +1499,80 @@ void Catalog::syncLiked()
 
 void Catalog::refreshYtmLibrary()
 {
-    if (!ytmLoggedIn())
+    if (!ytmLoggedIn()) {
+        m_libraryError = tr("Inicia sesión en Ajustes para ver tus listas.");
+        emit libraryChanged();
         return;
+    }
     if (m_libraryProc.state() != QProcess::NotRunning)
         return;  // there is already a query in progress
-    if (!ytmHelperReady())
+    if (!ytmHelperReady()) {
+        m_libraryError = tr("No se encontró el asistente de YouTube Music.");
+        emit libraryChanged();
         return;
+    }
 
     m_libraryBusy = true;
+    m_libraryError.clear();
     emit libraryChanged();
     m_libraryProc.setProgram(AppPaths::pythonProgram());
     m_libraryProc.setArguments({ytmApiPath(), QStringLiteral("library")});
     m_libraryProc.start();
+}
+
+QString Catalog::diagnostics() const
+{
+    QStringList out;
+    out << QStringLiteral("Lotus Tune %1").arg(QCoreApplication::applicationVersion());
+    out << QStringLiteral("Qt %1").arg(QString::fromLatin1(qVersion()));
+#ifdef Q_OS_ANDROID
+    const QJniObject model = QJniObject::getStaticObjectField(
+        "android/os/Build", "MODEL", "Ljava/lang/String;");
+    const QJniObject device = QJniObject::getStaticObjectField(
+        "android/os/Build", "DEVICE", "Ljava/lang/String;");
+    const QJniObject release = QJniObject::getStaticObjectField(
+        "android/os/Build$VERSION", "RELEASE", "Ljava/lang/String;");
+    const jint sdk = QJniObject::getStaticField<jint>(
+        "android/os/Build$VERSION", "SDK_INT");
+    out << QStringLiteral("%1 (%2) · Android %3 · SDK %4 · %5")
+               .arg(model.toString(), device.toString(), release.toString())
+               .arg(sdk)
+               .arg(QSysInfo::currentCpuArchitecture());
+#else
+    out << QStringLiteral("%1 · %2").arg(QSysInfo::prettyProductName(),
+                                         QSysInfo::currentCpuArchitecture());
+#endif
+
+    out << QStringLiteral("source: %1").arg(m_sources ? m_sources->activeId()
+                                                      : QString());
+
+    // Session. Only whether it exists and how many cookies: the values are
+    // the account and must not leave the device.
+    int cookies = 0;
+    QFile f(cookieFile());
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const QList<QByteArray> lines = f.readAll().split('\n');
+        for (const QByteArray &line : lines) {
+            if (!line.startsWith('#') && !line.trimmed().isEmpty())
+                ++cookies;
+        }
+    }
+    out << QStringLiteral("session: %1 · state %2 · cookies %3")
+               .arg(ytmLoggedIn() ? QStringLiteral("signed in")
+                                  : QStringLiteral("no session"),
+                    m_loginState.isEmpty() ? QStringLiteral("-") : m_loginState)
+               .arg(cookies);
+    if (m_sessionRejected)
+        out << QStringLiteral("session rejected by YouTube");
+    out << QStringLiteral("helper: %1").arg(ytmHelperReady() ? QStringLiteral("ok")
+                                                            : QStringLiteral("missing"));
+    out << QStringLiteral("lists: %1%2")
+               .arg(QString::number(m_ytmLibrary.size()),
+                    m_libraryError.isEmpty() ? QString()
+                                             : QStringLiteral(" · ") + m_libraryError);
+    if (!m_error.isEmpty())
+        out << QStringLiteral("last error: %1").arg(m_error);
+    return out.join(QLatin1Char('\n'));
 }
 
 // --------------------------------------------------- YouTube Music interaction ----
@@ -1505,17 +1581,17 @@ void Catalog::runYtmAction(const QStringList &args, const QString &okMessage)
 {
     if (!ytmLoggedIn()) {
         emit interactionDone(false,
-                             QStringLiteral("Inicia sesión en Ajustes para "
+                             tr("Inicia sesión en Ajustes para "
                                             "interactuar con YouTube Music"));
         return;
     }
     if (m_ytmProc.state() != QProcess::NotRunning) {
-        emit interactionDone(false, QStringLiteral("Hay una acción en curso"));
+        emit interactionDone(false, tr("Hay una acción en curso"));
         return;
     }
     if (!ytmHelperReady()) {
         emit interactionDone(false,
-                             QStringLiteral("No se encontró el asistente de "
+                             tr("No se encontró el asistente de "
                                             "YouTube Music"));
         return;
     }
@@ -1529,17 +1605,17 @@ void Catalog::rateTrack(const QString &videoId, const QString &rating)
 {
     const QString v = videoId.trimmed();
     if (v.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("Pista sin vídeo de YouTube"));
+        emit interactionDone(false, tr("Pista sin vídeo de YouTube"));
         return;
     }
     const QString r = rating.trimmed().toUpper();
     QString msg;
     if (r == QLatin1String("LIKE"))
-        msg = QStringLiteral("Me gusta añadido");
+        msg = tr("Me gusta añadido");
     else if (r == QLatin1String("DISLIKE"))
-        msg = QStringLiteral("No me gusta registrado");
+        msg = tr("No me gusta registrado");
     else
-        msg = QStringLiteral("Valoración quitada");
+        msg = tr("Valoración quitada");
     runYtmAction({ytmApiPath(), QStringLiteral("rate"), v, r}, msg);
 }
 
@@ -1548,11 +1624,11 @@ void Catalog::addToPlaylist(const QString &playlistId, const QString &videoId)
     const QString p = playlistId.trimmed();
     const QString v = videoId.trimmed();
     if (p.isEmpty() || v.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("Faltan datos de la lista"));
+        emit interactionDone(false, tr("Faltan datos de la lista"));
         return;
     }
     runYtmAction({ytmApiPath(), QStringLiteral("addpl"), p, v},
-                 QStringLiteral("Añadido a la lista"));
+                 tr("Añadido a la lista"));
 }
 
 void Catalog::removeFromPlaylist(const QString &playlistId, const QString &videoId,
@@ -1562,7 +1638,7 @@ void Catalog::removeFromPlaylist(const QString &playlistId, const QString &video
     const QString v = videoId.trimmed();
     const QString s = setVideoId.trimmed();
     if (p.isEmpty() || v.isEmpty() || s.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("Faltan datos de la lista"));
+        emit interactionDone(false, tr("Faltan datos de la lista"));
         return;
     }
     runYtmAction({ytmApiPath(), QStringLiteral("rmpl"), p, v, s},
@@ -1635,17 +1711,17 @@ void Catalog::runPlaylistAction(const QStringList &args, const QString &mode)
 {
     if (!ytmLoggedIn()) {
         emit interactionDone(false,
-                             QStringLiteral("Inicia sesión en Ajustes para "
+                             tr("Inicia sesión en Ajustes para "
                                             "gestionar tus listas"));
         return;
     }
     if (m_plProc.state() != QProcess::NotRunning) {
-        emit interactionDone(false, QStringLiteral("Hay una operación de lista en curso"));
+        emit interactionDone(false, tr("Hay una operación de lista en curso"));
         return;
     }
     if (!ytmHelperReady()) {
         emit interactionDone(false,
-                             QStringLiteral("No se encontró el asistente de "
+                             tr("No se encontró el asistente de "
                                             "YouTube Music"));
         return;
     }
@@ -1660,7 +1736,7 @@ void Catalog::createPlaylist(const QString &title, bool isPrivate,
 {
     const QString t = title.trimmed();
     if (t.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("La lista necesita un nombre"));
+        emit interactionDone(false, tr("La lista necesita un nombre"));
         return;
     }
     m_plAddVideo = addVideoId.trimmed();
@@ -1674,7 +1750,7 @@ void Catalog::updatePlaylist(const QString &id, const QString &title, bool isPri
     const QString i = id.trimmed();
     const QString t = title.trimmed();
     if (i.isEmpty() || t.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("Faltan datos de la lista"));
+        emit interactionDone(false, tr("Faltan datos de la lista"));
         return;
     }
     runPlaylistAction({ytmApiPath(), QStringLiteral("renamepl"), i, t,
@@ -1686,7 +1762,7 @@ void Catalog::deletePlaylist(const QString &id)
 {
     const QString i = id.trimmed();
     if (i.isEmpty()) {
-        emit interactionDone(false, QStringLiteral("Falta la lista"));
+        emit interactionDone(false, tr("Falta la lista"));
         return;
     }
     runPlaylistAction({ytmApiPath(), QStringLiteral("deletepl"), i},
@@ -2229,7 +2305,7 @@ void Catalog::finishLogin(int code)
         setLoginState(QStringLiteral("ok"));
     } else {
         if (m_loginError.isEmpty())
-            m_loginError = QStringLiteral("No se completó el inicio de sesión.");
+            m_loginError = tr("No se completó el inicio de sesión.");
         setLoginState(QStringLiteral("error"));
     }
 }
@@ -2290,7 +2366,7 @@ void Catalog::loginYTM()
     return;
 #endif
     if (!QFile::exists(helperPath())) {
-        m_loginError = QStringLiteral("Falta el asistente de login (ytm_login.py).");
+        m_loginError = tr("Falta el asistente de login (ytm_login.py).");
         setLoginState(QStringLiteral("error"));
         return;
     }
@@ -2305,7 +2381,7 @@ void Catalog::loginYTM()
     m_loginProc.setArguments({helperPath(), QStringLiteral("login")});
     m_loginProc.start();
     if (!m_loginProc.waitForStarted(3000)) {
-        m_loginError = QStringLiteral("No se pudo abrir la ventana de Google.");
+        m_loginError = tr("No se pudo abrir la ventana de Google.");
         setLoginState(QStringLiteral("error"));
     }
 }
@@ -2341,7 +2417,7 @@ bool Catalog::handleOutput(const QByteArray &json)
     QJsonParseError perr;
     const QJsonObject root = QJsonDocument::fromJson(json, &perr).object();
     if (perr.error != QJsonParseError::NoError || root.isEmpty()) {
-        fail(QStringLiteral("Respuesta ilegible"));
+        fail(tr("Respuesta ilegible"));
         return false;
     }
 
@@ -2363,11 +2439,11 @@ bool Catalog::handleOutput(const QByteArray &json)
 
     if (list.isEmpty()) {
         if (m_purpose == QLatin1String("search"))
-            fail(QStringLiteral("Nada encontrado para «%1»").arg(m_pendingTitle));
+            fail(tr("Nada encontrado para «%1»").arg(m_pendingTitle));
         else if (m_purpose == QLatin1String("radio"))
-            fail(QStringLiteral("No se pudo obtener la radio de YouTube Music"));
+            fail(tr("No se pudo obtener la radio de YouTube Music"));
         else
-            fail(QStringLiteral("La playlist está vacía o no es accesible"));
+            fail(tr("La playlist está vacía o no es accesible"));
         return false;
     }
 
@@ -2564,12 +2640,12 @@ void Catalog::addPlaylist(const QString &name, const QString &url)
 {
     const QString u = url.trimmed();
     if (u.isEmpty()) {
-        fail(QStringLiteral("Pega la URL de una playlist"));
+        fail(tr("Pega la URL de una playlist"));
         return;
     }
     for (const QVariant &v : m_playlists) {
         if (v.toMap().value(QStringLiteral("url")).toString() == u) {
-            fail(QStringLiteral("Esa playlist ya está guardada"));
+            fail(tr("Esa playlist ya está guardada"));
             return;
         }
     }

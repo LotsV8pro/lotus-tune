@@ -179,7 +179,7 @@ public class AudioService extends Service
         NotificationManager nm = c.getSystemService(NotificationManager.class);
         if (nm == null || nm.getNotificationChannel(CHANNEL) != null)
             return;
-        NotificationChannel ch = new NotificationChannel(CHANNEL, "Reproduccion",
+        NotificationChannel ch = new NotificationChannel(CHANNEL, c.getString(R.string.notif_channel_playback),
                 NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
         ch.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
@@ -203,8 +203,13 @@ public class AudioService extends Service
             @Override public void onCustomAction(String action, android.os.Bundle args)
             {
                 android.util.Log.i("LotusTune", "[media] accion propia: " + action);
-                if (action != null)
-                    push(action);
+                if (action == null)
+                    return;
+                push(action);
+                // El corazon del widget de inicio se pinta con el mismo
+                // estado: si la accion viene de la tarjeta del sistema, el
+                // widget no se enteraria hasta el siguiente empujon de la app.
+                PlayerWidget.render(sApp);
             }
         });
         s.setActive(true);
@@ -287,8 +292,11 @@ public class AudioService extends Service
     // The lyrics of the widget are worked out from the files the engine
     // publishes (lyrics.json / lyrics-runtime.json). QML already pushes the
     // line every 250 ms, but when the activity died the widget froze.
-    // This 1 Hz heartbeat, only while playing, reads the published clock
-    // and repaints only when the line changes (not every second).
+    // This heartbeat, only while playing, reads the published clock and
+    // repaints only when the line changes. It goes at 400 ms and not at 1 Hz
+    // because with the widget no longer sweeping a line change has no other
+    // clock behind it: at 1 Hz a line entered up to a second late.
+    private static final long BEAT_MS = 400L;
     private static Handler sBeatHandler = null;
     private static Runnable sBeatRunnable = null;
 
@@ -306,13 +314,13 @@ public class AudioService extends Service
                         return;
                     LyricsWidget.tick(sApp);
                     if (sBeatHandler != null)
-                        sBeatHandler.postDelayed(this, 1000);
+                        sBeatHandler.postDelayed(this, BEAT_MS);
                 }
             };
         }
         sBeatHandler.removeCallbacks(sBeatRunnable);
         if (PlayerWidget.sPlaying)
-            sBeatHandler.postDelayed(sBeatRunnable, 1000);
+            sBeatHandler.postDelayed(sBeatRunnable, BEAT_MS);
     }
 
     private static void updateSession()
@@ -343,8 +351,13 @@ public class AudioService extends Service
                 // are ignored without breaking anything.
                 .addCustomAction(new PlaybackState.CustomAction.Builder(
                         "SHUFFLE", "Aleatorio", R.drawable.ic_w_shuffle).build())
+                // The heart carries the state: the card draws the icon of the
+                // last PlaybackState it got, so this is the only way to fill it
+                // when the track is liked (and to empty it when it stops being).
                 .addCustomAction(new PlaybackState.CustomAction.Builder(
-                        "FAV", "Me gusta", R.drawable.ic_w_heart_outline).build());
+                        "FAV", PlayerWidget.sFav ? "Quitar de Me gusta" : "Me gusta",
+                        PlayerWidget.sFav ? R.drawable.ic_w_heart
+                                          : R.drawable.ic_w_heart_outline).build());
         // No position or duration on purpose: that way the system does not
         // paint a progress bar that cannot be dragged.
         // With speed 1 and a valid position the system extrapolates on its
@@ -441,9 +454,10 @@ public class AudioService extends Service
         PendingIntent openPi = PendingIntent.getActivity(c, 0, open,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         b.setContentTitle(PlayerWidget.sTitle.isEmpty()
-                ? "Lotus Tune" : PlayerWidget.sTitle)
+                ? c.getString(R.string.app_label) : PlayerWidget.sTitle)
          .setContentText(PlayerWidget.sArtist)
-         .setSubText(PlayerWidget.sPlaying ? "Reproduciendo" : "En pausa")
+         .setSubText(c.getString(PlayerWidget.sPlaying
+                ? R.string.notif_playing : R.string.notif_paused))
          .setSmallIcon(R.drawable.ic_launcher)
          .setContentIntent(openPi)
          .setOnlyAlertOnce(true)
@@ -451,16 +465,25 @@ public class AudioService extends Service
          .setVisibility(Notification.VISIBILITY_PUBLIC);
         if (sArt != null)
             b.setLargeIcon(sArt);
-        b.addAction(android.R.drawable.ic_media_previous, "Anterior",
+        b.addAction(android.R.drawable.ic_media_previous,
+                    c.getString(R.string.notif_previous),
                     act(c, PlayerWidget.ACTION_PREV, 3));
         b.addAction(PlayerWidget.sPlaying
                         ? android.R.drawable.ic_media_pause
                         : android.R.drawable.ic_media_play,
-                    PlayerWidget.sPlaying ? "Pausar" : "Reproducir",
+                    c.getString(PlayerWidget.sPlaying
+                            ? R.string.notif_pause : R.string.notif_play),
                     act(c, PlayerWidget.ACTION_TOGGLE, 1));
-        b.addAction(android.R.drawable.ic_media_next, "Siguiente",
+        b.addAction(android.R.drawable.ic_media_next,
+                    c.getString(R.string.notif_next),
                     act(c, PlayerWidget.ACTION_NEXT, 2));
-        b.addAction(android.R.drawable.btn_star, "Me gusta",
+        // Same heart as the home widget, filled when the track is liked: a
+        // star that never changed was no use (there was no way to tell
+        // whether the tap had done anything).
+        b.addAction(PlayerWidget.sFav ? R.drawable.ic_w_heart
+                                      : R.drawable.ic_w_heart_outline,
+                    c.getString(PlayerWidget.sFav
+                            ? R.string.notif_unlike : R.string.notif_like),
                     act(c, PlayerWidget.ACTION_FAV, 6));
         if (Build.VERSION.SDK_INT >= 21) {
             Notification.MediaStyle ms = new Notification.MediaStyle()

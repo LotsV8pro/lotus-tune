@@ -14,11 +14,13 @@
  * como respaldo (letra solo de texto de versiones antiguas, o mientras el
  * motor aun no ha escrito nada).
  *
- * La linea activa se pinta en dos capas: debajo la frase entera en tinta
- * apagada y encima la misma frase en tinta fuerte, recortada por su ancho
- * maximo (TextView.setMaxWidth). Moviendo ese ancho, lo ya cantado avanza
- * pixel a pixel, igual que el barrido de la app: entre fotograma y fotograma
- * solo viaja un entero por fila, nunca un texto nuevo.
+ * La linea activa se pinta entera, en tinta fuerte, y entra con un fundido
+ * corto cuando cambia: dos pasos de opacidad y un desplazamiento de pocos dp,
+ * cada paso con dos setFloat (que no obligan al launcher a medir el texto otra
+ * vez). Antes se barria palabra a palabra, pero un RemoteViews se aplica
+ * midiendo y trazando la linea entera cada vez, y MIUI no pasa de 16 o 20
+ * avisos por segundo: a esa cadencia el barrido se ve a saltos y gasta
+ * bateria. La app, que dibuja en su propia ventana, si puede ir a 60.
  *
  * Es solo la letra: sin cabecera, sin barra y sin botones. Tocar el widget
  * abre la app, y los controles se quedan en el widget de reproduccion.
@@ -35,10 +37,10 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Paint;
 import android.graphics.Typeface;
-import android.util.DisplayMetrics;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.View;
 import android.widget.RemoteViews;
@@ -53,52 +55,59 @@ import java.util.Arrays;
 
 public class LyricsWidget extends AppWidgetProvider
 {
-    // Las dos tintas del karaoke viven en el layout (l_dimA* apagada,
-    // l_sunA* encendida). La frontera es el ancho maximo de la copia
-    // encendida (TextView.setMaxWidth): crece por la derecha y deja al
-    // descubierto lo apagado.
-
     // Geometria del widget. Todo se calcula y se envia en pixeles: el ancho
-    // que reporta el host, el tamano de letra y el ancho maximo de la capa
-    // encendida se miden en el mismo espacio fisico, asi que la cuenta sale
-    // igual sea cual sea la densidad con la que el launcher infle el widget.
+    // que reporta el host y el tamano de letra se miden en el mismo espacio
+    // fisico, asi la linea se parte en dos filas igual sea cual sea la
+    // densidad con la que el launcher infle el widget.
     private static final int PAD_H_DP = 16;
-    private static final int PAD_V_DP = 14;
     private static final int[] SIZES_SP = { 24, 21, 18, 15 };
-    private static final long FRAME_MS = 70L;
 
-    // Cada cuantos fotogramas se manda el bloque entero en vez de solo la
-    // frontera (red de seguridad si el host reinfla el widget).
-    private static final int REDRAW_EVERY = 10;
-    private static long sFrames = 0;
+    // Fundido de entrada de la linea. Son dos avisos: el primero ya deja la
+    // letra legible y el segundo la termina. Con tres pasos desde el 35 % la
+    // linea tardaba 140 ms en poder leerse y se notaba como retraso respecto
+    // a la voz; asi el salto se ve inmediato y queda un movimiento corto.
+    private static final long STEP_MS = 40L;
+    private static final float[] FADE = { 0.65f, 1f };
+    private static final float[] LIFT_DP = { 4f, 0f };
+
+    // Cada cuantos repintados se manda el bloque entero aunque la linea no
+    // haya cambiado. Es una red de seguridad: si el host reinflo el arbol por
+    // su cuenta (cambio de tamano, launcher reiniciado), este aviso lo deja
+    // como estaba sin esperar al siguiente cambio de linea.
+    private static final int FULL_EVERY = 8;
+
+    // Reloj del cambio de linea. En vez de preguntar cada 120 o 400 ms si la
+    // cancion ha pasado de linea (que es lo que hacia que el salto se viera
+    // tarde: medido, 109 ms de mediana), se calcula cuanto falta para la
+    // siguiente y se pide un aviso para ese instante. Sale un repintado por
+    // linea y el salto llega con lo que tarde el launcher en aplicarlo.
+    private static final long MIN_WAIT_MS = 40L;
+    private static final long MAX_WAIT_MS = 5000L;
+    private static Handler sClock = null;
+    private static Runnable sClockRun = null;
+    private static Context sClockCtx = null;
 
     private static final int PREV_ID = R.id.l_prev_line;
     private static final int NEXT_ID = R.id.l_next;
     private static final int[] ROWS = { R.id.l_rowA0, R.id.l_rowA1 };
-    private static final int[] DIMS = { R.id.l_dimA0, R.id.l_dimA1 };
-    private static final int[] SUNS = { R.id.l_sunA0, R.id.l_sunA1 };
 
-    // Repintador de la frontera del canto: un fotograma cada FRAME_MS mientras
-    // la linea tenga tiempos de palabra y no se haya terminado. Solo corre con
-    // la pantalla encendida y con la cancion sonando.
-    private static Handler sFrontHandler = null;
-    private static Runnable sFrontRunnable = null;
+    // El fundido en curso.
+    private static Handler sFadeHandler = null;
+    private static Runnable sFadeRunnable = null;
+    private static int sFadeStep = 0;
 
     // Fallback trio: the QML pushes it when the index changes.
     public static volatile String sPrev = "";
     public static volatile String sLine = "";
     public static volatile String sNext = "";
 
-    // Lo que hay pintado ahora. El latido de 1 Hz compara con esto para no
-    // repintar la misma linea; los fotogramas del barrido leen el texto de
-    // aqui sin volver a medirlo.
+    // Lo que hay pintado ahora. El latido y los empujes del QML comparan con
+    // esto para no repintar la misma linea ni repetir el fundido.
     private static String sShownLine = null;
     private static String sShownPrev = "";
     private static String sShownNext = "";
-
-    // Geometria con la que se pinto la linea que hay ahora: los fotogramas la
-    // reutilizan y solo recalculan el ancho maximo.
-    private static Geom sGeom = null;
+    private static int sShownWidth = -1;
+    private static long sRenders = 0;
 
     private static Context sCtx = null;
 
@@ -113,15 +122,8 @@ public class LyricsWidget extends AppWidgetProvider
         String status = "";
         String plain = "";
         double offset = 0;
-        boolean karaoke = false;
         double[] t = new double[0];
         String[] text = new String[0];
-        // Word timings of every line, already mapped to character ranges of
-        // its own text. Empty arrays on lines without them.
-        double[][] wT = new double[0][];
-        double[][] wE = new double[0][];
-        int[][] wA = new int[0][];
-        int[][] wB = new int[0][];
     }
 
     /** Copia cacheada de files/lyrics-runtime.json. */
@@ -140,18 +142,15 @@ public class LyricsWidget extends AppWidgetProvider
     private static Runtime sRuntime = null;
 
     /**
-     * La linea repartida en dos filas, con el ancho de cada prefijo ya medido.
-     * Se calcula una vez por linea y por tamano de widget; los fotogramas solo
-     * leen de aqui.
+     * La linea repartida en las dos filas del widget y el tamano de letra que
+     * le toca. Se calcula una vez por linea y por tamano de widget.
      */
     private static final class Geom
     {
         int innerPx = 0;                 // ancho util del widget, sin margenes
         float textPx = 0;                // tamano de letra de la linea
+        float density = 1;               // densidad con la que infla el host
         String[] row = { "", "" };       // texto de cada fila
-        float[][] pre = { { 0 }, { 0 } }; // ancho acumulado letra a letra, en px
-        int end0 = 0;                    // ultima letra de la fila 1 en la linea
-        int start1 = 0;                  // primera letra de la fila 2 en la linea
     }
 
     /** La app llama esto al arrancar (QNativeInterface::QAndroidApplication). */
@@ -171,32 +170,24 @@ public class LyricsWidget extends AppWidgetProvider
     }
 
     /**
-     * Latido del servicio (1 Hz, solo mientras suena): busca la linea con el
-     * reloj publicado y repinta SOLO si ha cambiado. Sirve para que el
-     * widget siga la cancion aunque el QML no este empujando nada.
+     * Latido del servicio, solo mientras suena: busca la linea con el reloj
+     * publicado y repinta si ha cambiado. Sirve para que el widget siga la
+     * cancion aunque el QML no este empujando nada.
+     *
+     * Con la pantalla apagada no se repinta: nadie mira el widget y el
+     * servicio ya lo despierta cada 400 ms cuando vuelve a estar encendida.
      */
     static void tick(Context c)
     {
         if (c == null)
             return;
         sCtx = c.getApplicationContext();
-        Shot s = shotAt(sCtx);
-        if (s.p == null) {
-            stopFront();
-            return;                       // no hay estado: manda el QML
-        }
-        String prev = s.prev.trim();
-        String line = s.line.trim();
-        String next = s.next.trim();
-        if (line.isEmpty())
-            line = PlayerWidget.sTitle.isEmpty()
-                    ? "Sin letra" : "Sin letra para esta cancion";
-        if (sShownLine != null && sShownLine.equals(line)
-                && sShownPrev.equals(prev) && sShownNext.equals(next)) {
-            // Same line: the only thing that can move is the singing front.
-            armFront(sCtx);
+        PowerManager pm = (PowerManager)
+                sCtx.getSystemService(Context.POWER_SERVICE);
+        if (pm != null && !pm.isInteractive())
             return;
-        }
+        if (shotAt(sCtx).p == null)
+            return;                       // no hay estado: manda el QML
         render(sCtx);
     }
 
@@ -217,6 +208,12 @@ public class LyricsWidget extends AppWidgetProvider
         super.onReceive(context, intent);
     }
 
+    /**
+     * Pinta el trio de lineas. Si la linea activa no ha cambiado no se manda
+     * nada (salvo el repintado de seguridad cada FULL_EVERY): el launcher
+     * aplica cada aviso midiendo y trazando el texto, y no hay nada que
+     * ganar repitiendo lo mismo.
+     */
     static void render(Context context)
     {
         if (context == null)
@@ -246,33 +243,145 @@ public class LyricsWidget extends AppWidgetProvider
         line = line.trim();
         next = next.trim();
         if (line.isEmpty())
-            line = PlayerWidget.sTitle.isEmpty()
-                    ? "Sin letra" : "Sin letra para esta cancion";
-        // Se decide una vez para todos los widgets de la pantalla.
+            line = context.getString(PlayerWidget.sTitle.isEmpty()
+                    ? R.string.lyrics_none : R.string.lyrics_none_track);
+
+        final int width = widgetWidth(context, ids[0]);
+        // El siguiente aviso se programa con lo que acaba de ver este repintado,
+        // haya cambio o no: asi cada latido o empuje reajusta la hora del
+        // proximo salto.
+        scheduleNextLine(context, s);
+        final boolean same = sShownLine != null && sShownLine.equals(line)
+                && sShownPrev.equals(prev) && sShownNext.equals(next)
+                && sShownWidth == width;
+        if (same && (sRenders % FULL_EVERY) != 0)
+            return;
+
         sShownPrev = prev;
         sShownLine = line;
         sShownNext = next;
-        // Cuando la linea trae tiempos de palabra, la frontera sale de la
-        // posicion; sin ellos no hay karaoke y la frase se queda entera.
-        final double front = (s.p != null && s.idx >= 0
-                              && hasWords(s.p, s.idx))
-                ? frontFor(s.p, s.idx, s.pos) : -1;
+        sShownWidth = width;
+        sRenders++;
 
         for (int id : ids) {
             Geom g = geometry(context, line, widgetWidth(context, id));
-            sGeom = g;
-            m.updateAppWidget(id, build(context, prev, next, g, front));
+            m.updateAppWidget(id, build(context, prev, next, g,
+                                        same ? -1 : 0));
         }
-        // Con la linea en pantalla, el karaoke toma el relevo hasta la siguiente.
-        armFront(context);
+        if (!same)
+            startFade(context);
+    }
+
+    // ---- reloj del cambio de linea --------------------------------------
+
+    /**
+     * Deja pedido un aviso para el instante en que empieza la linea siguiente,
+     * calculado con la posicion que acaba de leer este repintado. Es un solo
+     * aviso por linea: mientras la cancion no cambie de linea no se pregunta
+     * nada, y el salto no espera a que le toque el turno a un sondeo.
+     */
+    private static void scheduleNextLine(Context context, Shot s)
+    {
+        if (sClock == null)
+            sClock = new Handler(Looper.getMainLooper());
+        if (sClockRun == null) {
+            sClockRun = new Runnable() {
+                @Override public void run() { tick(sClockCtx); }
+            };
+        }
+        sClock.removeCallbacks(sClockRun);
+        sClockCtx = context;
+        if (s.p == null || !s.playing)
+            return;                     // sin estado o en pausa: manda el latido
+        long wait;
+        if (!"ok".equals(s.p.status) || s.p.t.length == 0) {
+            // Cargando la letra o letra sin tiempos: se mira de vez en cuando.
+            wait = 1000L;
+        } else {
+            final int next = s.idx + 1;
+            if (next >= s.p.t.length)
+                return;                 // no queda nada por cantar
+            final double ms = (s.p.t[next] - s.pos) * 1000.0;
+            if (Double.isNaN(ms) || Double.isInfinite(ms))
+                return;
+            wait = Math.round(ms) + 15L;
+            if (wait < MIN_WAIT_MS)
+                wait = MIN_WAIT_MS;
+            if (wait > MAX_WAIT_MS)
+                wait = MAX_WAIT_MS;
+        }
+        sClock.postDelayed(sClockRun, wait);
+    }
+
+    // ---- fundido de entrada --------------------------------------------
+
+    /**
+     * Arranca el fundido: el bloque ya esta pintado en el paso 0 (lo acaba de
+     * mandar render()), aqui solo se programan los pasos que faltan.
+     */
+    private static void startFade(final Context context)
+    {
+        stopFade();
+        sFadeStep = 0;
+        if (sFadeHandler == null)
+            sFadeHandler = new Handler(Looper.getMainLooper());
+        if (sFadeRunnable == null) {
+            sFadeRunnable = new Runnable() {
+                @Override public void run() { fadeTick(context); }
+            };
+        }
+        sFadeHandler.postDelayed(sFadeRunnable, STEP_MS);
+    }
+
+    private static void stopFade()
+    {
+        if (sFadeHandler != null && sFadeRunnable != null)
+            sFadeHandler.removeCallbacks(sFadeRunnable);
+    }
+
+    /**
+     * Un paso mas del fundido. Solo viajan dos setFloat por fila: el texto, el
+     * tamano y la visibilidad siguen siendo los del ultimo bloque entero, asi
+     * que el host no mide ni traza nada.
+     */
+    private static void fadeTick(Context context)
+    {
+        if (context == null)
+            return;
+        final int step = ++sFadeStep;
+        if (step >= FADE.length)
+            return;
+        AppWidgetManager m = AppWidgetManager.getInstance(context);
+        int[] ids = m.getAppWidgetIds(
+                new ComponentName(context, LyricsWidget.class));
+        if (ids == null || ids.length == 0)
+            return;
+        final float density = hostDensity(context);
+        for (int id : ids) {
+            RemoteViews v = new RemoteViews(context.getPackageName(),
+                                            R.layout.widget_lyrics);
+            stepInto(v, density, step);
+            m.updateAppWidget(id, v);
+        }
+        if (step + 1 < FADE.length)
+            sFadeHandler.postDelayed(sFadeRunnable, STEP_MS);
+    }
+
+    /** Deja las filas de la linea activa en el paso `step` del fundido. */
+    private static void stepInto(RemoteViews v, float density, int step)
+    {
+        final int at = Math.max(0, Math.min(step, FADE.length - 1));
+        for (int id : ROWS) {
+            v.setFloat(id, "setAlpha", FADE[at]);
+            v.setFloat(id, "setTranslationY", LIFT_DP[at] * density);
+        }
     }
 
     // ---- medidas de la linea -------------------------------------------
 
     /**
      * Reparte `line` en las dos filas del widget con el mayor tamano de letra
-     * que quepa. El ancho de cada prefijo se mide en pixeles con la misma
-     * tipografia que pinta la vista, asi la frontera cae donde cae la letra.
+     * que quepa.
      */
     private static Geom geometry(Context c, String line, int widthDp)
     {
@@ -280,6 +389,7 @@ public class LyricsWidget extends AppWidgetProvider
         final DisplayMetrics dm = c.getResources().getDisplayMetrics();
         final float fontScale = dm.scaledDensity / dm.density;
         final float d = hostDensity(c);
+        g.density = d;
         g.innerPx = Math.max(40,
                 Math.round((Math.max(90, widthDp) - 2 * PAD_H_DP) * d));
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -339,17 +449,12 @@ public class LyricsWidget extends AppWidgetProvider
             if (sp > 0)
                 cut = sp;
         }
-        final String rest = line.substring(cut);
         final String r0 = rtrim(line.substring(0, cut));
-        final String r1 = rest.trim();
+        final String r1 = line.substring(cut).trim();
         if (!r1.isEmpty() && p.measureText(r1) > g.innerPx)
             return false;
         g.row[0] = r0;
         g.row[1] = r1;
-        g.end0 = r0.length();
-        g.start1 = cut + (rest.length() - r1.length());
-        g.pre[0] = cumulative(r0, p);
-        g.pre[1] = cumulative(r1, p);
         return true;
     }
 
@@ -368,14 +473,6 @@ public class LyricsWidget extends AppWidgetProvider
         return lo;
     }
 
-    private static float[] cumulative(String s, Paint p)
-    {
-        float[] out = new float[s.length() + 1];
-        for (int i = 1; i <= s.length(); ++i)
-            out[i] = p.measureText(s, 0, i);
-        return out;
-    }
-
     private static String rtrim(String s)
     {
         int e = s.length();
@@ -384,197 +481,20 @@ public class LyricsWidget extends AppWidgetProvider
         return s.substring(0, e);
     }
 
-    // ---- karaoke -------------------------------------------------------
-
     /**
-     * Ancho maximo de la capa encendida de la fila `row`: lo que hay desde el
-     * principio de la frase hasta la letra que se esta cantando.
-     */
-    private static float clipPx(Geom g, int row, double front)
-    {
-        final int len = g.row[row].length();
-        final float full = g.pre[row][len];
-        final double at;
-        if (row == 0)
-            at = Math.min(front, g.end0);
-        else
-            at = Math.max(0, front - g.start1);
-        float w = (g.innerPx - full) / 2f + prefixWidth(g, row, at);
-        if (w < 0)
-            w = 0;
-        if (w > g.innerPx)
-            w = g.innerPx;
-        return w;
-    }
-
-    /** Ancho del prefijo de `at` letras (at puede ser fraccionario). */
-    private static float prefixWidth(Geom g, int row, double at)
-    {
-        final float[] pre = g.pre[row];
-        final int len = pre.length - 1;
-        if (at <= 0)
-            return 0;
-        if (at >= len)
-            return pre[len];
-        final int k = (int) at;
-        final float f = (float) (at - k);
-        return pre[k] + (pre[k + 1] - pre[k]) * f;
-    }
-
-    /** Frontera del canto (caracter fraccionario) de la linea `idx`. */
-    private static double frontFor(Published p, int idx, double pos)
-    {
-        double[] ts = (idx >= 0 && idx < p.wT.length) ? p.wT[idx] : null;
-        if (ts == null || ts.length == 0)
-            return 0;
-        double at = 0;
-        for (int k = 0; k < ts.length; ++k) {
-            if (pos < ts[k])
-                break;
-            final int a = p.wA[idx][k];
-            final int b = p.wB[idx][k];
-            final double e = p.wE[idx][k];
-            if (!(e > ts[k]) || b <= a) {
-                at = b;                   // palabra sin duracion o sin letras
-                continue;
-            }
-            final double f = Math.min(1.0, (pos - ts[k]) / (e - ts[k]));
-            at = a + (b - a) * f;
-        }
-        return at;
-    }
-
-    private static boolean hasWords(Published p, int idx)
-    {
-        return idx >= 0 && idx < p.wT.length
-                && p.wT[idx] != null && p.wT[idx].length > 0;
-    }
-
-    /** Si la ultima palabra de la linea ya se canto: la siguiente la trae el latido. */
-    private static boolean pastEnd(Published p, int idx, double pos)
-    {
-        if (!hasWords(p, idx))
-            return true;
-        final int n = p.wT[idx].length;
-        return pos >= p.wE[idx][n - 1];
-    }
-
-    /** Programa el siguiente fotograma; sin karaoke, apaga el reloj. */
-    static void armFront(final Context context)
-    {
-        if (context == null)
-            return;
-        final Context app = context.getApplicationContext();
-        Shot s = shotAt(app);
-        if (!PlayerWidget.sPlaying || s.p == null || s.idx < 0
-                || !hasWords(s.p, s.idx) || pastEnd(s.p, s.idx, s.pos)) {
-            stopFront();
-            return;
-        }
-        // Pantalla apagada: nadie mira el widget. El latido de 1 Hz vuelve a
-        // armarlo en cuanto se enciende.
-        PowerManager pm = (PowerManager)
-                app.getSystemService(Context.POWER_SERVICE);
-        if (pm != null && !pm.isInteractive()) {
-            stopFront();
-            return;
-        }
-        if (sFrontHandler == null)
-            sFrontHandler = new Handler(Looper.getMainLooper());
-        if (sFrontRunnable == null) {
-            sFrontRunnable = new Runnable() {
-                @Override public void run()
-                {
-                    if (!PlayerWidget.sPlaying) {
-                        stopFront();
-                        return;
-                    }
-                    PowerManager pm = (PowerManager)
-                            app.getSystemService(Context.POWER_SERVICE);
-                    if (pm != null && !pm.isInteractive())
-                        return;
-                    Shot now = shotAt(app);
-                    if (now.p == null) {
-                        stopFront();
-                        return;
-                    }
-                    if (sShownLine != null
-                            && !sShownLine.equals(now.line.trim())) {
-                        // La linea cambio entre dos latidos: el fotograma no
-                        // puede seguir moviendo la vieja.
-                        render(app);
-                        return;
-                    }
-                    renderFront(app);
-                    armFront(app);
-                }
-            };
-        }
-        sFrontHandler.removeCallbacks(sFrontRunnable);
-        sFrontHandler.postDelayed(sFrontRunnable, FRAME_MS);
-    }
-
-    static void stopFront()
-    {
-        if (sFrontHandler != null && sFrontRunnable != null)
-            sFrontHandler.removeCallbacks(sFrontRunnable);
-    }
-
-    /**
-     * Fotograma barato: solo el ancho maximo de las dos filas. El texto y los
-     * tamanos ya estan puestos por el ultimo render completo.
-     */
-    static void renderFront(Context context)
-    {
-        if (context == null)
-            return;
-        AppWidgetManager m = AppWidgetManager.getInstance(context);
-        int[] ids = m.getAppWidgetIds(
-                new ComponentName(context, LyricsWidget.class));
-        if (ids == null || ids.length == 0)
-            return;
-        final Geom g = sGeom;
-        if (g == null || sShownLine == null)
-            return;
-        final Shot s = shotAt(context);
-        if (s.p == null || s.idx < 0)
-            return;
-        final double front = frontFor(s.p, s.idx, s.pos);
-        // Casi todos los fotogramas llevan solo la frontera: con cuatro
-        // acciones bastan, y el host de MIUI tarda bastante menos en
-        // aplicarlos (medido: 15 Hz con el bloque entero, 12 Hz asi, pero
-        // con un tercio del coste y el mismo barrido a la vista). Cada
-        // REDRAW_EVERY fotogramas va el bloque completo, por si el host
-        // reinflo el arbol por su cuenta y se quedo sin texto ni colores.
-        final boolean full = (sFrames++ % REDRAW_EVERY) == 0;
-        for (int id : ids) {
-            if (full) {
-                m.updateAppWidget(id, build(context, sShownPrev, sShownNext,
-                                            g, front));
-                continue;
-            }
-            RemoteViews v = new RemoteViews(context.getPackageName(),
-                                            R.layout.widget_lyrics);
-            for (int r = 0; r < 2; ++r) {
-                v.setInt(SUNS[r], "setMaxWidth",
-                         Math.max(0, Math.round(clipPx(g, r, front))));
-            }
-            m.updateAppWidget(id, v);
-        }
-    }
-
-    /**
-     * RemoteViews completo del widget. Cada fotograma lleva todo lo que pinta
-     * la vista y no solo el ancho de la frontera: el host de MIUI reinfla el
-     * arbol en algunos avisos, y con un aviso a medias el widget se quedaba en
-     * blanco un fotograma.
+     * RemoteViews completo del widget. `fade` es el paso del fundido con el que
+     * se pinta la linea (-1 = ya parada, opacidad entera).
      */
     private static RemoteViews build(Context context, String prev,
-                                     String next, Geom g, double front)
+                                     String next, Geom g, int fade)
     {
         RemoteViews v = new RemoteViews(context.getPackageName(),
                                         R.layout.widget_lyrics);
-        fill(v, prev, next, g, front);
+        fill(v, prev, next, g);
+        // Se pone siempre, tambien cuando la linea ya esta quieta: si un
+        // fundido se quedo a medias (pantalla apagada, host ocupado), el
+        // siguiente bloque entero la deja entera y en su sitio.
+        stepInto(v, g.density, fade >= 0 ? fade : FADE.length - 1);
         // El widget es solo la letra: tocar cualquier parte abre la app.
         final PendingIntent open = openApp(context);
         if (open != null)
@@ -644,15 +564,10 @@ public class LyricsWidget extends AppWidgetProvider
             n.status = o.optString("status", "");
             n.plain = o.optString("plain", "");
             n.offset = o.optDouble("offset", 0);
-            n.karaoke = o.optBoolean("karaoke", false);
             JSONArray arr = o.optJSONArray("lines");
             final int count = arr == null ? 0 : arr.length();
             double[] t = new double[count];
             String[] text = new String[count];
-            double[][] wT = new double[count][];
-            double[][] wE = new double[count][];
-            int[][] wA = new int[count][];
-            int[][] wB = new int[count][];
             int kept = 0;
             for (int i = 0; i < count; ++i) {
                 JSONObject lo = arr.optJSONObject(i);
@@ -660,27 +575,10 @@ public class LyricsWidget extends AppWidgetProvider
                     continue;
                 t[kept] = lo.optDouble("t", 0);
                 text[kept] = lo.optString("text", "♪").trim();
-                double[][] spans = wordSpans(text[kept], lo.optJSONArray("w"));
-                if (spans != null) {
-                    wT[kept] = new double[spans.length];
-                    wE[kept] = new double[spans.length];
-                    wA[kept] = new int[spans.length];
-                    wB[kept] = new int[spans.length];
-                    for (int k = 0; k < spans.length; ++k) {
-                        wT[kept][k] = spans[k][0];
-                        wE[kept][k] = spans[k][1];
-                        wA[kept][k] = (int) spans[k][2];
-                        wB[kept][k] = (int) spans[k][3];
-                    }
-                }
                 kept++;
             }
             n.t = Arrays.copyOf(t, kept);
             n.text = Arrays.copyOf(text, kept);
-            n.wT = Arrays.copyOf(wT, kept);
-            n.wE = Arrays.copyOf(wE, kept);
-            n.wA = Arrays.copyOf(wA, kept);
-            n.wB = Arrays.copyOf(wB, kept);
             n.mtime = mtime;
             n.length = length;
             sPublished = n;
@@ -741,14 +639,12 @@ public class LyricsWidget extends AppWidgetProvider
 
     // ---- pintado -------------------------------------------------------
 
-    /**
-     * Rellena el bloque: la anterior, las dos filas de la activa en sus dos
-     * capas, y la siguiente.
-     */
-    private static void fill(RemoteViews v, String prev, String next,
-                             Geom g, double front)
+    /** Rellena el bloque: la anterior, las dos filas de la activa, y la siguiente. */
+    private static void fill(RemoteViews v, String prev, String next, Geom g)
     {
-        v.setTextViewText(NEXT_ID, next);
+        // Un texto vacio deja la vista sin alto y todo el bloque salta; el
+        // espacio (que es lo que trae el layout) mantiene el hueco.
+        v.setTextViewText(NEXT_ID, next.isEmpty() ? " " : next);
         v.setTextViewTextSize(NEXT_ID, TypedValue.COMPLEX_UNIT_PX,
                               g.textPx * 14f / 24f);
         // The previous one always keeps its slot (INVISIBLE, not GONE): if it
@@ -765,22 +661,14 @@ public class LyricsWidget extends AppWidgetProvider
                               g.textPx * 13f / 24f);
         for (int r = 0; r < 2; ++r) {
             final int rowId = ROWS[r];
-            final int dimId = DIMS[r];
-            final int sunId = SUNS[r];
             final String text = g.row[r];
-            v.setTextViewText(dimId, text);
-            v.setTextViewText(sunId, text);
-            v.setTextViewTextSize(dimId, TypedValue.COMPLEX_UNIT_PX, g.textPx);
-            v.setTextViewTextSize(sunId, TypedValue.COMPLEX_UNIT_PX, g.textPx);
+            v.setTextViewText(rowId, text);
+            v.setTextViewTextSize(rowId, TypedValue.COMPLEX_UNIT_PX, g.textPx);
             if (text.isEmpty()) {
                 v.setViewVisibility(rowId, View.GONE);
                 continue;
             }
             v.setViewVisibility(rowId, View.VISIBLE);
-            // El ancho maximo es la frontera: la copia encendida se recorta
-            // por la derecha y deja ver la apagada que tiene debajo.
-            v.setInt(sunId, "setMaxWidth",
-                     Math.max(0, Math.round(clipPx(g, r, front))));
         }
     }
 
@@ -814,8 +702,9 @@ public class LyricsWidget extends AppWidgetProvider
         String line = "";
         String next = "";
         Published p = null;      // null: manda el trio que empuja el QML
-        int idx = -1;            // linea activa dentro de Published
-        double pos = 0;          // segundo que suena, con el offset ya sumado
+        double pos = 0;          // posicion de la pista con la que se calculo
+        int idx = -1;            // linea que se esta pintando (-1: antes de la primera)
+        boolean playing = false;
     }
 
     /**
@@ -838,14 +727,16 @@ public class LyricsWidget extends AppWidgetProvider
         // "ok" = lyrics with timings; "none" = no lyrics or plain text only;
         // "loading" = the search is still going (or nothing has arrived yet).
         if ("loading".equals(p.status)) {
-            out.line = "Cargando letra…";
+            out.line = c.getString(R.string.lyrics_loading);
             return out;
         }
 
         if ("ok".equals(p.status) && p.t.length > 0) {
             final double pos = positionNow(c, p);
             out.pos = pos;
+            out.playing = PlayerWidget.sPlaying;
             int idx = lineIndexAt(p.t, pos);
+            out.idx = idx;
             if (idx < 0) {
                 // Before the first line (instrumental intro): a symbol and, as the
                 // "next" one, the first thing that will be sung.
@@ -853,7 +744,6 @@ public class LyricsWidget extends AppWidgetProvider
                 out.next = p.text[0];
                 return out;
             }
-            out.idx = idx;
             out.prev = idx > 0 ? p.text[idx - 1] : "";
             out.line = p.text[idx];
             out.next = idx + 1 < p.text.length ? p.text[idx + 1] : "";
@@ -883,46 +773,6 @@ public class LyricsWidget extends AppWidgetProvider
 
         // The track has its lyrics resolved but there is nothing to show.
         return out;
-    }
-
-    /**
-     * Palabras de la linea como {t, e, primera letra, ultima letra}. Se busca
-     * el texto de cada palabra dentro de la linea, como en el QML, porque las
-     * palabras pueden venir con el espacio incluido.
-     */
-    private static double[][] wordSpans(String text, JSONArray words)
-    {
-        if (text == null || text.isEmpty() || words == null || words.length() == 0)
-            return null;
-        final String s = text;
-        double[][] out = new double[words.length()][];
-        int from = 0;
-        int n = 0;
-        for (int i = 0; i < words.length(); ++i) {
-            JSONObject w = words.optJSONObject(i);
-            if (w == null)
-                continue;
-            String core = w.optString("text", "").trim();
-            if (core.isEmpty())
-                continue;
-            int at = s.indexOf(core, from);
-            if (at < 0)
-                at = s.indexOf(core);
-            if (at < 0)
-                at = Math.min(from, s.length());
-            int len = Math.min(core.length(), s.length() - at);
-            if (len <= 0)
-                continue;
-            double t = w.optDouble("t", 0);
-            double e = w.optDouble("e", 0);
-            if (!(e > t))
-                e = t + 0.2;
-            out[n++] = new double[] { t, e, at, at + len };
-            from = at + Math.max(1, core.length());
-        }
-        if (n == 0)
-            return null;
-        return Arrays.copyOf(out, n);
     }
 
     private static PendingIntent openApp(Context c)

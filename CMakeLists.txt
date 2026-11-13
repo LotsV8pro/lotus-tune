@@ -1,7 +1,18 @@
 cmake_minimum_required(VERSION 3.19)
 
+# No builds inside the source tree. `cmake .` leaves a binary called
+# lotus-tune next to the sources, and that copy is the one that ends up being
+# opened by mistake (it is what happened with the lyrics: the app that was
+# running was a week old). To build:
+#   cmake -S . -B build      (or tools/install.sh, which does the same)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR
+        "Compila fuera del arbol de fuentes: cmake -S . -B build\n"
+        "Un binario suelto junto al codigo se confunde con el instalado.")
+endif()
+
 project(lotus-tune
-    VERSION 2.0.6
+    VERSION 2.0.7
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -65,6 +76,8 @@ set(LOTUS_SOURCES
     src/wash.cpp
     src/updates.h
     src/updates.cpp
+    src/translator.h
+    src/translator.cpp
 )
 
 qt_add_executable(lotus-tune ${LOTUS_SOURCES})
@@ -165,6 +178,39 @@ qt_add_qml_module(lotus-tune
         packaging/icons/lotus-tune.svg
 )
 
+# ---------------------------------------------------------------------------
+# Translations
+#
+# The strings of the source are Spanish ("es", built in). The rest come from
+# i18n/*.ts, compiled to .qm by tools/update-translations.sh and embedded
+# here: compiling the app needs no Linguist host tools (the Android and the
+# Windows builds get the same files). If a .ts is newer than its .qm the
+# build stops: an app that silently shows the old translation is worse than
+# one that does not build.
+# ---------------------------------------------------------------------------
+file(GLOB LOTUS_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/*.ts")
+set(LOTUS_QM_FILES)
+foreach(ts IN LISTS LOTUS_TS_FILES)
+    string(REPLACE ".ts" ".qm" qm "${ts}")
+    if(NOT EXISTS "${qm}")
+        message(FATAL_ERROR
+            "Falta la traduccion compilada de ${ts}.\n"
+            "Genera los .qm con:  bash tools/update-translations.sh")
+    endif()
+    if("${ts}" IS_NEWER_THAN "${qm}")
+        message(FATAL_ERROR
+            "${qm} es anterior a ${ts}.\n"
+            "Genera los .qm con:  bash tools/update-translations.sh")
+    endif()
+    list(APPEND LOTUS_QM_FILES "${qm}")
+endforeach()
+if(LOTUS_QM_FILES)
+    qt_add_resources(lotus-tune "translations"
+        PREFIX "/i18n"
+        BASE "${CMAKE_CURRENT_SOURCE_DIR}/i18n"
+        FILES ${LOTUS_QM_FILES})
+endif()
+
 qt_add_resources(lotus-tune "ui_sounds"
     PREFIX "/sounds"
     BASE "${CMAKE_CURRENT_SOURCE_DIR}/sounds"
@@ -227,6 +273,15 @@ target_link_libraries(lotus-tune PRIVATE
 if(ANDROID)
     set_property(TARGET lotus-tune PROPERTY
         QT_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
+    # versionCode and versionName of the APK come from the project version.
+    # They used to be edited by hand in android/build.gradle and were left
+    # behind (2.0.6 with the app already on 2.0.7), and Android only installs
+    # an update whose versionCode is higher. Derived, not written twice.
+    math(EXPR LOTUS_ANDROID_VERSION_CODE
+        "${PROJECT_VERSION_MAJOR} * 10000 + ${PROJECT_VERSION_MINOR} * 100 + ${PROJECT_VERSION_PATCH}")
+    set_target_properties(lotus-tune PROPERTIES
+        QT_ANDROID_VERSION_CODE ${LOTUS_ANDROID_VERSION_CODE}
+        QT_ANDROID_VERSION_NAME "${PROJECT_VERSION}")
 endif()
 if(LOTUS_DESKTOP)
     target_link_libraries(lotus-tune PRIVATE Qt6::DBus)
@@ -245,9 +300,21 @@ if(NOT ANDROID)
         DESTINATION bin)
 endif()
 if(NOT ANDROID)
-install(FILES
-        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/lotus-tune.desktop"
-    DESTINATION share/applications)
+    # The entry of the menu has to launch THIS binary. `Exec=lotus-tune` goes
+    # through the PATH, and an older copy (a distro package in /usr/bin, a
+    # binary left in the source tree) can end up being the one that opens: the
+    # full path of the installed binary is written instead.
+    set(LOTUS_EXEC "${CMAKE_INSTALL_PREFIX}/bin/lotus-tune")
+    if(CMAKE_INSTALL_FULL_BINDIR)
+        set(LOTUS_EXEC "${CMAKE_INSTALL_FULL_BINDIR}/lotus-tune")
+    endif()
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/lotus-tune.desktop.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/lotus-tune.desktop"
+        @ONLY)
+    install(FILES
+            "${CMAKE_CURRENT_BINARY_DIR}/lotus-tune.desktop"
+        DESTINATION share/applications)
 install(FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/lotus-tune.svg"
     DESTINATION share/icons/hicolor/scalable/apps)

@@ -59,15 +59,15 @@ Item {
 
     // Arriba: las tres secciones principales.
     readonly property var topItems: [
-        { id: "home",    label: "Inicio",     icon: "home" },
-        { id: "search",  label: "Buscar",     icon: "search" },
-        { id: "library", label: "Biblioteca", icon: "library" }
+        { id: "home",    label: qsTr("Inicio"),     icon: "home" },
+        { id: "search",  label: qsTr("Buscar"),     icon: "search" },
+        { id: "library", label: qsTr("Biblioteca"), icon: "library" }
     ]
     // Abajo: lo demas y Ajustes, en ultimo lugar (como la referencia).
     readonly property var bottomItems: [
-        { id: "liked",     label: "Me gusta",  icon: "heart" },
-        { id: "downloads", label: "Descargas", icon: "download" },
-        { id: "settings",  label: "Ajustes",   icon: "gear" }
+        { id: "liked",     label: qsTr("Me gusta"),  icon: "heart" },
+        { id: "downloads", label: qsTr("Descargas"), icon: "download" },
+        { id: "settings",  label: qsTr("Ajustes"),   icon: "gear" }
     ]
 
     Panel {

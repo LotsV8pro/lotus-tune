@@ -23,6 +23,21 @@ allprojects {
 
 apply plugin: 'com.android.application'
 
+// The version of the APK, read from the deployment settings androiddeployqt
+// writes next to this Gradle project (it comes from CMake's project version).
+// One place to bump it: CMakeLists.txt. If the file cannot be read the build
+// still works, with a version that never goes backward.
+def appVersionCode = 1
+def appVersionName = "1.0"
+def deploymentSettings = fileTree(dir: '..', include: '*deployment-settings.json').files.find()
+if (deploymentSettings != null) {
+    def cfg = new groovy.json.JsonSlurper().parse(deploymentSettings)
+    if (cfg['android-version-code'])
+        appVersionCode = cfg['android-version-code'] as int
+    if (cfg['android-version-name'])
+        appVersionName = cfg['android-version-name']
+}
+
 // The Qt jars (Qt6Android.jar carries the QtActivity base of our
 // MainActivity) are copied here by androiddeployqt; without them the
 // app classes do not compile.
@@ -35,15 +50,17 @@ android {
     namespace 'com.lotustuneremote.app'
     compileSdk 34
     ndkVersion "27.0.12077973"
-
     defaultConfig {
         applicationId "com.lotustuneremote.app"
         minSdk 24
         targetSdk 34
-        // The same number as CMakeLists (1.2.1 -> 10201): if it goes down,
-        // the system rejects the install as a "downgrade".
-        versionCode 20006
-        versionName "2.0.6"
+        // versionCode and versionName come from CMake
+        // (project(lotus-tune VERSION ...)) through the deployment settings
+        // androiddeployqt writes next to this Gradle project. Typed here as
+        // well they drifted (the APK said 2.0.6 with the app on 2.0.7), and
+        // Android only installs an update whose versionCode is higher.
+        versionCode appVersionCode
+        versionName appVersionName
     }
 
     // One key for every build. The debug key of each machine changes (the
@@ -76,6 +93,12 @@ android {
     // jniLibs of the flavour or the APK is built without them.
     sourceSets {
         main {
+            // The manifest of this app lives at the root of the Android
+            // sources (that is the one androiddeployqt copies into the build
+            // directory), not in src/main as Gradle expects by default. With
+            // both files around, the one Gradle read was stale (1.2.1, no
+            // lyrics widget) and only the version of build.gradle hid it.
+            manifest.srcFile 'AndroidManifest.xml'
             // Qt5-style layout used by androiddeployqt (src/...), plus
             // the Qt java sources (QtActivityLoader & friends). Without
             // the app java path gradle compiled NOTHING and the launcher

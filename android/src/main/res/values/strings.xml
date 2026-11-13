@@ -1,4 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">LotusTune</string>
+    <string name="app_label">Lotus Tune</string>
+
+    <!-- Media notification -->
+    <string name="notif_channel_playback">Reproducción</string>
+    <string name="notif_playing">Reproduciendo</string>
+    <string name="notif_paused">En pausa</string>
+    <string name="notif_play">Reproducir</string>
+    <string name="notif_pause">Pausar</string>
+    <string name="notif_previous">Anterior</string>
+    <string name="notif_next">Siguiente</string>
+    <string name="notif_like">Me gusta</string>
+    <string name="notif_unlike">Quitar de Me gusta</string>
+
+    <!-- Lyrics widget -->
+    <string name="widget_lyrics_name">Lotus Tune - Letra</string>
+    <string name="lyrics_none">Sin letra</string>
+    <string name="lyrics_none_track">Sin letra para esta canción</string>
+    <string name="lyrics_loading">Cargando letra…</string>
+
+    <!-- Update notice -->
+    <string name="update_channel">Versiones nuevas</string>
+    <string name="update_channel_desc">Avisa cuando hay una versión nueva de la app</string>
+    <string name="update_text">Hay una versión nueva. Toca para descargarla.</string>
 </resources>

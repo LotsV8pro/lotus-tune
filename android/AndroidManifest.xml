@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- versionCode and versionName are NOT set here: the version of the APK
+     comes from CMake (project(lotus-tune VERSION ...)) and Gradle writes it
+     (see android/build.gradle). Typed here as well they drifted: the APK
+     still said 2.0.6 with the app on 2.0.7, and Android only installs an
+     update whose versionCode is higher. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:versionCode="20006" 
-    android:versionName="2.0.6" 
     package="com.lotustuneremote.app">
     
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="34"/>
@@ -25,15 +28,13 @@
     <application 
         android:name=".LotusApplication"
         android:theme="@android:style/Theme.NoTitleBar"
-        android:label="LotusTune"
+        android:label="@string/app_label"
         android:icon="@drawable/ic_launcher"
         android:allowBackup="true"
         android:extractNativeLibs="true"
         android:hardwareAccelerated="false"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="false"
-        android:versionCode="1"
-        android:versionName="1.0.0">
+        android:usesCleartextTraffic="false">
         
         <activity 
             android:theme="@android:style/Theme.NoTitleBar"
@@ -62,13 +63,6 @@
             android:hardwareAccelerated="false"
             android:windowSoftInputMode="adjustResize"/>
         
-        <activity 
-            android:theme="@android:style/Theme.NoTitleBar"
-            android:name="com.lotustuneremote.app.NativeTestActivity"
-            android:exported="false"
-            android:launchMode="singleTask"
-            android:hardwareAccelerated="false"/>
-        
         <provider 
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.qtprovider"
@@ -78,7 +72,7 @@
                 android:resource="@xml/qtprovider_paths"/>
         </provider>
         
-        <receiver android:label="Lotus Tune"
+        <receiver android:label="@string/app_label"
             android:name="com.lotustuneremote.app.PlayerWidget"
             android:exported="true">
             <intent-filter>
@@ -86,6 +80,16 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider"
                 android:resource="@xml/widget_info"/>
+        </receiver>
+
+        <receiver android:label="@string/widget_lyrics_name"
+            android:name="com.lotustuneremote.app.LyricsWidget"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info_lyrics"/>
         </receiver>
         
         <service 

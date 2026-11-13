@@ -4,6 +4,7 @@
 #include "paths.h"
 #include "discordrpc.h"
 #include "updates.h"
+#include "translator.h"
 #include "stubs.h"
 #include "downloads.h"
 #include "sfx.h"
@@ -49,6 +50,7 @@ struct FrameStats
 };
 
 #include <csignal>
+#include <cstdio>
 #if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
 #include <unistd.h>
 #endif
@@ -403,6 +405,19 @@ int main(int argc, char *argv[])
     // published in the repository.
     QCoreApplication::setApplicationVersion(QStringLiteral(LOTUS_TUNE_VERSION));
 
+    // `--version` (or `-v`): prints the version and leaves. It is how the
+    // installer and the launcher check which binary is the installed one
+    // without opening a window, and the answer is the version the binary
+    // was built with (not a file date).
+    for (int i = 1; i < argc; ++i) {
+        const QByteArray a(argv[i]);
+        if (a == "--version" || a == "-v") {
+            std::fprintf(stdout, "lotus-tune %s\n", LOTUS_TUNE_VERSION);
+            std::fflush(stdout);
+            return 0;
+        }
+    }
+
     qInstallMessageHandler(rawMessageHandler);
 
     // Qt Quick software rendering: it avoids the OpenGL context entirely,
@@ -559,6 +574,14 @@ int main(int argc, char *argv[])
 
     QQmlApplicationEngine engine;
 
+    // The QML of the app is compiled into the binary under /LotusTune (see
+    // the generated qrc: prefix "/LotusTune/"), so `import LotusTune` only
+    // resolves when the resource root is in the import path. Qt does not add
+    // it by itself when the module is linked statically, and without it
+    // loadFromModule fails and the app depends on a qt.conf pointing at the
+    // source tree (which is what made the .deb unusable on other machines).
+    engine.addImportPath(QStringLiteral(":/"));
+
 #ifdef Q_OS_ANDROID
     // The QML modules live in the two RCC bundles registered above:
     // /qt/qml/* for Qt and /android_rcc_bundle/* for the app.
@@ -570,17 +593,64 @@ int main(int argc, char *argv[])
     engine.addImportPath(appRccRoot + QStringLiteral("/qml"));
 #endif
 
+    // Language of the interface. It has to be installed before the QML is
+    // loaded: the first frame is already painted in the chosen language.
+    // "system" follows the locale; the rest of the codes come from the .qm
+    // files in the build.
+    Translator lang(&engine);
+    // QA: `--lang=en` forces a language for one run (the screenshots of the
+    // translated interface). It does not touch the saved choice.
+    for (int i = 1; i < argc; ++i) {
+        const QByteArray a(argv[i]);
+        if (a.startsWith("--lang="))
+            lang.setLanguage(QString::fromUtf8(a.mid(7)));
+    }
+    // QA: `--i18n-selftest` prints a few strings in the chosen language and
+    // exits, to check the .qm files without opening a window.
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--i18n-selftest") == 0) {
+            const auto say = [](const char *ctx, const char *src, int n) {
+                printf("%s\n", qPrintable(QCoreApplication::translate(ctx, src, "", n)));
+            };
+            printf("language: %s (choice %s)\n", qPrintable(lang.current()),
+                   qPrintable(lang.language()));
+            printf("available: %s\n", qPrintable(lang.available().join(", ")));
+            say("LibraryPage", "%n canción", 1);
+            say("LibraryPage", "%n canción", 3);
+            say("Main", "%n pista añadida a la cola", 2);
+            say("Main", "Ajustes", -1);
+            say("HomePage", "Buenos días", -1);
+            say("SearchPage", "%1 resultados para «%2»", -1);
+            return 0;
+        }
+    }
+    engine.rootContext()->setContextProperty(QStringLiteral("lang"), &lang);
+
     // Live theme (iNiR/matugen palette + config.ini overrides).
     AppTheme theme;
     engine.rootContext()->setContextProperty(QStringLiteral("Sys"), &theme);
 
     // Platforms (YouTube Music / SoundCloud ready, Spotify / Tidal registered).
+    // Their descriptions are shown to the user, so they are rebuilt when the
+    // language changes.
     SourceManager sources;
+    QObject::connect(&lang, &Translator::languageChanged,
+                     &sources, &SourceManager::retranslate);
     engine.rootContext()->setContextProperty(QStringLiteral("sources"), &sources);
 
     // yt-dlp metadata + saved library.
     Catalog catalog(&sources);
     engine.rootContext()->setContextProperty(QStringLiteral("catalog"), &catalog);
+
+    // QA/support: `--diagnostics` prints what the "Copiar diagnóstico" button
+    // copies (version, phone, session, helper, lists) and exits. It is the
+    // same text, so a report from a phone and one from the desktop compare.
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], "--diagnostics") == 0) {
+            printf("%s\n", qPrintable(catalog.diagnostics()));
+            return 0;
+        }
+    }
 
     // Persistent settings (theme ini + QSettings conf), see src/appconfig.cpp.
     AppConfig appcfg;

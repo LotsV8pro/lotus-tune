@@ -5,20 +5,28 @@
 SourceManager::SourceManager(QObject *parent)
     : QObject(parent)
 {
+    build();
+}
+
+// The notes are shown to the user (a toast for a locked source, the header of
+// a search), so they follow the language of the interface: the list is rebuilt
+// when it changes.
+void SourceManager::build()
+{
     // Ready sources: stream via yt-dlp extraction (ad-free, no browser).
     m_list = {
         QVariantMap{
             {QStringLiteral("id"), QStringLiteral("ytm")},
             {QStringLiteral("name"), QStringLiteral("YouTube Music")},
             {QStringLiteral("status"), QStringLiteral("ready")},
-            {QStringLiteral("note"), QStringLiteral("Extracción directa con yt-dlp: sin anuncios, sin navegador.")},
+            {QStringLiteral("note"), tr("Extracción directa con yt-dlp: sin anuncios, sin navegador.")},
             {QStringLiteral("searchPrefix"), QStringLiteral("ytsearch15:")},
         },
         QVariantMap{
             {QStringLiteral("id"), QStringLiteral("soundcloud")},
             {QStringLiteral("name"), QStringLiteral("SoundCloud")},
             {QStringLiteral("status"), QStringLiteral("ready")},
-            {QStringLiteral("note"), QStringLiteral("Búsqueda y playlists públicas de SoundCloud.")},
+            {QStringLiteral("note"), tr("Búsqueda y playlists públicas de SoundCloud.")},
             {QStringLiteral("searchPrefix"), QStringLiteral("scsearch15:")},
         },
         // Locked sources: activated once the matching account/backend exists.
@@ -27,8 +35,8 @@ SourceManager::SourceManager(QObject *parent)
             {QStringLiteral("name"), QStringLiteral("Spotify")},
             {QStringLiteral("status"), QStringLiteral("locked")},
             {QStringLiteral("note"),
-             QStringLiteral("Requiere cuenta Premium y un Client ID de "
-                            "developer.spotify.com (backend librespot, pendiente).")},
+             tr("Requiere cuenta Premium y un Client ID de "
+                "developer.spotify.com (backend librespot, pendiente).")},
             {QStringLiteral("searchPrefix"), QString()},
         },
         QVariantMap{
@@ -36,11 +44,16 @@ SourceManager::SourceManager(QObject *parent)
             {QStringLiteral("name"), QStringLiteral("Tidal")},
             {QStringLiteral("status"), QStringLiteral("locked")},
             {QStringLiteral("note"),
-             QStringLiteral("Requiere una cuenta Tidal y credenciales de la API "
-                            "(pendiente).")},
+             tr("Requiere una cuenta Tidal y credenciales de la API (pendiente).")},
             {QStringLiteral("searchPrefix"), QString()},
         },
     };
+}
+
+void SourceManager::retranslate()
+{
+    build();
+    emit listChanged();
 }
 
 QVariantMap SourceManager::entry(const QString &id) const

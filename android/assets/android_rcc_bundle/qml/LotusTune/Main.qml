@@ -18,7 +18,7 @@ Window {
     minimumWidth: isPhone ? 360 : 880
     minimumHeight: isPhone ? 480 : 560
     visible: true
-    title: "Lotus Tune"
+    title: qsTr("Lotus Tune")
     color: Sys.bg
 
     // The app is really in the foreground. `Qt.application.state` changes
@@ -53,6 +53,20 @@ Window {
         appcfg.set(k, String(v))
         appcfg.save()
     }
+    // Languages offered in Ajustes: the source one, the system option and
+    // every code that has a translation in the build.
+    function languageCodes() {
+        const out = ["system", "es"]
+        const av = lang.available
+        for (let i = 0; i < av.length; ++i) {
+            if (out.indexOf(av[i]) < 0)
+                out.push(av[i])
+        }
+        return out
+    }
+    function languageLabel(code) {
+        return code === "system" ? qsTr("Sistema") : lang.name(code)
+    }
     function cfgLogin(src, a, b, c) {
         if (typeof appcfg === "undefined")
             return
@@ -77,7 +91,7 @@ Window {
     function ytmError() {
         if (typeof catalog.loginError !== "undefined" && catalog.loginError)
             return String(catalog.loginError)
-        return "No se pudo iniciar sesión. Inténtalo de nuevo."
+        return qsTr("No se pudo iniciar sesión. Inténtalo de nuevo.")
     }
     // YouTube rejected the saved session (expired, or used from another
     // network). The app keeps working anonymously; it is reported once and
@@ -85,8 +99,7 @@ Window {
     Connections {
         target: catalog
         function onSessionExpired() {
-            root.toast("Sesión de YouTube caducada: vuelve a iniciar sesión "
-                       + "para ver tus listas y Me gusta")
+            root.toast(qsTr("Sesión de YouTube caducada: vuelve a iniciar sesión para ver tus listas y Me gusta"))
         }
     }
     function ytmOpen() {
@@ -95,7 +108,7 @@ Window {
     }
     function ytmLogin() {
         if (typeof catalog.loginYTM !== "function") {
-            root.toast("Actualiza la app")
+            root.toast(qsTr("Actualiza la app"))
             return
         }
         catalog.loginYTM()
@@ -177,14 +190,14 @@ Window {
         const f = String(folder || "")
         const n = String(name || f)
         root.showContextMenu([
-            { label: "Reproducir", icon: "play",
+            { label: qsTr("Reproducir"), icon: "play",
               action: function() {
                   const arr = libPage.openDownloadTracks
                   if (arr && arr.length > 0)
                       root.playTracks(arr, 0)
               } },
             { separator: true },
-            { label: "Desinstalar descarga", icon: "trash", danger: true,
+            { label: qsTr("Desinstalar descarga"), icon: "trash", danger: true,
               action: function() { root.confirmRemoveDownload(f, n) } }
         ], x, y)
     }
@@ -270,7 +283,7 @@ Window {
 
     function confirmDeletePlaylist(id, title) {
         root.editorOpen = false
-        root.askConfirm("¿Eliminar la lista «" + (title || "") + "»? Esto no se puede deshacer.",
+        root.askConfirm(qsTr("¿Eliminar la lista «%1»? Esto no se puede deshacer.").arg(title || ""),
                         "Eliminar", function() {
                             if (catalog.openPlaylistId === id)
                                 libPage.showPlaylists()
@@ -279,14 +292,16 @@ Window {
     }
 
     // ---- clipboard (copy link) ---------------------------------------------
-    function copyToClipboard(text) {
+    // The second argument is what the toast says: copying a link and copying
+    // the diagnostics are not the same message.
+    function copyToClipboard(text, message) {
         const s = String(text || "")
         if (!s)
             return
         clip.text = s
         clip.selectAll()
         clip.copy()
-        root.toast("Enlace copiado")
+        root.toast(message || qsTr("Enlace copiado"))
     }
 
     // ---- queue: play next / add to the queue --------------
@@ -305,7 +320,7 @@ Window {
             return
         }
         queue.insert(Math.min(queue.count, root.queueIndex + 1), root.queueRow(t))
-        root.toast("Se reproducirá a continuación")
+        root.toast(qsTr("Se reproducirá a continuación"))
     }
 
     function enqueueTrack(t) {
@@ -318,7 +333,7 @@ Window {
         root.autoplayRadioPending = false   // there is already a queue set by hand
         root.radioResumePending = false
         queue.append(root.queueRow(t))
-        root.toast("Añadido a la cola")
+        root.toast(qsTr("Añadido a la cola"))
         root.saveSession()
     }
 
@@ -337,8 +352,7 @@ Window {
         root.radioResumePending = false
         for (let i = 0; i < arr.length; ++i)
             queue.append(root.queueRow(arr[i]))
-        root.toast(arr.length + (arr.length === 1 ? " pista añadida a la cola"
-                                                  : " pistas añadidas a la cola"))
+        root.toast(qsTr("%n pista añadida a la cola", "", arr.length))
         root.saveSession()
     }
 
@@ -369,33 +383,33 @@ Window {
         const liked = (catalog.likedReady === true) ? catalog.isLiked(url)
                                                     : (t.liked === true)
         const out = []
-        out.push({ label: "Reproducir", icon: "play",
+        out.push({ label: qsTr("Reproducir"), icon: "play",
                    action: function() { root.playTracks([t], 0) } })
         // Radio in YouTube Music's style (YouTube tracks only): the one of
         // the song itself and the one of the artist, each seeded with its
         // top track.
         if (vid !== "") {
-            out.push({ label: "Escuchar radio de esta canción", icon: "radio",
+            out.push({ label: qsTr("Escuchar radio de esta canción"), icon: "radio",
                        action: function() { root.startSongRadio(t) } })
             const artistName = String(t.artist || "")
             if (artistName)
-                out.push({ label: "Radio de " + artistName, icon: "radio",
+                out.push({ label: qsTr("Radio de %1").arg(artistName), icon: "radio",
                            action: function() { root.startArtistRadio(t) } })
         }
         if (canYt)
-            out.push({ label: "Añadir a lista de reproducción…", icon: "plus",
+            out.push({ label: qsTr("Añadir a lista de reproducción…"), icon: "plus",
                        action: function() { root.openPlaylistPicker(vid) } })
         if (canYt)
-            out.push({ label: liked ? "Quitar de la biblioteca"
-                                    : "Añadir a la biblioteca",
+            out.push({ label: liked ? qsTr("Quitar de la biblioteca")
+                                    : qsTr("Añadir a la biblioteca"),
                        icon: liked ? "heart" : "heart-outline",
                        checked: liked,
                        action: function() { catalog.toggleLiked(url, liked) } })
         if (canYt)
             out.push({ separator: true })
-        out.push({ label: "Reproducir a continuación", icon: "next",
+        out.push({ label: qsTr("Reproducir a continuación"), icon: "next",
                    action: function() { root.playNextTrack(t) } })
-        out.push({ label: "Añadir a la cola", icon: "queue",
+        out.push({ label: qsTr("Añadir a la cola"), icon: "queue",
                    action: function() { root.enqueueTrack(t) } })
         // Own list open: remove the track and reorder it. It is pushed to
         // YouTube Music. It needs the list to belong to the user and the
@@ -406,16 +420,16 @@ Window {
         const plOwned = (typeof libPage !== "undefined") ? libPage.currentOwned() : false
         if (plId !== "" && plSet !== "" && plOwned) {
             out.push({ separator: true })
-            out.push({ label: "Quitar de esta lista", icon: "trash", danger: true,
+            out.push({ label: qsTr("Quitar de esta lista"), icon: "trash", danger: true,
                        action: function() { root.removeTrackFromOpenPlaylist(t) } })
-            out.push({ label: "Mover arriba", icon: "arrow-up",
+            out.push({ label: qsTr("Mover arriba"), icon: "arrow-up",
                        action: function() { catalog.moveOpenPlaylistTrack(plSet, -1) } })
-            out.push({ label: "Mover abajo", icon: "arrow-down",
+            out.push({ label: qsTr("Mover abajo"), icon: "arrow-down",
                        action: function() { catalog.moveOpenPlaylistTrack(plSet, 1) } })
         }
         if (String(t.artist || "")) {
             out.push({ separator: true })
-            out.push({ label: "Buscar el artista", icon: "search",
+            out.push({ label: qsTr("Buscar el artista"), icon: "search",
                        action: function() {
                            root.navTo("search")
                            searchPage.startSearch(String(t.artist || ""))
@@ -424,14 +438,14 @@ Window {
         if (url) {
             if (!String(t.artist || ""))
                 out.push({ separator: true })
-            out.push({ label: "Copiar enlace", icon: "link",
+            out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         }
         // Downloaded track inside a list: allows uninstalling the whole
         // list (it deletes the download folder).
         if (String(t.source || "") === "local" && String(t.folder || "")) {
             out.push({ separator: true })
-            out.push({ label: "Desinstalar descarga", icon: "trash", danger: true,
+            out.push({ label: qsTr("Desinstalar descarga"), icon: "trash", danger: true,
                        action: function() {
                            root.confirmRemoveDownload(String(t.folder || ""),
                                                       String(t.folder || ""))
@@ -446,28 +460,28 @@ Window {
         const url = String(c.url || "")
         const owned = (c.owned === true) && (catalog.loginState === "ok")
         const out = []
-        out.push({ label: "Reproducir", icon: "play",
+        out.push({ label: qsTr("Reproducir"), icon: "play",
                    action: function() { libPage.activateCover(c, true) } })
-        out.push({ label: "Abrir", icon: "list",
+        out.push({ label: qsTr("Abrir"), icon: "list",
                    action: function() { libPage.activateCover(c, false) } })
         if (owned || url) {
             out.push({ separator: true })
         }
         if (owned)
-            out.push({ label: "Editar lista…", icon: "pencil",
+            out.push({ label: qsTr("Editar lista…"), icon: "pencil",
                        action: function() { root.openEditPlaylist(c.id, c.name) } })
         if (owned)
-            out.push({ label: "Eliminar lista", icon: "trash", danger: true,
+            out.push({ label: qsTr("Eliminar lista"), icon: "trash", danger: true,
                        action: function() { root.confirmDeletePlaylist(c.id, c.name) } })
         if (url)
-            out.push({ label: "Copiar enlace", icon: "link",
+            out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         // If the list is downloaded it can be uninstalled (it deletes the
         // files).
         const dlFolder = root.downloadedFolderFor(url, c.name)
         if (dlFolder) {
             out.push({ separator: true })
-            out.push({ label: "Desinstalar descarga", icon: "trash", danger: true,
+            out.push({ label: qsTr("Desinstalar descarga"), icon: "trash", danger: true,
                        action: function() { root.confirmRemoveDownload(dlFolder, c.name) } })
         }
         return out
@@ -502,17 +516,18 @@ Window {
         let freed = 0
         if (typeof downloads !== "undefined")
             freed = downloads.listSize(f)
-        root.askConfirm("¿Desinstalar la descarga de «" + (name || f)
-                        + "»? Se borrarán los archivos descargados"
-                        + (freed > 0 ? " y se liberarán " + root.bytesText(freed) : "")
-                        + ".",
-                        "Desinstalar", function() {
+        root.askConfirm((freed > 0
+                         ? qsTr("¿Desinstalar la descarga de «%1»? Se borrarán los archivos descargados y se liberarán %2.")
+                               .arg(name || f).arg(root.bytesText(freed))
+                         : qsTr("¿Desinstalar la descarga de «%1»? Se borrarán los archivos descargados.")
+                               .arg(name || f)),
+                        qsTr("Desinstalar"), function() {
                             if (typeof libPage !== "undefined"
                                     && libPage.openDownloadFolder === f)
                                 libPage.openDownloadFolder = ""
                             if (typeof downloads !== "undefined")
                                 downloads.removeList(f)
-                            root.toast("Descarga desinstalada")
+                            root.toast(qsTr("Descarga desinstalada"))
                         })
     }
 
@@ -521,18 +536,18 @@ Window {
     function savedPlaylistMenuItems(item, index) {
         item = item || {}
         const out = [
-            { label: "Reproducir", icon: "play",
+            { label: qsTr("Reproducir"), icon: "play",
               action: function() { root.beginOpenList(true); catalog.openPlaylist(index) } },
-            { label: "Abrir", icon: "list",
+            { label: qsTr("Abrir"), icon: "list",
               action: function() { root.beginOpenList(false); catalog.openPlaylist(index) } }
         ]
         if (item.url)
             out.push({ separator: true })
         if (item.url)
-            out.push({ label: "Copiar enlace", icon: "link",
+            out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(item.url) } })
         out.push({ separator: true })
-        out.push({ label: "Quitar de la biblioteca", icon: "trash", danger: true,
+        out.push({ label: qsTr("Quitar de la biblioteca"), icon: "trash", danger: true,
                    action: function() { catalog.removePlaylist(index) } })
         return out
     }
@@ -569,22 +584,23 @@ Window {
 
     function pageTitle() {
         if (page === "search")
-            return "Buscar"
+            return qsTr("Buscar")
         if (page === "library")
             // Inside a list/album the title is the list's: the click goes
             // straight to the content, without passing through the Library
             // cover.
             return (libPage.showingTracks && libPage.viewTitle())
-                   ? libPage.viewTitle() : "Biblioteca"
-        return "Inicio"
+                   ? libPage.viewTitle() : qsTr("Biblioteca")
+        return qsTr("Inicio")
     }
     function pageSubtitle() {
         if (root.listLoading)
-            return "Cargando la lista…"
+            return qsTr("Cargando la lista…")
         if (page === "search")
-            return activeSourceName() ? "Buscando en " + activeSourceName() : ""
+            return activeSourceName() ? qsTr("Buscando en %1").arg(activeSourceName()) : ""
         if (page === "library")
-            return activeSourceName() ? "Fuente activa: " + activeSourceName() : "Tus listas y descargas"
+            return activeSourceName() ? qsTr("Fuente activa: %1").arg(activeSourceName())
+                                      : qsTr("Tus listas y descargas")
         return ""
     }
 
@@ -649,7 +665,7 @@ Window {
     // overlay already covers the whole window.
     function openFullscreenLyrics() {
         if (!root.currentTitle) {
-            root.toast("No hay ninguna canción sonando")
+            root.toast(qsTr("No hay ninguna canción sonando"))
             return
         }
         // The cinema mode takes the whole window; there is only one
@@ -769,6 +785,7 @@ Window {
     // - at the end - goes back to the previous page (a list/album ->
     // Home).
     function goBack() {
+        if (root.whatsNewOpen) { root.closeWhatsNew(); return }
         if (root.ctxOpen) { root.ctxOpen = false; return }
         if (root.fsLyricsOpen) { root.fsLyricsOpen = false; return }
         if (root.confirmOpen) { root.confirmOpen = false; return }
@@ -794,10 +811,10 @@ Window {
     // one (within the arm window) minimises. Only reached on the phone,
     // the window-level "Back" Shortcut is desktop-disabled.
     function handleAndroidBack() {
-        if (root.ctxOpen || root.fsLyricsOpen || root.confirmOpen
-                || root.editorOpen || root.playlistPickerOpen
-                || root.launcherOpen || root.settingsOpen || root.artistOpen
-                || root.panelOpen) {
+        if (root.whatsNewOpen || root.ctxOpen || root.fsLyricsOpen
+                || root.confirmOpen || root.editorOpen
+                || root.playlistPickerOpen || root.launcherOpen
+                || root.settingsOpen || root.artistOpen || root.panelOpen) {
             root.goBack()
             return
         }
@@ -855,7 +872,7 @@ Window {
     function beginOpenList(play) {
         pendingPlay = !!play
         listLoading = true
-        toast(play ? "Cargando la lista para reproducir…" : "Cargando la lista…")
+        toast(play ? qsTr("Cargando la lista para reproducir…") : qsTr("Cargando la lista…"))
     }
 
     // Is `url` the list that is ALREADY loaded? Then entering it again does
@@ -875,7 +892,7 @@ Window {
             return
         }
         beginOpenList(false)
-        catalog.openUrl(lm, "Me gusta")
+        catalog.openUrl(lm, qsTr("Me gusta"))
     }
 
     // Shows the tracks view of the open list. It is called when the
@@ -913,7 +930,7 @@ Window {
                 if (sources.list[i].status !== "ready")
                     root.toast(sources.list[i].name + ": " + sources.list[i].note)
                 else
-                    root.toast("Fuente activa: " + sources.list[i].name)
+                    root.toast(qsTr("Fuente activa: %1").arg(sources.list[i].name))
                 return
             }
         }
@@ -1098,7 +1115,7 @@ Window {
             if (q && s.name.toLowerCase().indexOf(q) < 0)
                 continue
             out.push({ h: false, kind: "source", id: s.id, t: s.name,
-                       s: s.status === "ready" ? "Fuente por defecto" : "Bloqueada · abre Ajustes",
+                       s: s.status === "ready" ? qsTr("Fuente por defecto") : qsTr("Bloqueada · abre Ajustes"),
                        locked: s.status !== "ready" })
         }
         if (out.length && out[0].kind === "source")
@@ -1112,7 +1129,7 @@ Window {
                 out.push({ h: true, t: "PLAYLISTS" })
                 plFirst = out.length
             }
-            out.push({ h: false, kind: "playlist", i: i, t: p.name || "Sin nombre", s: p.url || "" })
+            out.push({ h: false, kind: "playlist", i: i, t: p.name || qsTr("Sin nombre"), s: p.url || "" })
         }
         let recFirst = -1
         for (let i = 0; i < catalog.recent.length; i++) {
@@ -1143,9 +1160,9 @@ Window {
             // launcher look like a "recent" finder).
             if (q.length >= 3 && root.launcherSearching
                     && launcherMusic.length === 0) {
-                out.push({ h: true, t: "MÚSICA" })
+                out.push({ h: true, t: qsTr("MÚSICA") })
                 out.push({ h: false, kind: "searching", t: "Buscando…",
-                           s: "YouTube Music, SoundCloud, Spotify y Tidal" })
+                           s: qsTr("YouTube Music, SoundCloud, Spotify y Tidal") })
             }
         }
         launcherRows = out
@@ -1334,6 +1351,15 @@ Window {
                 pendingPlay = true
             } else if (a.startsWith("--accent=")) {
                 cfgSet("accent", a.substring(9))
+            } else if (a.startsWith("--update=")) {
+                // QA: shows the notice of a new version without waiting for
+                // the repository (it is what the screenshots use).
+                const fake = a.substring(9)
+                Qt.callLater(function() { root.offerUpdate(fake) })
+            } else if (a === "--whatsnew") {
+                // QA: opens the notes of this version even if they were
+                // already read in this build. It is what the screenshots use.
+                Qt.callLater(function() { root.whatsNewOpen = true })
             } else if (a.startsWith("--openurl=")) {
                 cliOpen = true   // QA: it does not restore the session, it opens this URL
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
@@ -1394,6 +1420,13 @@ Window {
 
         // Restores the last session (queue + track PAUSED + volume + repeat).
         root.restoreSession(cliOpen)
+
+        // First start after an update: what changed, once per version. It
+        // waits a moment so it does not fight with the window opening (on a
+        // phone the panel landed while the surface was still being created).
+        if (root.whatsNewVersion.length > 0
+                && cfgGet("whatsNewSeen") !== root.whatsNewVersion)
+            Qt.callLater(function() { root.whatsNewOpen = true })
     }
 
     // Esc "back": closes overlays/panel or leaves fullscreen.
@@ -1554,7 +1587,7 @@ Window {
         if (!name)
             return
         root.artistRadioPending = name
-        root.toast("Montando la radio de " + name + "…")
+        root.toast(qsTr("Montando la radio de %1…").arg(name))
         catalog.resolveArtistRadio(name)
     }
 
@@ -1577,7 +1610,7 @@ Window {
         if (root.manualRadioTries >= 12) {
             root.manualRadioPending = false
             root.manualRadioSeed = ""
-            root.toast("La radio no responde, inténtalo otra vez")
+            root.toast(qsTr("La radio no responde, inténtalo otra vez"))
         }
     }
 
@@ -1775,7 +1808,7 @@ Window {
             root.artistNavPending = ""
             const list = artists || []
             if (list.length === 0) {
-                root.toast("No encuentro a " + n)
+                root.toast(qsTr("No encuentro a %1").arg(n))
                 return
             }
             const ln = n.toLowerCase()
@@ -1850,7 +1883,7 @@ Window {
 
     function downloadAlbums(list) {
         if (typeof downloads === "undefined") {
-            root.toast("Las descargas no están disponibles aquí")
+            root.toast(qsTr("Las descargas no están disponibles aquí"))
             return
         }
         const clean = []
@@ -1867,7 +1900,7 @@ Window {
                                  || ls.indexOf("sencillo") === 0 })
         }
         if (clean.length === 0) {
-            root.toast("No hay discos que descargar")
+            root.toast(qsTr("No hay discos que descargar"))
             return
         }
         // Albums/EPs first and singles last: that way, when a single
@@ -1888,13 +1921,12 @@ Window {
         const size = downloads.estimateSize(mins)
         const who = root.artistCur ? String(root.artistCur.name || "") : ""
         const what = clean.length === 1
-                     ? "«" + clean[0].title + "»"
-                     : "la discografía de " + (who || "este artista")
-                       + " (" + clean.length + " discos)"
-        root.askConfirm("Vas a descargar " + what
-                        + ". Ocupará aproximadamente " + size
-                        + " en disco. ¿Continuar?",
-                        "Descargar", function () {
+                     ? qsTr("«%1»").arg(clean[0].title)
+                     : qsTr("la discografía de %1 (%2 discos)")
+                         .arg(who || qsTr("este artista")).arg(clean.length)
+        root.askConfirm(qsTr("Vas a descargar %1. Ocupará aproximadamente %2 en disco. ¿Continuar?")
+                        .arg(what).arg(size),
+                        qsTr("Descargar"), function () {
             root.albumDlSeen = ({})
             root.albumDlSkipped = 0
             root.albumDlQueue = clean
@@ -1904,8 +1936,8 @@ Window {
             root.albumDlArtist = (clean.length > 1 && root.artistCur)
                                  ? String(root.artistCur.name || "") : ""
             root.toast(clean.length === 1
-                       ? "Preparando «" + clean[0].title + "»…"
-                       : "Preparando " + clean.length + " discos…")
+                       ? qsTr("Preparando «%1»…").arg(clean[0].title)
+                       : qsTr("Preparando %1 discos…").arg(clean.length))
             root.nextAlbumDownload()
         }, false)
     }
@@ -1913,10 +1945,9 @@ Window {
     function nextAlbumDownload() {
         if (root.albumDlQueue.length === 0) {
             if (root.albumDlTotal > 1 && root.albumDlDone > 0)
-                root.toast(root.albumDlDone + " discos en la cola de descargas"
+                root.toast(qsTr("%1 discos en la cola de descargas").arg(root.albumDlDone)
                            + (root.albumDlSkipped > 0
-                              ? " (" + root.albumDlSkipped
-                                + " singles ya incluidos, omitidos)"
+                              ? qsTr(" (%1 singles ya incluidos, omitidos)").arg(root.albumDlSkipped)
                               : ""))
             // The batch is only PREPARED, not downloaded: the counters are
             // kept so Downloads can show "Discografia de X - N discos"
@@ -1932,7 +1963,7 @@ Window {
     function artistPlayAll(albums, random, oldestFirst) {
         let list = (albums || []).slice()
         if (list.length === 0) {
-            root.toast("Este artista no tiene discos que reproducir")
+            root.toast(qsTr("Este artista no tiene discos que reproducir"))
             return
         }
         if (oldestFirst)
@@ -1942,8 +1973,8 @@ Window {
         root.artistAdded = 0
         root.artistFetchQueue = list.slice(1).map(a => String(a.browseId || ""))
         root.artistWantBrowse = String(list[0].browseId || "")
-        root.toast("Añadiendo la discografía de "
-                   + String(root.artistCur ? root.artistCur.name : "") + "…")
+        root.toast(qsTr("Añadiendo la discografía de %1…")
+                   .arg(String(root.artistCur ? root.artistCur.name : "")))
         catalog.fetchAlbumTracks(root.artistWantBrowse)
     }
 
@@ -1995,7 +2026,7 @@ Window {
         if (wasRandom && queue.count > 1)
             reshuffleQueue()
         if (added > 0)
-            root.toast(added + " temas de " + who + " en la cola")
+            root.toast(qsTr("%1 temas de %2 en la cola").arg(added).arg(who))
     }
 
     // Appends tracks to the end of the queue without repeating any that is
@@ -2147,7 +2178,7 @@ Window {
                 restoreOriginalOrder() // original stable order
         }
         mpris.setShuffle(shuffle)
-        toast(shuffle ? "Aleatorio activado" : "Aleatorio desactivado")
+        toast(shuffle ? qsTr("Aleatorio activado") : qsTr("Aleatorio desactivado"))
         root.saveSession()
     }
 
@@ -2175,8 +2206,8 @@ Window {
         cfgSet("repeatMode", root.repeatMode)
         mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
                               : root.repeatMode === 2 ? "Track" : "None")
-        toast(root.repeatMode === 0 ? "Repetición desactivada"
-            : root.repeatMode === 1 ? "Repetir la lista" : "Repetir la canción")
+        toast(root.repeatMode === 0 ? qsTr("Repetición desactivada")
+            : root.repeatMode === 1 ? qsTr("Repetir la lista") : qsTr("Repetir la canción"))
         root.saveSession()
     }
 
@@ -2480,7 +2511,7 @@ Window {
             return false
         root.swapTriedKey = key
         root.swapVideoId = vid
-        console.warn("[queue] vídeo no disponible, buscando otra versión:", vid)
+        console.warn(qsTr("[queue] vídeo no disponible, buscando otra versión:"), vid)
         catalog.resolveAlternate(root.currentArtist, root.currentTitle, vid,
                                  player.duration)
         swapWaitTimer.restart()
@@ -2502,7 +2533,7 @@ Window {
             return
         root.swapVideoId = ""
         swapWaitTimer.stop()
-        toast("«" + root.currentTitle + "» no está disponible; avanzando")
+        toast(qsTr("«%1» no está disponible; avanzando").arg(root.currentTitle))
         root.next()
     }
 
@@ -2517,7 +2548,7 @@ Window {
                     return
                 console.warn("[queue] pista fallida, avanzando")
                 if (root.currentTitle.length > 0)
-                    root.toast("No se pudo reproducir «" + root.currentTitle + "»")
+                    root.toast(qsTr("No se pudo reproducir «%1»").arg(root.currentTitle))
                 root.next()
                 return
             }
@@ -2531,7 +2562,7 @@ Window {
         function onEngineStatusChanged() {
             if (player.engineStatus && player.engineStatus !== "ready"
                     && player.engineStatus !== "starting") {
-                root.toast("Motor de audio: " + player.engineStatus)
+                root.toast(qsTr("Motor de audio: %1").arg(player.engineStatus))
             }
         }
         // Keeps Discord/MPRIS up to date and fine tunes the lyrics when
@@ -2612,13 +2643,13 @@ Window {
     property bool sessionExported: false
     FileDialog {
         id: sessionDialog
-        title: "Importar la sesión de YouTube Music"
-        nameFilters: ["Sesión de LotusTune (*.json)"]
+        title: qsTr("Importar la sesión de YouTube Music")
+        nameFilters: [qsTr("Sesión de LotusTune (*.json)")]
         onAccepted: {
             if (catalog.importSession(selectedFile.toString().replace("file://", "")))
-                root.toast("Sesión importada")
+                root.toast(qsTr("Sesión importada"))
             else
-                root.toast("No se pudo importar la sesión")
+                root.toast(qsTr("No se pudo importar la sesión"))
         }
     }
 
@@ -2633,35 +2664,98 @@ Window {
             updates.check()
         }
     }
+    // A new version: told once per version, in the notice of the bottom
+    // (no question). Tapping it starts the update of this device: the .apk
+    // of the release on a phone, the installer on Linux, the download that
+    // replaces the files on Windows. The version is kept in the config, so
+    // the notice does not come back on every start and the settings page
+    // stays as the place to look for it later.
+    function offerUpdate(v) {
+        if (typeof updates === "undefined")
+            return
+        const latest = String(v || updates.latestVersion || "")
+        if (!latest)
+            return
+        if (!v && !updates.available)
+            return
+        if (cfgGet("updateNotified") === latest)
+            return
+        cfgSet("updateNotified", latest)
+        root.toast(Theme.touch
+                   ? qsTr("Hay una versión nueva: %1. Toca aquí para descargarla.").arg(latest)
+                   : qsTr("Hay una versión nueva: %1. Toca aquí para actualizarla.").arg(latest),
+                   function() { updates.openDownload() }, 9000)
+    }
     Connections {
         target: typeof updates !== "undefined" ? updates : null
-        function onChanged() {
-            if (typeof updates === "undefined" || !updates.available)
-                return
-            root.toast("Hay una versión nueva: " + updates.latestVersion)
-        }
+        function onChanged() { root.offerUpdate() }
+    }
+
+    // ---- whats new after an update --------------------------------------
+    // The notes of the build that is installed, shown the first time the app
+    // opens after updating. Written for whoever just updated: what they get,
+    // not how it is built. It goes in the build (and not only in the release
+    // on the web) because the app has to be able to say it with no network,
+    // the moment the new version is opened.
+    property bool whatsNewOpen: false
+    readonly property string whatsNewVersion: Qt.application.version
+    // Only the notes of the platform that is running: a phone does not care
+    // about the installer of the desktop, and the reverse. Both lists are
+    // per version and are replaced when the version goes up.
+    readonly property string whatsNewText: root.isPhone ? [
+        qsTr("Widget de la letra"),
+        qsTr("• La línea que se canta sale entera de una vez. Antes se iba encendiendo palabra a palabra y en la pantalla de inicio se veía a saltos."),
+        qsTr("• Al pasar a la línea siguiente, el cambio llega cuando se canta, sin quedarse atrás."),
+        qsTr("• El widget solo se redibuja cuando cambia la letra, así que gasta menos batería."),
+        "",
+        qsTr("Notificación"),
+        qsTr("• El corazón se rellena cuando la canción está en Me gusta y queda vacío cuando no. Antes no cambiaba nunca, así que no había forma de saber si el toque había hecho algo."),
+        qsTr("• Tocar el corazón desde la notificación ya funciona, y el widget de la pantalla de inicio se entera al momento."),
+        qsTr("• Cuando hay una versión nueva sale un aviso en la persiana. Al tocarlo se descarga.")
+    ].join("\n") : [
+        qsTr("Actualizaciones"),
+        qsTr("• El icono del menú abre siempre la versión que tienes instalada, no una copia antigua que hubiera por medio."),
+        qsTr("• El instalador te dice qué versión ha dejado puesta y avisa si la copia desde la que compilas está atrasada."),
+        qsTr("• Ya no queda un programa suelto en la carpeta del código cuando se compila dentro de ella y luego se abre por error.")
+    ].join("\n")
+
+    function closeWhatsNew() {
+        if (!root.whatsNewOpen)
+            return
+        root.whatsNewOpen = false
+        // Remembered per version: the notes come back with the next update,
+        // and never again for this one.
+        if (cfgGet("whatsNewSeen") !== root.whatsNewVersion)
+            cfgSet("whatsNewSeen", root.whatsNewVersion)
     }
 
     // ---- toast -----------------------------------------------------------
     property string toastText: ""
+    // What a tap on the notice does (the update starts from it).
+    property var toastAction: null
 
-    function toast(msg) {
+    function toast(msg, action, ms) {
         if (!msg)
             return
         toastText = msg
+        toastAction = action || null
+        toastTimer.interval = ms > 0 ? ms : 4200
         toastTimer.restart()
     }
 
     Timer {
         id: toastTimer
         interval: 4200
-        onTriggered: root.toastText = ""
+        onTriggered: {
+            root.toastText = ""
+            root.toastAction = null
+        }
     }
 
     // ---- YouTube Music interaction (like / lists) -------------------
     function toggleLike() {
         if (!root.currentVideoId) {
-            root.toast("La pista actual no es de YouTube")
+            root.toast(qsTr("La pista actual no es de YouTube"))
             return
         }
         // catalog.toggleLiked votes and updates the set; the heart (here
@@ -2681,7 +2775,7 @@ Window {
         const vid = root.pickerVideoId || root.currentVideoId
         root.playlistPickerOpen = false
         if (!vid) {
-            root.toast("La pista actual no es de YouTube")
+            root.toast(qsTr("La pista actual no es de YouTube"))
             return
         }
         catalog.addToPlaylist(playlistId, vid)
@@ -2693,7 +2787,7 @@ Window {
         const vid = root.videoIdOf(String(t.url || ""))
         const sid = String(t.setId || "")
         if (!catalog.openPlaylistId || !vid || !sid) {
-            root.toast("Esta pista no se puede quitar de la lista")
+            root.toast(qsTr("Esta pista no se puede quitar de la lista"))
             return
         }
         catalog.removeOpenPlaylistTrack(vid, sid)
@@ -2704,7 +2798,7 @@ Window {
     function removeCurrentFromPlaylist(playlistId) {
         root.playlistPickerOpen = false
         if (!root.currentVideoId || !root.currentSetId) {
-            root.toast("Esta pista no se puede quitar de la lista")
+            root.toast(qsTr("Esta pista no se puede quitar de la lista"))
             return
         }
         catalog.removeFromPlaylist(playlistId, root.currentVideoId,
@@ -2758,11 +2852,12 @@ Window {
                     already = false
             if (already) {
                 root.albumDlSkipped++
-                root.toast("«" + String(name || item.title) + "» ya está en un disco: se omite")
+                root.toast(qsTr("«%1» ya está en un disco: se omite")
+                           .arg(String(name || item.title)))
             } else if (String(playlistId) !== "" && typeof downloads !== "undefined") {
                 downloads.downloadPlaylist(
                     "https://music.youtube.com/playlist?list=" + playlistId,
-                    String(name || item.title || "Álbum"),
+                    String(name || item.title || qsTr("Álbum")),
                     item.single === true ? "single" : "album")
                 for (var k = 0; k < titles.length; k++)
                     root.albumDlSeen[titles[k]] = true
@@ -2775,7 +2870,8 @@ Window {
             if (root.albumDlQueue.length === 0
                 || String(root.albumDlQueue[0].browseId) !== String(browseId))
                 return
-            root.toast("No se pudo preparar «" + String(name || "el disco") + "»")
+            root.toast(qsTr("No se pudo preparar «%1»")
+                       .arg(String(name || qsTr("el disco"))))
             root.albumDlQueue.shift()
             root.nextAlbumDownload()
         }
@@ -2798,7 +2894,7 @@ Window {
             if (!row || !t.url) {
                 root.swapVideoId = ""
                 if (row)
-                    root.toast("«" + row.title + "» no está disponible")
+                    root.toast(qsTr("«%1» no está disponible").arg(row.title))
                 root.next()
                 return
             }
@@ -2807,7 +2903,7 @@ Window {
                 // The search returned the same broken video: there is
                 // nothing left to try; it moves to the next.
                 root.swapVideoId = ""
-                root.toast("«" + row.title + "» no está disponible")
+                root.toast(qsTr("«%1» no está disponible").arg(row.title))
                 root.next()
                 return
             }
@@ -2820,7 +2916,7 @@ Window {
                              cover: row.cover, album: row.album,
                              liked: row.liked, setId: row.setId })
             root.swapVideoId = ""
-            root.toast("Suena otra versión de «" + row.title + "»")
+            root.toast(qsTr("Suena otra versión de «%1»").arg(row.title))
             root.startCurrent()
         }
     }
@@ -2940,7 +3036,7 @@ Window {
                 return
             root.artistRadioPending = ""
             if (!track || !String(track.url || "")) {
-                root.toast("No se pudo montar la radio de " + name)
+                root.toast(qsTr("No se pudo montar la radio de %1").arg(name))
                 return
             }
             root.playTracks([track], 0)
@@ -2956,14 +3052,14 @@ Window {
                 if (root.artistWant === "album") {
                     root.artistWant = ""
                     root.artistWantBrowse = ""
-                    root.toast("Ese álbum no trae pistas reproducibles")
+                    root.toast(qsTr("Ese álbum no trae pistas reproducibles"))
                 } else if (root.artistWant === "open") {
                     root.artistWant = ""
                     root.artistWantBrowse = ""
                     root.albumOpenName = ""
                     root.listLoading = false
                     root.pendingPlay = false
-                    root.toast("Ese álbum no trae pistas")
+                    root.toast(qsTr("Ese álbum no trae pistas"))
                 } else {
                     root.artistAdvance()
                 }
@@ -3211,7 +3307,7 @@ Window {
                             onDownloadsPlayRequested: (random, newestFirst) => {
                                 const list = (libPage.dlLocalAll || []).slice()
                                 if (list.length === 0) {
-                                    root.toast("No hay descargas que reproducir")
+                                    root.toast(qsTr("No hay descargas que reproducir"))
                                     return
                                 }
                                 if (newestFirst)
@@ -3508,7 +3604,7 @@ Window {
         // asked for because the engine did not know the duration), it says
         // so; when the request ends with nothing it stays at "no lyrics".
         if (line === "" && (lyr.loading || !sameTrack))
-            line = "Cargando letra…"
+            line = qsTr("Cargando letra…")
         if (track === root.widgetLyricTrack && prev === root.widgetLyricPrev
                 && line === root.widgetLyricLine
                 && next === root.widgetLyricNext)
@@ -3521,7 +3617,12 @@ Window {
     }
 
     Timer {
-        interval: 250
+        // 120 ms and not 250: with the widget no longer sweeping, this timer
+        // is the only thing that tells it that the line changed, and every
+        // millisecond here is a millisecond the old line stays on screen
+        // after the voice has moved on. The check is two string compares;
+        // nothing is sent unless the line really changed.
+        interval: 120
         repeat: true
         running: true
         onTriggered: root.refreshLyricsWidget()
@@ -3705,14 +3806,14 @@ Window {
 
                 Text {
                     Layout.fillWidth: true
-                    text: "COLA"
+                    text: qsTr("COLA")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                     font.letterSpacing: 1.4
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: queue.count + " pistas"
+                    text: qsTr("%1 pistas").arg(queue.count)
                     color: Theme.tFaint(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                 }
@@ -3796,7 +3897,7 @@ Window {
                 spacing: Theme.s3
 
                 Text {
-                    text: "Añadir a lista"
+                    text: qsTr("Añadir a lista")
                     color: Sys.text
                     font.pixelSize: Theme.tLg
                     font.bold: true
@@ -3822,7 +3923,7 @@ Window {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "Nueva lista"
+                            text: qsTr("Nueva lista")
                             color: newPick.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tBase
                             font.bold: true
@@ -3867,7 +3968,7 @@ Window {
                                     }
                                     Text {
                                         Layout.fillWidth: true
-                                        text: modelData.name || "Sin nombre"
+                                        text: modelData.name || qsTr("Sin nombre")
                                         color: pickHover.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                                         font.pixelSize: Theme.tBase
                                         elide: Text.ElideRight
@@ -3878,7 +3979,7 @@ Window {
                         }
                         Text {
                             visible: catalog.ytmLibrary.length === 0
-                            text: "No hay listas en tu cuenta de YouTube Music"
+                            text: qsTr("No hay listas en tu cuenta de YouTube Music")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                         }
@@ -3914,7 +4015,7 @@ Window {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "Quitar de la lista actual"
+                            text: qsTr("Quitar de la lista actual")
                             color: pickHover2.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tBase
                         }
@@ -3933,6 +4034,114 @@ Window {
                         color: (closePick.hovered || Theme.touch) ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                     }
                     TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.playlistPickerOpen = false } }
+                }
+            }
+        }
+    }
+
+    // ---- whats new (first start after an update) ----------------------
+    // A card, not a notification: it appears once, over whatever page the
+    // app opened on, and goes away with "Entendido" or the back gesture.
+    Item {
+        id: whatsNew
+        anchors.fill: parent
+        z: 72
+        visible: root.whatsNewOpen
+        opacity: root.whatsNewOpen ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.55)
+            TapHandler { onTapped: root.closeWhatsNew() }
+        }
+
+        Rectangle {
+            id: whatsNewCard
+            anchors.centerIn: parent
+            width: Math.min(420, root.width - 2 * (Theme.panelMargin + Theme.s3))
+            // The card is sized from the text, and the text is laid out at
+            // the width of the card: the binding goes one way only, which is
+            // what keeps the layout from collapsing to zero.
+            height: Math.min(whatsNewBody.implicitHeight + 170,
+                             root.height - 2 * (Theme.safeBottom(Sys.safeTop) + Theme.s5))
+            radius: Theme.rLg
+            antialiasing: true
+            color: Theme.sAlt(Sys.bg, Sys.text)
+            border.width: 1
+            border.color: Theme.line(Sys.bg, Sys.text)
+            scale: root.whatsNewOpen ? 1 : 0.96
+            Behavior on scale {
+                NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+            }
+
+            ColumnLayout {
+                id: whatsNewCol
+                anchors.fill: parent
+                anchors.margins: Theme.s4
+                spacing: Theme.s3
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.s1
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Novedades de la %1").arg(root.whatsNewVersion)
+                        color: Sys.text
+                        font.pixelSize: Theme.tLg
+                        font.bold: true
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Esto es lo que cambia al actualizar")
+                        color: Theme.tDim(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tSm
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                }
+
+                Flickable {
+                    id: whatsNewScroll
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    contentHeight: whatsNewBody.implicitHeight
+                    clip: true
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    Text {
+                        id: whatsNewBody
+                        width: whatsNewScroll.width
+                        text: root.whatsNewText
+                        color: Sys.text
+                        font.pixelSize: Theme.tBase
+                        lineHeight: 1.3
+                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: Theme.pillH + 4
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: okHover.hovered ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
+                    HoverHandler { id: okHover; cursorShape: Qt.PointingHandCursor }
+                    TapHandler {
+                        onTapped: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("tap")
+                            root.closeWhatsNew()
+                        }
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        text: qsTr("Entendido")
+                        color: Theme.onAccent(Sys.accent)
+                        font.pixelSize: Theme.tBase
+                        font.bold: true
+                    }
                 }
             }
         }
@@ -4016,7 +4225,7 @@ Window {
                         Text {
                             id: cCancel
                             anchors.centerIn: parent
-                            text: "Cancelar"
+                            text: qsTr("Cancelar")
                             color: Sys.text
                             font.pixelSize: Theme.tMd
                         }
@@ -4069,6 +4278,21 @@ Window {
         scale: visible ? 1 : 0.94
         Behavior on scale { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutBack } }
 
+        // The notice of a new version is tappable: the download opens from
+        // it. The other notices have no action and ignore the tap.
+        HoverHandler { cursorShape: root.toastAction ? Qt.PointingHandCursor : Qt.ArrowCursor }
+        TapHandler {
+            enabled: root.toastAction !== null
+            onTapped: {
+                const fn = root.toastAction
+                root.toastText = ""
+                root.toastAction = null
+                toastTimer.stop()
+                if (typeof sfx !== "undefined") sfx.play("tap")
+                if (typeof fn === "function") fn()
+            }
+        }
+
         Text {
             id: toastLabel
             anchors.centerIn: parent
@@ -4108,7 +4332,7 @@ Window {
         Text {
             id: backPromptLabel
             anchors.centerIn: parent
-            text: "Pulsa otra vez para salir"
+            text: qsTr("Pulsa otra vez para salir")
             color: Sys.text
             font.pixelSize: Theme.tMd
             font.weight: Font.Medium
@@ -4444,7 +4668,7 @@ Window {
         component StatusBadge: Rectangle {
             id: sb
             property bool ok: false
-            property string okText: "Lista"
+            property string okText: qsTr("Lista")
             property string offText: "Pendiente"
             implicitWidth: sbLabel.implicitWidth + Theme.s3
             height: 20
@@ -4501,7 +4725,7 @@ Window {
                 spacing: Theme.s3
 
                 Text {
-                    text: "Ajustes"
+                    text: qsTr("Ajustes")
                     color: Sys.text
                     font.pixelSize: Theme.tXl
                     font.weight: Font.DemiBold
@@ -4556,20 +4780,47 @@ Window {
                     spacing: Theme.s5
 
                     // ======================================================
+                    // LANGUAGE
+                    // ======================================================
+                    SettingSection {
+                        title: qsTr("Idioma")
+
+                        SettingBlock {
+                            label: qsTr("Idioma de la app")
+                            desc: qsTr("Se aplica al momento, sin reiniciar. «Sistema» sigue el idioma del móvil o del ordenador.")
+                            // A Flow and not a Row: with three or four
+                            // languages the chips did not fit the card and
+                            // the last one came out cut in half.
+                            Flow {
+                                Layout.fillWidth: true
+                                spacing: Theme.s2
+                                Repeater {
+                                    model: root.languageCodes()
+                                    Chip {
+                                        text: root.languageLabel(modelData)
+                                        selected: lang.language === modelData
+                                        onPicked: lang.language = modelData
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
                     // APPEARANCE
                     // ======================================================
                     SettingSection {
-                        title: "Apariencia"
+                        title: qsTr("Apariencia")
 
                         SettingRow {
-                            label: "Seguir el tema del sistema"
-                            desc: "Usa la paleta del escritorio (iNiR/matugen)"
+                            label: qsTr("Seguir el tema del sistema")
+                            desc: qsTr("Usa la paleta del escritorio (iNiR/matugen)")
                             Toggle {
                                 checked: root.followSys
                                 onToggled: {
                                     root.followSys = !root.followSys
                                     root.cfgSet("followSystem", root.followSys ? "true" : "false")
-                                    root.toast("Guardado en la configuración")
+                                    root.toast(qsTr("Guardado en la configuración"))
                                 }
                             }
                         }
@@ -4581,8 +4832,8 @@ Window {
                             // > CINEMA MODE: The wash background is enabled by default.
                             //   If you see a static background in cinema mode, make
                             //   sure this toggle is ON (see below).
-                            label: "Fondo dinámico"
-                            desc: "La portada de la pista tiñe el fondo y esmerila los paneles"
+                            label: qsTr("Fondo dinámico")
+                            desc: qsTr("La portada de la pista tiñe el fondo y esmerila los paneles")
                             Toggle {
                                 checked: Sys.dynamicBg
                                 onToggled: {
@@ -4590,48 +4841,48 @@ Window {
                                     root.cfgSet("dynamicBg", Sys.dynamicBg)
                                     if (Sys.dynamicBg && root.currentThumb)
                                         wash.setSource(root.currentThumb)
-                                    root.toast("Guardado en la configuración")
+                                    root.toast(qsTr("Guardado en la configuración"))
                                 }
                             }
                         }
 
                         SettingRow {
-                            label: "Sonidos de interfaz"
-                            desc: "Chasquido al pulsar botones, corazones y ajustes"
+                            label: qsTr("Sonidos de interfaz")
+                            desc: qsTr("Chasquido al pulsar botones, corazones y ajustes")
                             Toggle {
                                 checked: sfx.enabled
                                 onToggled: {
                                     sfx.enabled = !sfx.enabled
                                     if (sfx.enabled)
                                         sfx.play("toggle")
-                                    root.toast(sfx.enabled ? "Sonidos activados"
-                                                           : "Sonidos desactivados")
+                                    root.toast(sfx.enabled ? qsTr("Sonidos activados")
+                                                           : qsTr("Sonidos desactivados"))
                                 }
                             }
                         }
 
                         SettingRow {
-                            label: "Color de acento"
-                            desc: "Hexadecimal, por ejemplo #e3bae5"
+                            label: qsTr("Color de acento")
+                            desc: qsTr("Hexadecimal, por ejemplo #e3bae5")
                             RowLayout {
                                 spacing: Theme.s2
                                 Field {
                                     id: accentField
                                     Layout.preferredWidth: 150
-                                    placeholder: "#e3bae5"
+                                    placeholder: qsTr("#e3bae5")
                                     text: root.cfgGet("accent")
                                 }
                                 PrimaryButton {
-                                    text: "Aplicar"
+                                    text: qsTr("Aplicar")
                                     onClicked: {
                                         if (typeof sfx !== "undefined") sfx.play("tap")
                                         const v = accentField.text.trim()
                                         if (!root.hexOk(v)) {
-                                            root.toast("Color inválido: usa #rrggbb")
+                                            root.toast(qsTr("Color inválido: usa #rrggbb"))
                                             return
                                         }
                                         root.cfgSet("accent", v.charAt(0) === "#" ? v : "#" + v)
-                                        root.toast("Guardado en la configuración")
+                                        root.toast(qsTr("Guardado en la configuración"))
                                     }
                                 }
                             }
@@ -4642,11 +4893,11 @@ Window {
                     // PLAYBACK
                     // ======================================================
                     SettingSection {
-                        title: "Reproducción"
+                        title: qsTr("Reproducción")
 
                         SettingBlock {
-                            label: "Fuente por defecto"
-                            desc: "Con qué servicio empieza la app"
+                            label: qsTr("Fuente por defecto")
+                            desc: qsTr("Con qué servicio empieza la app")
                             Repeater {
                                 model: sources.list
                                 delegate: Chip {
@@ -4657,21 +4908,21 @@ Window {
                                     onPicked: {
                                         root.pickSource(modelData.id)
                                         root.cfgSet("defaultSource", modelData.id)
-                                        root.toast("Guardado en la configuración")
+                                        root.toast(qsTr("Guardado en la configuración"))
                                     }
                                 }
                             }
                         }
 
                         SettingBlock {
-                            label: "Calidad de audio"
-                            desc: "Máxima sin recodificar; bájala para ahorrar datos"
+                            label: qsTr("Calidad de audio")
+                            desc: qsTr("Máxima sin recodificar; bájala para ahorrar datos")
                             Repeater {
                                 model: [
-                                    { id: "max", label: "Máxima" },
-                                    { id: "alta", label: "Alta" },
-                                    { id: "media", label: "Media" },
-                                    { id: "baja", label: "Baja" }
+                                    { id: "max", label: qsTr("Máxima") },
+                                    { id: "alta", label: qsTr("Alta") },
+                                    { id: "media", label: qsTr("Media") },
+                                    { id: "baja", label: qsTr("Baja") }
                                 ]
                                 delegate: Chip {
                                     required property var modelData
@@ -4681,7 +4932,7 @@ Window {
                                     onPicked: {
                                         player.setQuality(modelData.id)
                                         root.cfgSet("audioQuality", modelData.id)
-                                        root.toast("Calidad: " + modelData.label)
+                                        root.toast(qsTr("Calidad: %1").arg(modelData.label))
                                     }
                                 }
                             }
@@ -4691,8 +4942,8 @@ Window {
                         // the "next song" (a radio seeded with the last
                         // one).
                         SettingRow {
-                            label: "Reproducción automática"
-                            desc: "Al terminar la cola, sigue con canciones parecidas"
+                            label: qsTr("Reproducción automática")
+                            desc: qsTr("Al terminar la cola, sigue con canciones parecidas")
                             Toggle {
                                 checked: root.autoplayEnabled
                                 onToggled: {
@@ -4710,8 +4961,8 @@ Window {
                         // Startup: restore the last queue and track (paused)
                         // or always start on Inicio with nothing loaded.
                         SettingRow {
-                            label: "Continuar al abrir"
-                            desc: "Recupera la última cola y la canción en la que estabas"
+                            label: qsTr("Continuar al abrir")
+                            desc: qsTr("Recupera la última cola y la canción en la que estabas")
                             Toggle {
                                 checked: root.resumeOnOpen
                                 onToggled: {
@@ -4727,11 +4978,11 @@ Window {
                     // LYRICS
                     // ======================================================
                     SettingSection {
-                        title: "Letras"
+                        title: qsTr("Letras")
 
                         SettingRow {
-                            label: "Letras sincronizadas"
-                            desc: "Busca la letra de cada canción"
+                            label: qsTr("Letras sincronizadas")
+                            desc: qsTr("Busca la letra de cada canción")
                             Toggle {
                                 checked: root.lyricsEnabled
                                 onToggled: {
@@ -4747,8 +4998,8 @@ Window {
                             }
                         }
                         SettingRow {
-                            label: "Karaoke palabra a palabra"
-                            desc: "Enciende cada palabra al cantarla; si no hay tiempos, frase entera"
+                            label: qsTr("Karaoke palabra a palabra")
+                            desc: qsTr("Enciende cada palabra al cantarla; si no hay tiempos, frase entera")
                             Toggle {
                                 checked: root.karaokeWords
                                 onToggled: {
@@ -4759,8 +5010,8 @@ Window {
                             }
                         }
                         SettingRow {
-                            label: "Compensación de tiempo"
-                            desc: "Adelanta (+) o retrasa (−) la letra respecto al audio"
+                            label: qsTr("Compensación de tiempo")
+                            desc: qsTr("Adelanta (+) o retrasa (−) la letra respecto al audio")
                             RowLayout {
                                 spacing: Theme.s2
                                 Text {
@@ -4772,14 +5023,14 @@ Window {
                                     font.weight: Font.DemiBold
                                 }
                                 GhostButton {
-                                    text: "−"
+                                    text: qsTr("−")
                                     onClicked: {
                                         if (typeof sfx !== "undefined") sfx.play("tap")
                                         root.setLyricsOffset(root.lyricsOffset - 0.1)
                                     }
                                 }
                                 GhostButton {
-                                    text: "+"
+                                    text: qsTr("+")
                                     onClicked: {
                                         if (typeof sfx !== "undefined") sfx.play("tap")
                                         root.setLyricsOffset(root.lyricsOffset + 0.1)
@@ -4788,10 +5039,10 @@ Window {
                             }
                         }
                         SettingRow {
-                            label: "Letra a pantalla completa"
-                            desc: "Modo cine de dos columnas; también con L, F o Ctrl+L"
+                            label: qsTr("Letra a pantalla completa")
+                            desc: qsTr("Modo cine de dos columnas; también con L, F o Ctrl+L")
                             GhostButton {
-                                text: "Abrir"
+                                text: qsTr("Abrir")
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     root.openFullscreenLyrics()
@@ -4804,20 +5055,20 @@ Window {
                     // STORAGE
                     // ======================================================
                     SettingSection {
-                        title: "Almacenamiento"
+                        title: qsTr("Almacenamiento")
 
                         // Breakdown of what the app takes on disk. Downloads
                         // is the folder itself (counted file by file while
                         // the library scans) and the audio cache is the
                         // streaming buffer; the total is the sum of both.
                         SettingRow {
-                            label: "Descargas"
+                            label: qsTr("Descargas")
                             desc: downloads.storageSummary
                                   + " · " + downloads.folder
                             RowLayout {
                                 spacing: Theme.s2
                                 GhostButton {
-                                    text: "Abrir"
+                                    text: qsTr("Abrir")
                                     onClicked: {
                                         if (typeof sfx !== "undefined")
                                             sfx.play("tap")
@@ -4825,47 +5076,45 @@ Window {
                                     }
                                 }
                                 GhostButton {
-                                    text: "Borrar"
+                                    text: qsTr("Borrar")
                                     onClicked: {
                                         if (typeof sfx !== "undefined")
                                             sfx.play("tap")
-                                        root.askConfirm("¿Borrar TODAS las descargas? "
-                                                        + "Se eliminan los archivos "
-                                                        + "descargados; no se puede deshacer.",
-                                                        "Borrar todo", function() {
+                                        root.askConfirm(qsTr("¿Borrar TODAS las descargas? Se eliminan los archivos descargados; no se puede deshacer."),
+                                                        qsTr("Borrar todo"), function() {
                                             downloads.removeAll()
-                                            root.toast("Descargas borradas")
+                                            root.toast(qsTr("Descargas borradas"))
                                         })
                                     }
                                 }
                             }
                         }
                         SettingRow {
-                            label: "Caché de audio"
+                            label: qsTr("Caché de audio")
                             desc: audiocache.summary
-                                  + " · se borran primero las más antiguas"
+                                  + qsTr(" · se borran primero las más antiguas")
                             GhostButton {
-                                text: "Borrar"
+                                text: qsTr("Borrar")
                                 onClicked: {
                                     const n = audiocache.clear()
                                     if (typeof sfx !== "undefined")
                                         sfx.play("tap")
                                     root.toast(n > 0
-                                        ? "Caché borrada (" + n + " pistas)"
-                                        : "El caché ya estaba vacío")
+                                        ? qsTr("Caché borrada (%1 pistas)").arg(n)
+                                        : qsTr("El caché ya estaba vacío"))
                                 }
                             }
                         }
                         SettingBlock {
-                            label: "Límite del caché"
-                            desc: "Al pasarse, se eliminan las pistas que hace más tiempo que no suenan"
+                            label: qsTr("Límite del caché")
+                            desc: qsTr("Al pasarse, se eliminan las pistas que hace más tiempo que no suenan")
                             RowLayout {
                                 spacing: Theme.s2
                                 Repeater {
-                                    model: [ { mb: 512, t: "512 MB" },
-                                             { mb: 1024, t: "1 GB" },
-                                             { mb: 2048, t: "2 GB" },
-                                             { mb: 0, t: "Sin límite" } ]
+                                    model: [ { mb: 512, t: qsTr("512 MB") },
+                                             { mb: 1024, t: qsTr("1 GB") },
+                                             { mb: 2048, t: qsTr("2 GB") },
+                                             { mb: 0, t: qsTr("Sin límite") } ]
                                     Chip {
                                         text: modelData.t
                                         selected: audiocache.limitMB === modelData.mb
@@ -4875,8 +5124,8 @@ Window {
                             }
                         }
                         SettingRow {
-                            label: "Total en disco"
-                            desc: "Descargas + caché de audio"
+                            label: qsTr("Total en disco")
+                            desc: qsTr("Descargas + caché de audio")
                             Text {
                                 text: Theme.size(audiocache.bytes + downloads.bytes)
                                 color: Sys.text
@@ -4890,16 +5139,16 @@ Window {
                     // DISCORD
                     // ======================================================
                     SettingSection {
-                        title: "Discord"
+                        title: qsTr("Discord")
 
                         SettingRow {
-                            label: "Discord Rich Presence"
-                            desc: "Muestra lo que suena en tu perfil"
+                            label: qsTr("Discord Rich Presence")
+                            desc: qsTr("Muestra lo que suena en tu perfil")
                             RowLayout {
                                 spacing: Theme.s2
                                 Text {
-                                    text: discord.connected ? "Conectado"
-                                          : (root.discordEnabled ? "Sin conexión" : "Desactivado")
+                                    text: discord.connected ? qsTr("Conectado")
+                                          : (root.discordEnabled ? qsTr("Sin conexión") : "Desactivado")
                                     color: discord.connected ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tXs
                                     font.weight: Font.DemiBold
@@ -4920,19 +5169,18 @@ Window {
                     // DOWNLOADS
                     // ======================================================
                     SettingSection {
-                        title: "Descargas"
+                        title: qsTr("Descargas")
 
                         SettingBlock {
-                            label: "Calidad de las descargas"
-                            desc: "Compacta es la misma grabación en la mitad de espacio; "
-                                  + "las demás guardan más bitrate"
+                            label: qsTr("Calidad de las descargas")
+                            desc: qsTr("Compacta es la misma grabación en la mitad de espacio; las demás guardan más bitrate")
                             RowLayout {
                                 spacing: Theme.s2
                                 Repeater {
-                                    model: [ { id: "max", t: "Máxima" },
-                                             { id: "alta", t: "Alta" },
-                                             { id: "media", t: "Compacta" },
-                                             { id: "baja", t: "Baja" } ]
+                                    model: [ { id: "max", t: qsTr("Máxima") },
+                                             { id: "alta", t: qsTr("Alta") },
+                                             { id: "media", t: qsTr("Compacta") },
+                                             { id: "baja", t: qsTr("Baja") } ]
                                     Chip {
                                         text: modelData.t
                                         selected: downloads.quality === modelData.id
@@ -4947,8 +5195,8 @@ Window {
                         }
 
                         SettingBlock {
-                            label: "Carpeta de descargas"
-                            desc: "Dónde se guardan las canciones descargadas"
+                            label: qsTr("Carpeta de descargas")
+                            desc: qsTr("Dónde se guardan las canciones descargadas")
                             Rectangle {
                                 Layout.fillWidth: true
                                 height: 34
@@ -4969,7 +5217,7 @@ Window {
                                 }
                             }
                             GhostButton {
-                                text: "Abrir carpeta"
+                                text: qsTr("Abrir carpeta")
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     downloads.openFolder()
@@ -4978,49 +5226,81 @@ Window {
                         }
 
                         SettingBlock {
-                            label: "Actualizaciones"
-                            desc: "Se busca la última versión publicada en el repositorio"
-                            Text {
+                            label: qsTr("Actualizaciones")
+                            desc: qsTr("Se busca la última versión publicada en el repositorio")
+                            // The version goes on its own line: sharing the row
+                            // with the two buttons leaves it in zero width on a
+                            // phone and it came out unreadable.
+                            ColumnLayout {
                                 Layout.fillWidth: true
-                                text: updates.available
-                                      ? "Hay una versión nueva: " + updates.latestVersion
-                                      : "Versión actual: " + updates.currentVersion
-                                color: updates.available ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tSm
-                                elide: Text.ElideRight
-                            }
-                            GhostButton {
-                                text: "Buscar actualizaciones"
-                                onClicked: {
-                                    if (typeof sfx !== "undefined") sfx.play("tap")
-                                    updates.check()
+                                spacing: Theme.s2
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: updates.available
+                                          ? qsTr("Hay una versión nueva: %1").arg(updates.latestVersion)
+                                          : qsTr("Versión actual: %1").arg(updates.currentVersion)
+                                    color: updates.available ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                                    font.pixelSize: Theme.tSm
+                                    wrapMode: Text.WordWrap
                                 }
-                            }
-                            GhostButton {
-                                text: "Ver la versión publicada"
-                                visible: updates.url !== ""
-                                onClicked: {
-                                    if (typeof sfx !== "undefined") sfx.play("tap")
-                                    updates.openDownload()
+                                RowLayout {
+                                    spacing: Theme.s2
+                                    GhostButton {
+                                        text: qsTr("Buscar actualizaciones")
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            updates.check()
+                                        }
+                                    }
+                                    GhostButton {
+                                        // On the desktop the button runs the
+                                        // installer (it builds and installs the
+                                        // new version); on the phone it opens
+                                        // the .apk of the release.
+                                        text: Theme.touch ? qsTr("Descargar la versión nueva")
+                                                          : qsTr("Actualizar ahora")
+                                        visible: updates.available
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            updates.openDownload()
+                                        }
+                                    }
+                                }
+                                // Its own line: three buttons in one row do
+                                // not fit the width of a phone.
+                                RowLayout {
+                                    spacing: Theme.s2
+                                    GhostButton {
+                                        // For a phone that cannot be looked at
+                                        // by hand: the person copies this and
+                                        // sends it, and the report says what
+                                        // failed (session, helper, lists).
+                                        text: qsTr("Copiar diagnóstico")
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            root.copyToClipboard(catalog.diagnostics(),
+                                                                 qsTr("Diagnóstico copiado"))
+                                        }
+                                    }
                                 }
                             }
                         }
 
                         SettingBlock {
-                            label: "Sesión de YouTube Music"
-                            desc: "Las cookies de la cuenta: hacen falta para las listas privadas y, en Android, para que suene el audio. Se puede exportar aquí y llevarla a otro dispositivo"
+                            label: qsTr("Sesión de YouTube Music")
+                            desc: qsTr("Las cookies de la cuenta: hacen falta para las listas privadas y, en Android, para que suene el audio. Se puede exportar aquí y llevarla a otro dispositivo")
                             GhostButton {
-                                text: "Exportar la sesión"
+                                text: qsTr("Exportar la sesión")
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     root.sessionExported = catalog.exportSession(root.sessionPath)
                                     root.toast(root.sessionExported
-                                               ? "Sesión exportada a " + root.sessionPath
-                                               : "No se pudo exportar la sesión")
+                                               ? qsTr("Sesión exportada a %1").arg(root.sessionPath)
+                                               : qsTr("No se pudo exportar la sesión"))
                                 }
                             }
                             GhostButton {
-                                text: "Importar la sesión"
+                                text: qsTr("Importar la sesión")
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     sessionDialog.open()
@@ -5033,7 +5313,7 @@ Window {
                     // ACCOUNTS
                     // ======================================================
                     SettingSection {
-                        title: "Cuentas"
+                        title: qsTr("Cuentas")
 
                         Repeater {
                             model: sources.list
@@ -5065,7 +5345,7 @@ Window {
                                 Text {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "ytm"
-                                    text: "Inicia sesión con Google y sincroniza tus «Me gusta»."
+                                    text: qsTr("Inicia sesión con Google y sincroniza tus «Me gusta».")
                                     color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideRight
@@ -5075,16 +5355,16 @@ Window {
                                     Layout.fillWidth: true
                                     spacing: Theme.s2
                                     visible: modelData.id === "ytm" && root.ytmState() === "ok"
-                                    StatusBadge { ok: true; okText: "Sesión iniciada" }
+                                    StatusBadge { ok: true; okText: qsTr("Sesión iniciada") }
                                     GhostButton {
-                                        text: "Sincronizar Me gusta"
+                                        text: qsTr("Sincronizar Me gusta")
                                         onClicked: {
                                             if (typeof sfx !== "undefined") sfx.play("tap")
                                             catalog.syncLiked()
                                         }
                                     }
                                     GhostButton {
-                                        text: "Cerrar sesión"
+                                        text: qsTr("Cerrar sesión")
                                         danger: true
                                         onClicked: {
                                             if (typeof sfx !== "undefined") sfx.play("tap")
@@ -5097,7 +5377,7 @@ Window {
                                 PrimaryButton { // sign in
                                     visible: modelData.id === "ytm"
                                              && (root.ytmState() === "" || root.ytmState() === "nologin")
-                                    text: "Iniciar sesión con Google"
+                                    text: qsTr("Iniciar sesión con Google")
                                     onClicked: {
                                         if (typeof sfx !== "undefined") sfx.play("tap")
                                         root.ytmLogin()
@@ -5136,13 +5416,13 @@ Window {
                                         }
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "Esperando a que inicies sesión en la ventana de Google…"
+                                            text: qsTr("Esperando a que inicies sesión en la ventana de Google…")
                                             color: Sys.text
                                             font.pixelSize: Theme.tMd
                                             elide: Text.ElideRight
                                         }
                                         GhostButton {
-                                            text: "Cancelar"
+                                            text: qsTr("Cancelar")
                                             danger: true
                                             onClicked: {
                                                 if (typeof sfx !== "undefined") sfx.play("tap")
@@ -5165,7 +5445,7 @@ Window {
                                         wrapMode: Text.WordWrap
                                     }
                                     PrimaryButton {
-                                        text: "Reintentar"
+                                        text: qsTr("Reintentar")
                                         onClicked: {
                                             if (typeof sfx !== "undefined") sfx.play("tap")
                                             root.ytmLogin()
@@ -5177,7 +5457,7 @@ Window {
                                 Text {
                                     Layout.fillWidth: true
                                     visible: modelData.id === "soundcloud"
-                                    text: "Acceso público, sin necesidad de cuenta."
+                                    text: qsTr("Acceso público, sin necesidad de cuenta.")
                                     color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                     elide: Text.ElideRight
@@ -5195,20 +5475,20 @@ Window {
                                         Field {
                                             id: spotCid
                                             Layout.fillWidth: true
-                                            label: "Client ID"
-                                            placeholder: "developer.spotify.com"
+                                            label: qsTr("Client ID")
+                                            placeholder: qsTr("developer.spotify.com")
                                         }
                                         Field {
                                             id: spotUser
                                             Layout.fillWidth: true
-                                            label: "Usuario"
-                                            placeholder: "cuenta Premium"
+                                            label: qsTr("Usuario")
+                                            placeholder: qsTr("cuenta Premium")
                                         }
                                         Field {
                                             id: spotPass
                                             Layout.fillWidth: true
-                                            label: "Contraseña"
-                                            placeholder: "••••••••"
+                                            label: qsTr("Contraseña")
+                                            placeholder: qsTr("••••••••")
                                             password: true
                                         }
                                     }
@@ -5216,17 +5496,17 @@ Window {
                                         Layout.fillWidth: true
                                         spacing: Theme.s2
                                         PrimaryButton {
-                                            text: "Guardar"
+                                            text: qsTr("Guardar")
                                             onClicked: {
                                                 if (typeof sfx !== "undefined") sfx.play("tap")
                                                 root.cfgLogin("spotify", spotCid.text,
                                                               spotUser.text, spotPass.text)
-                                                root.toast("Guardado en la configuración")
+                                                root.toast(qsTr("Guardado en la configuración"))
                                             }
                                         }
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "Se activará cuando el backend librespot esté listo."
+                                            text: qsTr("Se activará cuando el backend librespot esté listo.")
                                             color: Theme.tDim(Sys.bg, Sys.text)
                                             font.pixelSize: Theme.tXs
                                             elide: Text.ElideRight
@@ -5247,14 +5527,14 @@ Window {
                                         Field {
                                             id: tidalUser
                                             Layout.fillWidth: true
-                                            label: "Usuario"
-                                            placeholder: "cuenta Tidal"
+                                            label: qsTr("Usuario")
+                                            placeholder: qsTr("cuenta Tidal")
                                         }
                                         Field {
                                             id: tidalPass
                                             Layout.fillWidth: true
-                                            label: "Contraseña"
-                                            placeholder: "••••••••"
+                                            label: qsTr("Contraseña")
+                                            placeholder: qsTr("••••••••")
                                             password: true
                                         }
                                     }
@@ -5262,17 +5542,17 @@ Window {
                                         Layout.fillWidth: true
                                         spacing: Theme.s2
                                         PrimaryButton {
-                                            text: "Guardar"
+                                            text: qsTr("Guardar")
                                             onClicked: {
                                                 if (typeof sfx !== "undefined") sfx.play("tap")
                                                 root.cfgLogin("tidal", tidalUser.text,
                                                               tidalPass.text, "")
-                                                root.toast("Guardado en la configuración")
+                                                root.toast(qsTr("Guardado en la configuración"))
                                             }
                                         }
                                         Text {
                                             Layout.fillWidth: true
-                                            text: "Se activará cuando el backend esté listo."
+                                            text: qsTr("Se activará cuando el backend esté listo.")
                                             color: Theme.tDim(Sys.bg, Sys.text)
                                             font.pixelSize: Theme.tXs
                                             elide: Text.ElideRight
@@ -5401,7 +5681,7 @@ Window {
                             Keys.onEnterPressed: root.launcherSubmit()
                         }
                         Text {
-                            text: "↵ busca · Esc"
+                            text: qsTr("Intro busca · Esc")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.bold: true
@@ -5428,7 +5708,7 @@ Window {
                             Layout.topMargin: Theme.s2
                             visible: root.launcherRows.length === 0
                                      && !root.launcherSearching
-                            text: "Sin resultados"
+                            text: qsTr("Sin resultados")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tMd
                             horizontalAlignment: Text.AlignHCenter
@@ -5602,7 +5882,7 @@ Window {
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "Lotus Tune"
+                text: qsTr("Lotus Tune")
                 color: Sys.text
                 font.pixelSize: Theme.tXl
                 font.weight: Font.DemiBold

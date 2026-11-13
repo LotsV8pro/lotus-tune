@@ -356,8 +356,8 @@ Item {
                     anchors.left: input.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: input.width
-                    text: "¿Qué quieres escuchar en "
-                          + (page.src ? page.src.name : "") + "?"
+                    text: qsTr("¿Qué quieres escuchar en %1?")
+                          .arg(page.src ? page.src.name : "")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tBase
                     elide: Text.ElideRight
@@ -415,7 +415,7 @@ Item {
                         Text {
                             id: modeLabel
                             anchors.centerIn: parent
-                            text: index === 0 ? "Canciones" : "Artistas"
+                            text: index === 0 ? qsTr("Canciones") : qsTr("Artistas")
                             color: modePill.on ? Sys.bg : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tSm
                             font.weight: modePill.on ? Font.DemiBold : Font.Normal
@@ -438,9 +438,9 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
                 visible: catalog.busy || page.artistBusy
-                text: page.artistMode ? "Buscando artistas…"
-                      : (catalog.multiSearching ? "Buscando en todas las fuentes…"
-                                                : "Buscando…")
+                text: page.artistMode ? qsTr("Buscando artistas…")
+                      : (catalog.multiSearching ? qsTr("Buscando en todas las fuentes…")
+                                                : qsTr("Buscando…"))
                 color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
             }
@@ -449,8 +449,8 @@ Item {
                 Layout.leftMargin: Theme.s1
                 visible: !catalog.busy && !page.artistMode
                          && page.flatTracks.length > 0
-                text: page.flatTracks.length + " resultados para «"
-                      + catalog.resultsQuery + "»"
+                text: qsTr("%1 resultados para «%2»")
+                      .arg(page.flatTracks.length).arg(catalog.resultsQuery)
                 color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
@@ -459,8 +459,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.leftMargin: Theme.s1
                 visible: page.artistMode && !page.artistBusy && page.artistResults.length > 0
-                text: page.artistResults.length + " artistas para «"
-                      + page.lastQuery + "»"
+                text: qsTr("%1 artistas para «%2»")
+                      .arg(page.artistResults.length).arg(page.lastQuery)
                 color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tSm
                 elide: Text.ElideRight
@@ -547,7 +547,7 @@ Item {
                         anchors.leftMargin: Theme.s3
                         anchors.bottom: parent.bottom
                         anchors.bottomMargin: Theme.s3
-                        text: "— bloqueada, necesita credenciales"
+                        text: qsTr("— bloqueada, necesita credenciales")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         opacity: 0.6
@@ -572,7 +572,7 @@ Item {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Encolar"
+                            text: qsTr("Encolar")
                             color: Theme.accentOn(Sys.accent, Sys.bg)
                             font.pixelSize: Theme.tSm
                             font.weight: Font.DemiBold
@@ -761,7 +761,7 @@ Item {
                             width: parent.width
                             leftPadding: Theme.s1
                             topPadding: Theme.s1
-                            text: "ARTISTAS"
+                            text: qsTr("ARTISTAS")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tXs
                             font.weight: Font.DemiBold
@@ -839,13 +839,9 @@ Item {
                              ? page.artistResults.length === 0
                              : catalog.results.length === 0)
                 text: page.artistMode
-                      ? "Escribe un nombre: al abrir un artista tienes su "
-                        + "discografía entera, del disco más nuevo al más "
-                        + "antiguo, con «Reproducir todo» y aleatorio."
-                      : "Escribe al menos " + page.minQuery + " letras y los "
-                        + "resultados aparecen solos (también puedes pulsar Enter). "
-                        + "Se usa la extracción directa de la fuente: sin anuncios, "
-                        + "sin navegador."
+                      ? qsTr("Escribe un nombre: al abrir un artista tienes su discografía entera, del disco más nuevo al más antiguo, con «Reproducir todo» y aleatorio.")
+                      : qsTr("Escribe al menos %1 letras y los resultados aparecen solos (también puedes pulsar Enter). Se usa la extracción directa de la fuente: sin anuncios, sin navegador.")
+                            .arg(page.minQuery)
                 color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tMd
                 horizontalAlignment: Text.AlignHCenter

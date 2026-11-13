@@ -35,6 +35,10 @@ class Catalog : public QObject
     Q_PROPERTY(QVariantList recent READ recent NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList ytmLibrary READ ytmLibrary NOTIFY libraryChanged)
     Q_PROPERTY(bool libraryBusy READ libraryBusy NOTIFY libraryChanged)
+    // Why the lists of the account did not arrive. Empty when the last
+    // fetch worked. It is shown in Library instead of an empty page: the
+    // person sees that something failed and what.
+    Q_PROPERTY(QString libraryError READ libraryError NOTIFY libraryChanged)
     // Real in-app YT Music login ("", "waiting", "ok", "error").
     Q_PROPERTY(QString loginState READ loginState NOTIFY loginChanged)
     // YouTube Music playlist opened through the fast path: it allows
@@ -76,6 +80,7 @@ public:
     QVariantList recent() const { return m_recent; }
     QVariantList ytmLibrary() const { return m_ytmLibrary; }
     bool libraryBusy() const { return m_libraryBusy; }
+    QString libraryError() const { return m_libraryError; }
     QString loginState() const { return m_loginState; }
     QString openPlaylistId() const { return m_openPlaylistId; }
     QString openListUrl() const { return m_openListUrl; }
@@ -147,6 +152,10 @@ public:
                                       const QString &failedVideoId,
                                       double duration);
     Q_INVOKABLE void syncLiked();
+    // One block of text with what is needed to understand a failure on a
+    // device that cannot be inspected by hand (version, phone, session,
+    // helper, last error). It goes to the clipboard from Ajustes.
+    Q_INVOKABLE QString diagnostics() const;
     // Photo of an artist, for the "Radio de <artista>" cards (the face of
     // the radio on YouTube Music, not the cover of its first track). It is
     // cached on disk; the first time it is asked for, it is looked up in
@@ -399,6 +408,7 @@ private:
     QVariantList m_recent;
     QVariantList m_ytmLibrary;
     bool m_libraryBusy = false;
+    QString m_libraryError;
     QProcess m_loginProc;      // dedicated: must not disturb m_proc searches
     QProcess m_statusProc;     // one-shot token check at startup
     QProcess m_libraryProc;    // one-shot "my lists" fetch (ytm_api.py)

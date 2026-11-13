@@ -31,6 +31,11 @@ static const char *kAppKeys[] = {
      // on startup. They are loaded at the start like the rest of the app's
      // keys.
     "sessionState", "playerVolume",
+    // Bookkeeping of the notices that must not come back: the version whose
+    // update was already announced and the one whose notes were already read.
+    // Without them in this list they are saved but never read back, and both
+    // notices came back on every start.
+    "updateNotified", "whatsNewSeen",
 };
 
 static bool isThemeKey(const QString &key)

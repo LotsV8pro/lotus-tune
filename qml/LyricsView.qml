@@ -893,7 +893,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: "Buscando letra…"
+            text: qsTr("Buscando letra…")
             color: lv.inkDim
             font.pixelSize: Theme.tBase
             horizontalAlignment: Text.AlignHCenter
@@ -1332,7 +1332,7 @@ Item {
             spacing: 6
             Glyph { width: 12; height: 12; kind: "refresh"; color: Sys.accent }
             Text {
-                text: "Seguir la canción"
+                text: qsTr("Seguir la canción")
                 color: Theme.accentOn(Sys.accent, Sys.bg)
                 font.pixelSize: Theme.tMd
                 font.weight: Font.Medium
@@ -1366,7 +1366,7 @@ Item {
             x: plainLabel.x
             y: 12
             width: plainLabel.width
-            text: "SIN LETRA SINCRONIZADA"
+            text: qsTr("SIN LETRA SINCRONIZADA")
             color: lv.inkDim
             font.pixelSize: Theme.tXs
             font.bold: true
@@ -1405,7 +1405,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: lv.showError ? lv.errorText : "Sin letra sincronizada"
+            text: lv.showError ? lv.errorText : qsTr("Sin letra sincronizada")
             color: lv.showError ? Theme.accentOn(Sys.danger, lv.bgBehind) : lv.ink
             font.pixelSize: Theme.tLg
             font.weight: Font.DemiBold
@@ -1414,7 +1414,7 @@ Item {
         }
         Text {
             Layout.fillWidth: true
-            text: lv.showError ? "No encontramos la letra de esta canción." : "Buscando la letra…"
+            text: lv.showError ? qsTr("No encontramos la letra de esta canción.") : qsTr("Buscando la letra…")
             color: lv.inkDim
             font.pixelSize: Theme.tMd
             horizontalAlignment: Text.AlignHCenter
@@ -1497,7 +1497,7 @@ Item {
 
             Text {
                 Layout.alignment: Qt.AlignVCenter
-                text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + " s"
+                text: (lv.offset > 0 ? "+" : "") + lv.offset.toFixed(1) + qsTr(" s")
                 color: Theme.tDim(Sys.bg, Sys.text)
                 font.pixelSize: Theme.tXs
                 font.weight: Font.DemiBold

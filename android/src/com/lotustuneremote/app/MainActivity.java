@@ -72,6 +72,23 @@ public class MainActivity extends QtActivity
                 // Keep the navigation bar visible.
             }
         });
+
+        // QA: `--es notifyUpdate 2.0.7` posts the notice of a new version in
+        // the shade without waiting for a release, the same way the QML does
+        // with `--update=` for the notice inside the app. It is what the
+        // screenshots of the update notice use.
+        final android.content.Intent intent = getIntent();
+        final String qaUpdate = intent == null ? null
+                : intent.getStringExtra("notifyUpdate");
+        if (qaUpdate != null && !qaUpdate.isEmpty())
+            UpdateNotifier.notifyUpdate(this, qaUpdate, null);
+    }
+
+    // The application context, for the helpers that only need a Context (the
+    // notice of a new version in the notification shade, for example).
+    public static Context appContext()
+    {
+        return sCtx;
     }
 
     // Asks Android for the maximum rate of the panel (120 Hz on this phone).

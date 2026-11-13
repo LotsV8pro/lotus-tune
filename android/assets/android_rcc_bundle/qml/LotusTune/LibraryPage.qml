@@ -174,7 +174,7 @@ Item {
     // ---- metadata of the open list (hero header) ------------------------
     function tracksMeta() {
         const n = catalog.tracks.length
-        var out = n + (n === 1 ? " canción" : " canciones")
+        var out = qsTr("%n canción", "", n)
         var total = 0
         for (var i = 0; i < n; i++)
             total += Number(catalog.tracks[i].duration || 0)
@@ -467,7 +467,7 @@ Item {
         if (!page.localPlaylistOpen)
             return page.tracksMeta()
         const n = page.openDownloadTracks.length
-        return n + (n === 1 ? " canción" : " canciones") + " · descargada"
+        return qsTr("%n canción descargada", "", n)
     }
     // Header chips: number of tracks and total length, apart (the reference
     // shows them as two pills).
@@ -478,7 +478,7 @@ Item {
             return ""
         // A radio has no author of its own: the one of its first track is not it.
         if (page.viewIsRadio)
-            return "Radio · YouTube Music"
+            return qsTr("Radio · YouTube Music")
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }
@@ -491,7 +491,7 @@ Item {
 
     function viewCountText() {
         const n = page.viewTracks().length
-        return n + (n === 1 ? " canción" : " canciones")
+        return qsTr("%n canción", "", n)
     }
     function viewDurationText() {
         const arr = page.viewTracks()
@@ -504,8 +504,8 @@ Item {
         const h = Math.floor(t / 3600)
         const m = Math.floor((t % 3600) / 60)
         if (h > 0)
-            return h + " h " + m + " min"
-        return m + " min " + (t % 60) + " s"
+            return qsTr("%1 h %2 min").arg(h).arg(m)
+        return qsTr("%1 min %2 s").arg(m).arg(t % 60)
     }
 
     function viewFolder() {
@@ -668,7 +668,7 @@ Item {
         }
         Text {
             visible: header.busy
-            text: "cargando…"
+            text: qsTr("cargando…")
             color: Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tXs
         }
@@ -892,7 +892,7 @@ Item {
                 spacing: Theme.s2
                 Text {
                     Layout.fillWidth: true
-                    text: jrow.modelData.name || "Descarga"
+                    text: jrow.modelData.name || qsTr("Descarga")
                     color: Sys.text
                     font.pixelSize: Theme.tMd
                     font.weight: Font.DemiBold
@@ -902,11 +902,11 @@ Item {
                 Text {
                     text: {
                         const s = String(jrow.modelData.state || "")
-                        if (s === "error") return "Error"
-                        if (s === "done" || s === "finished" || s === "completed") return "Listo"
-                        if (s === "queued" || s === "pending") return "En cola"
-                        if (s === "paused") return "Pausado"
-                        if (s === "canceled" || s === "cancelled") return "Cancelado"
+                        if (s === "error") return qsTr("Error")
+                        if (s === "done" || s === "finished" || s === "completed") return qsTr("Listo")
+                        if (s === "queued" || s === "pending") return qsTr("En cola")
+                        if (s === "paused") return qsTr("Pausado")
+                        if (s === "canceled" || s === "cancelled") return qsTr("Cancelado")
                         return Math.round(jrow.modelData.progress || 0) + "%"
                     }
                     color: String(jrow.modelData.state || "") === "error" ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
@@ -1215,7 +1215,7 @@ Item {
                         spacing: 7
                         Glyph { width: 16; height: 16; kind: "play"; color: Sys.bg }
                         Text {
-                            text: "Reproducir todo"
+                            text: qsTr("Reproducir todo")
                             color: Sys.bg
                             font.pixelSize: 14
                             font.weight: Font.Medium
@@ -1432,7 +1432,7 @@ Item {
                         anchors.left: searchGlyph.right
                         anchors.leftMargin: 9
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Buscar en la lista"
+                        text: qsTr("Buscar en la lista")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: 14
                     }
@@ -1459,7 +1459,7 @@ Item {
                             color: Sys.text
                         }
                         Text {
-                            text: "Añadir a la cola"
+                            text: qsTr("Añadir a la cola")
                             color: Sys.text
                             font.pixelSize: 14
                             font.weight: Font.Medium
@@ -1538,7 +1538,7 @@ Item {
                         }
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "Encolar"
+                            text: qsTr("Encolar")
                             color: Theme.accentOn(Sys.accent, Sys.bg)
                             font.pixelSize: Theme.tSm
                             font.weight: Font.DemiBold
@@ -1727,7 +1727,7 @@ Item {
                     anchors.centerIn: parent
                     visible: page.listFilter !== ""
                              && page.listRows.length === 0
-                    text: "Ninguna pista coincide con «" + page.listFilter + "»"
+                    text: qsTr("Ninguna pista coincide con «%1»").arg(page.listFilter)
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
@@ -1750,8 +1750,8 @@ Item {
                 spacing: Theme.s2
 
                 readonly property var items: [
-                    { t: 0, name: "Biblioteca" },
-                    { t: 4, name: "Descargadas" }
+                    { t: 0, name: qsTr("Biblioteca") },
+                    { t: 4, name: qsTr("Descargadas") }
                 ]
 
                 Repeater {
@@ -1847,7 +1847,7 @@ Item {
                         anchors.left: libSearchGlyph.right
                         anchors.leftMargin: Theme.s2 + 1
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Buscar en la biblioteca"
+                        text: qsTr("Buscar en la biblioteca")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                     }
@@ -1914,7 +1914,7 @@ Item {
                         }
                         Text {
                             visible: !Theme.touch
-                            text: "Crear lista"
+                            text: qsTr("Crear lista")
                             color: page.addListOpen ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                             font.pixelSize: Theme.tSm
                             font.weight: Font.DemiBold
@@ -1978,7 +1978,7 @@ Item {
                         anchors.left: phoneFilterGlyph.right
                         anchors.leftMargin: Theme.s2 + 1
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Buscar en la biblioteca"
+                        text: qsTr("Buscar en la biblioteca")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tBase
                     }
@@ -2076,7 +2076,7 @@ Item {
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.s3
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "Nombre (opcional)"
+                        text: qsTr("Nombre (opcional)")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                     }
@@ -2109,7 +2109,7 @@ Item {
                         anchors.left: parent.left
                         anchors.leftMargin: Theme.s3
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "URL de la playlist (YouTube / SoundCloud)"
+                        text: qsTr("URL de la playlist (YouTube / SoundCloud)")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                         elide: Text.ElideRight
@@ -2131,7 +2131,7 @@ Item {
                         spacing: Theme.s1
                         Glyph { width: 14; height: 14; kind: "plus"; color: Theme.onAccent(Sys.accent) }
                         Text {
-                            text: "Añadir"
+                            text: qsTr("Añadir")
                             color: Theme.onAccent(Sys.accent)
                             font.pixelSize: Theme.tMd
                             font.weight: Font.DemiBold
@@ -2201,7 +2201,7 @@ Item {
                             spacing: 2
                             Text {
                                 Layout.fillWidth: true
-                                text: "Discografía de " + page.discArtist
+                                text: qsTr("Discografía de %1").arg(page.discArtist)
                                 color: Sys.text
                                 font.pixelSize: Theme.tMd
                                 font.weight: Font.DemiBold
@@ -2211,10 +2211,10 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: page.discPreparing
-                                      ? (page.discDone + " de " + page.discTotal
-                                         + " discos preparados · descargando en orden")
-                                      : (page.discLive + " de " + page.discTotal
-                                         + " discos en cola de descarga")
+                                      ? qsTr("%1 de %2 discos preparados · descargando en orden")
+                                            .arg(page.discDone).arg(page.discTotal)
+                                      : qsTr("%1 de %2 discos en cola de descarga")
+                                            .arg(page.discLive).arg(page.discTotal)
                                 color: Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tXs
                                 elide: Text.ElideRight
@@ -2225,8 +2225,8 @@ Item {
                 }
 
                 SectionHeader {
-                    title: "DESCARGAS ACTIVAS"
-                    badge: page.dlLive.length + " en curso"
+                    title: qsTr("DESCARGAS ACTIVAS")
+                    badge: qsTr("%1 en curso").arg(page.dlLive.length)
                 }
 
                 // Capped and scrollable: a discography queues dozens of
@@ -2282,7 +2282,7 @@ Item {
                                 color: folderMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
                             }
                             Text {
-                                text: "Abrir carpeta"
+                                text: qsTr("Abrir carpeta")
                                 color: folderMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                                 font.pixelSize: Theme.tSm
                                 font.weight: Font.DemiBold
@@ -2321,7 +2321,7 @@ Item {
                             ActionIcon { width: 13; height: 13; kind: "pause"
                                          color: Theme.tDim(Sys.bg, Sys.text) }
                             Text {
-                                text: "Pausar"
+                                text: qsTr("Pausar")
                                 color: pauseAllMa.containsMouse
                                        ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                                 font.pixelSize: Theme.tSm
@@ -2362,7 +2362,7 @@ Item {
                             ActionIcon { width: 13; height: 13; kind: "play"
                                          color: Theme.accentOn(Sys.accent, Sys.bg) }
                             Text {
-                                text: "Reanudar"
+                                text: qsTr("Reanudar")
                                 color: resumeAllMa.containsMouse
                                        ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                                 font.pixelSize: Theme.tSm
@@ -2392,7 +2392,7 @@ Item {
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         Text {
                             anchors.centerIn: parent
-                            text: "Cancelar todo"
+                            text: qsTr("Cancelar todo")
                             color: cancelMa.containsMouse ? Sys.danger : Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tSm
                         }
@@ -2416,11 +2416,11 @@ Item {
                 spacing: Theme.s2
 
                 SectionHeader {
-                    title: page.localSelected ? "Descargadas" : "Biblioteca"
+                    title: page.localSelected ? qsTr("Descargadas") : qsTr("Biblioteca")
                     badge: page.localSelected
-                           ? (page.dlLocalAll.length > 0 ? page.dlLocalAll.length + " pistas" : "")
+                           ? (page.dlLocalAll.length > 0 ? qsTr("%1 pistas").arg(page.dlLocalAll.length) : "")
                            : (page.covers.length === 0 ? ""
-                                                       : page.covers.length + " listas")
+                                                       : qsTr("%1 listas").arg(page.covers.length))
                     busy: page.localSelected ? page.dlLocalBusy : catalog.libraryBusy
 
                     IconButton { // refresh
@@ -2473,7 +2473,7 @@ Item {
                                 spacing: Theme.s2
                                 Glyph { width: 15; height: 15; kind: "play"; color: Sys.bg }
                                 Text {
-                                    text: "Reproducir todo"
+                                    text: qsTr("Reproducir todo")
                                     color: Sys.bg
                                     font.pixelSize: Theme.tMd
                                     font.weight: Font.DemiBold
@@ -2508,7 +2508,7 @@ Item {
                                 spacing: Theme.s2
                                 Glyph { width: 15; height: 15; kind: "shuffle"; color: Sys.text }
                                 Text {
-                                    text: "Aleatorio"
+                                    text: qsTr("Aleatorio")
                                     color: Sys.text
                                     font.pixelSize: Theme.tMd
                                 }
@@ -2551,8 +2551,8 @@ Item {
                                 }
                                 Text {
                                     id: dlOrderLabel
-                                    text: page.dlNewestFirst ? "Más recientes primero"
-                                                             : "En orden de descarga"
+                                    text: page.dlNewestFirst ? qsTr("Más recientes primero")
+                                                             : qsTr("En orden de descarga")
                                     color: Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tSm
                                 }
@@ -2593,8 +2593,8 @@ Item {
                             }
                             Text {
                                 id: dlOrderLabel2
-                                text: page.dlNewestFirst ? "Más recientes primero"
-                                                         : "En orden de descarga"
+                                text: page.dlNewestFirst ? qsTr("Más recientes primero")
+                                                         : qsTr("En orden de descarga")
                                 color: Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tSm
                             }
@@ -2616,17 +2616,17 @@ Item {
                 // own strip so "Nobody" does not appear as a record.
                 FolderStrip {
                     active: page.localSelected
-                    title: "ÁLBUMES"
+                    title: qsTr("ÁLBUMES")
                     items: page.dlAlbums
                 }
                 FolderStrip {
                     active: page.localSelected
-                    title: "SINGLES Y EPS"
+                    title: qsTr("SINGLES Y EPS")
                     items: page.dlSingles
                 }
                 FolderStrip {
                     active: page.localSelected
-                    title: "LISTAS"
+                    title: qsTr("LISTAS")
                     items: page.dlLists
                 }
 
@@ -2634,7 +2634,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: page.localSelected && page.dlFolders.length === 0
-                    text: "Aún no hay nada descargado."
+                    text: qsTr("Aún no hay nada descargado.")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
@@ -2653,8 +2653,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.s1
                         visible: page.dlLocalAll.length > 0
-                        text: "Todo lo descargado, en el orden en que llegó. "
-                              + "Abre una lista para ver sus pistas."
+                        text: qsTr("Todo lo descargado, en el orden en que llegó. Abre una lista para ver sus pistas.")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -2663,7 +2662,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         visible: page.dlLocalAll.length === 0 && !page.dlLocalBusy
-                        text: "Sin descargas locales. Usa el botón de descarga de una playlist o pista."
+                        text: qsTr("Sin descargas locales. Usa el botón de descarga de una playlist o pista.")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tSm
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
@@ -2696,7 +2695,7 @@ Item {
                         // With no track count the raw URL is not shown (it was
                         // unreadable and took two lines).
                         subtitle: (modelData.count || 0) > 0
-                                  ? modelData.count + " pistas" : ""
+                                  ? qsTr("%1 pistas").arg(modelData.count) : ""
 
                         thumb: modelData.thumb || ""
                         removable: (modelData.savedIndex || -1) >= 0
@@ -2740,10 +2739,17 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: !page.localSelected && page.covers.length === 0
+                    // When the fetch failed the reason wins over the generic
+                    // "empty library": "empty" and "did not arrive" look the
+                    // same on screen and mean different things.
                     text: catalog.libraryBusy
-                          ? "Cargando tu biblioteca…"
-                          : "Biblioteca vacía. Inicia sesión en Ajustes o pega una URL arriba para añadir una lista."
-                    color: Theme.tDim(Sys.bg, Sys.text)
+                          ? qsTr("Cargando tu biblioteca…")
+                          : (catalog.libraryError !== ""
+                             ? catalog.libraryError
+                             : qsTr("Biblioteca vacía. Inicia sesión en Ajustes o pega una URL arriba para añadir una lista."))
+                    color: (!catalog.libraryBusy && catalog.libraryError !== "")
+                           ? Theme.accentOn(Sys.accent, Sys.bg)
+                           : Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                     wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 }

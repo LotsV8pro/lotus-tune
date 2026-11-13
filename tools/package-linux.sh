@@ -38,7 +38,13 @@ mkdir -p "$STAGE/bin" "$STAGE/share/applications" "$STAGE/share/icons/hicolor/sc
 cp "$BUILD/lotus-tune" "$STAGE/bin/"
 [ -f "$ROOT/tools/ytm_login.py" ] && cp "$ROOT/tools/ytm_login.py" "$STAGE/bin/"
 [ -f "$ROOT/tools/ytm_api.py" ] && cp "$ROOT/tools/ytm_api.py" "$STAGE/bin/"
-cp "$ROOT/packaging/$NAME.desktop" "$STAGE/share/applications/"
+# The menu entry comes from the template: the packaging keeps it with the
+# @LOTUS_EXEC@ placeholder so the path is the one of the packaged binary.
+# install.sh rewrites it again after installing, so a tarball extracted
+# somewhere else ends up pointing at the right place.
+DESKTOP_EXEC="${LOTUS_EXEC:-/usr/bin/$NAME}"
+sed "s|@LOTUS_EXEC@|$DESKTOP_EXEC|" "$ROOT/packaging/$NAME.desktop.in" \
+    > "$STAGE/share/applications/$NAME.desktop"
 cp "$ROOT/packaging/icons/$NAME.svg" "$STAGE/share/icons/hicolor/scalable/apps/"
 cp "$ROOT/packaging/$NAME.metainfo.xml" "$STAGE/share/metainfo/"
 [ -f "$ROOT/README.md" ] && cp "$ROOT/README.md" "$STAGE/share/doc/$NAME/"

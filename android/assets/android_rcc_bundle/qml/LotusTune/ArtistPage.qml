@@ -72,8 +72,8 @@ Item {
     // Radios rail: the artist's own radio first (it always exists), then
     // the playlists/radios YouTube Music puts on their page.
     readonly property var radioModel: {
-        const out = [{ radio: true, title: "Radio de " + page.artistName,
-                       subtitle: "Sin fin, a partir de sus éxitos", thumb: page.artistThumb }]
+        const out = [{ radio: true, title: qsTr("Radio de %1").arg(page.artistName),
+                       subtitle: qsTr("Sin fin, a partir de sus éxitos"), thumb: page.artistThumb }]
         for (let i = 0; i < page.radios.length; i++)
             out.push(page.radios[i])
         return out
@@ -227,7 +227,7 @@ Item {
                 Text {
                     Layout.fillWidth: true
                     visible: page.busy
-                    text: "Leyendo la página del artista en YouTube Music…"
+                    text: qsTr("Leyendo la página del artista en YouTube Music…")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
@@ -255,7 +255,7 @@ Item {
                             Glyph { width: 15; height: 15; kind: "play"; color: Sys.bg }
                             Text {
                                 id: playAllLabel
-                                text: "Reproducir todo"
+                                text: qsTr("Reproducir todo")
                                 color: Sys.bg
                                 font.pixelSize: Theme.tMd
                                 font.weight: Font.DemiBold
@@ -289,7 +289,7 @@ Item {
                             Glyph { width: 15; height: 15; kind: "shuffle"; color: Sys.text }
                             Text {
                                 id: shuffleAllLabel
-                                text: "Aleatorio"
+                                text: qsTr("Aleatorio")
                                 color: Sys.text
                                 font.pixelSize: Theme.tMd
                             }
@@ -338,7 +338,7 @@ Item {
                             }
                             Text {
                                 id: discLabel
-                                text: "Descargar discografía"
+                                text: qsTr("Descargar discografía")
                                 color: page.busy ? Theme.tDim(Sys.bg, Sys.text)
                                                  : Sys.text
                                 font.pixelSize: Theme.tSm
@@ -384,8 +384,8 @@ Item {
                         }
                         Text {
                             id: orderLabel
-                            text: page.oldestFirst ? "Más antiguos primero"
-                                                   : "Más nuevos primero"
+                            text: page.oldestFirst ? qsTr("Más antiguos primero")
+                                                   : qsTr("Más nuevos primero")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.tSm
                         }
@@ -421,7 +421,7 @@ Item {
                     spacing: Theme.s2
                     Glyph { width: 15; height: 15; kind: "play"; color: Sys.bg }
                     Text {
-                        text: "Reproducir todo"
+                        text: qsTr("Reproducir todo")
                         color: Sys.bg
                         font.pixelSize: Theme.tMd
                         font.weight: Font.DemiBold
@@ -451,7 +451,7 @@ Item {
                     Glyph { width: 15; height: 15; kind: "shuffle"; color: Sys.text }
                     Text {
                         id: shuffleLabel2
-                        text: "Aleatorio"
+                        text: qsTr("Aleatorio")
                         color: Sys.text
                         font.pixelSize: Theme.tMd
                     }
@@ -489,8 +489,8 @@ Item {
                 }
                 Text {
                     id: orderLabelP
-                    text: page.oldestFirst ? "Más antiguos primero"
-                                           : "Más nuevos primero"
+                    text: page.oldestFirst ? qsTr("Más antiguos primero")
+                                           : qsTr("Más nuevos primero")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tSm
                 }
@@ -521,7 +521,7 @@ Item {
                 spacing: Theme.s2
                 Glyph { width: 15; height: 15; kind: "download"; color: Sys.accent }
                 Text {
-                    text: "Descargar discografía"
+                    text: qsTr("Descargar discografía")
                     color: Sys.text
                     font.pixelSize: Theme.tMd
                 }
@@ -562,7 +562,7 @@ Item {
 
                     Text {
                         leftPadding: Theme.s1
-                        text: "CANCIONES"
+                        text: qsTr("CANCIONES")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
@@ -675,7 +675,7 @@ Item {
 
                     Text {
                         leftPadding: Theme.s1
-                        text: "ÁLBUMES"
+                        text: qsTr("ÁLBUMES")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
@@ -718,7 +718,7 @@ Item {
 
                     Text {
                         leftPadding: Theme.s1
-                        text: "SINGLES Y EPS"
+                        text: qsTr("SINGLES Y EPS")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
@@ -761,7 +761,7 @@ Item {
 
                     Text {
                         leftPadding: Theme.s1
-                        text: "RADIOS Y LISTAS"
+                        text: qsTr("RADIOS Y LISTAS")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
@@ -806,7 +806,7 @@ Item {
 
                     Text {
                         leftPadding: Theme.s1
-                        text: "ARTISTAS SIMILARES"
+                        text: qsTr("ARTISTAS SIMILARES")
                         color: Theme.tDim(Sys.bg, Sys.text)
                         font.pixelSize: Theme.tXs
                         font.weight: Font.DemiBold
@@ -841,7 +841,7 @@ Item {
                     width: parent.width
                     visible: !page.busy && page.songs.length === 0
                              && page.albums.length === 0 && page.singles.length === 0
-                    text: "Esta búsqueda no dejó discos a la vista."
+                    text: qsTr("Esta búsqueda no dejó discos a la vista.")
                     color: Theme.tDim(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tMd
                     horizontalAlignment: Text.AlignHCenter

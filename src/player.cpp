@@ -418,7 +418,7 @@ void Player::startMpv()
     // There is no mpv on a phone: the playback engine of the Android
     // flavour is not there yet, so the app says it instead of failing
     // silently.
-    m_status = QStringLiteral("sin motor de reproducción en Android");
+    m_status = tr("sin motor de reproducción en Android");
     m_ready = true;
     emit stateChanged();
     return;

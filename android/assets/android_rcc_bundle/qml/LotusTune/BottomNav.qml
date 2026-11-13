@@ -50,11 +50,11 @@ Item {
     // 5.4 = 50 %. The "duo" pair (Me gusta + Descargas) keeps the minimum
     // 48 dp touch floor but now weighs like a plain tab.
     readonly property var items: [
-        { id: "library",   label: "Biblioteca", icon: "library",  w: 1.0, big: false, duo: false },
-        { id: "search",    label: "Buscar",     icon: "search",   w: 1.0, big: false, duo: false },
-        { id: "home",      label: "Inicio",     icon: "home",     w: 1.4, big: true,  duo: false },
-        { id: "liked",     label: "Me gusta",   icon: "heart",    w: 1.0, big: false, duo: true },
-        { id: "downloads", label: "Descargas",  icon: "download", w: 1.0, big: false, duo: true }
+        { id: "library",   label: qsTr("Biblioteca"), icon: "library",  w: 1.0, big: false, duo: false },
+        { id: "search",    label: qsTr("Buscar"),     icon: "search",   w: 1.0, big: false, duo: false },
+        { id: "home",      label: qsTr("Inicio"),     icon: "home",     w: 1.4, big: true,  duo: false },
+        { id: "liked",     label: qsTr("Me gusta"),   icon: "heart",    w: 1.0, big: false, duo: true },
+        { id: "downloads", label: qsTr("Descargas"),  icon: "download", w: 1.0, big: false, duo: true }
     ]
 
     // Same island as the desktop rail (Sidebar.qml): a faint light wash

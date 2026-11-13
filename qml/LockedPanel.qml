@@ -27,7 +27,7 @@ ColumnLayout {
 
     Text {
         Layout.alignment: Qt.AlignHCenter
-        text: panel.sourceName + " — fuente inactiva"
+        text: qsTr("%1 — fuente inactiva").arg(panel.sourceName)
         color: Sys.text
         font.pixelSize: Theme.tLg
         font.weight: Font.DemiBold
@@ -59,7 +59,7 @@ ColumnLayout {
         Text {
             id: actText
             anchors.centerIn: parent
-            text: "Elige una fuente activa en la barra lateral"
+            text: qsTr("Elige una fuente activa en la barra lateral")
             color: actMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
             font.pixelSize: Theme.tSm
             font.weight: Font.Medium
