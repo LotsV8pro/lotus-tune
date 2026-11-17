@@ -2752,15 +2752,27 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         QStringLiteral("ture"), QStringLiteral("dent"), QStringLiteral("dle"),
         QStringLiteral("tle"), QStringLiteral("ble"), QStringLiteral("gle"),
         QStringLiteral("ple"), QStringLiteral("ther"), QStringLiteral("ond"),
+        QStringLiteral("nize"), QStringLiteral("come"), QStringLiteral("get"),
+        QStringLiteral("prise"),
     };
     const QString x = a.trimmed();
     const QString y = b.trimmed();
-    if (x.isEmpty() || y.isEmpty() || keep.contains(x.toLower())
-        || keep.contains(y.toLower()))
+    static const QSet<QString> prefixes = {
+        QStringLiteral("for"), QStringLiteral("per"), QStringLiteral("in"),
+        QStringLiteral("de"), QStringLiteral("re"), QStringLiteral("co"),
+        QStringLiteral("be"),
+    };
+    if (x.isEmpty() || y.isEmpty())
         return false;
     for (const QChar &c : x + y)
         if (!c.isLetter())
             return false;
+    // "for get", "per son" and "be come" are split words, not phrases.
+    if (prefixes.contains(x.toLower()) && x.size() <= 3
+        && !keep.contains(y.toLower()))
+        return true;
+    if (keep.contains(x.toLower()) || keep.contains(y.toLower()))
+        return false;
     if (suffixes.contains(y.toLower()))
         return true;
     if (x.size() <= 2)
@@ -2774,6 +2786,35 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
         QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
     for (LrcLine &l : lines) {
         QString text = l.text;
+        // A provider sometimes glues the pronoun to the next word.
+        static const QRegularExpression gluedI(
+            QStringLiteral("\\bI(could|would|will|never|think|know|am|have|"
+                           "was|said|saw|feel|remember|mean)\b"));
+        text.replace(gluedI, QStringLiteral("I %1"));
+        // Contractions split as "could n't" or "I will" glued above.
+        static const QRegularExpression contraction(
+            QStringLiteral("\\b([A-Za-z]+) (n't|'ll|'re|'ve|'s|'d|'m)\\b"));
+        text.replace(contraction, QStringLiteral("\\1\\2"));
+        // Three-piece splits such as "Never for get" and "The per son".
+        static const QRegularExpression triple(
+            QStringLiteral("\\b([A-Za-z]+) (for|per|in|de|re|co) "
+                           "([A-Za-z]{2,5})\\b"));
+        for (int pass = 0; pass < 2; ++pass) {
+            QRegularExpressionMatchIterator it = triple.globalMatch(text);
+            bool changed = false;
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
+                if (!shouldJoinFragments(m.captured(2), m.captured(3)))
+                    continue;
+                text.replace(m.capturedStart(), m.capturedLength(),
+                             m.captured(1) + QLatin1Char(' ')
+                             + m.captured(2) + m.captured(3));
+                changed = true;
+                break;
+            }
+            if (!changed)
+                break;
+        }
         for (int pass = 0; pass < 3; ++pass) {
             QRegularExpressionMatchIterator it = split.globalMatch(text);
             bool changed = false;
