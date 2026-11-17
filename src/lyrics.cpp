@@ -392,6 +392,7 @@ bool Lyrics::loadFromDiskCache()
     markNoteStretches(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
+    validateWordTimes(m_lines);
     synthesizeWordTimes(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
@@ -2193,6 +2194,8 @@ void Lyrics::maybeUpgradeWorded()
     m_hasSynced = true;
     m_syncSource = bestSource;
     m_upgradable = false;   // one upgrade per fetch
+    validateWordTimes(m_lines);
+    synthesizeWordTimes(m_lines);
 
     // The translation in flight was built for the line-level set: drop its
     // replies and translate the final (word-level) lines instead.
@@ -2660,6 +2663,41 @@ void Lyrics::schedulePublish()
     m_publishTimer->start(1500);
 }
 
+void Lyrics::validateWordTimes(QVector<LrcLine> &lines)
+{
+    for (LrcLine &l : lines) {
+        if (l.words.isEmpty())
+            continue;
+        double last = l.time;
+        for (const QVariant &wv : l.words) {
+            const QVariantMap w = wv.toMap();
+            last = qMax(last, w.value(QStringLiteral("e")).toDouble());
+        }
+        const double hi = qMax(l.end, last);
+        bool bad = false;
+        for (const QVariant &wv : l.words) {
+            const QVariantMap w = wv.toMap();
+            const double t = w.value(QStringLiteral("t")).toDouble();
+            const double e = w.value(QStringLiteral("e")).toDouble();
+            if (!(e > t) || t < l.time - 1.0 || e > hi + 0.8) {
+                bad = true;
+                break;
+            }
+        }
+        // A take whose first word starts more than a second before the
+        // line, or whose last word ends three seconds after it, is not
+        // this recording.
+        if (!bad && l.end > l.time
+            && last > l.end + 3.0)
+            bad = true;
+        if (bad) {
+            qInfo() << "[lyrics] tiempos por palabra descartados en"
+                    << QString::number(l.time, 'f', 2) << "s";
+            l.words.clear();
+        }
+    }
+}
+
 void Lyrics::synthesizeWordTimes(QVector<LrcLine> &lines)
 {
     for (LrcLine &l : lines) {
@@ -2712,6 +2750,7 @@ void Lyrics::publishFinal()
     markNoteStretches(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
+    validateWordTimes(m_lines);
     synthesizeWordTimes(m_lines);
     computeWordMeta(m_lines);
     if (m_publishFailed)

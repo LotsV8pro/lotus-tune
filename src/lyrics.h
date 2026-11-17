@@ -315,6 +315,9 @@ private:
     // view word stamps spread across that line. FollowTheLyrics does the
     // same so the front can still move letter by letter.
     static void synthesizeWordTimes(QVector<LrcLine> &lines);
+    // Word stamps from another take can run past the next line. Drop them
+    // and let synthesizeWordTimes rebuild the front inside the line.
+    static void validateWordTimes(QVector<LrcLine> &lines);
 
     // ---- YouTube Music cascade -------------------------------------
     void startYtm(int candidate = 0);

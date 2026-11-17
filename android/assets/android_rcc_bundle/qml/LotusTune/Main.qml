@@ -2596,6 +2596,13 @@ Window {
             }
         }
     }
+    function cancelFade() {
+        if (fadeTimer.running) {
+            fadeTimer.stop()
+            player.volume = root._fadeBase
+        }
+        root._fadeAction = null
+    }
     function switchTrack(fn) {
         if (!fn)
             return
@@ -2609,7 +2616,12 @@ Window {
         fadeTimer.start()
     }
 
-    function next() {
+    function next(immediate) {
+        // At the end of a track the engine is already stopping. Fading here
+        // left the queue frozen at 0:00 when the timer fired after the new
+        // load, so the change is direct in that case.
+        if (immediate)
+            cancelFade()
         // Leftover case: the shuffle is on but the queue is not shuffled
         // yet. In normal conditions the queue IS the shuffled order and
         // it just walks linearly (that is what the queue view shows).
@@ -2617,7 +2629,10 @@ Window {
             reshuffleQueue()
         }
         if (queueIndex + 1 < queue.count) {
-            root.switchTrack(function () {
+            if (immediate) {
+                queueIndex++
+                startCurrent()
+            } else root.switchTrack(function () {
                 queueIndex++
                 startCurrent()
             })
@@ -2627,7 +2642,10 @@ Window {
         // first track without asking for autoplay (the music returns on
         // its own).
         if (root.repeatMode === 1 && queue.count > 0) {
-            root.switchTrack(function () {
+            if (immediate) {
+                queueIndex = 0
+                startCurrent()
+            } else root.switchTrack(function () {
                 queueIndex = 0
                 startCurrent()
             })
@@ -2746,15 +2764,16 @@ Window {
                 console.warn("[queue] pista fallida, avanzando")
                 if (root.currentTitle.length > 0)
                     root.toast(qsTr("No se pudo reproducir «%1»").arg(root.currentTitle))
-                root.next()
+                root.next(true)
                 return
             }
             // Repeat ONLY the song: the same track starts again.
             if (root.repeatMode === 2 && root.currentTitle.length > 0) {
+                root.cancelFade()
                 root.startCurrent()
                 return
             }
-            root.next()
+            root.next(true)
         }
         function onEngineStatusChanged() {
             if (player.engineStatus && player.engineStatus !== "ready"

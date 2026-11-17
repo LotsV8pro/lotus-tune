@@ -32,6 +32,8 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - La búsqueda de letras prueba también el título limpio y la parte después de « - » como canción, con el artista delante. Así se encuentran tiempos por palabra aunque el vídeo traiga el artista repetido en el título.
 - Cuando una fuente solo da el principio y el final de cada frase, el tiempo se reparte entre las palabras para que el karaoke siga avanzando letra a letra.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
+- Los tiempos por palabra que salen de otra versión de la canción se descartan y se recalculan dentro de cada frase.
+- Al terminar una canción se pasa a la siguiente sin fundido, para que la cola no se quede parada en 0:00.
 - La barra inferior tiene cinco botones: el de Inicio usa el logo de la app y «Descargas» abre la pestaña de descargas. Ajustes tiene pestañas reales por sección, con Cuentas primero y el idioma en un desplegable.
 - Inicio y Buscar muestran las búsquedas recientes como chips arriba.
 - El color de acento por defecto es el morado del logo; el corazón de «Me gusta» se ve más grande cuando está marcado.
