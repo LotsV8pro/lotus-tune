@@ -336,8 +336,8 @@ bool Lyrics::plainMatchesLines(const QString &plain,
 {
     if (plain.trimmed().isEmpty())
         return true;
-    static const QRegularExpression word(QStringLiteral("[\\p{L}\\p{N}]+"));
-    const auto wordsOf = [&word](const QString &s) {
+    const auto wordsOf = [](const QString &s) {
+        static const QRegularExpression word(QStringLiteral("[\\p{L}\\p{N}]+"));
         QStringList out;
         QRegularExpressionMatchIterator it = word.globalMatch(s.toLower());
         while (it.hasNext()) {

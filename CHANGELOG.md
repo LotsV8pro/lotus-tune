@@ -3,6 +3,12 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.1 (2026-11-17)
+
+### Correcciones
+
+- La letra de una canción ya no se sustituye por la de otra con un título parecido. Ahora se comprueba que las palabras coincidan con la canción que suena antes de mostrarla.
+
 ## 2.1.0 (2026-11-17)
 
 Esta versión se centra en que la música suene bien, la letra esté siempre a tiempo y la app se use igual en escritorio, Windows y teléfono.
