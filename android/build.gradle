@@ -63,18 +63,20 @@ android {
         versionName appVersionName
     }
 
-    // One key for every build. The debug key of each machine changes (the
-    // CI runner generates a new one per job), so an APK from one build
-    // could not be installed over another: Android answered
-    // INSTALL_FAILED_UPDATE_INCOMPATIBLE and the user had to uninstall,
-    // losing the session. This key travels in the repo, so any build of
-    // any version updates the previous one in place.
+    // One key for every build, so an update installs over the previous one
+    // without the user losing the session. The key is NOT in the repo: it
+    // lives in ~/lotus-android-toolchain on a dev machine and in GitHub
+    // Secrets in CI. Both the file and its password come from the
+    // environment, with the local toolchain path as a fallback.
+    def keystorePath = System.getenv('LOTUS_KEYSTORE_PATH') ?:
+        "${System.getProperty('user.home')}/lotus-android-toolchain/lotus-tune.keystore"
+    def keystorePass = System.getenv('LOTUS_KEYSTORE_PASSWORD') ?: 'lotustune'
     signingConfigs {
         lotus {
-            storeFile file('../../android/lotus-tune.keystore')
-            storePassword 'lotustune'
+            storeFile file(keystorePath)
+            storePassword keystorePass
             keyAlias 'lotus'
-            keyPassword 'lotustune'
+            keyPassword keystorePass
         }
     }
 

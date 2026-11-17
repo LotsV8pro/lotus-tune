@@ -140,12 +140,23 @@ bool runUpdateInTerminal()
         "Updates", "Listo. Abre Lotus Tune otra vez.");
     const QString wait = QCoreApplication::translate(
         "Updates", "Pulsa una tecla para cerrar.");
+    const QString bad = QCoreApplication::translate(
+        "Updates", "El instalador no pasó la comprobación; "
+                   "descárgalo desde la página de la versión.");
+    // SHA256 of tools/install.sh at this release. If the file upstream
+    // changes (a compromised repo, or a deliberate new installer), do NOT
+    // pipe it into bash: fall back to the release page instead.
+    const QString installSha = QStringLiteral(
+        "f11aff3ba58140e10b10f311abae0c6fa9bf1aa55e9964513cff8c3af7be02cc");
+    const QString installUrl = QStringLiteral(
+        "https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh");
     const QString command =
-        QStringLiteral("curl -fsSL %1 | bash; printf '\\n%2\\n'; "
-                       "read -r -n 1 -p '%3' _")
-            .arg(QStringLiteral(
-                     "https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh"),
-                 done, wait);
+        QStringLiteral("s=$(mktemp); curl -fsSL %1 -o \"$s\" || exit 1; "
+                       "if [ \"$(sha256sum \"$s\" | cut -d' ' -f1)\" = '%2' ]; "
+                       "then bash \"$s\"; printf '\\n%3\\n'; "
+                       "else printf '\\n%4\\n'; fi; "
+                       "rm -f \"$s\"; read -r -n 1 -p '%5' _")
+            .arg(installUrl, installSha, done, bad, wait);
 
     // The terminal of the session, in the order in which a desktop usually
     // has them. Each one takes the command after its own flag.
@@ -182,8 +193,19 @@ bool runWindowsUpdate(const QString &zipUrl)
 {
     if (zipUrl.isEmpty())
         return false;
+    // The URL and the install path are put inside single quotes of a
+    // PowerShell script. Reject anything that could close one, and only
+    // allow the HTTPS host the updater is supposed to use.
+    const QUrl url(zipUrl);
+    if (!url.isValid() || url.scheme() != QLatin1String("https")
+        || url.host() != QLatin1String("github.com")
+        || zipUrl.contains(QLatin1Char('\''))
+        || zipUrl.contains(QLatin1Char('\n')))
+        return false;
     const QString dir = QDir::toNativeSeparators(
         QCoreApplication::applicationDirPath());
+    if (dir.contains(QLatin1Char('\'')))
+        return false;
     // Same as above: these texts sit inside single quotes of PowerShell, so
     // they must not contain one.
     const QString downloading = QCoreApplication::translate(

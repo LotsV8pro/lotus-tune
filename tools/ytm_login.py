@@ -235,12 +235,16 @@ def _write_cookies(cookies):
             yt[name] = (rank, value)
     youtube_header = "; ".join(f"{name}={yt[name][1]}" for name in yt_order)
 
+    # These files hold the user's YouTube session: never leave them at the
+    # process umask, which is 0644 when the helper runs on its own.
     with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+        os.chmod(COOKIE_FILE, 0o600)
         f.write("# Netscape HTTP Cookie File\n")
         for r in rows:
             f.write("\t".join(r) + "\n")
 
     with open(SESSION_FILE, "w", encoding="utf-8") as f:
+        os.chmod(SESSION_FILE, 0o600)
         json.dump(
             {
                 "saved_at": int(time.time()),

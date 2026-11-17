@@ -1,0 +1,190 @@
+{
+  "schema_version": 3,
+  "findings": {
+    "code": [
+      {
+        "id": "C1",
+        "title": "Update URL injected into PowerShell script without escaping",
+        "type": "code",
+        "location": "src/updates.cpp:225",
+        "finding": "browser_download_url from the GitHub API was interpolated into a single-quoted PowerShell string without validation",
+        "consequence": "A crafted API response could append commands to the update script",
+        "fix": "Validate https://github.com host and reject quotes/newlines before interpolation",
+        "break_risk": "Low",
+        "status": "open"
+      },
+      {
+        "id": "C2",
+        "title": "Download URLs passed to yt-dlp without option terminator",
+        "type": "code",
+        "location": "src/downloads.cpp:913,1408,2184; src/player.cpp:1030",
+        "finding": "URL was the last argument with no -- separator, so a leading dash was read as a yt-dlp option",
+        "consequence": "A title starting with '-' could set yt-dlp flags such as --cookies or --exec",
+        "fix": "Insert -- before the URL in every yt-dlp invocation",
+        "break_risk": "Low",
+        "status": "open"
+      },
+      {
+        "id": "C3",
+        "title": "OAuth tokens and cookies written with world-readable permissions",
+        "type": "code",
+        "location": "tools/ytm_login.py:238; src/discordrpc.cpp:516",
+        "finding": "Session files were created at the process umask (0644 observed)",
+        "consequence": "Any local user could read the YouTube session and Discord tokens",
+        "fix": "umask 0077 at startup and explicit 0600 in the Python helper",
+        "break_risk": "Low",
+        "status": "open"
+      }
+    ],
+    "dependency": [
+      {
+        "id": "D1",
+        "title": "Build dependencies pinned but years out of date",
+        "type": "dependency",
+        "location": "android/build.gradle:13,46; .github/workflows/build.yml",
+        "package": "com.android.tools.build:gradle / androidx.core:core / aqtinstall",
+        "ecosystem": "gradle,pip",
+        "current_version": "8.5.0 / 1.10.1 / 3.3.0",
+        "upstream_url": "https://developer.android.com/build/releases/gradle-plugin",
+        "pinned": true,
+        "verdict": "keep with immutable pin",
+        "finding": "All versions are pinned but date from 2023-2024",
+        "maintainer": "company (Google / Android Open Source Project)",
+        "last_release": "2023-2024",
+        "scorecard": null,
+        "fix": "Upgrade when the Android build can be re-verified end to end",
+        "break_risk": "Medium",
+        "status": "open"
+      }
+    ],
+    "security": [
+      {
+        "id": "S1",
+        "title": "Remote installer executed without integrity check enables RCE",
+        "type": "security",
+        "class": "vulnerability",
+        "severity": "High",
+        "cvss": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "cvss_score": 8.1,
+        "cvss_nomenclature": "CVSS-B",
+        "stage": "3 · Exec",
+        "location": "src/updates.cpp:146",
+        "tags": [
+          "inject"
+        ],
+        "finding": "curl -fsSL <url> | bash piped the upstream script straight into a shell",
+        "fix": "Download to temp, verify pinned SHA256, execute only on match",
+        "break_risk": "Medium",
+        "status": "open"
+      },
+      {
+        "id": "S2",
+        "title": "Android signing key and password shipped in the repository",
+        "type": "security",
+        "class": "vulnerability",
+        "severity": "High",
+        "cvss": "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:R/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+        "cvss_score": 7.8,
+        "cvss_nomenclature": "CVSS-B",
+        "stage": "4 · Data",
+        "location": "android/lotus-tune.keystore; android/build.gradle:70",
+        "tags": [
+          "secret"
+        ],
+        "finding": "Signing keystore and its password were public, allowing anyone to sign APKs as the app",
+        "fix": "Remove keystore from git, keep the same key in GitHub Secrets and local toolchain",
+        "break_risk": "High",
+        "status": "open"
+      },
+      {
+        "id": "S3",
+        "title": "Session cookies and OAuth tokens readable by other local users",
+        "type": "security",
+        "class": "vulnerability",
+        "severity": "Medium",
+        "cvss": "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+        "cvss_score": 6.2,
+        "cvss_nomenclature": "CVSS-B",
+        "stage": "4 · Data",
+        "location": "tools/ytm_login.py:238; src/discordrpc.cpp:516",
+        "tags": [
+          "secret"
+        ],
+        "finding": "Credential files were written with 0644 permissions",
+        "fix": "umask 0077 and chmod 0600 on credential files",
+        "break_risk": "Low",
+        "status": "open"
+      },
+      {
+        "id": "S4",
+        "title": "Unescaped download URL and option-less yt-dlp invocation",
+        "type": "security",
+        "class": "vulnerability",
+        "severity": "Medium",
+        "cvss": "CVSS:4.0/AV:N/AC:H/AT:P/PR:L/UI:N/VC:H/VI:H/VA:L/SC:N/SI:N/SA:N",
+        "cvss_score": 6.1,
+        "cvss_nomenclature": "CVSS-B",
+        "stage": "3 · Exec",
+        "location": "src/updates.cpp:225; src/downloads.cpp:913",
+        "tags": [
+          "inject"
+        ],
+        "finding": "API-provided URL interpolated into PowerShell and download URL not separated with --",
+        "fix": "Validate URL scheme/host and add -- terminator",
+        "break_risk": "Low",
+        "status": "open"
+      },
+      {
+        "id": "S5",
+        "title": "Exported media service lets other apps control playback",
+        "type": "security",
+        "class": "hardening",
+        "efficacy": "Medium",
+        "cwe": "CWE-269",
+        "stage": "2 · Authz",
+        "location": "android/AndroidManifest.xml:103",
+        "tags": [
+          "rbac"
+        ],
+        "finding": "AudioService was exported with no permission although only in-app components use it",
+        "fix": "Set android:exported=false",
+        "break_risk": "Medium",
+        "status": "open"
+      },
+      {
+        "id": "S6",
+        "title": "Protected WRITE_SECURE_SETTINGS permission requested by the app",
+        "type": "security",
+        "class": "hardening",
+        "efficacy": "Medium",
+        "cwe": "CWE-250",
+        "stage": "1 · Trust",
+        "location": "android/AndroidManifest.xml:25",
+        "tags": [
+          "isolate"
+        ],
+        "finding": "A protected permission used only for an optional MIUI refresh-rate tweak was declared",
+        "fix": "Drop the permission and the MIUI settings write",
+        "break_risk": "Medium",
+        "status": "open"
+      },
+      {
+        "id": "S7",
+        "title": "App data allowed in unencrypted backups",
+        "type": "security",
+        "class": "hardening",
+        "efficacy": "Low",
+        "cwe": "CWE-530",
+        "stage": "4 · Data",
+        "location": "android/AndroidManifest.xml:33",
+        "tags": [
+          "expose"
+        ],
+        "finding": "allowBackup=true permits adb backup of app data including session state",
+        "fix": "Set android:allowBackup=false",
+        "break_risk": "Low",
+        "status": "open"
+      }
+    ]
+  }
+}

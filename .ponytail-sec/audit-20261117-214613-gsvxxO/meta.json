@@ -1,0 +1,28 @@
+{
+  "schema_version": 3,
+  "timestamp": "2026-11-17T21:46:31Z",
+  "commit": "9f469e39853bbdea25a7400e0031b8af7756c18e",
+  "branch": "master",
+  "scope": "full-project",
+  "passes": [
+    "code",
+    "dependencies",
+    "security"
+  ],
+  "finding_count": {
+    "code": 3,
+    "dependency": 1,
+    "security": 7,
+    "total": 11
+  },
+  "max_cvss_score": 8.1,
+  "findings_sha256": "3d155a1db0a208be3f7556ef646813a9c8ee976928f633a6692e86cebdec001e",
+  "usage": {
+    "model": "hy4-flash-free",
+    "input_tokens": null,
+    "output_tokens": null,
+    "total_tokens": null,
+    "estimated_cost_usd": null,
+    "source": "unavailable"
+  }
+}

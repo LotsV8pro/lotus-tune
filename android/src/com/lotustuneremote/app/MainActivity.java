@@ -174,19 +174,9 @@ public class MainActivity extends QtActivity
 
                     final float hz = bestHz;
 
-                    // MIUI/HyperOS ignores the request of the app: its framework casts its
-                    // own vote (PRIORITY_MIUI_REFRESH_RATE) and leaves the window at 60 Hz.
-                    // What it does respect is its own "miui_refresh_rate" setting, so it is
-                    // written there (needs WRITE_SECURE_SETTINGS; without the permission the
-                    // exception is ignored and nothing changes).
-                    if (isMIUI()) {
-                        try {
-                            android.provider.Settings.Secure.putInt(
-                                act.getContentResolver(), "miui_refresh_rate",
-                                Math.round(hz));
-                        } catch (Throwable ignored) {
-                        }
-                    }
+                    // MIUI/HyperOS may still cap the window at 60 Hz: writing its
+                    // "miui_refresh_rate" setting would need a protected permission,
+                    // so the app only asks the framework for the high rate.
 
                     final View decor = win.getDecorView();
                     // The surface of Qt is created after onCreate: a callback is hooked to ask

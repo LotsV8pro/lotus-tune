@@ -1027,7 +1027,8 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
              // affecting the playback.
              << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
     }
-    args << url;
+    // A URL starting with '-' must not be read as a yt-dlp option.
+    args << QStringLiteral("--") << url;
 #ifdef Q_OS_ANDROID
     // No yt-dlp on a phone: the stream is resolved with the app's own chain
     // (WEB_REMIX + WebView solver). One chain at a time: the other jobs

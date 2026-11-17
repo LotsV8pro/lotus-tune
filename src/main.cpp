@@ -52,7 +52,8 @@ struct FrameStats
 
 #include <csignal>
 #include <cstdio>
-#if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
+#if defined(Q_OS_UNIX)
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 #ifdef Q_OS_ANDROID
@@ -409,6 +410,12 @@ static void attachParentConsole()
 
 int main(int argc, char *argv[])
 {
+#if defined(Q_OS_UNIX)
+    // Session cookies, OAuth tokens and the settings file live under the
+    // user's config dir. The default umask leaves them readable by every
+    // local user; new files must be owner-only from the first write.
+    umask(0077);
+#endif
 #if defined(Q_OS_WIN)
     // The .exe is linked as a GUI app (no console window behind the player).
     // When it is started from a cmd/PowerShell window WITH arguments

@@ -5,6 +5,12 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
 ## 2.1.1 (2026-11-17)
 
+### Seguridad
+
+- El instalador se descarga y se comprueba antes de ejecutarse.
+- Los archivos con la sesión y los permisos de acceso ya no son legibles por otros usuarios del equipo.
+- La app deja de pedir permisos del sistema que no necesita.
+
 ### Correcciones
 
 - La letra de una canción ya no se sustituye por la de otra con un título parecido. Ahora se comprueba que las palabras coincidan con la canción que suena antes de mostrarla.

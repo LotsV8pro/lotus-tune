@@ -16,21 +16,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <!-- Solo en MIUI/HyperOS: escribe su ajuste "miui_refresh_rate" para
-         que el panel no baje la app a 60 Hz. Se concede con
-         `adb shell pm grant com.lotustuneremote.app
-         android.permission.WRITE_SECURE_SETTINGS`. Sin el permiso la
-         app funciona igual (solo se queda en la frecuencia que le de
-         el sistema). -->
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
-        tools:ignore="ProtectedPermissions"/>
-    
     <application 
         android:name=".LotusApplication"
         android:theme="@android:style/Theme.NoTitleBar"
         android:label="@string/app_label"
         android:icon="@drawable/ic_launcher"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:extractNativeLibs="true"
         android:hardwareAccelerated="false"
         android:supportsRtl="true"
@@ -101,7 +92,7 @@
         
         <service 
             android:name="com.lotustuneremote.app.AudioService"
-            android:exported="true"
+            android:exported="false"
             android:foregroundServiceType="mediaPlayback"/>
     </application>
 </manifest>

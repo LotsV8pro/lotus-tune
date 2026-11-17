@@ -910,7 +910,8 @@ void Downloads::startNext()
         args << QStringLiteral("--cookies") << cookies;
     }
 
-    args << j.url;
+    // A title that starts with '-' must not be read as a yt-dlp option.
+    args << QStringLiteral("--") << j.url;
 
     m_proc.setProgram(QStringLiteral("yt-dlp"));
     m_proc.setArguments(args);
@@ -1404,7 +1405,7 @@ void Downloads::startAndroidJob(int index)
             || j.url.contains(QLatin1String("youtu.be")))) {
         args << QStringLiteral("--cookies") << cookies;
     }
-    args << j.url;
+    args << QStringLiteral("--") << j.url;
 
     // The child does not resolve DNS (netd answers NODATA): the parent
     // resolves through Java and passes the IPs, as Catalog does.
@@ -2180,7 +2181,7 @@ void Downloads::startNextFolderMeta()
         && (url.contains(QLatin1String("youtube.com"))
             || url.contains(QLatin1String("youtu.be"))))
         args << QStringLiteral("--cookies") << cookies;
-    args << url;
+    args << QStringLiteral("--") << url;
     m_metaProc.setProgram(QStringLiteral("yt-dlp"));
     m_metaProc.setArguments(args);
     m_metaProc.start();

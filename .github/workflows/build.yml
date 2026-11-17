@@ -203,6 +203,22 @@ jobs:
           yes | "$SDKMAN" --licenses > /dev/null 2>&1 || true
           "$SDKMAN" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
 
+      - name: Clave de firma
+        # The keystore is not in the repo. CI gets it from GitHub Secrets;
+        # the same key as the local builds, so updates install in place.
+        env:
+          KEYSTORE_B64: ${{ secrets.LOTUS_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.LOTUS_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASS" ]; then
+            echo "Faltan los secrets LOTUS_KEYSTORE_B64 / LOTUS_KEYSTORE_PASSWORD" >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/lotus-tune.keystore"
+          chmod 600 "$RUNNER_TEMP/lotus-tune.keystore"
+          echo "LOTUS_KEYSTORE_PATH=$RUNNER_TEMP/lotus-tune.keystore" >> $GITHUB_ENV
+          echo "LOTUS_KEYSTORE_PASSWORD=$KEYSTORE_PASS" >> $GITHUB_ENV
+
       - name: Compilar el APK
         # The recipe lives in tools/build-android.sh. The workflow used to
         # carry its own copy and lost the Qt QML rcc along the way: the
