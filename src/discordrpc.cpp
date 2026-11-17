@@ -409,7 +409,11 @@ void DiscordRpc::setActivity(const QString &title, const QString &artist,
     const bool significant = !m_sentValid || title != m_sentTitle
         || artist != m_sentArtist || album != m_sentAlbum || thumbUrl != m_sentThumb
         || playing != m_sentPlaying;
-    const bool seeked = qAbs(m_position - m_sentPosition) > kSeekToleranceSeconds;
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    const double expected = m_sentValid
+        ? m_sentPosition + double(nowMs - m_sentAt) / 1000.0 : m_position;
+    const bool seeked = m_sentValid
+        && qAbs(m_position - expected) > kSeekToleranceSeconds;
     if (!significant && !seeked)
         return;
 
@@ -421,6 +425,7 @@ void DiscordRpc::setActivity(const QString &title, const QString &artist,
     m_sentPlaying = playing;
     m_sentValid = true;
     m_sentPosition = m_position;
+    m_sentAt = nowMs;
 }
 
 void DiscordRpc::clear()

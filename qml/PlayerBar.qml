@@ -66,6 +66,17 @@ Rectangle {
     signal trackMenuRequested(real x, real y)
     signal artistRequested(string name)
 
+    // A line like "Skrillex, Naisha y BEAM" is three artists, not one.
+    // Each name gets its own chip so it can open its own page.
+    function artistNames() {
+        const s = String(bar.artist || "").trim()
+        if (s === "")
+            return []
+        const parts = s.split(/,|&|\s+y\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+|\s+con\s+/i)
+        return parts.map(function (p) { return p.trim() })
+                    .filter(function (p) { return p.length > 0 })
+    }
+
     property bool scrubbing: false
     property real scrubPos: 0
 
@@ -550,23 +561,48 @@ Rectangle {
                                     }
                                 }
                             }
-                            Text {
-                                id: barArtist
+                            Item {
                                 Layout.fillWidth: true
+                                implicitHeight: artistRow.implicitHeight
                                 visible: !bar.loading
-                                text: bar.artist.length ? bar.artist : "—"
-                                color: Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tXs
-                                font.underline: barArtistHover.hovered
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
-                                HoverHandler { id: barArtistHover; cursorShape: Qt.PointingHandCursor }
-                                TapHandler {
-                                    onTapped: {
-                                        if (typeof sfx !== "undefined")
-                                            sfx.play("tap")
-                                        if (bar.artist.length)
-                                            bar.artistRequested(bar.artist)
+                                Row {
+                                    id: artistRow
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    spacing: Theme.s1
+                                    clip: true
+                                    Repeater {
+                                        model: bar.artistNames()
+                                        Rectangle {
+                                            readonly property string artistName: modelData
+                                            height: artistLabel.implicitHeight + Theme.s1
+                                            width: Math.min(artistLabel.implicitWidth + Theme.s2,
+                                                            artistRow.width)
+                                            radius: height / 2
+                                            antialiasing: true
+                                            color: artistHover.hovered
+                                                   ? Theme.hover(Sys.surface) : "transparent"
+                                            Text {
+                                                id: artistLabel
+                                                anchors.centerIn: parent
+                                                text: artistName
+                                                color: Theme.tDim(Sys.bg, Sys.text)
+                                                font.pixelSize: Theme.tXs
+                                                elide: Text.ElideRight
+                                                maximumLineCount: 1
+                                            }
+                                            HoverHandler {
+                                                id: artistHover
+                                                cursorShape: Qt.PointingHandCursor
+                                            }
+                                            TapHandler {
+                                                onTapped: {
+                                                    if (typeof sfx !== "undefined")
+                                                        sfx.play("tap")
+                                                    bar.artistRequested(artistName)
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }

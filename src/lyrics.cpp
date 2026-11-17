@@ -699,13 +699,18 @@ void Lyrics::startTranslateFallback()
 void Lyrics::pumpTranslateFallback()
 {
     if (m_fallbackIndex >= m_fallbackTexts.size()) {
-        QHash<QString, QString> byText;
-        for (int i = 0; i < m_fallbackTexts.size(); ++i) {
-            const QString tr = m_fallbackResults.value(i).trimmed();
-            if (!tr.isEmpty())
-                byText.insert(m_fallbackTexts.at(i), tr);
+        // MyMemory has no quota left for some lines. One batched request
+        // through the public reader fills all of them: a request per line
+        // hits its limit after ~20 and leaves the rest untranslated.
+        m_jinaIndices.clear();
+        for (int i = 0; i < m_fallbackTexts.size(); ++i)
+            if (m_fallbackResults.value(i).trimmed().isEmpty())
+                m_jinaIndices.append(i);
+        if (!m_jinaIndices.isEmpty()) {
+            requestJinaBatch();
+            return;
         }
-        applyTranslationMap(byText);
+        applyFallbackResults();
         return;
     }
     const int index = m_fallbackIndex;
@@ -743,16 +748,32 @@ void Lyrics::pumpTranslateFallback()
     });
 }
 
-// Public reader proxy. It fetches the same Google endpoint from its own
-// network, so a throttled home IP does not block the translation.
-void Lyrics::requestJinaLine(int index)
+// Public reader proxy. One request translates every line MyMemory could
+// not. Google's endpoint ignores newlines in a proxied response, so the
+// lines are joined with a delimiter that survives the round trip.
+void Lyrics::requestJinaBatch()
 {
+    // Google truncates very long inputs. Small chunks keep every line and
+    // stay far below the public reader's request limit.
+    m_jinaPending = 0;
+    for (int at = 0; at < m_jinaIndices.size(); at += 3) {
+        ++m_jinaPending;
+        requestJinaChunk(m_jinaIndices.mid(at, 3));
+    }
+}
+
+void Lyrics::requestJinaChunk(const QList<int> &indices)
+{
+    QStringList pending;
+    for (int i : indices)
+        pending.append(m_fallbackTexts.at(i));
     QUrlQuery inner;
     inner.addQueryItem(QStringLiteral("client"), QStringLiteral("gtx"));
     inner.addQueryItem(QStringLiteral("sl"), QStringLiteral("auto"));
     inner.addQueryItem(QStringLiteral("tl"), m_translateTo);
     inner.addQueryItem(QStringLiteral("dt"), QStringLiteral("t"));
-    inner.addQueryItem(QStringLiteral("q"), m_fallbackTexts.at(index));
+    inner.addQueryItem(QStringLiteral("q"),
+                       pending.join(QStringLiteral(" Zx9Kq2 ")));
     const QUrl url(QStringLiteral("https://r.jina.ai/")
                    + QStringLiteral("https://translate.googleapis.com/translate_a/single?")
                    + inner.toString(QUrl::FullyEncoded));
@@ -763,11 +784,25 @@ void Lyrics::requestJinaLine(int index)
     reply->setProperty("trackKey", m_trackKey);
     reply->setProperty("gen", m_gen);
     reply->setProperty("translationGen", m_fallbackGen);
-    reply->setProperty("lineIndex", index);
     reply->setProperty("viaJina", true);
+    QVariantList idx;
+    for (int i : indices)
+        idx.append(i);
+    reply->setProperty("jinaIndices", idx);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         onTranslateFallbackReply(reply, reply->property("trackKey").toString());
     });
+}
+
+void Lyrics::applyFallbackResults()
+{
+    QHash<QString, QString> byText;
+    for (int i = 0; i < m_fallbackTexts.size(); ++i) {
+        const QString tr = m_fallbackResults.value(i).trimmed();
+        if (!tr.isEmpty())
+            byText.insert(m_fallbackTexts.at(i), tr);
+    }
+    applyTranslationMap(byText);
 }
 
 void Lyrics::onTranslateFallbackReply(QNetworkReply *reply, const QString &key)
@@ -807,20 +842,27 @@ void Lyrics::onTranslateFallbackReply(QNetworkReply *reply, const QString &key)
     if (isStale(reply, key, m_trackKey, m_gen) || gen != m_fallbackGen)
         return;
     if (viaJina) {
-        if (!text.isEmpty())
-            m_fallbackResults.insert(index, text);
-        ++m_fallbackIndex;
-        pumpTranslateFallback();
+        // Each chunk carries its own indices, so out-of-order answers
+        // never mix their lines.
+        const QVariantList idx = reply->property("jinaIndices").toList();
+        const QStringList parts = text.split(QRegularExpression(
+            QStringLiteral("\\s*(?:Zx9Kq2|\\|\\|\\||‹|›)\\s*")));
+        // A short answer means the service cut the chunk: the parts it
+        // did return still belong to the first lines of that chunk.
+        for (int i = 0; i < parts.size() && i < idx.size(); ++i) {
+            const QString tr = parts.at(i).trimmed();
+            if (!tr.isEmpty())
+                m_fallbackResults.insert(idx.at(i).toInt(), tr);
+        }
+        --m_jinaPending;
+        if (m_jinaPending <= 0)
+            applyFallbackResults();
         return;
     }
-    if (!text.isEmpty()) {
+    if (!text.isEmpty())
         m_fallbackResults.insert(index, text);
-        ++m_fallbackIndex;
-        pumpTranslateFallback();
-        return;
-    }
-    // MyMemory is out of quota: ask the public reader for this one line.
-    requestJinaLine(index);
+    ++m_fallbackIndex;
+    pumpTranslateFallback();
 }
 
 void Lyrics::applyTranslatedText(const QString &all)

@@ -309,7 +309,9 @@ private:
     void startTranslateFallback();
     void pumpTranslateFallback();
     void onTranslateFallbackReply(QNetworkReply *reply, const QString &key);
-    void requestJinaLine(int index);
+    void requestJinaBatch();
+    void requestJinaChunk(const QList<int> &indices);
+    void applyFallbackResults();
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
@@ -478,6 +480,8 @@ private:
     // for the old lines drops itself (notably after a word-level upgrade).
     int m_translationGen = 0;
     QStringList m_fallbackTexts;
+    QList<int> m_jinaIndices;
+    int m_jinaPending = 0;
     QHash<int, QString> m_fallbackResults;
     int m_fallbackIndex = 0;
     int m_fallbackGen = 0;

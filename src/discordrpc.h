@@ -126,6 +126,9 @@ private:
     bool m_sentPlaying = false;
     bool m_sentValid = false;
     double m_sentPosition = 0.0;
+    // Wall clock of the last send: normal playback advances the position,
+    // only a jump away from that expected value is a real seek.
+    qint64 m_sentAt = 0;
 
     QByteArray m_buf;                // accumulator of partial reads
 
