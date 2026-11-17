@@ -789,6 +789,34 @@ QString flexText(const Json &renderer, int index)
     return joinRuns(col.value(QLatin1String("text")).toObject()).trimmed();
 }
 
+// python flexColumnRuns: the runs of flexColumns[index] (the artist column
+// of a row).
+QJsonArray flexColumnRuns(const Json &renderer, int index)
+{
+    const QJsonArray cols =
+        renderer.toObject().value(QLatin1String("flexColumns")).toArray();
+    if (index >= cols.size())
+        return {};
+    return cols.at(index).toObject()
+        .value(QLatin1String("musicResponsiveListItemFlexColumnRenderer"))
+        .toObject()
+        .value(QLatin1String("text")).toObject()
+        .value(QLatin1String("runs")).toArray();
+}
+
+// python _looks_like_play_count: "19 M reproducciones", "1.2M plays", ...
+// On the artist page that text sits in the artist column of the top songs.
+bool looksLikePlayCount(const QString &text)
+{
+    static const QRegularExpression re(
+        QStringLiteral("^\\s*[\\d.,]+\\s*"
+                       "(?:[kmb]|mil|mill[oó]n(?:es)?|billion|million)?\\s*"
+                       "(?:reproducciones|reproducci[oó]n|plays?|"
+                       "visualizaciones|vistas|views)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    return re.match(text).hasMatch();
+}
+
 // python _subtitle_of.
 QString subtitleOf(const Json &renderer)
 {
@@ -1061,7 +1089,7 @@ QJsonObject trackOf(const Json &renderer)
 
     QString artist;
     const QString byline = flexText(renderer, 1);
-    if (!byline.isEmpty()) {
+    if (!byline.isEmpty() && !looksLikePlayCount(byline)) {
         // separators "·" and "," between artists in YT Music become ", ".
         artist = byline;
         artist.replace(kSepArtistRe, QStringLiteral(", "));
@@ -1996,11 +2024,20 @@ QJsonObject artistPage(const QString &bidIn, const QString &artistName)
                         QLatin1String("musicResponsiveListItemRenderer"));
                 if (!row.isObject())
                     continue;
-                const QJsonObject t = trackOf(row);
+                QJsonObject t = trackOf(row);
                 const QString id = t.value(QLatin1String("id")).toString();
                 if (id.isEmpty() || songsSeen.contains(id))
                     continue;
                 songsSeen.insert(id);
+                // This page only lists songs of this artist: when the row
+                // carries no linked artist, the artist is the page one and
+                // not the text of the column (plays there).
+                if (linkedArtists(flexColumnRuns(row, 1)).isEmpty()) {
+                    const QString pn =
+                        page.value(QLatin1String("name")).toString();
+                    if (!pn.isEmpty())
+                        t.insert(QLatin1String("channel"), pn);
+                }
                 songs.append(t);
             }
         } else if (kind == QLatin1String("albums")
@@ -2583,7 +2620,9 @@ int main(int argc, char *argv[])
         if (cmd == QLatin1String("artistpage")) {
             if (rest.isEmpty())
                 die(QStringLiteral("falta el browseId del artista"));
-            printObj(artistPage(rest.first(), QString()));
+            const QString nm =
+                rest.size() > 1 ? rest.at(1) : QString();
+            printObj(artistPage(rest.first(), nm));
             return 0;
         }
         if (cmd == QLatin1String("album")) {

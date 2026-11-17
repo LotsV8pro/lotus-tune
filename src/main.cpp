@@ -476,6 +476,16 @@ int main(int argc, char *argv[])
     // and NVIDIA's video driver, and from making the first GL call that
     // drags in the whole driver vendor (~40-65 MB of RSS). It must run
     // before building QGuiApplication.
+#ifdef Q_OS_ANDROID
+    // The phone's own player (MediaPlayer) instead of Qt's ffmpeg backend.
+    // With ffmpeg the audio comes out through Qt's OpenSL sink, which this
+    // phone stops and starts again several times in the first second of a
+    // song (and again in the middle of some), and every one of those is an
+    // audible click. MediaPlayer goes straight to the audio HAL, and the
+    // same song plays without a single stop in the log.
+    if (qEnvironmentVariableIsEmpty("QT_MEDIA_BACKEND"))
+        qputenv("QT_MEDIA_BACKEND", "android");
+#endif
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_DECODING_HW_DEVICE_TYPES"))
         qputenv("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", "");
     if (qEnvironmentVariableIsEmpty("QT_FFMPEG_ENCODING_HW_DEVICE_TYPES"))

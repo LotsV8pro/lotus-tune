@@ -1783,7 +1783,7 @@ Window {
         root.artistPageData = ({})
         root.artistBusy = true
         root.artistOpen = true
-        catalog.fetchArtistPage(a.browseId)
+        catalog.fetchArtistPage(a.browseId, a.name)
     }
 
     // Info of the playing track for the context menus of the bar and of
@@ -2773,24 +2773,21 @@ Window {
     // per version and are replaced when the version goes up.
     readonly property string whatsNewText: root.isPhone ? [
         qsTr("Audio"),
-        qsTr("• En Android se baja siempre el m4a, que es el formato que el teléfono reproduce limpio. El webm con opus queda solo para las canciones que no traen otra cosa."),
-        qsTr("• El bucle de silencio que mantiene el audio despierto se para mientras suena música. Era ese segundo flujo el que chasqueaba al empezar algunas canciones."),
+        qsTr("• Se ha corregido el fallo que hacía que algunas canciones empezaran con chasquidos y petardeos."),
         "",
         qsTr("Artistas"),
-        qsTr("• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista de los que se han encontrado y cada uno se abre por separado.")
+        qsTr("• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista y cada uno se abre por separado."),
+        qsTr("• Las canciones de un artista ya no aparecen con el número de reproducciones en lugar del nombre.")
     ].join("\n") : [
-        qsTr("Buscador"),
-        qsTr("• Una fila de listas encima de la de artistas: las listas que ha hecho otra gente en YouTube Music. Al pulsar una se abre tal cual, sin guardarla antes."),
-        "",
         qsTr("Artistas"),
         qsTr("• Con varios artistas en una canción, el nombre abre la lista de los encontrados y cada uno se abre por separado."),
+        qsTr("• En la página de un artista, sus canciones ya no llevan el número de reproducciones como nombre."),
+        "",
+        qsTr("Buscador"),
+        qsTr("• Las listas de otra gente salen en su propia fila y se abren tal cual, sin guardarlas antes."),
         "",
         qsTr("Windows"),
-        qsTr("• El archivo que se descarga ya es un instalador normal. Se instala para el usuario actual, deja los accesos directos y el desinstalador, y lleva dentro mpv, yt-dlp y Python: no hay que instalar nada más."),
-        qsTr("• El programa ya no abre una ventana de consola detrás del reproductor."),
-        "",
-        qsTr("Diagnóstico"),
-        qsTr("• El registro dice qué formato de audio se baja de cada pista, y el diagnóstico si la conexión es de datos.")
+        qsTr("• La descarga es un instalador normal, con sus accesos directos y su desinstalador, y ya no abre una ventana de consola detrás del reproductor.")
     ].join("\n")
 
     function closeWhatsNew() {

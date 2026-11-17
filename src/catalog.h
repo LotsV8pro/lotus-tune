@@ -136,7 +136,8 @@ public:
     // The artist's whole page in sections (songs, albums, singles, radios,
     // similar artists) plus the full discography for "Play all":
     // artistPageReady(browseId, page).
-    Q_INVOKABLE void fetchArtistPage(const QString &browseId);
+    Q_INVOKABLE void fetchArtistPage(const QString &browseId,
+                                     const QString &name = QString());
     // Tracks of an album or single: albumTracksReady(browseId, tracks).
     Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
     // Shows `tracks` as the open list without going through any URL. The

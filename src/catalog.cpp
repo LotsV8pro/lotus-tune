@@ -1434,15 +1434,20 @@ void Catalog::fetchArtist(const QString &browseId)
               QStringLiteral("artist"), id);
 }
 
-void Catalog::fetchArtistPage(const QString &browseId)
+void Catalog::fetchArtistPage(const QString &browseId, const QString &name)
 {
     const QString id = browseId.trimmed();
     if (id.isEmpty()) {
         emit artistPageReady(id, {});
         return;
     }
-    runArtist({ytmApiPath(), QStringLiteral("artistpage"), id},
-              QStringLiteral("artistpage"), id);
+    // The name travels along: the page lists tracks whose artist column can
+    // be the play count instead of the name, and this is the name to put
+    // there when the row brings nothing.
+    QStringList args{ytmApiPath(), QStringLiteral("artistpage"), id};
+    if (!name.trimmed().isEmpty())
+        args << name.trimmed();
+    runArtist(args, QStringLiteral("artistpage"), id);
 }
 
 void Catalog::fetchAlbumTracks(const QString &browseId)

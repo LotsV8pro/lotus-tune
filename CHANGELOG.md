@@ -5,12 +5,11 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
 ## 2.0.9 (2026-11-17)
 
-El audio deja de petardear en el teléfono, y un nombre con varios artistas se abre artista por artista.
+El audio deja de petardear en el teléfono, los artistas de una canción se abren uno a uno y la página de un artista ya no confunde las reproducciones con el nombre.
 
-- En Android se baja siempre el audio m4a cuando la canción lo tiene. El webm con opus, que en algunos teléfonos sonaba a chasquidos, queda solo para las pistas que no traen m4a. En el escritorio no cambia nada.
-- El bucle de silencio que mantiene el audio despierto se para mientras suena música. Con la canción en marcha el motor de audio ya está abierto y ese segundo flujo no aportaba nada. Sigue corriendo con la app delante y la música en pausa, que es cuando hace falta para que el primer toque no se pierda.
-- El registro de la app dice qué formato de audio se ha bajado de cada pista (itag, tipo y bitrate), que es lo primero que hay que mirar si una canción vuelve a sonar mal.
+- En el teléfono, las canciones que empezaban con chasquidos y petardeos ya suenan limpias. La app reproduce con el reproductor del propio teléfono, que entrega el audio sin cortes, en lugar del que traía Qt.
 - Cuando la canción tiene varios artistas ("A, B", "A & B", "A feat. B"), pulsar el nombre ya no abre el primero que devuelve el buscador. Sale la lista de los artistas encontrados, primero los que están de verdad en esa línea, y cada uno se abre por separado.
+- En la página de un artista, las canciones de arriba ya no se quedan con "19 M reproducciones" como nombre del artista: si la fila no trae el nombre enlazado, se pone el del artista de la página.
 
 ## 2.0.8 (2026-11-16)
 

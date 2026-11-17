@@ -425,6 +425,20 @@ def _like_status_of(renderer):
     return ""
 
 
+# En la página del artista la columna del artista de las canciones de
+# arriba lleva el número de reproducciones ("19 M reproducciones"), no el
+# nombre. Si se toma tal cual, la canción queda con un artista que no
+# existe.
+_PLAY_COUNT_RE = re.compile(
+    r"^\s*[\d.,]+\s*(?:[kmb]|mil|mill[oó]n(?:es)?|billion|million)?\s*"
+    r"(?:reproducciones|reproducci[oó]n|plays?|visualizaciones|vistas|views)\s*$",
+    re.I)
+
+
+def _looks_like_play_count(text):
+    return bool(_PLAY_COUNT_RE.match(text or ""))
+
+
 def _track_of(renderer):
     """Convierte un renderer de track (music/playlist o playlistVideo) a mapa."""
     video_id = _video_id_of(renderer)
@@ -440,7 +454,8 @@ def _track_of(renderer):
     artist = ""
     # musicResponsiveListItemRenderer: columna 1 = artista(es).
     byline = _flex_text(renderer, 1)
-    if byline:  # separadores "·" entre artistas en YT Music
+    if byline and not _looks_like_play_count(byline):
+        # separadores "·" entre artistas en YT Music
         artist = re.sub(r"\s*[·,]\s*", ", ", byline).strip(" -,")
     if not artist:
         # playlistVideoRenderer usa shortBylineText.runs[].text
@@ -968,6 +983,12 @@ def artist_page(browse_id, artist_name=""):
                 t = _track_of(r) if r else None
                 if t and t["id"] not in songs_seen:
                     songs_seen.add(t["id"])
+                    # Esta página lista canciones del propio artista: si la
+                    # fila no trae un artista enlazado, el artista es él y
+                    # no el texto de la columna (que ahí son las
+                    # reproducciones).
+                    if not _nav_artist(r):
+                        t["channel"] = page["name"]
                     page["songs"].append(t)
         elif kind in ("albums", "singles"):
             bucket = page[kind]
