@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(lotus-tune
-    VERSION 2.0.7
+    VERSION 2.0.8
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -81,6 +81,23 @@ set(LOTUS_SOURCES
 )
 
 qt_add_executable(lotus-tune ${LOTUS_SOURCES})
+
+if(WIN32)
+    # A GUI app, not a console one: without this MSVC links the console
+    # subsystem and a black window opens behind the player. The .rc gives the
+    # .exe its icon and the version the installer and the user read.
+    set_target_properties(lotus-tune PROPERTIES WIN32_EXECUTABLE TRUE)
+    set(LOTUS_WIN_FILEVERSION
+        "${PROJECT_VERSION_MAJOR},${PROJECT_VERSION_MINOR},${PROJECT_VERSION_PATCH},0")
+    set(LOTUS_WIN_ICON
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/lotus-tune.ico")
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/windows/lotus-tune.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/lotus-tune.rc"
+        @ONLY)
+    target_sources(lotus-tune PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/lotus-tune.rc")
+endif()
 
 # The native catalogue helper for the phone: on Android Catalog runs this
 # binary instead of "python3 ytm_api.py" / "yt-dlp" (there is no Python and

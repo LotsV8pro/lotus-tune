@@ -1,0 +1,319 @@
+import QtQuick
+import QtQuick.Layouts
+import "theme.js" as Theme
+
+// Artist page (full screen layer): their discography, from the newest
+// album to the oldest. "Play all" starts with the newest and the rest
+// come in one by one; "Shuffle" adds every track and shuffles the whole
+// queue. Clicking a row plays only that album.
+Item {
+    id: page
+
+    // Data coming from Main: artist { name, browseId, thumb } and albums
+    // [{ title, browseId, thumb, subtitle, year }].
+    property var artist: null
+    property var albums: []
+    property bool busy: false
+
+    signal backRequested()
+    signal playAllRequested(bool random)
+    signal albumPlayRequested(var album)
+
+    // Swallows the clicks: nothing behind (content, bar) should react.
+    MouseArea {
+        anchors.fill: parent
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: Sys.bg
+    }
+
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: Theme.s5
+        spacing: Theme.s3
+
+        // ---- header: back + name ----------------------------------------
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: Theme.s2
+
+            Rectangle {
+                width: 36
+                height: 36
+                radius: Theme.rMd
+                color: backMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
+                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 18
+                    height: 18
+                    kind: "back"
+                    color: Sys.text
+                }
+                MouseArea {
+                    id: backMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: {
+                        if (typeof sfx !== "undefined") sfx.play("tap")
+                        page.backRequested()
+                    }
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: page.artist ? String(page.artist.name || "") : ""
+                color: Sys.text
+                font.pixelSize: Theme.tXl
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+        }
+
+        // ---- card: portrait, actions --------------------------------------
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: Theme.s2
+            Layout.bottomMargin: Theme.s2
+            spacing: Theme.s4
+
+            Rectangle {
+                Layout.preferredWidth: 132
+                Layout.preferredHeight: 132
+                radius: Theme.rLg
+                clip: true
+                color: Sys.surface
+                RoundedArt {
+                    id: artImg
+                    anchors.fill: parent
+                    source: page.artist ? String(page.artist.thumb || "") : ""
+                    radiusSpec: Theme.rLg
+                }
+                Glyph {
+                    anchors.centerIn: parent
+                    width: 46
+                    height: 46
+                    visible: !artImg.ready
+                    kind: "music"
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+
+                RowLayout {
+                    spacing: Theme.s3
+
+                    // Primary action: the whole artist, newest to
+                    // oldest.
+                    Rectangle {
+                        width: playAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
+                        height: 40
+                        radius: Theme.rPill
+                        color: playAllMa.containsMouse
+                               ? Theme.hover(Sys.accent) : Sys.accent
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s2
+                            Glyph {
+                                width: 15
+                                height: 15
+                                kind: "play"
+                                color: Sys.bg
+                            }
+                            Text {
+                                id: playAllLabel
+                                text: "Reproducir todo"
+                                color: Sys.bg
+                                font.pixelSize: Theme.tMd
+                                font.weight: Font.DemiBold
+                            }
+                        }
+                        MouseArea {
+                            id: playAllMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: !page.busy
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.playAllRequested(false)
+                            }
+                        }
+                    }
+
+                    // Secondary: the same but with the whole queue
+                    // shuffled.
+                    Rectangle {
+                        width: shuffleAllLabel.implicitWidth + Theme.pillHPad * 2 + 22
+                        height: 40
+                        radius: Theme.rPill
+                        color: shuffleAllMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text) : "transparent"
+                        border.width: 1
+                        border.color: Theme.alpha(Sys.text, 0.28)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s2
+                            Glyph {
+                                width: 15
+                                height: 15
+                                kind: "shuffle"
+                                color: Sys.text
+                            }
+                            Text {
+                                id: shuffleAllLabel
+                                text: "Aleatorio"
+                                color: Sys.text
+                                font.pixelSize: Theme.tMd
+                            }
+                        }
+                        MouseArea {
+                            id: shuffleAllMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: !page.busy
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.playAllRequested(true)
+                            }
+                        }
+                    }
+
+                    Item { Layout.fillWidth: true }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.busy
+                    text: "Leyendo su discografía en YouTube Music…"
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tSm
+                }
+            }
+        }
+
+        // ---- discography ----------------------------------------------------
+        Text {
+            visible: !page.busy && page.albums.length > 0
+            text: "Discografía"
+            color: Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tXs
+            font.letterSpacing: 1.4
+            Layout.leftMargin: Theme.s1
+        }
+
+        Item {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+
+            Text {
+                anchors.centerIn: parent
+                visible: !page.busy && page.albums.length === 0
+                text: "Esta búsqueda no dejó discos a la vista."
+                color: Theme.tDim(Sys.bg, Sys.text)
+                font.pixelSize: Theme.tMd
+            }
+
+            ListView {
+                anchors.fill: parent
+                visible: page.albums.length > 0
+                model: page.albums
+                clip: true
+                spacing: Theme.s1
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    id: arow
+                    required property int index
+                    required property var modelData
+
+                    width: ListView.view.width
+                    height: 64
+                    radius: Theme.rMd
+                    color: rowMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text)) : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    MouseArea {
+                        id: rowMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            page.albumPlayRequested(arow.modelData)
+                        }
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.s2
+                        anchors.rightMargin: Theme.s2
+                        spacing: Theme.s3
+
+                        Rectangle {
+                            Layout.preferredWidth: 46
+                            Layout.preferredHeight: 46
+                            Layout.alignment: Qt.AlignVCenter
+                            radius: Theme.rSm
+                            clip: true
+                            color: Sys.surface
+                            RoundedArt {
+                                id: covImg
+                                anchors.fill: parent
+                                source: String(arow.modelData.thumb || "")
+                                radiusSpec: Theme.rSm
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 20
+                                height: 20
+                                visible: !covImg.ready
+                                kind: "disc"
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 0
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(arow.modelData.title || "")
+                                color: Sys.text
+                                font.pixelSize: Theme.tBase
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: String(arow.modelData.subtitle || "")
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tSm
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+
+                        // Hint that the whole row is being played.
+                        Glyph {
+                            width: 16
+                            height: 16
+                            visible: rowMa.containsMouse
+                            kind: "play"
+                            color: Theme.accentOn(Sys.accent, Sys.bg)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

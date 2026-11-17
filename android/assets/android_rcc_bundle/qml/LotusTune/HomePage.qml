@@ -345,7 +345,8 @@ Item {
             // again and plays
             // immediately.
             if (typeof player !== "undefined")
-                player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
+                if (!catalog.metered)
+                    player.prefetchFront("https://music.youtube.com/watch?v=" + d.trackId)
             page.openListRequested(!!play)
             catalog.openUrlArt(
                 "https://music.youtube.com/watch?v=" + d.trackId
@@ -876,7 +877,8 @@ Item {
                                         && pickRow.modelData
                                         && pickRow.modelData.kind === "track"
                                         && pickRow.modelData.url)
-                                        player.prefetchFront(pickRow.modelData.url)
+                                        if (!catalog.metered)
+                                            player.prefetchFront(pickRow.modelData.url)
                                 onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openQuickPick(pickRow.modelData, true) }
                             }
                         }

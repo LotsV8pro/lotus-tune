@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="/LotusTune">/home/lots/lotus-tune/LotusTune</file>
+
+  </qresource>
+</RCC>

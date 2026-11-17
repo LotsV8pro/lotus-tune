@@ -1501,7 +1501,8 @@ Item {
                 // on the header sounds right away.
                 onCountChanged: {
                     const arr = page.viewTracks()
-                    const n = Math.min(4, arr ? arr.length : 0)
+                    // Each prefetch is a whole file: none on mobile data.
+                    const n = catalog.metered ? 0 : Math.min(4, arr ? arr.length : 0)
                     for (let i = 0; i < n; i++) {
                         const t = arr[i]
                         if (t && t.url)
@@ -1563,7 +1564,8 @@ Item {
                         // track.
                         onContainsMouseChanged: if (containsMouse && modelData
                                                      && modelData.url)
-                                                    player.prefetchFront(modelData.url)
+                                                    if (!catalog.metered)
+                                                        player.prefetchFront(modelData.url)
                         // Long press = right click on touch (context menu of
                         // the track). The click that follows is swallowed.
                         property bool menuHeld: false

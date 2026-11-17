@@ -667,6 +667,62 @@ def _artist_from_card(card, found, seen):
     })
 
 
+# Parámetro de la pestaña "Listas de reproducción" de la búsqueda de YT
+# Music: devuelve las listas de personas, no los discos ni los mixes.
+PLAYLISTS_PARAMS = "EgWKAQIoAWoKEAkQChAFEAMQBA%3D%3D"
+
+
+def _playlist_id_of(renderer):
+    """Id de la lista de un resultado.
+
+    El botón de reproducir lo trae suelto (watchPlaylistEndpoint); si no está,
+    el browseId viene como VL<id>."""
+    overlay = renderer.get("overlay") or {}
+    play = ((overlay.get("musicItemThumbnailOverlayRenderer") or {})
+            .get("content") or {}).get("musicPlayButtonRenderer") or {}
+    pid = ((play.get("playNavigationEndpoint") or {})
+           .get("watchPlaylistEndpoint") or {}).get("playlistId") or ""
+    if not pid:
+        bid = _browse_id_of(renderer)
+        if bid.startswith("VL"):
+            pid = bid[2:]
+    return pid
+
+
+def _collect_playlists(node, found, seen):
+    """Listas de reproducción de un resultado de búsqueda.
+
+    Solo las de personas (PL...): la pestaña también cuela discos con id OLAK
+    y mixes, y esos no se abren como lista ajena."""
+    if isinstance(node, dict):
+        renderer = node.get("musicResponsiveListItemRenderer")
+        if isinstance(renderer, dict):
+            pid = _playlist_id_of(renderer)
+            title = _flex_text(renderer, 0) or _title_of(renderer)
+            if pid.startswith("PL") and title and pid not in seen:
+                seen.add(pid)
+                found.append({
+                    "title": title,
+                    "id": pid,
+                    "thumb": _best_thumb(renderer),
+                    "subtitle": _flex_text(renderer, 1),
+                })
+        for value in node.values():
+            _collect_playlists(value, found, seen)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_playlists(item, found, seen)
+
+
+def search_playlists(query, limit=10):
+    """Listas de reproducción de una búsqueda en YT Music."""
+    resp = post_json("search", {"query": query, "params": PLAYLISTS_PARAMS},
+                     anon=True)
+    found, seen = [], set()
+    _collect_playlists(resp, found, seen)
+    return found[:limit]
+
+
 def search_artists(query, limit=12):
     """Artistas del resultado de una búsqueda en YT Music (no canciones)."""
     resp = post_json("search", {"query": query}, anon=True)
@@ -1348,6 +1404,13 @@ def cmd_artists(query):
     return 0
 
 
+def cmd_playlists(query):
+    playlists = search_playlists(query)
+    json.dump({"playlists": playlists}, sys.stdout, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_artist(browse_id, name=""):
     albums = artist_discography(browse_id, name)
     json.dump({"albums": albums}, sys.stdout, ensure_ascii=False)
@@ -1585,6 +1648,10 @@ def main():
             if len(args) < 2:
                 raise YtmError("falta la consulta de búsqueda")
             return cmd_artists(" ".join(args[1:]))
+        if cmd == "playlists":
+            if len(args) < 2:
+                raise YtmError("falta la consulta de búsqueda")
+            return cmd_playlists(" ".join(args[1:]))
         if cmd == "artist":
             if len(args) < 2:
                 raise YtmError("falta el browseId del artista")

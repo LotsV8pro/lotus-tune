@@ -66,7 +66,8 @@ Item {
                 cursorShape: Qt.PointingHandCursor
                 // When pointing at a queue row, its stream is pre-resolved.
                 onHoveredChanged: if (hovered && row.url)
-                                      player.prefetchFront(row.url)
+                                      if (!catalog.metered)
+                                          player.prefetchFront(row.url)
             }
 
             // Over the row: the heart sits on top and takes its own click.

@@ -1368,9 +1368,16 @@ Window {
         // The QA launcher query: the launcher is opened with it typed in.
         if (root.qaLauncherSearch.length > 0)
             Qt.callLater(root.toggleLauncher)
-        // The QA query is fired once the page is already mounted.
-        if (cliSearch.length > 0)
-            Qt.callLater(function() { catalog.searchAll(cliSearch) })
+        // The QA query is fired once the page is already mounted. It asks
+        // for the same three things the page does by hand, so a screenshot
+        // of --search= looks like a real search.
+        if (cliSearch.length > 0) {
+            Qt.callLater(function() {
+                catalog.searchAll(cliSearch)
+                catalog.searchArtists(cliSearch)
+                catalog.searchPlaylists(cliSearch)
+            })
+        }
         followSys = cfgGet("followSystem") !== "false"
 
         // Player, lyrics, Discord and download preferences.
@@ -2394,6 +2401,10 @@ Window {
     // It is fired when each track starts, to have the stream already
     // resolved when moving on.
     function prefetchAhead(from, n) {
+        // On mobile data every prefetch is a whole file: the next song is
+        // downloaded twice (once here, once when it really plays).
+        if (catalog.metered)
+            return
         if (!n || from < 0 || from >= queue.count)
             return
         for (let i = from + 1; i <= from + n && i < queue.count; i++) {
@@ -2407,6 +2418,8 @@ Window {
     // list or search results). That way a click on any of the first rows
     // already finds the stream resolved and sounds instantly.
     function prefetchHead(list, n) {
+        if (catalog.metered)
+            return
         if (!list || !list.length)
             return
         n = n || 4
@@ -3274,6 +3287,16 @@ Window {
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
                             // Artists mode: the page opens fullscreen.
                             onArtistRequested: (a) => root.openArtist(a)
+                            // A playlist of the results opens as any other
+                            // list: it is not saved to the library first.
+                            onPlaylistRequested: (p) => {
+                                const id = String(p.id || "")
+                                if (id.length === 0)
+                                    return
+                                root.beginOpenList(false)
+                                catalog.openUrl("https://music.youtube.com/playlist?list=" + id,
+                                                String(p.title || ""))
+                            }
                         }
                         LibraryPage {
                             id: libPage
@@ -3624,7 +3647,9 @@ Window {
         // nothing is sent unless the line really changed.
         interval: 120
         repeat: true
-        running: true
+        // With nothing playing the line cannot change, and on the phone
+        // this timer is eight wakeups a second with the screen off.
+        running: player.playing
         onTriggered: root.refreshLyricsWidget()
     }
 

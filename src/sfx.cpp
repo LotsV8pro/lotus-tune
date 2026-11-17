@@ -75,10 +75,22 @@ void Sfx::startKeepAlive()
 
 void Sfx::setWarm(bool on)
 {
+#ifdef Q_OS_LINUX
     Q_UNUSED(on)
     // No silent loop is kept on Linux: pw-play starts on demand and the
     // sounds are already on disk (extracted once), so there is nothing to
     // wake up and nothing to keep burning CPU in the background.
+#else
+    // On the phone the loop is what keeps the audio sink open so the first
+    // click is not lost. With the app in the background there is nobody
+    // clicking, and the loop kept the audio server and the HAL awake.
+    if (!m_keepAlive)
+        return;
+    if (on)
+        m_keepAlive->play();
+    else
+        m_keepAlive->stop();
+#endif
 }
 
 #ifndef Q_OS_LINUX

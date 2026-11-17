@@ -387,8 +387,36 @@ static void ensureFrugalExecEnv(char *argv[])
 #endif
 }
 
+#if defined(Q_OS_WIN)
+#define NOMINMAX 1
+#define WIN32_LEAN_AND_MEAN 1
+#include <windows.h>
+
+// Reopens the standard streams on the console that started the process. A
+// windowless .exe has no console of its own, so without this `lotus-tune.exe
+// --version` from cmd prints nothing at all.
+static void attachParentConsole()
+{
+    if (!AttachConsole(ATTACH_PARENT_PROCESS))
+        return;
+    FILE *f = nullptr;
+    std::freopen_s(&f, "CONOUT$", "w", stdout);
+    std::freopen_s(&f, "CONOUT$", "w", stderr);
+    std::freopen_s(&f, "CONIN$", "r", stdin);
+}
+#endif
+
 int main(int argc, char *argv[])
 {
+#if defined(Q_OS_WIN)
+    // The .exe is linked as a GUI app (no console window behind the player).
+    // When it is started from a cmd/PowerShell window WITH arguments
+    // (--version, --diagnostics, ...), the output is attached to that window
+    // so it is still readable.
+    if (argc > 1)
+        attachParentConsole();
+#endif
+
     // The MIUI HWUI crash is triggered when any graphics stack is initialized.
     // To allow the C++ backend to run on MIUI devices, we MUST avoid creating
     // a QGuiApplication if we are being used as a JNI bridge.

@@ -1582,6 +1582,78 @@ QJsonArray searchArtists(const QString &query, int limit)
     return found;
 }
 
+// python _playlist_id_of: the play button of the card carries the id on its
+// own. If it is not there, the browseId comes as VL<id>.
+QString playlistIdOf(const Json &renderer)
+{
+    const Json play = renderer.toObject()
+        .value(QLatin1String("overlay")).toObject()
+        .value(QLatin1String("musicItemThumbnailOverlayRenderer")).toObject()
+        .value(QLatin1String("content")).toObject()
+        .value(QLatin1String("musicPlayButtonRenderer"));
+    QString pid = play.toObject()
+        .value(QLatin1String("playNavigationEndpoint")).toObject()
+        .value(QLatin1String("watchPlaylistEndpoint")).toObject()
+        .value(QLatin1String("playlistId")).toString();
+    if (pid.isEmpty()) {
+        const QString bid = browseIdOf(renderer);
+        if (bid.startsWith(QLatin1String("VL")))
+            pid = bid.mid(2);
+    }
+    return pid;
+}
+
+// python _collect_playlists: only the ones of people (PL...). The tab also
+// brings albums with an OLAK id and mixes, and those are not a list to open.
+void collectSearchPlaylists(const Json &node, QJsonArray *found, QSet<QString> *seen)
+{
+    if (node.isObject()) {
+        const QJsonObject o = node.toObject();
+        const Json renderer =
+            o.value(QLatin1String("musicResponsiveListItemRenderer"));
+        if (renderer.isObject()) {
+            const QString pid = playlistIdOf(renderer);
+            QString title = flexText(renderer, 0);
+            if (title.isEmpty())
+                title = titleOf(renderer);
+            if (pid.startsWith(QLatin1String("PL")) && !title.isEmpty()
+                && !seen->contains(pid)) {
+                seen->insert(pid);
+                found->append(QJsonObject{
+                    {QLatin1String("title"), title},
+                    {QLatin1String("id"), pid},
+                    {QLatin1String("thumb"), bestThumb(renderer)},
+                    {QLatin1String("subtitle"), flexText(renderer, 1)},
+                });
+            }
+        }
+        for (auto it = o.constBegin(); it != o.constEnd(); ++it)
+            collectSearchPlaylists(it.value(), found, seen);
+    } else if (node.isArray()) {
+        const QJsonArray a = node.toArray();
+        for (const auto &item : a)
+            collectSearchPlaylists(item, found, seen);
+    }
+}
+
+// python search_playlists(): same endpoint as the songs, with the parameter
+// of the playlists tab.
+QJsonArray searchPlaylists(const QString &query, int limit)
+{
+    const NetResult r =
+        postJson(QStringLiteral("search"),
+                 QJsonObject{{QLatin1String("query"), query},
+                             {QLatin1String("params"),
+                              QLatin1String("EgWKAQIoAWoKEAkQChAFEAMQBA%3D%3D")}});
+    dieOnNet(r);
+    QJsonArray found;
+    QSet<QString> seen;
+    collectSearchPlaylists(r.obj, &found, &seen);
+    if (limit >= 0 && found.size() > limit)
+        return jsonMid(found, 0, limit);
+    return found;
+}
+
 // python _collect_albums.
 void collectAlbums(const Json &node, QJsonArray *found, QSet<QString> *seen)
 {
@@ -2443,7 +2515,8 @@ int main(int argc, char *argv[])
     // python-mode: the app passes {pythonProgram, ytmApiPath, cmd, ...};
     // this binary finds the first known command in argv.
     static const QSet<QString> kCommands{
-        "library",    "search",   "artists",  "artist",
+        "library",    "search",   "artists",  "playlists",
+        "artist",
         "artistpage", "album",     "alternate", "toptrack", "playlist",
         "playlistinfo", "albuminfo", "rate",   "addpl",    "rmpl",
         "movepl",     "createpl", "renamepl", "setplpriv",
@@ -2490,6 +2563,14 @@ int main(int argc, char *argv[])
             printObj(QJsonObject{{QLatin1String("artists"),
                                   searchArtists(rest.join(QLatin1Char(' ')),
                                                 12)}});
+            return 0;
+        }
+        if (cmd == QLatin1String("playlists")) {
+            if (rest.isEmpty())
+                die(QStringLiteral("falta la consulta de búsqueda"));
+            printObj(QJsonObject{{QLatin1String("playlists"),
+                                  searchPlaylists(rest.join(QLatin1Char(' ')),
+                                                  10)}});
             return 0;
         }
         if (cmd == QLatin1String("artist")) {

@@ -3,6 +3,17 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.0.8 (2026-11-16)
+
+Windows ya se instala como cualquier programa, el buscador encuentra listas de otras personas y el teléfono gasta menos datos y menos batería.
+
+- En Windows, el archivo que se descarga es un instalador. Se instala para el usuario actual en %LOCALAPPDATA%\Programs\LotusTune, sin pedir permisos de administrador, deja el acceso directo en el menú de inicio y el desinstalador en Configuración > Aplicaciones.
+- El instalador lleva dentro todo lo que la app usa: las bibliotecas de Qt, mpv para reproducir, yt-dlp para resolver y descargar, y un Python propio. No hay que instalar nada más antes ni dejar nada en el PATH.
+- El .exe de Windows ya no abre una ventana de consola detrás del reproductor, y lleva su icono y su versión en las propiedades del archivo.
+- El buscador tiene una fila de listas encima de la de artistas: las listas que ha hecho otra gente en YouTube Music, separadas de las canciones, que siguen en su lista vertical. Al pulsar una se abre tal cual, sin guardarla antes en la biblioteca.
+- En Android, con datos móviles no se descarga nada por adelantado. Cada precarga era un archivo entero de 4 a 8 MB y se tiraba si la canción no llegaba a sonar. Tampoco se precarga al pasar el dedo por encima de una fila.
+- En Android, el bucle de silencio que mantiene el audio despierto se para con la app en segundo plano, y el reloj interno que vigilaba un atasco de reproducción se para en pausa.
+
 ## 2.0.7
 
 La app se puede poner en inglés o en español, y cuando la biblioteca no carga dice por qué en vez de quedarse vacía.

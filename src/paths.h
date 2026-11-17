@@ -12,6 +12,9 @@
 #include <QFile>
 #include <QStandardPaths>
 #include <QString>
+#ifdef Q_OS_WIN
+#include <QCoreApplication>
+#endif
 #ifdef Q_OS_ANDROID
 #include <QJniObject>
 #endif
@@ -137,6 +140,17 @@ inline QString pythonProgram()
     const QString forced = qEnvironmentVariable("LOTUS_TUNE_PYTHON");
     if (!forced.isEmpty())
         return forced;
+#ifdef Q_OS_WIN
+    // The installer carries its own Python (the embedded package) in a
+    // "python" folder next to the .exe: it goes first so the app works on a
+    // machine without Python, and with the same version the helpers were
+    // tested on.
+    const QString bundled =
+        QCoreApplication::applicationDirPath()
+        + QStringLiteral("/python/python.exe");
+    if (QFile::exists(bundled))
+        return bundled;
+#endif
     for (const QString &name : { QStringLiteral("python3"),
                                 QStringLiteral("python"),
                                 QStringLiteral("python3.12"),

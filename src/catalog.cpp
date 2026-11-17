@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkInformation>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSet>
@@ -43,6 +44,26 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     , m_sources(sources)
 {
     loadLibrary();
+
+    // Mobile data or not: the QML asks before pre-downloading audio. On the
+    // phone every prefetch is a whole file, so a covered connection means
+    // no prefetch at all.
+    if (QNetworkInformation::loadDefaultBackend()) {
+        auto *ni = QNetworkInformation::instance();
+        if (ni && ni->supports(QNetworkInformation::Feature::Metered)) {
+            m_metered = ni->isMetered();
+            const auto reread = [this, ni]() {
+                const bool was = m_metered;
+                m_metered = ni->isMetered();
+                if (was != m_metered)
+                    emit changed();
+            };
+            connect(ni, &QNetworkInformation::reachabilityChanged, this,
+                    [reread](QNetworkInformation::Reachability) { reread(); });
+            connect(ni, &QNetworkInformation::transportMediumChanged, this,
+                    [reread](QNetworkInformation::TransportMedium) { reread(); });
+        }
+    }
 
     // On-disk list cache: it is dumped in a deferred way (like the player's
     // streams.json) so it does not write on every load, and it is read at
@@ -373,6 +394,36 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit albumTracksReady(arg, list);
                 else if (mode == QLatin1String("toptrack"))
                     emit artistTopTrackResolved(arg, m_topTrack);
+            });
+
+    // Playlist search: its own process, so it does not cancel the artists
+    // search (each QProcess takes one request at a time).
+    m_plSearchProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_plSearchProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QByteArray out = m_plSearchProc.readAllStandardOutput();
+                QVariantList list;
+                if (code == 0) {
+                    const QJsonArray arr =
+                        QJsonDocument::fromJson(out).object()
+                            .value(QStringLiteral("playlists")).toArray();
+                    for (const QJsonValue &v : arr) {
+                        const QJsonObject o = v.toObject();
+                        const QString id = o.value(QStringLiteral("id")).toString();
+                        if (id.isEmpty())
+                            continue;
+                        QVariantMap p;
+                        p.insert(QStringLiteral("title"),
+                                 o.value(QStringLiteral("title")).toString());
+                        p.insert(QStringLiteral("id"), id);
+                        p.insert(QStringLiteral("thumb"),
+                                 o.value(QStringLiteral("thumb")).toString());
+                        p.insert(QStringLiteral("subtitle"),
+                                 o.value(QStringLiteral("subtitle")).toString());
+                        list.append(p);
+                    }
+                }
+                emit playlistsReady(list);
             });
 
     // Album audio list (m_albumInfoProc): one request at a time, asked by
@@ -1350,6 +1401,28 @@ void Catalog::searchArtists(const QString &query)
               QStringLiteral("artists"), q);
 }
 
+void Catalog::searchPlaylists(const QString &query)
+{
+    const QString q = query.trimmed();
+    if (q.isEmpty()) {
+        emit playlistsReady({});
+        return;
+    }
+    // No helper (a stripped APK) or no session: the rail stays empty
+    // instead of answering with an error on every keystroke.
+    if (!ytmHelperReady()) {
+        emit playlistsReady({});
+        return;
+    }
+    if (m_plSearchProc.state() != QProcess::NotRunning) {
+        m_plSearchProc.kill();
+        m_plSearchProc.waitForFinished(250);
+    }
+    m_plSearchProc.setProgram(AppPaths::pythonProgram());
+    m_plSearchProc.setArguments({ytmApiPath(), QStringLiteral("playlists"), q});
+    m_plSearchProc.start();
+}
+
 void Catalog::fetchArtist(const QString &browseId)
 {
     const QString id = browseId.trimmed();
@@ -1545,6 +1618,11 @@ QString Catalog::diagnostics() const
 
     out << QStringLiteral("source: %1").arg(m_sources ? m_sources->activeId()
                                                       : QString());
+    // Whether the connection is charged by bytes: it is what decides if the
+    // app pre-downloads audio.
+    out << QStringLiteral("network: %1")
+               .arg(m_metered ? QStringLiteral("metered")
+                              : QStringLiteral("unmetered"));
 
     // Session. Only whether it exists and how many cookies: the values are
     // the account and must not leave the device.

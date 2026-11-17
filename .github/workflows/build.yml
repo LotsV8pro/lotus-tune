@@ -2,7 +2,8 @@ name: Build
 
 # Builds the three flavours of the app and uploads them as artefacts:
 #   Linux   -> .deb, .rpm and a tarball
-#   Windows -> the .exe with the Qt libraries next to it
+#   Windows -> the installer .exe (Inno Setup) and the zip the in-app
+#              updater still uses
 #   Android -> the .apk
 on:
   push:
@@ -17,6 +18,9 @@ env:
   # not "qtbase") and that name only exists from 6.6 onwards, so every
   # flavour is built with the same version.
   QT_VERSION: '6.6.3'
+  # The Python the Windows installer carries (the embedded package: stdlib
+  # only, which is all the two helpers use).
+  PY_EMBED_VERSION: '3.12.16'
 
 jobs:
   linux:
@@ -99,14 +103,63 @@ jobs:
           # cae en build\ sino en build\Release: por eso fallaba aqui.
           $exe = "build\Release\lotus-tune.exe"
           if (!(Test-Path $exe)) { throw "no se encontro $exe" }
+          # ytm_api.py y ytm_login.py los deja ya el propio CMake al lado del
+          # .exe (POST_BUILD): no hay que copiarlos aqui.
           & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw $exe
-          Copy-Item tools\ytm_login.py, tools\ytm_api.py build\Release\ -ErrorAction SilentlyContinue
-          Compress-Archive -Path build\Release\* -DestinationPath lotus-tune-windows.zip
+
+      - name: Motor y dependencias
+        # Lo que el .exe llama por nombre y la maquina del usuario puede no
+        # tener: mpv (reproduce), yt-dlp (resuelve y descarga) y Python (los
+        # dos ayudantes). Van dentro para que el instalador sea el paquete
+        # completo.
+        shell: pwsh
+        run: |
+          $dst = "build\Release"
+          # mpv portable: un unico mpv.exe con ffmpeg dentro.
+          $rel = Invoke-RestMethod "https://api.github.com/repos/zhongfly/mpv-winbuild/releases/latest"
+          $asset = $rel.assets | Where-Object { $_.name -match '^mpv-x86_64-\d' } | Select-Object -First 1
+          if (!$asset) { throw "no hay asset mpv-x86_64 en la ultima release" }
+          Invoke-WebRequest $asset.browser_download_url -OutFile mpv.7z
+          & 7z x mpv.7z -otmp-mpv -y | Out-Null
+          $mpv = Get-ChildItem tmp-mpv -Recurse -Filter mpv.exe | Select-Object -First 1
+          if (!$mpv) { throw "el 7z de mpv no trae mpv.exe" }
+          Copy-Item $mpv.FullName $dst
+          # yt-dlp: el binario suelto, sin instalador.
+          Invoke-WebRequest "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" -OutFile "$dst\yt-dlp.exe"
+          # Python embebido: stdlib y nada mas, que es lo que usan los ayudantes.
+          Invoke-WebRequest "https://www.python.org/ftp/python/${{ env.PY_EMBED_VERSION }}/python-${{ env.PY_EMBED_VERSION }}-embed-amd64.zip" -OutFile py.zip
+          Expand-Archive py.zip -DestinationPath "$dst\python" -Force
+          # Sin la comprobacion, un asset que cambie de nombre deja un
+          # instalador que arranca y no suena: mejor romper aqui.
+          foreach ($f in @("mpv.exe", "yt-dlp.exe", "python\python.exe", "ytm_api.py")) {
+            if (!(Test-Path (Join-Path $dst $f))) { throw "falta $f en $dst" }
+          }
+
+      - name: Instalador (Inno Setup)
+        shell: pwsh
+        run: |
+          $raw = Get-Content CMakeLists.txt -Raw
+          $v = [regex]::Match($raw, 'project\(lotus-tune\s+VERSION\s+([\d.]+)').Groups[1].Value
+          if (!$v) { throw "no se pudo leer la version de CMakeLists.txt" }
+          choco install innosetup --no-progress -y
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$v" "packaging\windows\lotus-tune.iss"
+          $setup = "build\installer\LotusTune-Setup-$v.exe"
+          if (!(Test-Path $setup)) { throw "no se genero $setup" }
+          Write-Host ("instalador: " + (Get-Item $setup).Length + " bytes")
+
+      - name: Comprimir (actualizador)
+        # El actualizador de dentro de la app sigue esperando un zip que
+        # empieza por la raiz de la carpeta: se mantiene ademas del
+        # instalador, que se llama sin "win" para que no lo elija.
+        shell: pwsh
+        run: Compress-Archive -Path build\Release\* -DestinationPath lotus-tune-windows.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: lotus-tune-windows
-          path: lotus-tune-windows.zip
+          path: |
+            lotus-tune-windows.zip
+            build/installer/LotusTune-Setup-*.exe
 
   android:
     name: Android (APK)

@@ -13,7 +13,7 @@ Music player for YouTube Music and SoundCloud, written in Qt 6/QML. Plays throug
 
 ## What it does
 
-- Searches YouTube Music and SoundCloud, together or one at a time.
+- Searches YouTube Music and SoundCloud, together or one at a time: songs, artists and the playlists other people made.
 - Lights the lyrics word by word with the timings of the actual song.
 - Draws the cover at full resolution and a background that follows its colour.
 - Downloads with `yt-dlp` into the folder you pick and keeps a local library.
@@ -23,7 +23,7 @@ Music player for YouTube Music and SoundCloud, written in Qt 6/QML. Plays throug
 
 ## What's new
 
-2.0.7 brings the two languages and stops the library from going empty without a reason: when the playlists of the account do not arrive, Library says what failed, and Settings copies a diagnostics block to send with the report.
+2.0.8 turns the Windows download into a normal installer that carries everything the app needs, adds the playlists of other people to the search, and stops the phone from spending data and battery for nothing.
 
 The whole history, version by version, is in [CHANGELOG.md](CHANGELOG.md).
 
@@ -71,7 +71,13 @@ The releases also carry a `.deb` for Debian/Ubuntu, a `.rpm` for Fedora/openSUSE
 
 ### Windows
 
-The release carries `lotus-tune-2.0.0-windows-x64.zip` with the `.exe` and the Qt libraries. Unzip it and leave `mpv.exe` and `yt-dlp.exe` in the same folder or in the `PATH`; the app calls them to play and to download. CI builds the zip on every tag and on every push to `master`. Windows 10 or newer.
+`LotusTune-Setup-<version>.exe` is the installer. It installs for the current user in `%LOCALAPPDATA%\Programs\LotusTune` (no administrator rights), creates the Start menu entry and the desktop shortcut if you ask for it, and leaves an uninstaller in Settings > Apps.
+
+It carries everything the app uses: the Qt libraries, `mpv` to play, `yt-dlp` to resolve and download and an embedded Python for the two helpers. Nothing else has to be installed first, and the `.exe` no longer opens a console window.
+
+The release also carries `lotus-tune-windows.zip` with the same tree and no installer. That is what the updater inside the app downloads and unpacks over its own folder, so a copy that came from the installer updates itself too.
+
+Windows 10 or newer, 64 bits. CI builds both on every tag and on every push to `master`.
 
 ### Android
 

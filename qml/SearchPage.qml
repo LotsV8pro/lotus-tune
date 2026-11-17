@@ -18,12 +18,17 @@ Item {
     // on click).
     // The chosen mode is remembered between sessions.
     signal artistRequested(var artist)
+    // A playlist of the search results was clicked: it opens like any other
+    // list, without saving it first.
+    signal playlistRequested(var playlist)
     property bool artistMode: false
     // Results of the last artist search ({ name, browseId, thumb, subtitle });
     // only relevant in artists mode.
     property var artistResults: []
     // Is an artist search running? (its process does not use catalog.busy).
     property bool artistBusy: false
+    // Playlists of the last search ({ title, id, thumb, subtitle }).
+    property var playlistResults: []
 
     // ---- results per source ---------------------------------------------
     // The search queries ALL the sources at once. Here the groups are
@@ -36,6 +41,8 @@ Item {
         // The artists rail travels as the first row (not as the ListView
         // header: on Android the header kept its height but the rows were
         // laid out over it, so the cards never showed).
+        if (!page.artistMode && page.playlistResults.length > 0)
+            out.push({ secHead: true, sec: "", note: "", playlistsRail: true })
         if (!page.artistMode && page.artistResults.length > 0)
             out.push({ secHead: true, sec: "", note: "", artistsRail: true })
         const groups = catalog.resultsBySource
@@ -162,8 +169,10 @@ Item {
         // And in parallel the artists (they run in their own backend process):
         // they show up as a section at the top of the list, without having to
         // change the mode.
-        if (q.length >= 2)
+        if (q.length >= 2) {
             catalog.searchArtists(q)
+            catalog.searchPlaylists(q)
+        }
     }
 
     // Explicit search: Enter, a History chip or "Search the artist". It
@@ -220,6 +229,9 @@ Item {
             page.artistResults = artists || []
             if (page.artistMode)
                 artistList.positionViewAtBeginning()
+        }
+        function onPlaylistsReady(playlists) {
+            page.playlistResults = playlists || []
         }
     }
 
@@ -497,7 +509,9 @@ Item {
                 // finish and the whole list answers fast.
                 onCountChanged: {
                     const arr = page.flatTracks
-                    const n = Math.min(8, arr ? arr.length : 0)
+                    // Eight whole files per search on mobile data is a lot;
+                    // on a metered connection none of them is downloaded.
+                    const n = catalog.metered ? 0 : Math.min(8, arr ? arr.length : 0)
                     for (let i = 0; i < n; i++) {
                         const t = arr[i]
                         if (t && t.url)
@@ -512,14 +526,17 @@ Item {
 
                     // Artist rows have no track buttons.
                     readonly property bool isArtist: rrow.modelData.kind === "artist"
-                    // First row: the artists of the search, as cover cards.
+                    // First rows: the playlists and the artists of the
+                    // search, as cover cards.
+                    readonly property bool isPlaylistRail: rrow.modelData.playlistsRail === true
                     readonly property bool isRail: rrow.modelData.artistsRail === true
 
                     width: ListView.view.width
                     // The source headers are a short row; the tracks,
                     // a normal row (the same as the playlist rows).
-                    height: isRail ? railCol.implicitHeight
-                                   : (rrow.modelData.secHead ? 30 : Theme.rowH)
+                    height: isPlaylistRail ? plRailCol.implicitHeight
+                          : (isRail ? railCol.implicitHeight
+                                    : (rrow.modelData.secHead ? 30 : Theme.rowH))
                     radius: Theme.rMd
                     antialiasing: true
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
@@ -599,7 +616,8 @@ Item {
                         // priority: if the click lands right away, it already sounds.
                         onContainsMouseChanged: if (containsMouse && rrow.modelData
                                                      && rrow.modelData.url)
-                                                    player.prefetchFront(rrow.modelData.url)
+                                                    if (!catalog.metered)
+                                                        player.prefetchFront(rrow.modelData.url)
                         onClicked: (mouse) => {
                             if (rrowMouse.menuHeld) {
                                 rrowMouse.menuHeld = false
@@ -748,7 +766,54 @@ Item {
                         }
                     }
 
-                    // ---- artists rail (first row of the list) -----------
+                    // ---- playlists rail (first row of the list) ---------
+                    // Cover cards: tap opens the list itself, without
+                    // saving it to the library first.
+                    Column {
+                        id: plRailCol
+                        visible: rrow.isPlaylistRail
+                        width: parent.width
+                        spacing: Theme.s2
+                        z: 2
+
+                        Text {
+                            width: parent.width
+                            leftPadding: Theme.s1
+                            topPadding: Theme.s1
+                            text: qsTr("LISTAS")
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tXs
+                            font.weight: Font.DemiBold
+                            font.letterSpacing: 1.4
+                            opacity: 0.85
+                        }
+                        ListView {
+                            id: playlistRail
+                            width: parent.width
+                            height: playlistRail.cardW + Theme.cardLineH(Theme.tMd)
+                                    + Theme.cardLineH(Theme.tSm) + Theme.s1
+                            orientation: ListView.Horizontal
+                            spacing: Theme.s3
+                            clip: true
+                            interactive: true
+                            model: page.playlistResults
+                            boundsBehavior: Flickable.StopAtBounds
+                            readonly property int cardW: Theme.touch ? 112 : 132
+
+                            delegate: CoverCard {
+                                required property var modelData
+                                width: playlistRail.cardW
+                                height: playlistRail.height
+                                name: modelData.title || ""
+                                subtitle: modelData.subtitle || ""
+                                thumb: modelData.thumb || ""
+                                onClicked: page.playlistRequested(modelData)
+                            }
+                        }
+                        Item { width: 1; height: Theme.s2 }
+                    }
+
+                    // ---- artists rail (second row of the list) ----------
                     // Cover cards: tap opens the artist page.
                     Column {
                         id: railCol
@@ -776,7 +841,7 @@ Item {
                             orientation: ListView.Horizontal
                             spacing: Theme.s3
                             clip: true
-                            interactive: false
+                            interactive: true
                             model: page.artistResults
                             boundsBehavior: Flickable.StopAtBounds
                             readonly property int cardW: Theme.touch ? 112 : 132

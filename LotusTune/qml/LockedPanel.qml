@@ -1,0 +1,75 @@
+import QtQuick
+import QtQuick.Layouts
+import "theme.js" as Theme
+
+// Shown by every page while the active source cannot stream yet: explains
+// exactly what is needed to activate it.
+// Minimalism: a still icon, a headline, a support line and a single text
+// button in the accent colour. No boxes, no ornaments.
+ColumnLayout {
+    id: panel
+
+    property string sourceName: ""
+    property string note: ""
+
+    spacing: Theme.s3
+
+    Item { Layout.preferredHeight: Theme.s6 }
+
+    Glyph {
+        Layout.alignment: Qt.AlignHCenter
+        width: 28
+        height: 28
+        kind: "lock"
+        color: Theme.tDim(Sys.bg, Sys.text)
+        weight: 1.4
+    }
+
+    Text {
+        Layout.alignment: Qt.AlignHCenter
+        text: panel.sourceName + " — fuente inactiva"
+        color: Sys.text
+        font.pixelSize: Theme.tLg
+        font.weight: Font.DemiBold
+    }
+
+    Text {
+        Layout.alignment: Qt.AlignHCenter
+        Layout.fillWidth: true
+        Layout.maximumWidth: 420
+        text: panel.note
+        color: Theme.tDim(Sys.bg, Sys.text)
+        font.pixelSize: Theme.tMd
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+        lineHeight: 1.25
+    }
+
+    // Action hint as a faint pill: it lights up on hover.
+    Rectangle {
+        Layout.alignment: Qt.AlignHCenter
+        Layout.topMargin: Theme.s1
+        implicitWidth: actText.implicitWidth + Theme.pillHPad * 2
+        implicitHeight: Theme.pillH
+        radius: Theme.rPill
+        color: actMa.containsMouse ? Theme.alpha(Sys.accent, 0.14) : "transparent"
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+        Text {
+            id: actText
+            anchors.centerIn: parent
+            text: "Elige una fuente activa en la barra lateral"
+            color: actMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+            font.pixelSize: Theme.tSm
+            font.weight: Font.Medium
+            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        }
+
+        MouseArea {
+            id: actMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+        }
+    }
+}

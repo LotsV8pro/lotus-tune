@@ -35,6 +35,10 @@ class Catalog : public QObject
     Q_PROPERTY(QVariantList recent READ recent NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList ytmLibrary READ ytmLibrary NOTIFY libraryChanged)
     Q_PROPERTY(bool libraryBusy READ libraryBusy NOTIFY libraryChanged)
+    // True when the connection is mobile data or otherwise charged by
+    // bytes. The QML skips the audio prefetch on it: each prefetch is a
+    // whole file of 4 to 8 MB.
+    Q_PROPERTY(bool metered READ metered NOTIFY changed)
     // Why the lists of the account did not arrive. Empty when the last
     // fetch worked. It is shown in Library instead of an empty page: the
     // person sees that something failed and what.
@@ -81,6 +85,7 @@ public:
     QVariantList ytmLibrary() const { return m_ytmLibrary; }
     bool libraryBusy() const { return m_libraryBusy; }
     QString libraryError() const { return m_libraryError; }
+    bool metered() const { return m_metered; }
     QString loginState() const { return m_loginState; }
     QString openPlaylistId() const { return m_openPlaylistId; }
     QString openListUrl() const { return m_openListUrl; }
@@ -121,6 +126,10 @@ public:
     // Artist search (not songs): artistsReady() with a list of
     // { name, browseId, thumb, subtitle }; the best match first.
     Q_INVOKABLE void searchArtists(const QString &query);
+    // Playlist search (not songs): playlistsReady() with a list of
+    // { title, id, thumb, subtitle }. Its own process, so it can run at the
+    // same time as the artists and the songs.
+    Q_INVOKABLE void searchPlaylists(const QString &query);
     // Full discography of an artist (albums, singles, EPs...), newest
     // first: artistReady(browseId, albums).
     Q_INVOKABLE void fetchArtist(const QString &browseId);
@@ -232,6 +241,8 @@ signals:
     void radioReady(const QString &seedVideoId, const QVariantList &tracks);
     // Artist search results (see searchArtists()).
     void artistsReady(const QVariantList &artists);
+    // Playlist search results (see searchPlaylists()).
+    void playlistsReady(const QVariantList &playlists);
     // Discography received (see fetchArtist()).
     void artistReady(const QString &browseId, const QVariantList &albums);
     // Artist page received (see fetchArtistPage()): `page` carries name,
@@ -409,10 +420,12 @@ private:
     QVariantList m_ytmLibrary;
     bool m_libraryBusy = false;
     QString m_libraryError;
+    bool m_metered = false;
     QProcess m_loginProc;      // dedicated: must not disturb m_proc searches
     QProcess m_statusProc;     // one-shot token check at startup
     QProcess m_libraryProc;    // one-shot "my lists" fetch (ytm_api.py)
     QProcess m_artistProc;     // one-shot artists/discography/albums (ytm_api.py)
+    QProcess m_plSearchProc;   // one-shot playlist search (ytm_api.py)
     QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (empty: cancelled)
     QString m_artistArg;       // data returned in the signal
     // Audio list of an album, to download it whole. Own process: the

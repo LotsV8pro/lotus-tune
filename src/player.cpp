@@ -349,6 +349,10 @@ void Player::startMpv()
         if (!m_playing || !m_hasFile || m_loading) {
             m_stallTicks = 0;
             m_stallPos = m_position;
+            // Nothing to watch while it is not playing: stopped so the app
+            // does not wake up once a second with the phone in the pocket.
+            if (!m_playing)
+                m_stallTimer.stop();
             return;
         }
         if (m_position > m_stallPos + 0.05 || m_position < m_stallPos - 0.05) {
