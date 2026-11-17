@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_label">Lotus Tune</string>
+    <string name="login_done">Ya inicié sesión</string>
 
     <!-- Media notification -->
     <string name="notif_channel_playback">Reproducción</string>

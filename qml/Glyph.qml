@@ -602,6 +602,17 @@ Canvas {
             arc(X(9), Y(16.2), 6.0 * u, Math.PI * 1.16, Math.PI * 1.84)
             ctx.stroke()
             break
+        case "chart":
+            ctx.lineWidth = 2.6 * u
+            ctx.beginPath()
+            ctx.moveTo(X(4), Y(14.5))
+            ctx.lineTo(X(4), Y(9.5))
+            ctx.moveTo(X(9), Y(14.5))
+            ctx.lineTo(X(9), Y(4))
+            ctx.moveTo(X(14), Y(14.5))
+            ctx.lineTo(X(14), Y(7))
+            ctx.stroke()
+            break
         default:
             ctx.beginPath()
             arc(X(9), Y(9), 5 * u, 0, Math.PI * 2)

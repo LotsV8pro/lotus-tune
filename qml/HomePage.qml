@@ -419,7 +419,7 @@ Item {
 
     // When Home is shown (and when the history changes, which rebuilds
     // the cards) the prefetch round is started.
-    onVisibleChanged: if (visible) { refreshPicks(); refreshRecCards(); page.startRecPrefetch() }
+    onVisibleChanged: if (visible) { refreshSearchHistory(); refreshPicks(); refreshRecCards(); page.startRecPrefetch() }
 
     Connections {
         target: catalog
@@ -651,6 +651,105 @@ Item {
                         onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openLauncherRequested() }
                     }
                 }
+            }
+
+            // ---- recent searches: compact chip row under the search box -
+            // Latest queries as pills; tapping re-runs the search (Main
+            // opens Search). «Clear» empties the persisted history.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.pillH
+                spacing: Theme.s2
+                visible: page.searchHistory.length > 0
+
+                ListView {
+                    id: histView
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.pillH
+                    orientation: ListView.Horizontal
+                    spacing: Theme.s2
+                    clip: true
+                    model: page.searchHistory
+                    reuseItems: true
+                    cacheBuffer: 400
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    delegate: Rectangle {
+                        id: histChip
+                        required property var modelData
+
+                        height: Theme.pillH
+                        radius: Theme.rPill
+                        antialiasing: true
+                        width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 260)
+                        color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                        RowLayout {
+                            anchors.centerIn: parent
+                            spacing: Theme.s2
+                            Glyph {
+                                Layout.preferredWidth: 12
+                                Layout.preferredHeight: 12
+                                kind: "search"
+                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                            }
+                            Text {
+                                id: histTxt
+                                text: histChip.modelData.q
+                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tSm
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                                width: Math.min(implicitWidth, 220)
+                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            }
+                        }
+
+                        MouseArea {
+                            id: histChipMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.searchRequested(histChip.modelData.q) }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.preferredHeight: Theme.pillH
+                    implicitWidth: clearHistBtn.implicitWidth + Theme.pillHPad * 2
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    Text {
+                        id: clearHistBtn
+                        anchors.centerIn: parent
+                        text: qsTr("Borrar historial")
+                        color: clearHistMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    }
+                    MouseArea {
+                        id: clearHistMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.clearSearchHistory() }
+                    }
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: page.searchHistory.length === 0
+                text: qsTr("Todavía no hay búsquedas recientes.")
+                color: Theme.tDim(Sys.bg, Sys.text)
+                font.pixelSize: Theme.tSm
+                elide: Text.ElideRight
             }
 
             // ---- RECENT (island with paginated grid) --------------------
@@ -987,124 +1086,6 @@ Item {
                         onPlayClicked: {
                             page.openListRequested(true)
                             catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
-                        }
-                    }
-                }
-            }
-
-            // ---- search history - island -------------------------------
-            // Pills with the latest queries (appcfg "searchHistory").
-            // Clicking re-runs the search: Main opens Search and runs the
-            // query. «Clear» empties the persisted history.
-            Island {
-                Layout.fillWidth: true
-                spacing: Theme.s3
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.s3
-
-                    SectionTitle {
-                        Layout.fillWidth: true
-                        icon: "search"
-                        text: qsTr("Búsquedas recientes")
-                    }
-
-                    Rectangle {
-                        visible: page.searchHistory.length > 0
-                        Layout.preferredHeight: Theme.pillH
-                        radius: Theme.rPill
-                        antialiasing: true
-                        implicitWidth: clearHistBtn.implicitWidth + Theme.pillHPad * 2
-                        color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                        Text {
-                            id: clearHistBtn
-                            anchors.centerIn: parent
-                            text: qsTr("Borrar historial")
-                            color: clearHistMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tXs
-                            font.weight: Font.DemiBold
-                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                        }
-                        MouseArea {
-                            id: clearHistMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.clearSearchHistory() }
-                        }
-                    }
-                }
-
-                Text {
-                    Layout.fillWidth: true
-                    visible: page.searchHistory.length === 0
-                    text: Theme.touch
-                          ? qsTr("Todavía no hay búsquedas. Toca la barra de arriba para buscar.")
-                          : qsTr("Todavía no hay búsquedas: escribe en la barra superior o pulsa Ctrl+K.")
-                    color: Theme.tDim(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tSm
-                    wrapMode: Text.WordWrap
-                    lineHeight: 1.15
-                }
-
-                ListView {
-                    id: histView
-                    visible: page.searchHistory.length > 0
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.pillH
-                    orientation: ListView.Horizontal
-                    spacing: Theme.s2
-                    clip: true
-                    model: page.searchHistory
-                    reuseItems: true
-                    cacheBuffer: 400
-                    boundsBehavior: Flickable.StopAtBounds
-
-                    delegate: Rectangle {
-                        id: histChip
-                        required property var modelData
-                        required property int index
-
-                        height: Theme.pillH
-                        radius: Theme.rPill
-                        antialiasing: true
-                        width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 340)
-                        color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
-                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-
-                        RowLayout {
-                            anchors.centerIn: parent
-                            spacing: Theme.s2
-
-                            Glyph {
-                                Layout.preferredWidth: 12
-                                Layout.preferredHeight: 12
-                                kind: "search"
-                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                            }
-                            Text {
-                                id: histTxt
-                                text: histChip.modelData.q
-                                color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tMd
-                                font.weight: Font.DemiBold
-                                elide: Text.ElideRight
-                                width: Math.min(implicitWidth, 280)
-                                Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-                            }
-                        }
-
-                        MouseArea {
-                            id: histChipMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            // Re-runs the search: Main opens Search and runs
-                            // the query.
-                            onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.searchRequested(histChip.modelData.q) }
                         }
                     }
                 }

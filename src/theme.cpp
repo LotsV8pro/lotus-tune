@@ -24,7 +24,7 @@ static const char *kDefaults[][2] = {
     { "surfaceAlt", "#17171c" },
     { "border", "#26262e" },
     { "borderSubtle", "#1e1e25" },
-    { "accent", "#1ed760" },
+    { "accent", "#C4A8E2" },
     { "onAccent", "#0a0a0d" },
     { "text", "#f4f4f6" },
     { "textDim", "#8e8e99" },

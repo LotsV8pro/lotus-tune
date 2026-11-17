@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(lotus-tune
-    VERSION 2.0.9
+    VERSION 2.1.0
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -263,6 +263,8 @@ add_custom_command(TARGET lotus-tune POST_BUILD
 target_sources(lotus-tune PRIVATE
     src/discordrpc.h
     src/discordrpc.cpp
+    src/discordgateway.h
+    src/discordgateway.cpp
 )
 if(LOTUS_DESKTOP)
     target_sources(lotus-tune PRIVATE

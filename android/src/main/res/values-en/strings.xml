@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="login_done">Sign in and continue</string>
     <!-- Media notification -->
     <string name="notif_channel_playback">Playback</string>
     <string name="notif_playing">Playing</string>

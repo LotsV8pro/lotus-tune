@@ -1,9 +1,0 @@
-[Desktop Entry]
-Name=Lotus Tune
-Comment=Music player with YouTube Music support
-Exec=/home/lots/lotus-tune/lotus-tune-launch.sh
-Icon=lotustune
-Terminal=false
-Type=Application
-Categories=Audio;Music;
-Keywords=Music;Player;YouTube;

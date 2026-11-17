@@ -16,8 +16,10 @@
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QHash>
+#include <QCryptographicHash>
 #include <QSqlDatabase>
 #include <QSqlQuery>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QVariantMap>
 #include <QXmlStreamReader>
@@ -30,6 +32,9 @@
 // Musixmatch code, further down).
 static QString normLine(const QString &t);
 static bool isInstrumental(const QString &norm);
+static bool isNoteOnly(const QString &text);
+static bool isStale(QNetworkReply *reply, const QString &key,
+                    const QString &currentKey, int currentGen);
 
 // LRCLIB: public API, no key. GET returns the best match (or 404); search
 // returns a list. The User-Agent is required out of courtesy to the service
@@ -78,6 +83,12 @@ Lyrics::Lyrics(QObject *parent)
     : QObject(parent)
     , m_net(new QNetworkAccessManager(this))
 {
+    // Sources answer at very different times. A short debounce collects the
+    // ones that land together and publishes one decision; an empty window
+    // ends it if a source never answers.
+    m_publishTimer = new QTimer(this);
+    m_publishTimer->setSingleShot(true);
+    connect(m_publishTimer, &QTimer::timeout, this, &Lyrics::publishFinal);
 }
 
 // Normalises for comparison: no capitals, no accents, no spaces, no
@@ -173,6 +184,18 @@ static QString cleanSearchTitle(const QString &title, const QString &artist)
     return t.isEmpty() ? title.trimmed() : t;
 }
 
+// Cache of answers, one file per artist/title. The hash keeps the file
+// name short and safe on every filesystem.
+static QString lyricCachePath(const QString &artist, const QString &title)
+{
+    const QByteArray key =
+        (artist.toLower() + QLatin1Char('|') + title.toLower()).toUtf8();
+    const QString h = QString::fromLatin1(
+        QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex()).left(24);
+    return AppPaths::cacheDir() + QStringLiteral("/lyrics/") + h
+        + QStringLiteral(".json");
+}
+
 void Lyrics::fetch(const QString &artist, const QString &title,
                    double durationSeconds, const QString &videoId)
 {
@@ -185,14 +208,43 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_trackKey = a + QStringLiteral(" - ") + t;
     m_artist = a;
     m_title = t;
-    m_searchTitle = cleanSearchTitle(t, a);
+    // Search variants, tried in order until one finds usable lyrics.
+    // Candidate 0 keeps the cleaned title and the original artist. A video
+    // title that repeats the artist before " - " gets another candidate
+    // with the part after the dash as title and the part before it as artist
+    // ("MK - 17 (Lyric Video)" -> ("17", "MK")): the word-timing catalogues
+    // index the song that way, not under the messy video title.
+    m_searchCandidates.clear();
+    const QString clean = cleanSearchTitle(t, a);
+    m_searchCandidates.append({clean.isEmpty() ? t : clean, a});
+    const int dash = clean.indexOf(QStringLiteral(" - "));
+    if (dash > 0) {
+        const QString head = clean.left(dash).trimmed();
+        const QString tail = clean.mid(dash + 3).trimmed();
+        if (!head.isEmpty() && !tail.isEmpty())
+            m_searchCandidates.append({tail, head});
+    }
+    m_ytmCandidate = 0;
     m_duration = qMax(0, qRound(durationSeconds));
     m_videoId = videoId.trimmed();
     m_exactTried = m_videoId.isEmpty();
     m_neteaseTried = false;
     m_mxmTried = false;
+    m_mxmTokenRetried = false;
     m_mxmVariant = 0;
+    m_translated = false;
+    m_translateFallbackTried = false;
+    m_upgradable = false;
+    m_translationByLine.clear();
+    m_translateQueue.clear();
+    m_translateInFlight = 0;
     ++m_gen;
+    // A new track starts a fresh decision: drop any pending single publish
+    // from the previous one.
+    if (m_publishTimer)
+        m_publishTimer->stop();
+    m_published = false;
+    m_publishFailed = false;
 
     m_loading = true;
     m_hasLyrics = false;
@@ -234,6 +286,26 @@ void Lyrics::fetch(const QString &artist, const QString &title,
                              .arg(m_trackKey)
                              .arg(m_duration);
 
+    if (loadFromDiskCache()) {
+        if (m_upgradable) {
+            // Keep the cache on screen, but ask the word-level sources to
+            // upgrade it to karaoke. The reply handlers cannot publish a
+            // second decision: m_published is already true.
+            if (m_liriqoEnabled)
+                startLiriqo();
+            trySonoraCache();
+            trySonoraByTitle();
+            if (m_upgradable) {
+                startLrcRed();
+                startYtm();
+            }
+        }
+        return;
+    }
+
+    if (m_liriqoEnabled)
+        startLiriqo();
+
     // The local Sonora cache: it is instant and it brings word level
     // timings (real karaoke). It is shown at once, but the network is
     // asked too: the timings of the cache are the ALBUM's and they only
@@ -253,22 +325,521 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     startYtm();
 }
 
+bool Lyrics::loadFromDiskCache()
+{
+    QFile f(lyricCachePath(m_artist, m_title));
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+    if (o.value(QStringLiteral("v")).toInt() != 1)
+        return false;
+    const int dur = o.value(QStringLiteral("duration")).toInt();
+    if (m_duration > 0 && dur > 0 && qAbs(dur - m_duration) > 6)
+        return false;   // another version of the song
+
+    if (o.value(QStringLiteral("lines")).isNull()) {
+        // "No lyrics" is also an answer, but it goes stale.
+        const qint64 saved = qint64(o.value(QStringLiteral("saved"))
+                                         .toDouble());
+        if (QDateTime::currentSecsSinceEpoch() - saved > 7 * 86400)
+            return false;
+        qInfo() << "[lyrics] sin letra guardada: se salta la busqueda";
+        fail(QStringLiteral("Sin letra disponible"));
+        return true;
+    }
+
+    // A line of the cache has the same shape as the one published to the
+    // shell widget: t (start), x (text), e (end), w (words), s (voice).
+    const auto cachedLine = [](const QJsonObject &o) {
+        LrcLine l;
+        l.time = o.value(QStringLiteral("t")).toDouble();
+        l.text = o.value(QStringLiteral("x")).toString();
+        l.end = o.value(QStringLiteral("e")).toDouble();
+        l.secondary = o.value(QStringLiteral("s")).toString()
+            == QLatin1String("counter");
+        l.translation = o.value(QStringLiteral("tr")).toString();
+        for (const QJsonValue &v : o.value(QStringLiteral("w")).toArray()) {
+            const QJsonObject w = v.toObject();
+            QVariantMap m;
+            m.insert(QStringLiteral("t"), w.value(QStringLiteral("t")).toDouble());
+            m.insert(QStringLiteral("e"), w.value(QStringLiteral("e")).toDouble());
+            m.insert(QStringLiteral("text"),
+                     w.value(QStringLiteral("text")).toString());
+            l.words.append(m);
+        }
+        return l;
+    };
+    QVector<LrcLine> lines;
+    for (const QJsonValue &v : o.value(QStringLiteral("lines")).toArray())
+        lines.append(cachedLine(v.toObject()));
+    if (lines.size() < 2)
+        return false;
+    m_lines = lines;
+    m_plain = o.value(QStringLiteral("plain")).toString();
+    m_hasSynced = true;
+    m_hasLyrics = true;
+    m_loading = false;
+    m_syncSource = QStringLiteral("caché");
+    m_worded = hasWordTimings();
+    // Translations are kept with the lyrics: a translated song must not
+    // spend translator quota again on every play.
+    bool hasTr = false;
+    for (const LrcLine &l : lines)
+        if (!l.translation.isEmpty())
+            hasTr = true;
+    m_translated = hasTr;
+    m_refLines = lines;
+    markNoteStretches(m_lines);
+    markChorus(m_lines);
+    computeWordMeta(m_lines);
+    synthesizeWordTimes(m_lines);
+    computeWordMeta(m_lines);
+    qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
+                             .arg(lines.size());
+    publishLines();
+    startTranslate();
+    // A disk-cache hit is one answer and closes the search: no late source
+    // may publish a second decision. A line-level cache hit stays upgradable;
+    // maybeUpgradeWorded() is the only path allowed to replace these lines.
+    m_published = true;
+    m_upgradable = !hasWordTimings();
+    emit changed();
+    return true;
+}
+
+void Lyrics::saveToDiskCache(bool found)
+{
+    QJsonObject o;
+    o.insert(QStringLiteral("v"), 1);
+    o.insert(QStringLiteral("duration"), m_duration);
+    o.insert(QStringLiteral("saved"), QDateTime::currentSecsSinceEpoch());
+    if (!found) {
+        o.insert(QStringLiteral("lines"), QJsonValue::Null);
+    } else {
+        QJsonArray arr;
+        for (const LrcLine &l : m_lines) {
+            QJsonObject lo;
+            lo.insert(QStringLiteral("t"), l.time);
+            lo.insert(QStringLiteral("x"), l.text);
+            lo.insert(QStringLiteral("e"), l.end);
+            lo.insert(QStringLiteral("s"),
+                      l.secondary ? QStringLiteral("counter") : QString());
+            if (!l.translation.isEmpty())
+                lo.insert(QStringLiteral("tr"), l.translation);
+            QJsonArray ws;
+            for (const QVariant &wv : l.words)
+                ws.append(QJsonValue::fromVariant(wv));
+            if (!ws.isEmpty())
+                lo.insert(QStringLiteral("w"), ws);
+            arr.append(lo);
+        }
+        o.insert(QStringLiteral("lines"), arr);
+        o.insert(QStringLiteral("worded"), hasWordTimings());
+        if (!m_plain.isEmpty())
+            o.insert(QStringLiteral("plain"), m_plain);
+    }
+    const QString path = lyricCachePath(m_artist, m_title);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QSaveFile f(path);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+        f.commit();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Liriqo: a public aggregator with syllable/word stamps. It answers in one
+// GET and is used as another word-level candidate, so the same comparison
+// with the video timeline picks it only when it really is this recording.
+// ---------------------------------------------------------------------------
+void Lyrics::startLiriqo(int candidate)
+{
+    const SearchCandidate &c = searchCandidate(candidate);
+    QUrl url(QStringLiteral(
+        "https://api.liriqo-alfarrizi.my.id/v1/lyrics"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("title"), c.title);
+    if (!c.artist.isEmpty())
+        q.addQueryItem(QStringLiteral("artist"), c.artist);
+    if (m_duration > 0)
+        q.addQueryItem(QStringLiteral("duration"), QString::number(m_duration));
+    q.addQueryItem(QStringLiteral("fast"), QStringLiteral("1"));
+    url.setQuery(q);
+    request(url, Stage::LiriqoGet, m_trackKey, kUserAgent, nullptr, candidate);
+}
+
+void Lyrics::onLiriqoReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (finishedOrStale(reply, key))
+        return;
+    const int candidate = reply->property("candidate").toInt();
+    // One retry with the next (title, artist) pair, only when this one gave
+    // nothing usable. The index lives on the reply, so parallel sources
+    // never skip their own first attempt.
+    const auto retryOrReturn = [this, candidate]() {
+        if (candidate + 1 < m_searchCandidates.size())
+            startLiriqo(candidate + 1);
+    };
+    if (reply->error() != QNetworkReply::NoError)
+        return;   // an optional source: the others keep running
+    const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
+    const QJsonObject meta = root.value(QStringLiteral("metadata")).toObject();
+    const QString found = meta.value(QStringLiteral("title")).toString();
+    const QString want = searchCandidate(candidate).title;
+    if (!found.isEmpty() && !norm(found).contains(norm(want))
+        && !norm(want).contains(norm(found))) {
+        retryOrReturn();
+        return;
+    }
+    const int foundDur = int(meta.value(QStringLiteral("duration")).toDouble());
+    if (m_duration > 0 && foundDur > 0 && qAbs(foundDur - m_duration) > 6) {
+        retryOrReturn();
+        return;
+    }
+
+    const QJsonObject track = root.value(QStringLiteral("primary")).toObject();
+    const QString level = track.value(QStringLiteral("syncLevel")).toString();
+    const bool worded = level == QLatin1String("word")
+        || level == QLatin1String("syllable")
+        || level == QLatin1String("character");
+    const QJsonArray fallback = track.value(QStringLiteral("words")).toArray();
+    const QJsonArray timed = track.value(QStringLiteral("timed")).toArray();
+    QVector<LrcLine> lines;
+    int withWords = 0;
+    for (int i = 0; i < timed.size(); ++i) {
+        const QJsonObject raw = timed.at(i).toObject();
+        const QString text = raw.value(QStringLiteral("text")).toString().trimmed();
+        const double start = raw.value(QStringLiteral("start")).toDouble() / 1000.0;
+        if (text.isEmpty() || start <= 0.0
+            || raw.value(QStringLiteral("isInstrumental")).toBool())
+            continue;
+        LrcLine l;
+        l.time = start;
+        l.text = text;
+        l.end = raw.value(QStringLiteral("end")).toDouble() / 1000.0;
+        QJsonArray ws = raw.value(QStringLiteral("words")).toArray();
+        if (ws.isEmpty() && i < fallback.size())
+            ws = fallback.at(i).toArray();
+        if (worded) {
+            int at = 0;
+            for (const QJsonValue &v : ws) {
+                const QJsonObject w = v.toObject();
+                const QString wt = w.value(QStringLiteral("text")).toString().trimmed();
+                const double t = w.value(QStringLiteral("start")).toDouble() / 1000.0;
+                double e = w.value(QStringLiteral("end")).toDouble() / 1000.0;
+                if (wt.isEmpty() || t < 0.0)
+                    continue;
+                if (!(e > t))
+                    e = t + 0.2;
+                const int foundAt = l.text.indexOf(wt, at);
+                at = foundAt >= 0 ? foundAt + wt.size() : at;
+                QVariantMap m;
+                m.insert(QStringLiteral("t"), t);
+                m.insert(QStringLiteral("e"), e);
+                m.insert(QStringLiteral("text"),
+                         (foundAt > 0 ? QStringLiteral(" ") : QString()) + wt);
+                l.words.append(m);
+            }
+        }
+        if (l.words.size() > 1)
+            ++withWords;
+        lines.append(l);
+    }
+    if (lines.size() < 3 || withWords < 1) {
+        retryOrReturn();
+        return;
+    }
+    qInfo().noquote() << QString("[lyrics] liriqo: %1 lineas, %2 con tiempos")
+                             .arg(lines.size()).arg(withWords);
+    adoptWorded(std::move(lines), QStringLiteral("liriqo"),
+                /*local=*/false, /*musical=*/false);
+    if (m_hasLyrics)
+        finish();
+}
+
+// ---------------------------------------------------------------------------
+// Translation of the visible lines. One batch request, mapped back by the
+// original text. It is optional and never blocks the lyrics themselves.
+// ---------------------------------------------------------------------------
+void Lyrics::startTranslate()
+{
+    if (m_translateTo.isEmpty() || m_translated || m_lines.isEmpty())
+        return;
+    QStringList texts;
+    for (const LrcLine &l : m_lines) {
+        // Instrumental markers ("♪ ♪") must not be sent: the translator
+        // answers with an extra music note that then sits on the phrase.
+        if (l.instrumental)
+            continue;
+        const QString t = l.text.trimmed();
+        if (!t.isEmpty() && !texts.contains(t))
+            texts.append(t);
+    }
+    if (texts.isEmpty())
+        return;
+    m_translated = true;   // one attempt per track
+    // The googleapis host redirects to a "sorry" page after heavy use.
+    // The public web endpoint with client=at answers the same JSON with a
+    // much higher limit; keep it as the primary.
+    QUrl url(QStringLiteral(
+        "https://translate.google.com/translate_a/single"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("client"), QStringLiteral("at"));
+    q.addQueryItem(QStringLiteral("sl"), QStringLiteral("auto"));
+    q.addQueryItem(QStringLiteral("tl"), m_translateTo);
+    q.addQueryItem(QStringLiteral("dt"), QStringLiteral("t"));
+    url.setQuery(q);
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", QByteArray(kUserAgent));
+    req.setHeader(QNetworkRequest::ContentTypeHeader,
+                  QStringLiteral("application/x-www-form-urlencoded;charset=utf-8"));
+    req.setTransferTimeout(kTimeoutMs);
+    const QByteArray body = "q=" + QUrl::toPercentEncoding(texts.join(QLatin1Char('\n')));
+    QNetworkReply *reply = m_net->post(req, body);
+    reply->setProperty("trackKey", m_trackKey);
+    reply->setProperty("gen", m_gen);
+    reply->setProperty("translationGen", m_translationGen);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        onTranslateReply(reply, reply->property("trackKey").toString());
+    });
+}
+
+void Lyrics::onTranslateReply(QNetworkReply *reply, const QString &key)
+{
+    reply->deleteLater();
+    if (isStale(reply, key, m_trackKey, m_gen)
+        || reply->property("translationGen").toInt() != m_translationGen)
+        return;   // built for lines that were replaced (e.g. by an upgrade)
+    if (reply->error() != QNetworkReply::NoError) {
+        qInfo() << "[lyrics] traduccion limitada, se prueba el respaldo";
+        startTranslateFallback();
+        return;
+    }
+    const QJsonArray root = QJsonDocument::fromJson(reply->readAll()).array();
+    if (root.isEmpty() || !root.at(0).isArray()) {
+        startTranslateFallback();
+        return;
+    }
+    QString all;
+    for (const QJsonValue &v : root.at(0).toArray()) {
+        const QJsonArray seg = v.toArray();
+        if (!seg.isEmpty())
+            all += seg.at(0).toString();
+    }
+    applyTranslatedText(all);
+}
+
+void Lyrics::startTranslateFallback()
+{
+    if (m_translateFallbackTried || m_lines.isEmpty())
+        return;
+    m_translateFallbackTried = true;
+    // MyMemory cannot split a batch back into lines reliably. Translate
+    // EACH line in its own request and index the results by line number:
+    // no line can pick up another line's translation, and long songs are
+    // no longer refused.
+    m_translationByLine.clear();
+    m_translateQueue.clear();
+    m_translateInFlight = 0;
+    for (int i = 0; i < m_lines.size(); ++i) {
+        const LrcLine &l = m_lines.at(i);
+        if (l.instrumental || l.text.trimmed().isEmpty())
+            continue;   // instrumental stretches are not translated
+        m_translateQueue.append(i);
+    }
+    if (m_translateQueue.isEmpty())
+        return;
+    qInfo().noquote() << QString("[lyrics] traduccion respaldo MyMemory: %1 lineas")
+                             .arg(m_translateQueue.size());
+    pumpTranslateQueue();
+}
+
+void Lyrics::pumpTranslateQueue()
+{
+    // Light rate limit: at most four MyMemory requests in flight.
+    while (m_translateInFlight < 4 && !m_translateQueue.isEmpty()) {
+        const int lineIndex = m_translateQueue.takeFirst();
+        QUrl url(QStringLiteral("https://api.mymemory.translated.net/get"));
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("q"), m_lines.at(lineIndex).text.trimmed());
+        // The interface language is not the language of the song: an
+        // English song shown in Spanish must go en->es, not es->es.
+        // MyMemory detects the source with "autodetect".
+        q.addQueryItem(QStringLiteral("langpair"),
+                       QStringLiteral("autodetect|") + m_translateTo);
+        url.setQuery(q);
+        QNetworkRequest req(url);
+        req.setRawHeader("User-Agent", QByteArray(kUserAgent));
+        req.setTransferTimeout(kTimeoutMs);
+        QNetworkReply *reply = m_net->get(req);
+        reply->setProperty("trackKey", m_trackKey);
+        reply->setProperty("gen", m_gen);
+        reply->setProperty("translationGen", m_translationGen);
+        reply->setProperty("lineIndex", lineIndex);
+        connect(reply, &QNetworkReply::finished, this, [this, reply] {
+            onTranslateFallbackReply(reply, reply->property("trackKey").toString());
+        });
+        ++m_translateInFlight;
+    }
+}
+
+void Lyrics::onTranslateFallbackReply(QNetworkReply *reply, const QString &key)
+{
+    const int lineIndex = reply->property("lineIndex").toInt();
+    const bool obsolete = isStale(reply, key, m_trackKey, m_gen)
+        || reply->property("translationGen").toInt() != m_translationGen;
+    reply->deleteLater();
+    if (obsolete) {
+        // A new fetch or a word-level upgrade replaced the lines: the whole
+        // queue belongs to the old set, so stop it (the new one requeues).
+        m_translateQueue.clear();
+        return;
+    }
+    --m_translateInFlight;
+    if (reply->error() == QNetworkReply::NoError) {
+        QString tr = QJsonDocument::fromJson(reply->readAll())
+            .object().value(QStringLiteral("responseData")).toObject()
+            .value(QStringLiteral("translatedText")).toString();
+        // A translator sometimes answers with a stray note or separator.
+        tr.remove(QRegularExpression(QStringLiteral("[\u266a\u266b\u2022\u00b7]+")));
+        tr = tr.trimmed();
+        if (!tr.isEmpty()
+            && tr.toLower() != m_lines.at(lineIndex).text.trimmed().toLower()) {
+            m_translationByLine.insert(lineIndex, tr);
+        }
+    } else {
+        // The anonymous MyMemory tier is capped (~5000 chars/day). One
+        // failure means the whole backup service is unavailable: sending
+        // the other 40+ lines only burns time and produces nothing. Stop
+        // the queue and leave the song untranslated until next time.
+        qInfo().noquote() << QString("[lyrics] traduccion no disponible "
+                                     "(linea %1): %2")
+                                 .arg(lineIndex)
+                                 .arg(reply->errorString());
+        m_translateQueue.clear();
+        m_translationByLine.clear();
+    }
+    pumpTranslateQueue();
+    if (m_translateInFlight == 0 && m_translateQueue.isEmpty())
+        applyLineTranslations();
+}
+
+void Lyrics::applyLineTranslations()
+{
+    if (m_translationByLine.isEmpty()) {
+        qInfo() << "[lyrics] traduccion respaldo: ninguna linea traducida";
+        return;   // leave the lyrics as they are
+    }
+    for (auto it = m_translationByLine.constBegin();
+         it != m_translationByLine.constEnd(); ++it) {
+        if (it.key() >= 0 && it.key() < m_lines.size())
+            m_lines[it.key()].translation = it.value();
+    }
+    qInfo() << "[lyrics] traduccion aplicada a" << m_translationByLine.size()
+            << "lineas";
+    publishLines();
+    emit changed();
+}
+
+void Lyrics::applyTranslatedText(const QString &all)
+{
+    QStringList seen;
+    for (const LrcLine &l : m_lines) {
+        if (l.instrumental)
+            continue;
+        const QString t = l.text.trimmed();
+        if (!t.isEmpty() && !seen.contains(t))
+            seen.append(t);
+    }
+    const QStringList parts = all.split(QLatin1Char('\n'));
+    if (parts.size() != seen.size()) {
+        qInfo() << "[lyrics] traduccion descartada:"
+                << parts.size() << "partes para" << seen.size() << "lineas";
+        m_translated = false;
+        return;
+    }
+    QHash<QString, QString> byText;
+    for (int i = 0; i < seen.size(); ++i) {
+        QString tr = parts.at(i).trimmed();
+        // A translator sometimes answers with a stray note or separator.
+        tr.remove(QRegularExpression(QStringLiteral("[♪♫•·]+")));
+        tr = tr.trimmed();
+        if (!tr.isEmpty() && tr.toLower() != seen.at(i).toLower())
+            byText.insert(seen.at(i), tr);
+    }
+    for (LrcLine &l : m_lines)
+        l.translation = byText.value(l.text.trimmed());
+    qInfo() << "[lyrics] traduccion aplicada a" << byText.size() << "lineas";
+    // Save the translated lines too: the next listen costs no quota.
+    if (!m_lines.isEmpty())
+        saveToDiskCache(/*found=*/true);
+    publishLines();
+    emit changed();
+}
+
+// The same phrase repeated is the chorus: it gets a bigger row. A held
+// word (much longer than the median) gets a longer glow in the view.
+void Lyrics::markChorus(QVector<LrcLine> &lines)
+{
+    QHash<QString, int> count;
+    for (const LrcLine &l : lines) {
+        const QString k = norm(l.text);
+        if (k.size() >= 6)
+            ++count[k];
+    }
+    for (LrcLine &l : lines)
+        l.chorus = count.value(norm(l.text), 0) >= 2;
+}
+
+void Lyrics::computeWordMeta(QVector<LrcLine> &lines)
+{
+    QVector<double> perWord;
+    for (const LrcLine &l : lines) {
+        for (const QVariant &wv : l.words) {
+            const QVariantMap w = wv.toMap();
+            const double t = w.value(QStringLiteral("t")).toDouble();
+            const double e = w.value(QStringLiteral("e")).toDouble();
+            const int chars = w.value(QStringLiteral("text")).toString().size();
+            if (e > t && chars > 0)
+                perWord.append((e - t) / chars);
+        }
+    }
+    if (perWord.isEmpty())
+        return;
+    std::sort(perWord.begin(), perWord.end());
+    const double median = perWord.at(perWord.size() / 2);
+    for (LrcLine &l : lines) {
+        for (QVariant &wv : l.words) {
+            QVariantMap w = wv.toMap();
+            const double t = w.value(QStringLiteral("t")).toDouble();
+            const double e = w.value(QStringLiteral("e")).toDouble();
+            const int chars = w.value(QStringLiteral("text")).toString().size();
+            const bool held = e - t >= 0.45 && chars > 0
+                && (e - t) / chars > median * 2.0;
+            w.insert(QStringLiteral("held"), held);
+            wv = w;
+        }
+    }
+}
+
 // Classic plan (LRCLIB -> NetEase), used when YouTube Music has no lyrics
 // for the track.
-void Lyrics::startLrclib()
+void Lyrics::startLrclib(int candidate)
 {
+    const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kApiGet));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("artist_name"), m_artist);
-    q.addQueryItem(QStringLiteral("track_name"), m_title);
+    q.addQueryItem(QStringLiteral("artist_name"), c.artist);
+    q.addQueryItem(QStringLiteral("track_name"), c.title);
     if (m_duration > 0)
         q.addQueryItem(QStringLiteral("duration"), QString::number(m_duration));
     url.setQuery(q);
-    request(url, Stage::LrclibGet, m_trackKey);
+    request(url, Stage::LrclibGet, m_trackKey, nullptr, nullptr, candidate);
 }
 
 void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
-                     const char *agent, const char *accept)
+                     const char *agent, const char *accept, int candidate)
 {
     QNetworkRequest req(url);
     req.setHeader(QNetworkRequest::UserAgentHeader,
@@ -287,6 +858,7 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
     // m_trackKey.
     reply->setProperty("trackKey", key);
     reply->setProperty("gen", m_gen);
+    reply->setProperty("candidate", candidate);
     connect(reply, &QNetworkReply::finished, this, [this, reply, stage] {
         const QString key = reply->property("trackKey").toString();
         switch (stage) {
@@ -301,6 +873,10 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
         case Stage::MxmRichsync:   onMxmRichsyncReply(reply, key); break;
         case Stage::LrcRedSearch:  onLrcRedSearchReply(reply, key); break;
         case Stage::LrcRedSheet:   onLrcRedSheetReply(reply, key); break;
+        case Stage::LiriqoGet:     onLiriqoReply(reply, key); break;
+        case Stage::Translate:     onTranslateReply(reply, key); break;
+        case Stage::TranslateFallback:
+                                   onTranslateFallbackReply(reply, key); break;
         }
     });
 }
@@ -309,7 +885,7 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
 // no Authorization: anonymously it works (authenticated the API returns
 // "Lyrics not available" or 400).
 void Lyrics::postJson(const QUrl &url, const QJsonObject &body, Stage stage,
-                      const QString &key)
+                      const QString &key, int candidate)
 {
     QNetworkRequest req(url);
     req.setRawHeader("User-Agent",
@@ -325,6 +901,7 @@ void Lyrics::postJson(const QUrl &url, const QJsonObject &body, Stage stage,
         m_net->post(req, QJsonDocument(body).toJson(QJsonDocument::Compact));
     reply->setProperty("trackKey", key);
     reply->setProperty("gen", m_gen);
+    reply->setProperty("candidate", candidate);
     connect(reply, &QNetworkReply::finished, this, [this, reply, stage] {
         const QString key = reply->property("trackKey").toString();
         switch (stage) {
@@ -341,6 +918,16 @@ static bool isStale(QNetworkReply *reply, const QString &key,
                     const QString &currentKey, int currentGen)
 {
     return key != currentKey || reply->property("gen").toInt() != currentGen;
+}
+
+bool Lyrics::finishedOrStale(QNetworkReply *reply, const QString &key) const
+{
+    // Once the single decision is out, every source reply is too late: the
+    // first set shown stays, whatever a later provider brings. The one
+    // exception is an upgradable cache hit: word-level replies still run,
+    // but they can only replace the lines through maybeUpgradeWorded().
+    return (m_published && !m_upgradable)
+        || isStale(reply, key, m_trackKey, m_gen);
 }
 
 // ---- YouTube Music --------------------------------------------------------
@@ -418,8 +1005,9 @@ static QString firstString(const QJsonValue &v, const QString &key)
     return QString();
 }
 
-void Lyrics::startYtm()
+void Lyrics::startYtm(int candidate)
 {
+    m_ytmCandidate = candidate;
     // If the track comes from YouTube with its exact videoId, that video
     // is tried directly in /next (its timings match the recording being
     // played; a title search may bring a cover or another take).
@@ -431,16 +1019,17 @@ void Lyrics::startYtm()
         ytmNextFor(0);
         return;
     }
+    const SearchCandidate &c = searchCandidate(candidate);
     QJsonObject body = ytmContext(kYtmWebClient, kYtmWebVersion, /*android=*/false);
-    QString query = m_title;
-    if (!m_artist.isEmpty())
-        query += QLatin1Char(' ') + m_artist;
+    QString query = c.title;
+    if (!c.artist.isEmpty())
+        query += QLatin1Char(' ') + c.artist;
     body[QStringLiteral("query")] = query;
     body[QStringLiteral("params")] = QString::fromLatin1(kYtmSearchParams);
 
     qInfo().noquote()
         << QString("[lyrics] youtube music: buscar \"%1\"").arg(query);
-    postJson(ytmUrl("search"), body, Stage::YtmSearch, m_trackKey);
+    postJson(ytmUrl("search"), body, Stage::YtmSearch, m_trackKey, candidate);
 }
 
 // Splits into normalised words (no accents, no punctuation). Unlike
@@ -515,8 +1104,10 @@ static int scoreYtm(const QString &title, const QString &line,
 void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
+    const int candidate = reply->property("candidate").toInt();
+    const SearchCandidate &c = searchCandidate(candidate);
 
     if (reply->error() != QNetworkReply::NoError) {
         ytmGiveUp(QStringLiteral("búsqueda fallida (%1)")
@@ -548,7 +1139,7 @@ void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
         };
         const QString title = cols.size() > 0 ? runsText(cols.at(0)) : QString();
         const QString line = cols.size() > 1 ? runsText(cols.at(1)) : QString();
-        const int score = scoreYtm(title, line, m_title, m_artist);
+        const int score = scoreYtm(title, line, c.title, c.artist);
         if (score >= 30)
             ranked.append(qMakePair(score, videoId));
     }
@@ -564,6 +1155,12 @@ void Lyrics::onYtmSearchReply(QNetworkReply *reply, const QString &key)
     m_ytmIdx = 0;
 
     if (m_ytmIds.isEmpty()) {
+        if (candidate + 1 < m_searchCandidates.size()) {
+            qInfo().noquote() << QString("[lyrics] youtube music: sin vídeo, probando \"%1\"")
+                                     .arg(searchCandidate(candidate + 1).title);
+            startYtm(candidate + 1);
+            return;
+        }
         ytmGiveUp(QStringLiteral("ningún vídeo coincide con la pista"));
         return;
     }
@@ -626,7 +1223,7 @@ static QString lyricsBrowseId(const QJsonObject &root, bool *unselectable)
 void Lyrics::onYtmNextReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
@@ -669,7 +1266,7 @@ void Lyrics::ytmBrowseFor(const QString &browseId)
 void Lyrics::onYtmBrowseReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
@@ -756,7 +1353,7 @@ void Lyrics::ytmGiveUp(const QString &why)
     qInfo().noquote()
         << QString("[lyrics] youtube music: %1 -> probando LRCLIB").arg(why);
     m_ytmIds.clear();
-    startLrclib();
+    startLrclib(m_ytmCandidate);
 }
 
 // The timed lines without text of an LRC: they say where a phrase stops.
@@ -782,9 +1379,10 @@ static int lrcStopMarkers(const QString &synced)
 void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
 
+    const int candidate = reply->property("candidate").toInt();
     const int status =
         reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QByteArray body = reply->readAll();
@@ -801,7 +1399,7 @@ void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
             // between all of them (if it fails, this one is used).
             if (!synced.trimmed().isEmpty()) {
                 m_lrclibGet = body;
-                startSearch();
+                startSearch(candidate);
                 return;
             }
             applyPayload(obj);
@@ -817,26 +1415,27 @@ void Lyrics::onGetReply(QNetworkReply *reply, const QString &key)
         qInfo() << "[lyrics] lrclib get falló (" << status << "), probando search";
     }
 
-    startSearch();
+    startSearch(candidate);
 }
 
-void Lyrics::startSearch()
+void Lyrics::startSearch(int candidate)
 {
+    const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kApiSearch));
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("track_name"),
-                   m_searchTitle.trimmed().isEmpty() ? m_title
-                                                     : m_searchTitle);
-    q.addQueryItem(QStringLiteral("artist_name"), m_artist);
+                   c.title.isEmpty() ? m_title : c.title);
+    q.addQueryItem(QStringLiteral("artist_name"), c.artist);
     url.setQuery(q);
-    request(url, Stage::LrclibSearch, m_trackKey);
+    request(url, Stage::LrclibSearch, m_trackKey, nullptr, nullptr, candidate);
 }
 
 void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
+    const int candidate = reply->property("candidate").toInt();
 
     const QJsonArray arr = (reply->error() == QNetworkReply::NoError)
                                ? QJsonDocument::fromJson(reply->readAll()).array()
@@ -896,19 +1495,29 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
         }
     }
 
+    // No usable record for this pair: try the next one before leaving
+    // LRCLIB. The get record belongs to the old pair, so drop it too.
+    if (candidate + 1 < m_searchCandidates.size()) {
+        qInfo().noquote() << QString("[lyrics] lrclib: sin letra, probando \"%1\"")
+                                 .arg(searchCandidate(candidate + 1).title);
+        m_lrclibGet.clear();
+        startLrclib(candidate + 1);
+        return;
+    }
+
     qInfo() << "[lyrics] lrclib search:" << arr.size()
             << "resultados, ninguno sincronizado -> probando Musixmatch";
     if (!m_mxmTried)
-        startMusixmatch();
+        startMusixmatch(candidate);
     else {
         m_neteaseTried = true;
-        startNetease();
+        startNetease(candidate);
     }
 }
 
 // ---- NetEase Cloud Music --------------------------------------------------
 
-void Lyrics::startNetease()
+void Lyrics::startNetease(int candidate)
 {
     if (m_title.trimmed().isEmpty()) {
         settleOrFail();
@@ -916,9 +1525,10 @@ void Lyrics::startNetease()
     }
 
     // The search works better with "title artist".
-    QString query = m_title;
-    if (!m_artist.isEmpty())
-        query += QStringLiteral(" ") + m_artist;
+    const SearchCandidate &c = searchCandidate(candidate);
+    QString query = c.title;
+    if (!c.artist.isEmpty())
+        query += QStringLiteral(" ") + c.artist;
 
     const QUrl url = QUrl::fromEncoded(
         QByteArray(kNeteaseSearch) + "?s="
@@ -926,14 +1536,15 @@ void Lyrics::startNetease()
         + "&type=1&limit=10");
 
     qInfo().noquote() << QString("[lyrics] netease: buscar \"%1\"").arg(query);
-    request(url, Stage::NeteaseSearch, m_trackKey);
+    request(url, Stage::NeteaseSearch, m_trackKey, nullptr, nullptr, candidate);
 }
 
 void Lyrics::onNeteaseSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
+    const int candidate = reply->property("candidate").toInt();
 
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] netease search falló:" << reply->errorString();
@@ -956,6 +1567,12 @@ void Lyrics::onNeteaseSearchReply(QNetworkReply *reply, const QString &key)
         }
     }
     if (best < 0) {
+        if (candidate + 1 < m_searchCandidates.size()) {
+            qInfo() << "[lyrics] netease: sin coincidencia, probando"
+                    << searchCandidate(candidate + 1).title;
+            startNetease(candidate + 1);
+            return;
+        }
         qInfo() << "[lyrics] netease: sin coincidencia útil de"
                 << songs.size() << "candidatas";
         settleOrFail();
@@ -973,13 +1590,13 @@ void Lyrics::onNeteaseSearchReply(QNetworkReply *reply, const QString &key)
     const QUrl url = QUrl::fromEncoded(
         QByteArray(kNeteaseLyric) + "?id=" + QByteArray::number(id)
         + "&lv=-1&kv=-1&tv=-1");
-    request(url, Stage::NeteaseLyric, m_trackKey);
+    request(url, Stage::NeteaseLyric, m_trackKey, nullptr, nullptr, candidate);
 }
 
 void Lyrics::onNeteaseLyricReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;   // old answer
 
     if (reply->error() != QNetworkReply::NoError) {
@@ -1097,15 +1714,17 @@ int Lyrics::scoreLrcRecord(const QJsonObject &obj) const
     if (synced.trimmed().isEmpty())
         return 0;
 
-    // The bare title is what the catalogue has; the raw one (the video
-    // title) is compared too, because some records use it.
-    const QString wantTitle = norm(m_title);
-    const QString wantBare = norm(m_searchTitle);
+    // The catalogue may file the song under any of the search variants; the
+    // raw video title is compared too, because some records use it.
+    QStringList wants;
+    wants << norm(m_title);
+    for (const SearchCandidate &c : m_searchCandidates)
+        wants << norm(c.title);
     const QString gotTitle =
         norm(obj.value(QStringLiteral("trackName")).toString());
     int titleScore = 0;
     if (!gotTitle.isEmpty()) {
-        for (const QString &want : {wantTitle, wantBare}) {
+        for (const QString &want : wants) {
             if (want.isEmpty())
                 continue;
             if (gotTitle == want)
@@ -1185,6 +1804,47 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
         return false;
     }
 
+    if (m_upgradable) {
+        // The set on screen came from the cache and had no word timings.
+        // A late timed source is the real timeline: keep its reference AND
+        // show its lines (only when it is the same song), so a word-level
+        // candidate can align with it instead of with the stale cache.
+        m_refLines = parsed;
+        int same = 0;
+        for (const LrcLine &p : parsed) {
+            const QString key = norm(p.text);
+            if (key.isEmpty())
+                continue;
+            for (const LrcLine &c : m_lines) {
+                if (!norm(c.text).isEmpty() && norm(c.text) == key) {
+                    ++same;
+                    break;
+                }
+            }
+        }
+        if (same >= 2) {
+            m_lines = parsed;
+            m_syncSource = source;
+            markNoteStretches(m_lines);
+            markChorus(m_lines);
+            computeWordMeta(m_lines);
+            ++m_translationGen;
+            m_translated = false;
+            m_translateFallbackTried = false;
+            m_translationByLine.clear();
+            m_translateQueue.clear();
+            m_translateInFlight = 0;
+            qInfo().noquote() << QString("[lyrics] linea temporal corregida "
+                                         "desde %1").arg(source);
+            if (!m_lines.isEmpty())
+                saveToDiskCache(/*found=*/true);
+            publishLines();
+            startTranslate();
+            emit changed();
+        }
+        maybeUpgradeWorded();
+        return true;
+    }
     m_synced = lrc;
     // The timed lines of the video are kept as the reference: the word
     // level timings that come later are aligned with them.
@@ -1362,7 +2022,9 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
 // with more word level timings has the richer karaoke.
 void Lyrics::pickWorded()
 {
-    if (m_candidates.isEmpty())
+    // After the one publish of this fetch the decision is frozen: a late
+    // candidate must not move the set already shown (and published).
+    if (m_published || m_candidates.isEmpty())
         return;
     const bool canCompare = m_refLines.size() >= 2;
     int best = -1;
@@ -1441,6 +2103,33 @@ void Lyrics::pickWorded()
                   });
         bestLines = std::move(merged);
     }
+    // Instrumental stretches are not sung, so the "missing adlib" merge
+    // above skips them. A source that wins the vote may have no intro
+    // marker though: keep the ♪ lines of EVERY candidate (even one that did
+    // not align), or the intro the first source had vanishes when a later
+    // source wins. prepareWordedLines() marks them and drops duplicates
+    // against the video reference.
+    for (const WordedCandidate &c : m_candidates) {
+        for (const LrcLine &l : c.lines) {
+            if (!l.instrumental && !isNoteOnly(l.text))
+                continue;
+            bool have = false;
+            for (const LrcLine &b : bestLines) {
+                if (b.instrumental && qAbs(b.time - l.time) < 1.5) {
+                    have = true;
+                    break;
+                }
+            }
+            if (have)
+                continue;
+            LrcLine marker = l;
+            marker.instrumental = true;
+            marker.words.clear();
+            bestLines.append(marker);
+        }
+    }
+    std::sort(bestLines.begin(), bestLines.end(),
+              [](const LrcLine &a, const LrcLine &b) { return a.time < b.time; });
     prepareWordedLines(bestLines);
     m_lines = std::move(bestLines);
     m_wordedRaw = m_candidates.at(best).lines;
@@ -1451,6 +2140,75 @@ void Lyrics::pickWorded()
     m_hasSynced = true;
     m_syncSource = m_wordedSource;
     m_worded = true;
+}
+
+// A line-level cache hit is already published (m_published), so a late
+// source cannot go through pickWorded(). This is the single exception: a
+// word-level candidate that aligns with the video reference replaces the
+// shown lines. Candidates without word timings never get here, so a late
+// line-level source still cannot replace a timed set (anti-flicker).
+void Lyrics::maybeUpgradeWorded()
+{
+    if (!m_upgradable || m_candidates.isEmpty() || hasWordTimings())
+        return;
+    QVector<LrcLine> bestLines;
+    QVector<LrcLine> bestRaw;
+    WordedScore bestScore;
+    QString bestSource;
+    bool bestLocal = false;
+    for (const WordedCandidate &c : m_candidates) {
+        bool worded = false;
+        for (const LrcLine &l : c.lines) {
+            if (l.words.size() > 1) {
+                worded = true;
+                break;
+            }
+        }
+        if (!worded)
+            continue;
+        QVector<LrcLine> lines = c.lines;
+        WordedScore score;
+        if (!alignWords(lines, m_refLines, &score, c.musical))
+            continue;
+        if (!score.usable || score.matched < 2)
+            continue;   // not this take of the song
+        score.musical = c.musical;
+        if (bestLines.isEmpty() || score.betterThan(bestScore)) {
+            bestLines = std::move(lines);
+            bestRaw = c.lines;
+            bestScore = score;
+            bestSource = c.source;
+            bestLocal = c.local;
+        }
+    }
+    if (bestLines.isEmpty())
+        return;
+    prepareWordedLines(bestLines);
+    m_lines = std::move(bestLines);
+    m_wordedRaw = bestRaw;
+    m_wordedSource = bestSource;
+    m_localWorded = bestLocal;
+    m_wordedScore = bestScore;
+    m_worded = true;
+    m_hasSynced = true;
+    m_syncSource = bestSource;
+    m_upgradable = false;   // one upgrade per fetch
+
+    // The translation in flight was built for the line-level set: drop its
+    // replies and translate the final (word-level) lines instead.
+    ++m_translationGen;
+    m_translated = false;
+    m_translateFallbackTried = false;
+    m_translationByLine.clear();
+    m_translateQueue.clear();
+    m_translateInFlight = 0;
+    qInfo().noquote() << QString("[lyrics] mejora a letra a letra desde %1")
+                             .arg(bestSource);
+    if (!m_lines.isEmpty())
+        saveToDiskCache(/*found=*/true);
+    publishLines();
+    startTranslate();
+    emit changed();
 }
 
 // A word level source is kept as a candidate: the ones that arrive later
@@ -1467,6 +2225,7 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
     candidate.musical = musical;
     m_candidates.append(candidate);
     pickWorded();
+    maybeUpgradeWorded();
     return m_worded;
 }
 
@@ -1815,6 +2574,12 @@ bool Lyrics::trySonoraByTitle()
 
 void Lyrics::settleOrFail()
 {
+    if (m_upgradable) {
+        // The cache is the answer on screen. A line-level source finding
+        // nothing better must not become a "no lyrics" state.
+        finish();
+        return;
+    }
     if (m_hasLyrics || !m_plain.trimmed().isEmpty()) {
         finish();
         return;
@@ -1878,33 +2643,106 @@ void Lyrics::finish()
             startMusixmatch();
     }
 
+    // The publish itself is deferred: other sources are still in flight and
+    // may bring a better-aligned word-level set. Only the LAST answer of
+    // this fetch is shown, so the view never flips from one source to
+    // another.
+    m_publishFailed = false;
+    schedulePublish();
+}
+
+void Lyrics::schedulePublish()
+{
+    if (m_published || !m_publishTimer)
+        return;
+    // Rearmed on every finish()/fail(): the window starts at the last
+    // answer, so all the replies of the cascade have their say first.
+    m_publishTimer->start(1500);
+}
+
+void Lyrics::synthesizeWordTimes(QVector<LrcLine> &lines)
+{
+    for (LrcLine &l : lines) {
+        if (l.instrumental || !l.words.isEmpty())
+            continue;
+        const QString text = l.text.trimmed();
+        if (text.isEmpty())
+            continue;
+        double end = l.end;
+        if (!(end > l.time)) {
+            // A line without an end lasts until the next one, capped so a
+            // long instrumental gap does not freeze the front for seconds.
+            end = l.time + 6.0;
+        }
+        const double span = qMin(end - l.time, 8.0);
+        if (span <= 0.2)
+            continue;
+        const QStringList words = text.split(QRegularExpression(QStringLiteral("\\s+")),
+                                             Qt::SkipEmptyParts);
+        if (words.isEmpty())
+            continue;
+        int total = 0;
+        for (const QString &w : words)
+            total += w.size();
+        if (total <= 0)
+            continue;
+        int used = 0;
+        for (const QString &w : words) {
+            const double from = l.time + span * double(used) / total;
+            used += w.size();
+            const double to = l.time + span * double(used) / total;
+            QVariantMap m;
+            m.insert(QStringLiteral("t"), from);
+            m.insert(QStringLiteral("e"), to);
+            m.insert(QStringLiteral("text"), w);
+            m.insert(QStringLiteral("synthetic"), true);
+            l.words.append(m);
+        }
+    }
+}
+
+void Lyrics::publishFinal()
+{
+    if (m_published)
+        return;   // one decision per fetch
+    m_published = true;
+    // The lines of a source without word timings did not go through
+    // prepareWordedLines: a notes-only line would still reach the view as
+    // text (a lone "♪" where the dots belong).
+    markNoteStretches(m_lines);
+    markChorus(m_lines);
+    computeWordMeta(m_lines);
+    synthesizeWordTimes(m_lines);
+    computeWordMeta(m_lines);
+    if (m_publishFailed)
+        saveToDiskCache(/*found=*/false);
+    else if (!m_lines.isEmpty())
+        saveToDiskCache(/*found=*/true);
+    // One QA line for the one decision: whatever the winning source was,
+    // and always emitted when there is a result.
     const QString source = m_hasSynced
         ? (m_syncSource.isEmpty() ? QStringLiteral("?") : m_syncSource)
-        : (m_plainSource.isEmpty() ? QStringLiteral("ninguna")
-                                   : QStringLiteral("plana de ") + m_plainSource);
-    // In synced mode the timed lines are counted; in plain mode, the text
-    // lines (m_lines stays empty in that case).
+        : (m_publishFailed || m_plainSource.isEmpty()
+               ? QStringLiteral("ninguna")
+               : QStringLiteral("plana de ") + m_plainSource);
     const int count = m_hasSynced
         ? m_lines.size()
         : m_plain.split(QLatin1Char('\n'), Qt::SkipEmptyParts).size();
-    // QA format: it is ALWAYS emitted when there is a result, whatever the
-    // source (YouTube Music, LRCLIB or NetEase).
     qInfo().noquote()
         << QString("[lyrics] fuente: %1 | synced: %2 | lineas: %3 | pista=\"%4\"")
                .arg(source,
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
-    // The lines of a source without word timings did not go through
-    // prepareWordedLines: a notes-only line would still reach the view as
-    // text (a lone "♪" where the dots belong).
-    markNoteStretches(m_lines);
     publishLines();   // full dump to the published state (lines or discard)
+    startTranslate();
     emit changed();
 }
 
 void Lyrics::fail(const QString &message)
 {
+    if (m_upgradable)
+        return;   // the cache is already shown; a failed probe must not wipe it
     m_loading = false;
     m_hasLyrics = false;
     m_hasSynced = false;
@@ -1916,10 +2754,27 @@ void Lyrics::fail(const QString &message)
     m_error = message;
     qInfo().noquote() << QString("[lyrics] sin letra: %1 (pista=\"%2\")")
                              .arg(message, m_trackKey);
-    // Same format as in finish(): QA always expects the source line.
-    qInfo().noquote() << QString("[lyrics] fuente: ninguna | synced: no | "
-                                 "pista=\"%1\"").arg(m_trackKey);
-    emit changed();
+    // Deferred like finish(): a source still in flight may answer within
+    // the window and turn this into a result.
+    m_publishFailed = true;
+    schedulePublish();
+}
+
+// The shell widget rebuilds the line from the word texts. Without a
+// trailing space it glues them ("Someofthem..."). Keep the same shape for
+// every provider: trimmed text, one space between words.
+static QVariantList wordsForOutput(const QVariantList &words)
+{
+    QVariantList out;
+    for (int i = 0; i < words.size(); ++i) {
+        QVariantMap w = words.at(i).toMap();
+        QString text = w.value(QStringLiteral("text")).toString().trimmed();
+        if (i + 1 < words.size())
+            text += QLatin1Char(' ');
+        w.insert(QStringLiteral("text"), text);
+        out.append(w);
+    }
+    return out;
 }
 
 QVariantList Lyrics::lines() const
@@ -1956,8 +2811,12 @@ QVariantList Lyrics::lines() const
         m.insert(QStringLiteral("text"), l.text);
         if (l.secondary)
             m.insert(QStringLiteral("secondary"), true);
+        if (l.chorus)
+            m.insert(QStringLiteral("chorus"), true);
+        if (!l.translation.isEmpty())
+            m.insert(QStringLiteral("tr"), l.translation);
         if (!l.words.isEmpty())
-            m.insert(QStringLiteral("words"), l.words);
+            m.insert(QStringLiteral("words"), wordsForOutput(l.words));
         if (l.instrumental)
             m.insert(QStringLiteral("instrumental"), true);
         out.append(m);
@@ -2143,6 +3002,14 @@ int Lyrics::lineIndexAt(double seconds)
 void Lyrics::clear()
 {
     ++m_gen;              // it invalidates any answer still in flight
+    if (m_publishTimer)
+        m_publishTimer->stop();
+    m_published = false;
+    m_publishFailed = false;
+    m_upgradable = false;
+    m_translationByLine.clear();
+    m_translateQueue.clear();
+    m_translateInFlight = 0;
     m_trackKey.clear();
     m_artist.clear();
     m_title.clear();
@@ -2200,7 +3067,10 @@ void Lyrics::setEngine(Player *player)
         return;
     if (!m_runtimeBeat) {
         m_runtimeBeat = new QTimer(this);
-        m_runtimeBeat->setInterval(1000);
+        // The widget reads the position from the published file; twice a
+        // second was enough and cost two JSON writes per second while the
+        // phone was playing (CPU and, with it, battery).
+        m_runtimeBeat->setInterval(2000);
         m_runtimeBeat->setTimerType(Qt::CoarseTimer);
         connect(m_runtimeBeat, &QTimer::timeout, this, [this]() {
             publishRuntime();
@@ -2293,13 +3163,17 @@ void Lyrics::publishLines()
                 e = m_duration;   // nothing lasts past the end of the track
             lo.insert(QStringLiteral("e"), e);
             lo.insert(QStringLiteral("text"), l.text);
+            if (l.chorus)
+                lo.insert(QStringLiteral("chorus"), true);
+            if (!l.translation.isEmpty())
+                lo.insert(QStringLiteral("tr"), l.translation);
             if (l.secondary)
                 lo.insert(QStringLiteral("voice"), QStringLiteral("counter"));
             if (!l.words.isEmpty()) {
                 // LrcLine::words are QVariantMap {t,e,text}: they pass as
                 // they are to the widget's contract, but as real JSON.
                 QJsonArray ws;
-                for (const QVariant &wv : l.words)
+                for (const QVariant &wv : wordsForOutput(l.words))
                     ws.append(QJsonValue::fromVariant(wv));
                 lo.insert(QStringLiteral("w"), ws);
             }
@@ -2489,7 +3363,7 @@ static QString cleanTrackArtist(const QString &in)
     return a;
 }
 
-void Lyrics::startMusixmatch()
+void Lyrics::startMusixmatch(int candidate)
 {
     if (m_mxmTried)
         return;   // it is already on its way
@@ -2497,7 +3371,7 @@ void Lyrics::startMusixmatch()
     // A token in memory that is still fresh?
     if (!m_mxmToken.isEmpty() && m_mxmTokenAt.isValid()
         && m_mxmTokenAt.secsTo(QDateTime::currentDateTimeUtc()) < 540) {
-        requestMusixmatchRichsync();
+        requestMusixmatchRichsync(candidate);
         return;
     }
     // ... or one on disk?
@@ -2512,7 +3386,7 @@ void Lyrics::startMusixmatch()
             && exp > QDateTime::currentDateTimeUtc().toSecsSinceEpoch()) {
             m_mxmToken = tok;
             m_mxmTokenAt = QDateTime::currentDateTimeUtc();
-            requestMusixmatchRichsync();
+            requestMusixmatchRichsync(candidate);
             return;
         }
     }
@@ -2522,15 +3396,16 @@ void Lyrics::startMusixmatch()
                    QStringLiteral("android-player-v1.0"));
     q.addQueryItem(QStringLiteral("user_language"), QStringLiteral("en"));
     url.setQuery(q);
-    request(url, Stage::MxmToken, m_trackKey);
+    request(url, Stage::MxmToken, m_trackKey, nullptr, nullptr, candidate);
 }
 
-void Lyrics::requestMusixmatchRichsync()
+void Lyrics::requestMusixmatchRichsync(int candidate)
 {
     if (m_mxmToken.isEmpty() || m_title.trimmed().isEmpty())
         return;
-    const QString title = cleanTrackTitle(m_title, m_artist);
-    QString artist = cleanTrackArtist(m_artist);
+    const SearchCandidate &c = searchCandidate(candidate);
+    const QString title = cleanTrackTitle(c.title, c.artist);
+    QString artist = cleanTrackArtist(c.artist);
     if (title.isEmpty())
         return;
     // The second try writes the artist in lower case and without the
@@ -2559,18 +3434,23 @@ void Lyrics::requestMusixmatchRichsync()
     q.addQueryItem(QStringLiteral("richsync_compact_type"),
                    QStringLiteral("words"));
     url.setQuery(q);
-    request(url, Stage::MxmRichsync, m_trackKey);
+    request(url, Stage::MxmRichsync, m_trackKey, nullptr, nullptr, candidate);
 }
 
 // An instrumental stretch is marked with as many "♪" as it lasts: one
 // for a short gap, two for a middle one and three for a long one (the
 // silence is not left empty on the screen).
-void Lyrics::markNoteStretches(QVector<LrcLine> &lines)
+static bool isNoteOnly(const QString &text)
 {
     static const QRegularExpression notesOnly(
         QStringLiteral("^[\\s\\x{266A}-\\x{266C}]+$"));
+    return !text.isEmpty() && notesOnly.match(text).hasMatch();
+}
+
+void Lyrics::markNoteStretches(QVector<LrcLine> &lines)
+{
     for (LrcLine &l : lines) {
-        if (l.instrumental || !notesOnly.match(l.text).hasMatch())
+        if (l.instrumental || !isNoteOnly(l.text))
             continue;
         l.instrumental = true;
         l.words.clear();
@@ -2610,8 +3490,9 @@ void Lyrics::expandInstrumentals(QVector<LrcLine> &lines)
 void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (key != m_trackKey)
+    if (finishedOrStale(reply, key))
         return;
+    const int candidate = reply->property("candidate").toInt();
     const QByteArray body = reply->readAll();
     const QJsonObject root = QJsonDocument::fromJson(body).object();
     const QJsonObject msg = root.value(QStringLiteral("message")).toObject();
@@ -2627,7 +3508,7 @@ void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
             fail(QStringLiteral("Sin letra disponible"));
         else {
             m_neteaseTried = true;
-            startNetease();
+            startNetease(candidate);
         }
         return;
     }
@@ -2645,7 +3526,7 @@ void Lyrics::onMxmTokenReply(QNetworkReply *reply, const QString &key)
         f.write(QJsonDocument(o).toJson());
         f.close();
     }
-    requestMusixmatchRichsync();
+    requestMusixmatchRichsync(candidate);
 }
 
 // Normalises a line of text so two of them can be compared: lower case,
@@ -2774,26 +3655,36 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
 // The catalogue answers with the candidates of the song. The one with the
 // word level timings is the one that serves the karaoke: the timings of
 // the other ones are per line.
-void Lyrics::startLrcRed()
+void Lyrics::startLrcRed(int candidate)
 {
     if (m_title.trimmed().isEmpty())
         return;
+    const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kLrcRedSearch));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("track"), m_title);
-    q.addQueryItem(QStringLiteral("artist"), m_artist);
+    q.addQueryItem(QStringLiteral("track"), c.title);
+    q.addQueryItem(QStringLiteral("artist"), c.artist);
     if (m_duration > 0)
         q.addQueryItem(QStringLiteral("duration"), QString::number(m_duration));
     url.setQuery(q);
-    qInfo().noquote() << QString("[lyrics] lrc.red: buscar \"%1\"").arg(m_trackKey);
-    request(url, Stage::LrcRedSearch, m_trackKey, kLrcRedAgent);
+    qInfo().noquote() << QString("[lyrics] lrc.red: buscar \"%1\" - \"%2\"")
+                             .arg(c.title, c.artist);
+    request(url, Stage::LrcRedSearch, m_trackKey, kLrcRedAgent, nullptr, candidate);
 }
 
 void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;
+    const int candidate = reply->property("candidate").toInt();
+    // Only retry the next (title, artist) pair when this one gave no word
+    // level result. The index rides on the reply, so this search does not
+    // interfere with the other sources' first attempts.
+    const auto retryOrReturn = [this, candidate]() {
+        if (candidate + 1 < m_searchCandidates.size())
+            startLrcRed(candidate + 1);
+    };
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] lrc.red: no contestó:" << reply->errorString();
         return;
@@ -2803,6 +3694,7 @@ void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
     const QJsonArray results = root.value(QStringLiteral("results")).toArray();
     if (results.isEmpty()) {
         qInfo() << "[lyrics] lrc.red: sin resultado para esta canción";
+        retryOrReturn();
         return;
     }
     // The candidate with the word level timings wins; between two of them
@@ -2829,8 +3721,11 @@ void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
         }
     }
     const QString sheet = best.value(QStringLiteral("lyricsUrl")).toString();
-    if (sheet.isEmpty() || !sheet.startsWith(QLatin1String("https://"))) {
-        qInfo() << "[lyrics] lrc.red: sin hoja para esta canción";
+    if (sheet.isEmpty() || !sheet.startsWith(QLatin1String("https://"))
+        || !bestWorded) {
+        // A line-level hit is not a karaoke: try the split pair instead.
+        qInfo() << "[lyrics] lrc.red: sin letra a letra para esta canción";
+        retryOrReturn();
         return;
     }
     qInfo().noquote()
@@ -2838,13 +3733,13 @@ void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
                .arg(best.value(QStringLiteral("track_name")).toString(),
                     best.value(QStringLiteral("timing_type")).toString());
     request(QUrl(sheet), Stage::LrcRedSheet, m_trackKey, kLrcRedAgent,
-            "text/xml");
+            "text/xml", candidate);
 }
 
 void Lyrics::onLrcRedSheetReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (isStale(reply, key, m_trackKey, m_gen))
+    if (finishedOrStale(reply, key))
         return;
     if (reply->error() != QNetworkReply::NoError) {
         qInfo() << "[lyrics] lrc.red: la hoja no llegó:" << reply->errorString();
@@ -3118,8 +4013,9 @@ static int mxmMatcherStatus(const QJsonObject &calls)
 void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
 {
     reply->deleteLater();
-    if (key != m_trackKey)
+    if (finishedOrStale(reply, key))
         return;
+    const int candidate = reply->property("candidate").toInt();
     const QByteArray body = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || body.isEmpty()) {
         qInfo() << "[lyrics] musixmatch: richsync falló:" << reply->errorString();
@@ -3127,7 +4023,7 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
             fail(QStringLiteral("Sin letra disponible"));
         else {
             m_neteaseTried = true;
-            startNetease();
+            startNetease(candidate);
         }
         return;
     }
@@ -3144,7 +4040,18 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         m_mxmToken.clear();
         QFile::remove(AppPaths::cacheDir() + QStringLiteral("/mxm_token.json"));
         m_mxmTried = false;
-        requestMusixmatchRichsync();
+        if (!m_mxmTokenRetried) {
+            // The token is gone: ask for a new one first. Calling the
+            // richsync request here just returned early (empty token) and
+            // killed the Musixmatch branch of the cascade.
+            m_mxmTokenRetried = true;
+            startMusixmatch(candidate);
+        } else if (m_neteaseTried) {
+            fail(QStringLiteral("Sin letra disponible"));
+        } else {
+            m_neteaseTried = true;
+            startNetease(candidate);
+        }
         return;
     }
 
@@ -3162,8 +4069,9 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
     const QString foundTitle = track.value(QStringLiteral("track_name")).toString();
     const QString foundArtist = track.value(QStringLiteral("artist_name")).toString();
     const int foundLength = track.value(QStringLiteral("track_length")).toInt();
-    const QString wantTitle = normMatch(cleanTrackTitle(m_title, m_artist));
-    const QString wantArtist = normMatch(cleanTrackArtist(m_artist));
+    const SearchCandidate &c = searchCandidate(candidate);
+    const QString wantTitle = normMatch(cleanTrackTitle(c.title, c.artist));
+    const QString wantArtist = normMatch(cleanTrackArtist(c.artist));
     const bool titleOk = !foundTitle.isEmpty()
         && (normMatch(foundTitle) == wantTitle
             || normMatch(foundTitle).startsWith(wantTitle + QLatin1Char(' '))
@@ -3176,19 +4084,29 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         qInfo().noquote()
             << QString("[lyrics] musixmatch: la letra es de otra canción (\"%1\" / \"%2\"), se descarta")
                    .arg(foundTitle, foundArtist);
+        if (candidate + 1 < m_searchCandidates.size()) {
+            // A video title that repeats the artist misleads the matcher:
+            // try the split (title, artist) pair before other spellings.
+            const SearchCandidate &next = searchCandidate(candidate + 1);
+            qInfo().noquote() << QString("[lyrics] musixmatch: probando \"%1\" / \"%2\"")
+                                     .arg(next.title, next.artist);
+            m_mxmVariant = 0;
+            requestMusixmatchRichsync(candidate + 1);
+            return;
+        }
         if (m_mxmVariant == 0) {
             // The same song with the artist written in lower case: with
             // the first form Musixmatch sometimes answers with another
             // version of it.
             ++m_mxmVariant;
-            requestMusixmatchRichsync();
+            requestMusixmatchRichsync(candidate);
             return;
         }
         if (m_neteaseTried)
             fail(QStringLiteral("Sin letra disponible"));
         else {
             m_neteaseTried = true;
-            startNetease();
+            startNetease(candidate);
         }
         return;
     }
@@ -3257,11 +4175,22 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
                     } else {
                         qInfo() << "[lyrics] musixmatch: letra con tiempos por línea ("
                                 << lines.size() << " líneas)";
-                        m_synced = lrc;
-                        m_lines = lines;
-                        m_refLines = m_lines;
-                        m_hasSynced = true;
-                        m_syncSource = QStringLiteral("musixmatch");
+                        if (!m_worded && !m_upgradable) {
+                            m_synced = lrc;
+                            m_lines = lines;
+                            m_hasSynced = true;
+                            m_syncSource = QStringLiteral("musixmatch");
+                        } else {
+                            // A word-level source is already on screen, or
+                            // a cache hit is waiting for one: a late line-
+                            // level answer must not replace it. Its timings
+                            // are the video timeline, so they still serve as
+                            // the alignment reference.
+                            m_refLines = lines;
+                            if (m_worded)
+                                pickWorded();
+                            maybeUpgradeWorded();
+                        }
                         finish();
                         return;
                     }
@@ -3287,13 +4216,18 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         }
     }
 
-    // Nothing here: NetEase carries on.
+    // Nothing here: try the split pair before leaving Musixmatch.
+    if (candidate + 1 < m_searchCandidates.size()) {
+        m_mxmVariant = 0;
+        requestMusixmatchRichsync(candidate + 1);
+        return;
+    }
     qInfo() << "[lyrics] musixmatch: sin karaoke para esta canción";
     if (m_neteaseTried)
         fail(QStringLiteral("Sin letra disponible"));
     else {
         m_neteaseTried = true;
-        startNetease();
+        startNetease(candidate);
     }
 }
 
@@ -3359,7 +4293,8 @@ bool Lyrics::alignWords(QVector<LrcLine> &lines,
     // The pairs are taken from the table: the index of the line of the
     // video that each line of the karaoke is paired with (-1 when there is
     // none).
-    QVector<int> pairOf(n, -1);
+    QVector<int> pairOf(n);
+    pairOf.fill(-1);
     int a = 0, b = 0;
     while (a < n && b < m) {
         const QString k = lineKeys.at(a);

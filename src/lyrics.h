@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QDateTime>
+#include <QHash>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -106,6 +108,12 @@ public:
     // it because it is Q_INVOKABLE and PUBLIC: the private ones are not
     // exposed.
     Q_INVOKABLE void setPublishedOffset(double v) { setOffset(v); }
+    // Optional sources. Both are off/on from the settings; the app calls
+    // these before the first search.
+    Q_INVOKABLE void setLiriqoEnabled(bool on) { m_liriqoEnabled = on; }
+    Q_INVOKABLE void setTranslateTo(const QString &language) {
+        m_translateTo = language.trimmed();
+    }
 
 signals:
     void changed();
@@ -134,6 +142,10 @@ private:
         // (a credit line of the header is not), so the "Artist - Title"
         // filter must not throw it away.
         bool sung = false;
+        // The same phrase sung more than once: the chorus is shown bigger.
+        bool chorus = false;
+        // Translation of this line, when the option is on.
+        QString translation;
     };
 
     // How well a word level source fits the song, once it is aligned with
@@ -197,12 +209,21 @@ private:
         MxmToken,         // GET apic.musixmatch.com/ws/1.1/token.get
         MxmRichsync,      // GET apic.musixmatch.com/ws/1.1/macro.subtitles.get
         LrcRedSearch,     // GET lyrics-api.binimum.org
-        LrcRedSheet       // GET the TTML of the sheet
+        LrcRedSheet,      // GET the TTML of the sheet
+        LiriqoGet,        // GET the aggregated word-level lyrics
+        Translate,        // POST the lines to translate
+        TranslateFallback // MyMemory, when the first service is throttled
     };
 
+    // `candidate` travels with the reply so its handler can retry with the
+    // next (title, artist) pair if this one yields nothing usable.
     void request(const QUrl &url, Stage stage, const QString &key,
-                 const char *agent = nullptr,
-                 const char *accept = nullptr);
+                 const char *agent = nullptr, const char *accept = nullptr,
+                 int candidate = 0);
+    // True when a reply belongs to an older fetch OR the result of this
+    // fetch has already been published: a late source must never replace
+    // the one decision shown on screen.
+    bool finishedOrStale(QNetworkReply *reply, const QString &key) const;
     // The word level timings come from the ALBUM while the reference
     // timeline is the video being played: the text of the reference wins
     // (it is the version that is being sung) and the offset is the median
@@ -248,8 +269,8 @@ private:
     static void markNoteStretches(QVector<LrcLine> &lines);
     // Musixmatch: the word level timings ("richsync") of the very same
     // catalogue YouTube Music uses, but with the timing of every word.
-    void startMusixmatch();
-    void requestMusixmatchRichsync();
+    void startMusixmatch(int candidate = 0);
+    void requestMusixmatchRichsync(int candidate);
     void onMxmTokenReply(QNetworkReply *reply, const QString &key);
     void onMxmRichsyncReply(QNetworkReply *reply, const QString &key);
     // The richsync body: one entry per line, with the words and their
@@ -260,7 +281,7 @@ private:
     // held is long and the rest are short) and the agent of every line
     // (the voice). It is what the desktop player uses and it needs no key
     // and no account.
-    void startLrcRed();
+    void startLrcRed(int candidate = 0);
     void onLrcRedSearchReply(QNetworkReply *reply, const QString &key);
     void onLrcRedSheetReply(QNetworkReply *reply, const QString &key);
     // The TTML: one <p> per line (with the voice that sings it) and one
@@ -268,17 +289,38 @@ private:
     static QVector<LrcLine> parseTtml(const QString &xml);
     // Like request() but sending a JSON body (YouTube Music).
     void postJson(const QUrl &url, const QJsonObject &body, Stage stage,
-                  const QString &key);
+                  const QString &key, int candidate = 0);
     void onGetReply(QNetworkReply *reply, const QString &key);
     void onSearchReply(QNetworkReply *reply, const QString &key);
     void onNeteaseSearchReply(QNetworkReply *reply, const QString &key);
     void onNeteaseLyricReply(QNetworkReply *reply, const QString &key);
+    // Liriqo: one GET with the title/artist/duration; the answer can
+    // carry syllable or word timings for the whole song.
+    void startLiriqo(int candidate = 0);
+    void onLiriqoReply(QNetworkReply *reply, const QString &key);
+    // Translation: one batch request with all the distinct lines, mapped
+    // back by text (the same phrase is translated once).
+    void startTranslate();
+    void onTranslateReply(QNetworkReply *reply, const QString &key);
+    void onTranslateFallbackReply(QNetworkReply *reply, const QString &key);
+    void applyTranslatedText(const QString &all);
+    void startTranslateFallback();
+    // MyMemory fallback: one line per request, at most 4 in flight.
+    void pumpTranslateQueue();
+    void applyLineTranslations();
+    // Visual emphasis taken from the timings themselves (no audio work).
+    static void markChorus(QVector<LrcLine> &lines);
+    static void computeWordMeta(QVector<LrcLine> &lines);
+    // When a provider only knows where a line starts and ends, give the
+    // view word stamps spread across that line. FollowTheLyrics does the
+    // same so the front can still move letter by letter.
+    static void synthesizeWordTimes(QVector<LrcLine> &lines);
 
     // ---- YouTube Music cascade -------------------------------------
-    void startYtm();
+    void startYtm(int candidate = 0);
     // Classic plan (LRCLIB -> NetEase), used when YouTube Music has no
     // lyrics for the track.
-    void startLrclib();
+    void startLrclib(int candidate = 0);
     // Asks for /next for the candidate video number `index` of m_ytmIds.
     void ytmNextFor(int index);
     // Asks for /browse with the browseId of the lyrics found in /next.
@@ -289,13 +331,19 @@ private:
     void onYtmNextReply(QNetworkReply *reply, const QString &key);
     void onYtmBrowseReply(QNetworkReply *reply, const QString &key);
 
-    void startSearch();
-    void startNetease();
+    void startSearch(int candidate = 0);
+    void startNetease(int candidate = 0);
     // Closes the search and emits `changed` with the accumulated result.
     void finish();
     void fail(const QString &message);
     // No synced lyrics in any source: it keeps the plain one if there is
     void settleOrFail();
+    // The sources answer at very different times (the local cache is
+    // instant, the network ones are not). A debounce collects the answers
+    // that arrive close together and publishes ONE final decision, so the
+    // view never shows a provisional source that a later answer replaces.
+    void schedulePublish();
+    void publishFinal();
 
     // Dumps a LRCLIB JSON object (get or search) into the state. A result
     // with "syncedLyrics" always wins; the plain one is only stored if
@@ -329,6 +377,10 @@ private:
     // left with line level timings and the word level karaoke did not
     // show up.
     bool trySonoraByTitle();
+    // A line-level disk-cache hit stays open to ONE late upgrade: a word
+    // level network candidate that aligns with the video reference replaces
+    // the shown lines. Every other late source keeps the anti-flicker rule.
+    void maybeUpgradeWorded();
     // Enriched LRC: besides the line timing it has the timing of every
     // word between angle brackets ("<mm:ss.xx>word"). That is what allows
     // the word level karaoke.
@@ -340,6 +392,11 @@ private:
     // compared with it and the best aligned one is shown.
     bool adoptWorded(QVector<LrcLine> lines, const QString &source,
                      bool local = false, bool musical = false);
+    // Answers kept between listens, keyed by artist and title. A "not
+    // found" answer is kept too (for a week), so a song without lyrics
+    // does not make the app ask every provider again on every play.
+    bool loadFromDiskCache();
+    void saveToDiskCache(bool found);
     // True when the current lyrics carry word level timings.
     bool m_worded = false;
     // The word level sources that are on the table (the local cache, the
@@ -381,10 +438,24 @@ private:
     QString m_trackKey;
     QString m_artist;
     QString m_title;
-    // The title without the noise of the video title ("Poppy - New Way Out
-    // (Official Visualizer)" -> "New Way Out"): LRCLIB finds other records
-    // of the same song with it.
-    QString m_searchTitle;
+    // (title, artist) pairs tried by the search sources, in order.
+    // Candidate 0 keeps the cleaned title and the original artist. A video
+    // title that repeats the artist before " - " ("MK - 17 (Lyric Video)")
+    // gets a second candidate with the artist from that prefix as the artist
+    // and the part after it as the title ("17", "MK"): that is what the
+    // word-timing catalogues know.
+    struct SearchCandidate {
+        QString title;
+        QString artist;
+    };
+    QVector<SearchCandidate> m_searchCandidates;
+    const SearchCandidate &searchCandidate(int i) const {
+        return m_searchCandidates.at(i >= 0 && i < m_searchCandidates.size()
+                                        ? i : 0);
+    }
+    // The exact video being played is tried first; remember which candidate
+    // its title-search fallback used so the cascade can continue with it.
+    int m_ytmCandidate = 0;
     int m_duration = 0;         // rounded seconds
     // Number of fetch() in flight. Together with m_trackKey it drops any
     // reply from an old request even if the key repeats (e.g. two
@@ -401,12 +472,34 @@ private:
     bool m_neteaseTried = false;
     // Musixmatch: the token lasts ten minutes and it is kept on disk.
     bool m_mxmTried = false;
+    bool m_mxmTokenRetried = false;   // one fresh token per fetch, no loop
+    bool m_liriqoEnabled = true;
+    bool m_translated = false;
+    bool m_translateFallbackTried = false;
+    QString m_translateTo;
+    // Bumped when a publish changes the lines, so a translation reply built
+    // for the old lines drops itself (notably after a word-level upgrade).
+    int m_translationGen = 0;
+    // MyMemory fallback: one request per line, indexed by m_lines position.
+    QHash<int, QString> m_translationByLine;
+    QList<int> m_translateQueue;   // line indexes still to send
+    int m_translateInFlight = 0;
     // Which variant of the query is being tried: Musixmatch matches a
     // different song depending on how the artist is written.
     int m_mxmVariant = 0;
     QString m_mxmToken;
     QDateTime m_mxmTokenAt;
     bool m_loading = false;
+    // One publish per fetch: every finish()/fail() rearms the debounce, and
+    // once publishFinal() has run a late source may not replace the set on
+    // screen (no provisional result followed by a flip).
+    QTimer *m_publishTimer = nullptr;
+    bool m_publishFailed = false;
+    bool m_published = false;
+    // Invariant: m_published stays true after a cache hit (one QA decision),
+    // but a line-level cache hit sets m_upgradable so one aligned word-level
+    // source may still replace the shown lines. Once it does, the flag clears.
+    bool m_upgradable = false;
     bool m_hasLyrics = false;
     bool m_hasSynced = false;
     QString m_plain;

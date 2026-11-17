@@ -1,70 +1,71 @@
-# DIAGNÓSTICO DE LOTUS TUNE
+# Instrucciones de Lotus Tune
 
-## Estado Actual
+## Linux
 
-✅ **Backend de Audio:** ACTIVO  
-✅ **Socket mpv:** /run/user/1000/lotus-tune.sock  
-✅ **Configuración ventana:** height=860, width=1320  
-❌ **Ventana gráfica:** NO VISIBLE
+Necesitas Qt 6, Qt Quick, Qt Multimedia, mpv, yt-dlp y Python 3.
 
-## Problema
-
-La aplicación **Lotus Tune está funcionando correctamente** (el backend de audio está activo), pero **la ventana gráfica no se está mostrando**.
-
-Esto es un problema de **inicialización de ventana en Niri** (tu compositor Wayland).
-
-## Soluciones
-
-### Opción 1: Ejecutar con backend RHI (Recomendado)
-
-```bash
-cd /home/lots/lotus-tune
-unset QT_QPA_PLATFORM
-unset DISPLAY
-QT_QUICK_BACKEND=rhi QT_QPA_PLATFORM=wayland ./lotus-tune
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+./build/lotus-tune
 ```
 
-### Opción 2: Forzar software rendering
+Para instalarlo en `~/.local/bin`:
 
-```bash
-cd /home/lots/lotus-tune
-unset QT_QPA_PLATFORM
-unset DISPLAY
-QT_QUICK_BACKEND=software QT_QPA_PLATFORM=wayland ./lotus-tune
+```sh
+bash tools/install.sh --no-deps
 ```
 
-### Opción 3: Eliminar caché y reiniciar
+Para generar paquete `.deb` o `.tar.gz`:
 
-```bash
-cd /home/lots/lotus-tune
-rm -rf ~/.local/share/lotus-tune
-rm -rf ~/.cache/lotus-tune
-pkill -9 -f lotus-tune
-sleep 2
-./start.sh
+```sh
+bash tools/package-linux.sh
 ```
 
-### Opción 4: Usar el script de inicio
+## Windows
 
-```bash
-cd /home/lots/lotus-tune
-./start.sh
+Descarga el instalador de la pestaña Releases. Instala para el usuario actual y deja el acceso directo en el menú de inicio. El instalador incluye Qt, mpv, yt-dlp y Python, así que no hay que instalar nada más.
+
+El zip `lotus-tune-windows.zip` es para el actualizador de la app. No hace falta descargarlo a mano.
+
+## Android
+
+Instala el APK arm64 de la release. La app pide permiso para notificaciones y acceso a archivos. Para compilarlo:
+
+```sh
+source ~/lotus-android-toolchain/env.sh
+bash tools/build-android.sh
+adb install -r build-android/android-build/build/outputs/apk/debug/lotus-tune-debug.apk
 ```
 
-## Verificar estado
+## Primer arranque
 
-```bash
-cd /home/lots/lotus-tune
-./show-status.sh
-```
+1. Abre Ajustes > Cuentas.
+2. Pulsa Iniciar sesión con Google.
+3. Vuelve a Inicio y busca una canción.
 
-## Capturar pantalla
+Sin sesión puedes buscar en SoundCloud y reproducir enlaces. YouTube Music necesita la sesión para listas privadas, Me gusta y letras con tiempos.
 
-```bash
-grim -o /tmp/screen.png
-# Luego abre: eog /tmp/screen.png
-```
+## Letras
 
----
+Ajustes > Letras tiene los interruptores de letras sincronizadas, karaoke palabra a palabra, fuentes adicionales y traducción. La compensación de tiempo se guarda para cada canción.
 
-**Nota:** El problema NO es de tu sistema, es específico de la aplicación y su inicialización en Niri.
+Cuando una frase va adelantada o retrasada, abre Ajustes > Letras y mueve la compensación. El widget del escritorio lee el mismo ajuste.
+
+## Importar de Spotify
+
+Para una playlist pública, pega el enlace en Ajustes > Cuentas o pulsa el icono de enlace en la barra de Biblioteca.
+
+Para el historial de Me gusta, pide el exporte de datos en Spotify > Ajustes > Privacidad. Descomprime el ZIP, busca `LikedSongs1.json` y selecciónalo en Ajustes > Cuentas. Cada canción se marca como Me gusta en YouTube Music.
+
+## Idiomas
+
+Ajustes > Idioma abre un desplegable con español, inglés, francés, alemán, portugués y la opción de seguir el sistema. El cambio se aplica sin reiniciar.
+
+## Discord
+
+En escritorio, Ajustes > Discord permite activar Rich Presence. En Android figura como próximamente.
+
+## Más información
+
+`CHANGELOG.md` tiene los cambios de cada versión. `docs/LYRICS.md` y `docs/I18N.md` explican las fuentes de letras y las traducciones. `archive/legacy/` guarda scripts antiguos que ya no intervienen en el build.

@@ -171,6 +171,12 @@ Downloads::Downloads(QObject *parent)
     m_scanTimer.setInterval(2);
     connect(&m_scanTimer, &QTimer::timeout, this, &Downloads::scanChunk);
 
+    // Storage bar: free space changes outside the app too. QStorageInfo is a
+    // cheap syscall, so a 30 s tick keeps it fresh without blocking the GUI.
+    m_storageTimer.setInterval(30000);
+    connect(&m_storageTimer, &QTimer::timeout, this, &Downloads::refreshStorage);
+    refreshStorage();
+
 #ifndef Q_OS_ANDROID
     // Metadata of the downloaded lists (one small yt-dlp call per list,
     // cached in the list folder). Separate from the download process so it
@@ -398,6 +404,16 @@ void Downloads::queueFolderCovers()
                 .value(QStringLiteral("_thumb")).toString();
         if (!url.isEmpty())
             cacheCover(dir, url);
+    }
+}
+
+void Downloads::refreshStorage()
+{
+    const QStorageInfo storage(m_folder);
+    const qint64 free = storage.isValid() ? storage.bytesAvailable() : 0;
+    if (free != m_freeBytes) {
+        m_freeBytes = free;
+        emit storageChanged();
     }
 }
 
@@ -1926,6 +1942,7 @@ void Downloads::startScan()
         m_bytes = 0;
         m_localBusy = false;
         emit libraryChanged();
+        emit storageChanged();
         return;
     }
 
@@ -1990,6 +2007,8 @@ void Downloads::scanChunk()
         m_local = m_scanItems;
         m_scanItems.clear();
         m_bytes = m_scanBytes;
+        emit storageChanged();   // used bytes changed (scan finished)
+        refreshStorage();        // refresh free bytes on add/remove too
         m_localBusy = false;
         updateWatchDirs();
         emit libraryChanged();

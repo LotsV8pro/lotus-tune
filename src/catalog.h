@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QJsonArray>
 #include <QObject>
 #include <QProcess>
 #include <QSet>
@@ -140,6 +141,10 @@ public:
                                      const QString &name = QString());
     // Tracks of an album or single: albumTracksReady(browseId, tracks).
     Q_INVOKABLE void fetchAlbumTracks(const QString &browseId);
+    // Artist of one track whose list entry carried the play count instead:
+    // trackArtistReady(url, artist). It is a lookup, never fatal.
+    Q_INVOKABLE void resolveTrackArtist(const QString &url,
+                                        const QString &title);
     // Shows `tracks` as the open list without going through any URL. The
     // artist page uses it to open a record: those tracks already came with
     // the `album` request, so it also works on Android, where the python
@@ -162,6 +167,14 @@ public:
                                       const QString &failedVideoId,
                                       double duration);
     Q_INVOKABLE void syncLiked();
+    // Imports a public Spotify playlist as a new YouTube Music list: reads
+    // the embed, searches every title internally and adds the matches.
+    // Needs YTM login. Answers through spotifyImportDone().
+    Q_INVOKABLE void importSpotifyPlaylist(const QString &urlOrId);
+    // Imports the songs of a Spotify "LikedSongs*.json" export into the
+    // YouTube Music "Me gusta" set (rate LIKE). Needs YTM login.
+    // Answers through spotifyLikedDone().
+    Q_INVOKABLE void importLikedFromSpotify(const QString &filePath);
     // One block of text with what is needed to understand a failure on a
     // device that cannot be inspected by hand (version, phone, session,
     // helper, last error). It goes to the clipboard from Ajustes.
@@ -200,6 +213,9 @@ public:
     // videoId of a YouTube URL (or the id itself if it already is one);
     // "" if it does not apply.
     Q_INVOKABLE QString videoIdOf(const QString &urlOrId) const;
+    // A text in the artist column that is really a play count
+    // ("19 M reproducciones"), never an artist.
+    static bool looksLikePlayCount(const QString &text);
     // Toggles "liked" of a track (URL or videoId): it votes and updates
     // the set.
     Q_INVOKABLE void toggleLiked(const QString &videoIdOrUrl, bool currentlyLiked);
@@ -249,6 +265,9 @@ signals:
     // Artist page received (see fetchArtistPage()): `page` carries name,
     // thumb, songs, albums, singles, radios, similar and discography.
     void artistPageReady(const QString &browseId, const QVariantMap &page);
+    // Answer to resolveTrackArtist(): the artist found for that url, or an
+    // empty string when the lookup found nothing.
+    void trackArtistReady(const QString &url, const QString &artist);
     // Album/single tracks received (see fetchAlbumTracks()).
     void albumTracksReady(const QString &browseId, const QVariantList &tracks);
     // Album/single audio list resolved (see fetchAlbumPlaylist()): with
@@ -270,6 +289,12 @@ signals:
     void loginChanged();
     // Result of a YouTube Music interaction (vote / add / remove from list).
     void interactionDone(bool ok, const QString &message);
+    // Result of importSpotifyPlaylist(): `count` tracks were added, `message`
+    // is ready to show in a toast.
+    void spotifyImportDone(bool ok, const QString &message, int count);
+    // Result of importLikedFromSpotify(): `count` songs were marked "Me gusta",
+    // `message` is ready to show in a toast.
+    void spotifyLikedDone(bool ok, const QString &message, int count);
     // The "liked" set changed (loaded or after a vote).
     void likedChanged();
     // A list's metadata arrived (answer to fetchPlaylistInfo).
@@ -326,6 +351,9 @@ private:
     void handleLoginOutput();
     void finishLogin(int code);
     void setLoginState(const QString &state);
+    // Asks YouTube whether the stored cookies still work. The session is
+    // only trusted after this answer, both at startup and after a login.
+    void startStatusCheck();
     // Runs `python3 ytm_api.py <args...>` in m_ytmProc (interactions).
     void runYtmAction(const QStringList &args, const QString &okMessage);
     // Runs `python3 ytm_api.py <args...>` in m_plProc (list management).
@@ -391,6 +419,10 @@ private:
     bool m_busy = false;
     QString m_error;
     QVariantList m_results;
+    // Searches repeated within a few minutes (typo corrections, going
+    // back to the search page) are answered from memory.
+    QHash<QString, QVariantList> m_searchCache;
+    QHash<QString, qint64> m_searchCacheTs;
     QString m_resultsQuery;
     // Search across all the sources: the groups fill one by one (each
     // source is a query) and they are emitted as each one finishes.
@@ -429,6 +461,7 @@ private:
     QProcess m_plSearchProc;   // one-shot playlist search (ytm_api.py)
     QString m_artistMode;      // "artists" | "artist" | "album" | "toptrack" (empty: cancelled)
     QString m_artistArg;       // data returned in the signal
+    QString m_trackArtist;     // last resolved artist of a single track
     // Audio list of an album, to download it whole. Own process: the
     // discography download asks for one album after another without
     // stepping on the artist navigation.
@@ -443,6 +476,8 @@ private:
     QString m_altKey;          // failed videoId that is being retried
     QProcess m_ytmProc;        // one-shot actions (rate/addpl/rmpl)
     QString m_ytmOkMessage;    // success message tied to the action in progress
+    QProcess m_spotifyProc;    // one-shot public Spotify playlist import
+    QProcess m_spotifyLikedProc; // one-shot Spotify "Me gusta" JSON import
     QProcess m_plProc;         // one-shot list management (create/rename/delete/info)
     QString m_plMode;          // how to interpret the output of m_plProc
     QString m_plAddVideo;      // track to add after creating a list (or "")

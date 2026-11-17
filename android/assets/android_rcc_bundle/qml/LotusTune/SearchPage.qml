@@ -77,9 +77,12 @@ Item {
         return out
     }
 
-    Component.onCompleted:
+    Component.onCompleted: {
         page.artistMode = (typeof appcfg !== "undefined")
                           && appcfg.get("searchArtistMode") === "true"
+        page.refreshSearchHistory()
+    }
+    onVisibleChanged: if (visible) page.refreshSearchHistory()
 
     // Changes the mode and refreshes the list with the new mode (if there is a query).
     function setArtistMode(v) {
@@ -252,6 +255,26 @@ Item {
 
     // ---- search history (appcfg, "searchHistory" key) -------------------
     // JSON: [{ "q": text, "t": timestamp }...], max 20, no duplicates.
+    property var searchHistory: []
+
+    function refreshSearchHistory() {
+        var arr = []
+        if (typeof appcfg !== "undefined") {
+            try {
+                arr = JSON.parse(String(appcfg.get("searchHistory") || "[]")) || []
+            } catch (e) {
+                arr = []
+            }
+        }
+        const out = []
+        for (var i = 0; i < arr.length && out.length < 20; i++) {
+            const e = arr[i]
+            if (e && typeof e.q === "string" && e.q.length > 0)
+                out.push({ q: e.q, t: Number(e.t || 0) })
+        }
+        searchHistory = out
+    }
+
     function pushHistory(q) {
         if (typeof appcfg === "undefined")
             return
@@ -276,6 +299,7 @@ Item {
         } catch (e2) {
             // without persistent history: the search keeps working
         }
+        refreshSearchHistory()
     }
 
     ColumnLayout {
@@ -440,6 +464,67 @@ Item {
                                 if (typeof sfx !== "undefined") sfx.play("tap")
                                 page.setArtistMode(modePill.index === 1)
                             }
+                        }
+                    }
+                }
+            }
+
+            // ---- recent searches: chips to re-run a query -----------------
+            // Same history as Home (appcfg "searchHistory"). Tapping uses
+            // startSearch: it fills the field and runs the normal search path.
+            ListView {
+                id: histChips
+                Layout.fillWidth: true
+                Layout.preferredHeight: Theme.pillH
+                visible: page.searchHistory.length > 0
+                orientation: ListView.Horizontal
+                spacing: Theme.s2
+                clip: true
+                model: page.searchHistory
+                reuseItems: true
+                cacheBuffer: 400
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: Rectangle {
+                    id: histChip
+                    required property var modelData
+
+                    height: Theme.pillH
+                    radius: Theme.rPill
+                    antialiasing: true
+                    width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 260)
+                    color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+
+                    RowLayout {
+                        anchors.centerIn: parent
+                        spacing: Theme.s2
+                        Glyph {
+                            Layout.preferredWidth: 12
+                            Layout.preferredHeight: 12
+                            kind: "search"
+                            color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                        }
+                        Text {
+                            id: histTxt
+                            text: histChip.modelData.q
+                            color: histChipMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tSm
+                            font.weight: Font.DemiBold
+                            elide: Text.ElideRight
+                            width: Math.min(implicitWidth, 220)
+                            Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        }
+                    }
+
+                    MouseArea {
+                        id: histChipMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            page.startSearch(histChip.modelData.q)
                         }
                     }
                 }

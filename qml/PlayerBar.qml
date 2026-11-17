@@ -162,7 +162,11 @@ Rectangle {
         height: diameter
         radius: diameter / 2
         antialiasing: true
-        color: "transparent"
+        // An active shuffle/repeat has its own pill: opacity alone was
+        // impossible to tell apart on a phone screen.
+        color: bb.active ? Theme.alpha(Sys.accent, 0.20) : "transparent"
+        border.width: bb.active ? 1 : 0
+        border.color: Theme.alpha(Sys.accent, 0.45)
         scale: bbHover.pressed ? 0.92 : 1
         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
         HoverHandler { id: bbHover; cursorShape: Qt.PointingHandCursor }
@@ -172,7 +176,7 @@ Rectangle {
             height: bb.glyph
             kind: bb.kind
             weight: bb.active ? 1.9 : 1.6
-            color: bb.active ? Sys.text : bb.iconColor
+            color: bb.active ? Theme.accentOn(Sys.accent, Sys.bg) : bb.iconColor
             opacity: bb.active ? 1.0 : (bbHover.hovered ? 0.95 : 0.62)
             Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
         }
@@ -620,7 +624,6 @@ Rectangle {
                         active: bar.shuffle
                         // Narrow windows: shuffle/repeat give their room to
                         // the title (the transport stays the essential one).
-                        visible: !bar.compact && island.width >= 560
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("toggle")
@@ -877,8 +880,10 @@ Rectangle {
                     BarButton {
                         kind: bar.liked ? "heart" : "heart-outline"
                         active: bar.liked
-                        diameter: 34
-                        glyph: 17
+                        // The liked heart is a fill: size is what makes it
+                        // read as bolder, weight only affects strokes.
+                        diameter: bar.liked ? 40 : 34
+                        glyph: bar.liked ? 21 : 17
                         iconColor: bar.canInteract ? Sys.text
                                                    : Theme.tFaint(Sys.bg, Sys.text)
                         visible: bar.canInteract
@@ -895,6 +900,7 @@ Rectangle {
                         active: bar.queueOpen
                         diameter: 34
                         glyph: 18
+                        Layout.leftMargin: Theme.s1
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("tap")

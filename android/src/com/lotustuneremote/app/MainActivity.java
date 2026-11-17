@@ -40,11 +40,40 @@ public class MainActivity extends QtActivity
                 && (display.contains("MIUI") || display.contains("HyperOS"));
     }
 
+    // Discord sends the OAuth callback back to lotustune://discord with
+    // singleTask, so it arrives here (or in onNewIntent when already open).
+    // A small file is the only safe hand-off to Qt's C++ side.
+    private static void saveDiscordRedirect(android.content.Intent intent)
+    {
+        if (intent == null || intent.getData() == null)
+            return;
+        try {
+            Context app = sCtx;
+            if (app == null)
+                return;
+            java.io.File f = new java.io.File(app.getFilesDir(),
+                    "discord-redirect.txt");
+            java.io.FileWriter w = new java.io.FileWriter(f, false);
+            w.write(intent.getData().toString());
+            w.close();
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent)
+    {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        saveDiscordRedirect(intent);
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
         sCtx = getApplicationContext();
+        saveDiscordRedirect(getIntent());
         sActivity = this;
         requestHighRefreshRate();
 
@@ -466,12 +495,54 @@ public class MainActivity extends QtActivity
     // Launches the in-app Google login tab (LotusLoginActivity). It
     // writes the Netscape cookies.txt into cookiePath when the sign-in
     // lands on YouTube Music. Returns false when it could not start.
+    // Interface clicks. Qt Multimedia's QSoundEffect goes through the
+    // MediaPlayer backend on the phone and the short qrc wavs did not
+    // survive it; MediaPlayer with the extracted file is independent of
+    // Qt's audio engine and cannot disturb the song being played.
+    public static void playSfx(String path, float volume)
+    {
+        Context ctx = sCtx;
+        if (ctx == null || path == null)
+            return;
+        try {
+            android.media.MediaPlayer mp = new android.media.MediaPlayer();
+            mp.setDataSource(path);
+            mp.setAudioStreamType(android.media.AudioManager.STREAM_NOTIFICATION);
+            mp.setVolume(volume, volume);
+            mp.setOnPreparedListener(new android.media.MediaPlayer.OnPreparedListener() {
+                @Override
+                public void onPrepared(android.media.MediaPlayer player) {
+                    player.start();
+                }
+            });
+            mp.setOnCompletionListener(new android.media.MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(android.media.MediaPlayer player) {
+                    player.release();
+                }
+            });
+            mp.setOnErrorListener(new android.media.MediaPlayer.OnErrorListener() {
+                @Override
+                public boolean onError(android.media.MediaPlayer player, int what, int extra) {
+                    player.release();
+                    return true;
+                }
+            });
+            mp.prepareAsync();
+        } catch (Exception ignored) {
+        }
+    }
+
     public static boolean startYtmLogin(String cookiePath)
     {
         Context ctx = sCtx;
         if (ctx == null)
             return false;
         try {
+            // The WebView may still hold the cookies of a rejected session.
+            // A fresh sign-in must start from an empty jar.
+            android.webkit.CookieManager.getInstance().removeAllCookies(null);
+            android.webkit.CookieManager.getInstance().flush();
             android.content.Intent i = new android.content.Intent(
                     ctx, LotusLoginActivity.class);
             i.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);

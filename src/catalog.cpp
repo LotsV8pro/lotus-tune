@@ -29,6 +29,9 @@
 
 #include <QDebug>
 
+static QString videoIdOfUrl(const QString &url);
+static bool ytmHelperReady();
+
 // The "liked" set syncs by itself on startup and on login
 // (refreshLikedSet); there is no longer a 24 h TTL gate, because the
 // query to the internal API is asynchronous and cheap. syncLiked()
@@ -139,12 +142,23 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     connect(&m_loginProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) { finishLogin(code); });
 
-#ifdef Q_OS_ANDROID
-    // No python on the phone: the cookies.txt SAPISID check done above
-    // is the whole truth; a helper run would clear the session on every
-    // start (the bug: login did not survive restarts).
-    Q_UNUSED(helperPath());
+    // Confirm (async) that a stored session is still usable without blocking UI.
+    // A SAPISID in cookies.txt is not enough: YouTube can reject those cookies
+    // and then "Me gusta" is empty with no explanation.
+    m_statusProc.setProcessChannelMode(QProcess::MergedChannels);
+    connect(&m_statusProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QString why = QString::fromUtf8(m_statusProc.readAll());
+                m_sessionRejected = (code != 0);
+                setLoginState(code == 0 ? QStringLiteral("ok") : QString());
+                // Only a session YouTube rejected deserves a notice: no
+                // cookies at all is not an error.
+                if (code != 0 && why.contains(QLatin1String("sesion-caducada")))
+                    emit sessionExpired();
+            });
+    startStatusCheck();
 
+#ifdef Q_OS_ANDROID
     // Self-test of the native helper (libytmcli.so): it launches "search"
     // (anonymous) ~2.5 s after igniting and it is shown in logcat only:
     // it validates exec + TLS + API without user interaction.
@@ -171,30 +185,6 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                          });
         probe->start();
     });
-#else
-    // Confirm (async) that a stored session is still usable without blocking UI.
-    m_statusProc.setProcessChannelMode(QProcess::MergedChannels);
-    connect(&m_statusProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this](int code, QProcess::ExitStatus) {
-                // The helper checks the session against YouTube: a stored
-                // cookies.txt that YouTube rejects (expired, or used from
-                // another network) must not be sent from here on, or every
-                // list would fail with an authentication error.
-                const QString why = QString::fromUtf8(m_statusProc.readAll());
-                m_sessionRejected = (code != 0);
-                setLoginState(code == 0 ? QStringLiteral("ok") : QString());
-                // Only a rejected session deserves a notice: a plain
-                // "sin-sesion" is an app that was never logged in.
-                if (code != 0 && why.contains(QLatin1String("sesion-caducada")))
-                    emit sessionExpired();
-            });
-    if (QFile::exists(helperPath())) {
-        m_statusProc.setProgram(AppPaths::pythonProgram());
-        m_statusProc.setArguments({helperPath(), QStringLiteral("status")});
-        m_statusProc.start();
-    } else if (m_loginState == QLatin1String("ok")) {
-        m_loginState.clear();
-    }
 #endif
 
     // "My lists": one-off query to the YT Music API with ytm_api.py. It uses
@@ -382,6 +372,23 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                             list.append(normalize(v.toObject().toVariantMap()));
                     } else if (mode == QLatin1String("toptrack")) {
                         m_topTrack = normalize(root.toVariantMap());
+                    } else if (mode == QLatin1String("trackartist")) {
+                        // The artist of one video: the search entry with the
+                        // same video id.
+                        const QString want = videoIdOfUrl(arg);
+                        for (const QJsonValue &v :
+                             root.value(QStringLiteral("entries")).toArray()) {
+                            const QVariantMap e =
+                                normalize(v.toObject().toVariantMap());
+                            const QString id =
+                                videoIdOfUrl(e.value(QStringLiteral("url"))
+                                                 .toString());
+                            if (id.isEmpty() || id != want)
+                                continue;
+                            m_trackArtist =
+                                e.value(QStringLiteral("artist")).toString();
+                            break;
+                        }
                     }
                 }
                 if (mode == QLatin1String("artists"))
@@ -394,6 +401,8 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit albumTracksReady(arg, list);
                 else if (mode == QLatin1String("toptrack"))
                     emit artistTopTrackResolved(arg, m_topTrack);
+                else if (mode == QLatin1String("trackartist"))
+                    emit trackArtistReady(arg, m_trackArtist);
             });
 
     // Playlist search: its own process, so it does not cancel the artists
@@ -520,6 +529,64 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     return;
                 }
                 emit interactionDone(true, message);
+            });
+
+    // Public Spotify playlist import: its own process, so the searches can
+    // take as long as they need without stepping on any other request.
+    m_spotifyProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_spotifyProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QByteArray out = m_spotifyProc.readAllStandardOutput();
+                const QByteArray err = m_spotifyProc.readAllStandardError();
+                if (code != 0) {
+                    const QStringList lines =
+                        QString::fromUtf8(err).split(QLatin1Char('\n'),
+                                                     Qt::SkipEmptyParts);
+                    const QString msg = lines.isEmpty()
+                        ? tr("No se pudo importar la playlist")
+                        : lines.constLast().trimmed();
+                    emit spotifyImportDone(false, msg, 0);
+                    return;
+                }
+                const QJsonObject root =
+                    QJsonDocument::fromJson(out).object();
+                const int count = root.value(QStringLiteral("count")).toInt();
+                const QString title =
+                    root.value(QStringLiteral("title")).toString();
+                emit spotifyImportDone(
+                    true,
+                    tr("Importadas %1 pistas a «%2»").arg(count).arg(title),
+                    count);
+            });
+
+    // Spotify "Liked Songs" JSON import: its own process, same reason as the
+    // playlist import (many internal searches per file).
+    m_spotifyLikedProc.setProcessChannelMode(QProcess::SeparateChannels);
+    connect(&m_spotifyLikedProc,
+            QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int code, QProcess::ExitStatus) {
+                const QByteArray out = m_spotifyLikedProc.readAllStandardOutput();
+                const QByteArray err = m_spotifyLikedProc.readAllStandardError();
+                if (code != 0) {
+                    const QStringList lines =
+                        QString::fromUtf8(err).split(QLatin1Char('\n'),
+                                                     Qt::SkipEmptyParts);
+                    const QString msg = lines.isEmpty()
+                        ? tr("No se pudieron importar los Me gusta")
+                        : lines.constLast().trimmed();
+                    emit spotifyLikedDone(false, msg, 0);
+                    return;
+                }
+                const QJsonObject root =
+                    QJsonDocument::fromJson(out).object();
+                const int count = root.value(QStringLiteral("count")).toInt();
+                const int skipped =
+                    root.value(QStringLiteral("skipped")).toInt();
+                emit spotifyLikedDone(
+                    true,
+                    tr("Marcadas %1 canciones como Me gusta (%2 omitidas)")
+                        .arg(count).arg(skipped),
+                    count);
             });
 
     // Own list management (create/rename/privacy/delete and reading its
@@ -785,6 +852,11 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
 
 Catalog::~Catalog()
 {
+    // QProcess::waitForFinished() emits `finished`. The status handler
+    // touches Catalog members (login state, liked set, signals), so it
+    // must be disconnected BEFORE the process is killed: running it while
+    // this destructor is unwinding crashed the app on the render thread.
+    m_statusProc.disconnect(this);
     // The session check the constructor starts must not be left loose: if
     // it is still running it is killed (like ~Player with mpv and its
     // resolvers) so no orphan processes or warnings are left on destroy.
@@ -1167,10 +1239,31 @@ void Catalog::search(const QString &query)
         return;
     const QString source = m_sources->activeId();
     if (!m_sources->isReady(source)) {
-        fail(tr("La fuente activa no admite búsqueda todavía"));
+        // Locked sources (Spotify, Tidal) have no playback backend: no
+        // auth flow and no librespot/tidal extractor. Report the registry's
+        // own note so the user learns what is missing, not a generic error.
+        const QVariantMap src = m_sources->entry(source);
+        const QString note = src.value(QStringLiteral("note")).toString();
+        const QString name = src.value(QStringLiteral("name")).toString();
+        fail(note.isEmpty()
+                 ? tr("La fuente activa no admite búsqueda todavía")
+                 : (name.isEmpty() ? note : name + QStringLiteral(": ") + note));
         return;
     }
     m_resultsQuery = q;
+    // The same search twice in a row (a typo, going back to Search) used
+    // to start the helper again and leave the page empty for ~0.6 s.
+    const QString key = source + QLatin1Char('|') + q.toLower();
+    if (m_searchCache.contains(key)
+        && QDateTime::currentSecsSinceEpoch() - m_searchCacheTs.value(key)
+            < 300) {
+        m_results = m_searchCache.value(key);
+        qInfo() << "[catalog] busqueda desde cache:" << q;
+        m_error.clear();
+        m_busy = false;
+        emit changed();
+        return;
+    }
     searchInSource(source, q);
 }
 
@@ -1448,6 +1541,22 @@ void Catalog::fetchArtistPage(const QString &browseId, const QString &name)
     if (!name.trimmed().isEmpty())
         args << name.trimmed();
     runArtist(args, QStringLiteral("artistpage"), id);
+}
+
+// Best effort: the artist of a track that arrived with the play count in
+// the artist column. The CLI is looked up with the title (the same search
+// the search page uses) and the entry with the same video id wins.
+void Catalog::resolveTrackArtist(const QString &url, const QString &title)
+{
+    const QString u = url.trimmed();
+    const QString q = title.trimmed();
+    if (u.isEmpty() || q.isEmpty())
+        return;
+    // One request at a time: the artist page shares this process.
+    if (m_artistProc.state() != QProcess::NotRunning)
+        return;
+    runArtist({ytmApiPath(), QStringLiteral("search"), q},
+              QStringLiteral("trackartist"), u);
 }
 
 void Catalog::fetchAlbumTracks(const QString &browseId)
@@ -1826,6 +1935,46 @@ void Catalog::createPlaylist(const QString &title, bool isPrivate,
     runPlaylistAction({ytmApiPath(), QStringLiteral("createpl"), t,
                        isPrivate ? QStringLiteral("1") : QStringLiteral("0")},
                       QStringLiteral("create"));
+}
+
+void Catalog::importSpotifyPlaylist(const QString &urlOrId)
+{
+    const QString u = urlOrId.trimmed();
+    if (u.isEmpty()) {
+        emit spotifyImportDone(false, tr("Pega un enlace de Spotify"), 0);
+        return;
+    }
+    if (!ytmLoggedIn() || !ytmHelperReady()
+        || m_spotifyProc.state() != QProcess::NotRunning) {
+        emit spotifyImportDone(
+            false,
+            tr("Inicia sesión en YouTube Music para importar playlists"), 0);
+        return;
+    }
+    m_spotifyProc.setProgram(AppPaths::pythonProgram());
+    m_spotifyProc.setArguments(
+        {ytmApiPath(), QStringLiteral("importpl"), u});
+    m_spotifyProc.start();
+}
+
+void Catalog::importLikedFromSpotify(const QString &filePath)
+{
+    const QString p = filePath.trimmed();
+    if (p.isEmpty()) {
+        emit spotifyLikedDone(false, tr("Elige el archivo JSON de Spotify"), 0);
+        return;
+    }
+    if (!ytmLoggedIn() || !ytmHelperReady()
+        || m_spotifyLikedProc.state() != QProcess::NotRunning) {
+        emit spotifyLikedDone(
+            false,
+            tr("Inicia sesión en YouTube Music para importar Me gusta"), 0);
+        return;
+    }
+    m_spotifyLikedProc.setProgram(AppPaths::pythonProgram());
+    m_spotifyLikedProc.setArguments(
+        {ytmApiPath(), QStringLiteral("importliked"), p});
+    m_spotifyLikedProc.start();
 }
 
 void Catalog::updatePlaylist(const QString &id, const QString &title, bool isPrivate)
@@ -2338,6 +2487,23 @@ bool Catalog::ytmLoggedIn() const
     return false;
 }
 
+void Catalog::startStatusCheck()
+{
+    if (m_statusProc.state() != QProcess::NotRunning)
+        return;
+    if (!ytmHelperReady()) {
+        if (m_loginState == QLatin1String("ok"))
+            m_loginState.clear();
+        return;
+    }
+    // On the phone the check is built into libytmcli.so; the first
+    // argument is the .py path the desktop helper expects and the native
+    // helper ignores.
+    m_statusProc.setProgram(AppPaths::pythonProgram());
+    m_statusProc.setArguments({helperPath(), QStringLiteral("status")});
+    m_statusProc.start();
+}
+
 void Catalog::setLoginState(const QString &state)
 {
     // Any path that reaches "ok" (fresh login, imported session, the status
@@ -2395,10 +2561,14 @@ void Catalog::finishLogin(int code)
 
 void Catalog::loginYTM()
 {
+#ifndef Q_OS_ANDROID
     if (ytmLoggedIn()) {
         setLoginState(QStringLiteral("ok"));
         return;
     }
+#endif
+    // On the phone the stored cookies may be from a session YouTube
+    // rejected: an explicit "sign in" always opens a fresh tab.
     if (m_loginProc.state() != QProcess::NotRunning)
         return;  // already waiting for the user
 #ifdef Q_OS_ANDROID
@@ -2439,10 +2609,12 @@ void Catalog::loginYTM()
             return;
         }
         if (ytmLoggedIn()) {
+            // The file can hold cookies from an unfinished sign-in. Ask
+            // YouTube before calling the session good.
             poll->stop();
             poll->deleteLater();
             m_loginError.clear();
-            setLoginState(QStringLiteral("ok"));
+            startStatusCheck();
         }
     });
     poll->start();
@@ -2532,6 +2704,12 @@ bool Catalog::handleOutput(const QByteArray &json)
 
     if (m_purpose == QLatin1String("search")) {
         m_results = list;
+        if (!m_multiActive && !m_pendingTitle.isEmpty()) {
+            const QString key = m_sources->activeId() + QLatin1Char('|')
+                + m_pendingTitle.toLower();
+            m_searchCache.insert(key, list);
+            m_searchCacheTs.insert(key, QDateTime::currentSecsSinceEpoch());
+        }
     } else if (isBackgroundPurpose(m_purpose)) {
         // The radio does not replace the queue: the player only uses it to
          // extend "up next" after the seed track. It is cached with its
@@ -2587,6 +2765,47 @@ static QString artistWithoutKindPrefix(QString a)
     return a.trimmed();
 }
 
+// Video id of a watch url ("...?v=ID" or youtu.be/ID): the search entries
+// and the queue carry the same one for the same song.
+static QString videoIdOfUrl(const QString &url)
+{
+    static const QRegularExpression re(
+        QStringLiteral("[?&]v=([A-Za-z0-9_-]{6,})"));
+    const QRegularExpressionMatch m = re.match(url);
+    if (m.hasMatch())
+        return m.captured(1);
+    static const QRegularExpression shortRe(
+        QStringLiteral("youtu\\.be/([A-Za-z0-9_-]{6,})"));
+    const QRegularExpressionMatch m2 = shortRe.match(url);
+    return m2.hasMatch() ? m2.captured(1) : QString();
+}
+
+// On some YouTube Music lists the artist column carries the number of
+// plays ("19 M reproducciones") instead of the artist. That text is never
+// an artist, and saving it made the player show it and the home page build
+// a radio named after it.
+// YouTube writes some of these texts with non-breaking spaces ("3,3 M
+// reproducciones") and Qt's \s does not match those. They are turned into
+// plain spaces before looking at the text.
+static QString plainSpaces(QString s)
+{
+    s.replace(QChar(0x00A0), QLatin1Char(' '));
+    s.replace(QChar(0x202F), QLatin1Char(' '));
+    s.replace(QChar(0x2009), QLatin1Char(' '));
+    return s;
+}
+
+bool Catalog::looksLikePlayCount(const QString &a)
+{
+    static const QRegularExpression re(
+        QStringLiteral("^\\s*[\\d.,]+\\s*"
+                       "(?:[kmb]|mil|mill[oó]n(?:es)?|million)?\\s*"
+                       "(?:reproducciones|reproducci[oó]n|plays?|"
+                       "visualizaciones|vistas|views)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    return re.match(plainSpaces(a)).hasMatch();
+}
+
 QVariantMap Catalog::normalize(const QVariantMap &e) const
 {
     QVariantMap t;
@@ -2597,6 +2816,8 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
     if (artist.isEmpty())
         artist = e.value(QStringLiteral("artist")).toString();
     artist = artistWithoutKindPrefix(artist);
+    if (looksLikePlayCount(artist))
+        artist.clear();
 
     // Flat SoundCloud entries carry the canonical permalink in webpage_url
     // (their url is an api.soundcloud.com/tracks/... API URL); YouTube flat
@@ -2807,8 +3028,11 @@ void Catalog::loadLibrary()
         // Old history: the artist may have been saved with the kind tag
         // in front ("Song - ..."). It is cleaned up on load.
         const QString a = m.value(QStringLiteral("artist")).toString();
-        if (!a.isEmpty())
-            m.insert(QStringLiteral("artist"), artistWithoutKindPrefix(a));
+        if (!a.isEmpty()) {
+            const QString clean = artistWithoutKindPrefix(a);
+            m.insert(QStringLiteral("artist"),
+                     looksLikePlayCount(clean) ? QString() : clean);
+        }
         m_recent.append(m);
     }
 }

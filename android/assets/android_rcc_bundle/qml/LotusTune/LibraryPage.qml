@@ -36,6 +36,10 @@ Item {
     // Play ALL the downloaded tracks: `random` = shuffle; `newestFirst` =
     // newest downloads first (by default, the order they were downloaded).
     signal downloadsPlayRequested(bool random, bool newestFirst)
+    // Opens Settings > Cuentas, where the Spotify import field lives.
+    signal openImportRequested()
+    // Result of a Spotify playlist import, shown as a toast by Main.
+    signal importNotification(string message)
 
     property bool showingTracks: false
     // Discography batch being queued (from Main): when several albums are
@@ -91,6 +95,13 @@ Item {
     // of the radio ("Radio de Calva Louise" -> "VIOLENT VIRA").
     readonly property bool viewIsRadio:
         /(?:[?&]list=RD|start_radio=1)/.test(String(catalog.openListUrl || ""))
+
+    Connections {
+        target: catalog
+        function onSpotifyImportDone(ok, message, count) {
+            page.importNotification(message || "")
+        }
+    }
 
     function openTracks() { showingTracks = true; openDownloadFolder = "" }
     function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
@@ -393,6 +404,32 @@ Item {
     readonly property var dlLocalAll: (typeof downloads !== "undefined") ? downloads.local : []
     readonly property bool dlLocalBusy: (typeof downloads !== "undefined") ? downloads.localBusy : false
 
+    // ---- storage bar (Downloads tab) ------------------------------------
+    // Human-readable size; decimal separator follows the app language.
+    function fmtStorageBytes(b) {
+        b = Number(b || 0)
+        if (b < 1024 * 1024)
+            return Math.round(b / 1024) + " KB"
+        const mb = b / (1024 * 1024)
+        if (mb < 1000)
+            return Math.round(mb) + " MB"
+        return (mb / 1024).toFixed(1).replace(".", ",") + " GB"
+    }
+    function storageText() {
+        if (typeof downloads === "undefined") return ""
+        return qsTr("%1 usados · %2 libres")
+            .arg(fmtStorageBytes(downloads.usedBytes))
+            .arg(fmtStorageBytes(downloads.freeBytes))
+    }
+    // Portion of the bar taken by the downloaded files (clamped 0..1).
+    readonly property real storageRatio: {
+        if (typeof downloads === "undefined") return 0
+        const used = Number(downloads.usedBytes || 0)
+        const free = Number(downloads.freeBytes || 0)
+        const denom = used + free
+        return denom > 0 ? Math.max(0, Math.min(1, used / denom)) : 0
+    }
+
     // ---- download error feedback ----------------------------------------
     // Last failure reason published by the backend (`downloadError`), with
     // the list name, to show it as a readable notice inside the page.
@@ -479,6 +516,12 @@ Item {
         // A radio has no author of its own: the one of its first track is not it.
         if (page.viewIsRadio)
             return qsTr("Radio · YouTube Music")
+        // "Me gusta" is YOUR list: the artist of the last song played is
+        // not its author. The same goes for any list without a known
+        // owner (the header used to name a random singer from it).
+        if (catalog.openPlaylistId === "LM"
+                || String(catalog.openListUrl || "").indexOf("list=LM") >= 0)
+            return qsTr("Tu lista · YouTube Music")
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }
@@ -1807,6 +1850,34 @@ Item {
                 }
                 Item { Layout.fillWidth: true }
 
+                // Import a public Spotify playlist into YouTube Music.
+                Rectangle {
+                    visible: !page.localSelected
+                    Layout.preferredWidth: Theme.pillH
+                    Layout.preferredHeight: Theme.pillH
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: importMa.containsMouse
+                           ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
+                           : "transparent"
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 16; height: 16
+                        kind: "link"
+                        color: Theme.accentOn(Sys.accent, Sys.bg)
+                    }
+                    MouseArea {
+                        id: importMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            page.openImportRequested()
+                        }
+                    }
+                }
+
                 // Search in the library (filters the cards as you type). On an
                 // old phone, a magnifier that opens the field on its own row:
                 // it does not fit here (200 dp out of 372).
@@ -2442,6 +2513,40 @@ Item {
                         onClicked: {
                             if (typeof sfx !== "undefined") sfx.play("tap")
                             if (typeof downloads !== "undefined") downloads.openFolder()
+                        }
+                    }
+                }
+
+                // ---- storage usage (Downloads tab only) ------------------
+                // Thin bar + line: space taken by the downloaded files and
+                // free space on the device. Both come from C++ (the existing
+                // incremental scan and QStorageInfo), so no blocking walk here.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.localSelected
+                             && typeof downloads !== "undefined"
+                             && downloads.freeBytes > 0
+                    spacing: Theme.s1
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: page.storageText()
+                        color: Theme.tDim(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tXs
+                    }
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 5
+                        radius: 2.5
+                        antialiasing: true
+                        color: Theme.mix(Sys.surface, Sys.text, 0.16)
+                        Rectangle {
+                            width: parent.width * page.storageRatio
+                            height: parent.height
+                            radius: 2.5
+                            antialiasing: true
+                            color: Sys.accent
+                            Behavior on width { NumberAnimation { duration: Theme.fastMs } }
                         }
                     }
                 }

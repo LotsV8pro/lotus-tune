@@ -7,6 +7,9 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QUrl>
+#ifdef Q_OS_ANDROID
+#include <QJniObject>
+#endif
 
 Sfx::Sfx(QObject *parent)
     : QObject(parent)
@@ -227,7 +230,14 @@ void Sfx::playWithPw(const QString &path)
     }
     if (!QFile::exists(file))
         return;
-#ifdef Q_OS_LINUX
+#ifdef Q_OS_ANDROID
+    // The WAV was extracted above; the Java side plays it with its own
+    // MediaPlayer, away from Qt's audio backend.
+    QJniObject::callStaticMethod<void>(
+        "com/lotustuneremote/app/MainActivity", "playSfx",
+        "(Ljava/lang/String;F)V",
+        QJniObject::fromString(file).object(), float(m_volume));
+#elif defined(Q_OS_LINUX)
     // The volume is the one of the interface; the role tells PipeWire it is
     // a notification and not music (it does not duck the player).
     QProcess::startDetached(QStringLiteral("pw-play"),

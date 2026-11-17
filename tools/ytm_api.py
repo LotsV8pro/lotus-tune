@@ -29,6 +29,12 @@ Netscape) y consulta la API interna de YouTube Music (InnerTube) para:
   rmpl  <playlistId> <videoId> <setVideoId>
                               quita una pista de una playlist del usuario
   createpl <title> [priv]     crea una lista (priv=1 -> privada; por defecto pública)
+  importpl <spotify-url|id> [title]
+                              importa una playlist pública de Spotify como lista
+                              nueva en YTM (busca cada pista y omite sin match)
+  importliked <archivo-json> [limite]
+                              importa las canciones de un LikedSongs*.json de la
+                              exportación de Spotify a «Me gusta» de YTM
   renamepl <listId> <title> [priv]
                               renombra una lista propia (y opcionalmente su privacidad)
   setplpriv <listId> <priv>   pone la lista privada (priv=1) o pública (priv=0)
@@ -42,6 +48,8 @@ Salida:
   playlistinfo -> {"id","title","description","privacy","owned","count"} por stdout
   rate/addpl/rmpl/createpl/renamepl/setplpriv/deletepl -> {"status": ...} por stdout
   createpl -> {"status":"ok","id":"<nueva lista>"} por stdout
+  importpl -> {"status":"ok","id","count","skipped","title"} por stdout
+  importliked -> {"status":"ok","count","skipped"} por stdout
 En caso de error escribe el motivo en stderr y sale con código 2.
 """
 
@@ -436,7 +444,10 @@ _PLAY_COUNT_RE = re.compile(
 
 
 def _looks_like_play_count(text):
-    return bool(_PLAY_COUNT_RE.match(text or ""))
+    # YouTube also writes these with non-breaking spaces ("3,3\u00a0M
+    # reproducciones"); make them plain so the regex never depends on it.
+    t = (text or "").replace("\u00a0", " ").replace("\u202f", " ")
+    return bool(_PLAY_COUNT_RE.match(t))
 
 
 def _track_of(renderer):
@@ -465,6 +476,8 @@ def _track_of(renderer):
             artist = "".join(r.get("text", "") for r in runs).strip()
     if not artist:
         artist = _flex_text(renderer, 2)
+    if _looks_like_play_count(artist):
+        artist = ""
 
     duration = _parse_duration(_length_text(renderer))
     set_video_id = _set_video_id_of(renderer)
@@ -1620,6 +1633,184 @@ def cmd_createpl(title, private):
     return 0
 
 
+# ------------------------------------------------------- spotify import ----
+
+_SPOTIFY_ID_RE = re.compile(
+    r"(?:open\.spotify\.com/(?:embed/)?playlist/|spotify:playlist:)"
+    r"([A-Za-z0-9]+)"
+)
+
+
+def spotify_playlist_id(value):
+    """Id de playlist de un enlace público de Spotify (o de un id suelto)."""
+    value = (value or "").strip()
+    if not value:
+        raise YtmError("falta el enlace de la playlist de Spotify")
+    m = _SPOTIFY_ID_RE.search(value)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"[A-Za-z0-9]{10,}", value):
+        return value
+    raise YtmError("enlace de playlist de Spotify no válido")
+
+
+def spotify_playlist(playlist_id):
+    """(titulo, pistas) del embed público; sin login de Spotify.
+
+    El HTML del embed trae __NEXT_DATA__ con
+    props.pageProps.state.data.entity.trackList = [title, subtitle, duration].
+    """
+    url = "https://open.spotify.com/embed/playlist/" + playlist_id
+    req = urllib.request.Request(url, headers={
+        "User-Agent": ANON_UA,
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            html = resp.read().decode("utf-8", "replace")
+    except Exception as exc:
+        raise YtmError("no se pudo leer la playlist de Spotify: %s" % exc)
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html, re.S,
+    )
+    if not m:
+        raise YtmError("Spotify no devolvió los datos de la playlist")
+    try:
+        entity = (json.loads(m.group(1))["props"]["pageProps"]["state"]
+                  ["data"]["entity"])
+    except (ValueError, KeyError, TypeError):
+        raise YtmError("formato de playlist de Spotify desconocido")
+    title = str(entity.get("title") or "").strip()
+    tracks = []
+    for raw in entity.get("trackList") or []:
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("title") or "").strip()
+        if not name:
+            continue
+        artist = str(raw.get("subtitle") or "").replace("\xa0", " ").strip()
+        tracks.append({"title": name, "artist": artist,
+                       "duration": float(raw.get("duration") or 0) / 1000.0})
+    return title, tracks
+
+
+def cmd_importpl(url_or_id, title_arg=""):
+    """Importa una playlist pública de Spotify a una lista nueva de YTM."""
+    pid = spotify_playlist_id(url_or_id)
+    sp_title, entries = spotify_playlist(pid)
+    title = (title_arg or "").strip() or sp_title or "Playlist de Spotify"
+    if not entries:
+        raise YtmError("la playlist de Spotify está vacía")
+
+    ids, skipped = [], 0
+    for entry in entries:
+        query = (entry["title"] + " " + entry["artist"]).strip()
+        try:
+            results = search(query, limit=5)
+        except YtmError:
+            results = []
+        vid = results[0].get("id") if results else None
+        if not vid or vid in ids:
+            skipped += 1
+            continue
+        ids.append(vid)
+
+    if not ids:
+        raise YtmError("ninguna pista se encontró en YouTube Music")
+
+    playlist_id = create_playlist(title, False)
+    for vid in ids:
+        add_playlist_item(playlist_id, vid)
+
+    json.dump({"status": "ok", "id": playlist_id, "count": len(ids),
+               "skipped": skipped, "title": title}, sys.stdout,
+              ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
+def _collect_liked(node, tracks, seen):
+    """Recorre el JSON de forma defensiva y recoge pistas con nombre y artista.
+
+    El formato de LikedSongs*.json cambia entre exportaciones: el nombre viene
+    en name/title/track y el artista como lista de objetos {name} o como cadena.
+    Cualquier objeto con ambos datos cuenta como pista.
+    """
+    if isinstance(node, dict):
+        name = ""
+        for key in ("name", "title", "track"):
+            value = node.get(key)
+            if isinstance(value, str) and value.strip():
+                name = value.strip()
+                break
+        artist = ""
+        artists = node.get("artists")
+        if isinstance(artists, list):
+            parts = []
+            for item in artists:
+                value = item.get("name") if isinstance(item, dict) else item
+                if isinstance(value, str) and value.strip():
+                    parts.append(value.strip())
+            artist = ", ".join(parts)
+        elif isinstance(node.get("artist"), str):
+            artist = node["artist"].strip()
+        if name and artist:
+            key = (name.casefold(), artist.casefold())
+            if key not in seen:
+                seen.add(key)
+                tracks.append({"title": name, "artist": artist})
+        for value in node.values():
+            _collect_liked(value, tracks, seen)
+    elif isinstance(node, list):
+        for value in node:
+            _collect_liked(value, tracks, seen)
+
+
+def cmd_importliked(path, limit=0):
+    """Marca como «Me gusta» las canciones de un LikedSongs*.json local."""
+    if not path or not os.path.isfile(path):
+        raise YtmError("no se encontró el archivo: %s" % path)
+    try:
+        with open(path, "r", encoding="utf-8-sig") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise YtmError("no se pudo leer el JSON de Spotify: %s" % exc)
+    tracks, seen = [], set()
+    _collect_liked(data, tracks, seen)
+    if not tracks:
+        raise YtmError("no se encontraron canciones en el JSON de Spotify")
+
+    count, skipped = 0, 0
+    liked = set()
+    for entry in tracks:
+        if limit and count >= limit:
+            break
+        query = (entry["title"] + " " + entry["artist"]).strip()
+        try:
+            results = search(query, limit=5)
+        except YtmError:
+            results = []
+        vid = results[0].get("id") if results else None
+        if not vid or vid in liked:
+            skipped += 1
+            continue
+        try:
+            rate(vid, "LIKE")
+        except YtmError:
+            skipped += 1
+            continue
+        liked.add(vid)
+        count += 1
+    if not count:
+        raise YtmError("ninguna canción se pudo marcar como Me gusta")
+
+    json.dump({"status": "ok", "count": count, "skipped": skipped}, sys.stdout,
+              ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def cmd_renamepl(list_id, title, privacy=None):
     resp = edit_playlist(list_id, title=title, privacy=privacy)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -1652,7 +1843,9 @@ def main():
             "uso: ytm_api.py library | search <q> | playlist <id> | "
             "playlistinfo <id> | "
             "rate <v> <r> | addpl <p> <v> | rmpl <p> <v> <s> | "
-            "createpl <title> [priv] | renamepl <id> <title> | "
+            "createpl <title> [priv] | importpl <spotify-url-or-id> [title] | "
+            "importliked <archivo-json> [limite] | "
+            "renamepl <id> <title> | "
             "setplpriv <id> <priv> | deletepl <id>",
             file=sys.stderr,
         )
@@ -1729,6 +1922,18 @@ def main():
             if len(args) < 2:
                 raise YtmError("uso: createpl <title> [priv]")
             return cmd_createpl(args[1], _truthy(args[2]) if len(args) > 2 else False)
+        if cmd == "importpl":
+            if len(args) < 2:
+                raise YtmError("uso: importpl <spotify-url-or-id> [title]")
+            return cmd_importpl(args[1], " ".join(args[2:]))
+        if cmd == "importliked":
+            if len(args) < 2:
+                raise YtmError("uso: importliked <archivo-json> [limite]")
+            try:
+                limit = int(args[2]) if len(args) > 2 else 0
+            except ValueError:
+                raise YtmError("el límite debe ser un número")
+            return cmd_importliked(args[1], limit)
         if cmd == "renamepl":
             if len(args) < 3:
                 raise YtmError("uso: renamepl <listId> <title> [priv]")

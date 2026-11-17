@@ -51,6 +51,10 @@ class Downloads : public QObject
     // (persisted in QSettings; the smallest one is the default).
     Q_PROPERTY(QString quality READ quality WRITE setQuality NOTIFY changed)
     Q_PROPERTY(QString storageSummary READ storageSummary NOTIFY libraryChanged)
+    // Storage bar (Downloads tab): `usedBytes` is the folder total already
+    // recounted by the incremental scan; `freeBytes` comes from QStorageInfo.
+    Q_PROPERTY(qint64 usedBytes READ usedBytes NOTIFY storageChanged)
+    Q_PROPERTY(qint64 freeBytes READ freeBytes NOTIFY storageChanged)
     // AGGREGATED 0-100 progress of the running download (the whole list,
     // not just the current track); -1 if there is none.
     Q_PROPERTY(int activeProgress READ activeProgress NOTIFY activeProgressChanged)
@@ -70,6 +74,8 @@ public:
     void setQuality(const QString &q);
     // "1,2 GB · 64 pistas en 14 listas" (or "Sin descargas").
     QString storageSummary() const;
+    qint64 usedBytes() const { return m_bytes; }
+    qint64 freeBytes() const { return m_freeBytes; }
     int activeProgress() const;
 
     // Root downloads folder (configurable and persisted in QSettings).
@@ -100,6 +106,9 @@ public:
     Q_INVOKABLE void resumeAll();
     // Scans the folder recursively looking for audio (non blocking).
     Q_INVOKABLE void refreshLocal();
+    // Recomputes free space on the download volume (a cheap syscall) and
+    // publishes the storage properties. Used bytes come from the scan.
+    Q_INVOKABLE void refreshStorage();
     // xdg-open on the root folder.
     Q_INVOKABLE void openFolder();
     // Uninstalls a downloaded list: deletes its top level folder
@@ -137,6 +146,8 @@ signals:
     void changed();
     void jobsChanged();
     void libraryChanged();
+    // Storage bar values (usedBytes / freeBytes) changed.
+    void storageChanged();
     // The AGGREGATED 0-100 progress of the download `name` changed (the
      // whole list).
     void progressChanged(const QString &name, int percent);
@@ -269,6 +280,8 @@ private:
     QVariantList m_local;
     // Space taken by the folder: recounted in every scan (see scanChunk).
     qint64 m_bytes = 0;
+    qint64 m_freeBytes = 0;   // device free space (QStorageInfo), cached
+    QTimer m_storageTimer;   // refreshes free space every 30 s
     qint64 m_scanBytes = 0;
     bool m_localBusy = false;
     QDirIterator *m_scan = nullptr;

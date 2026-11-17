@@ -158,7 +158,7 @@ Item {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     // Se interpola solo mientras el panel esta abierto en
-                    // la pestaña de letra.
+                    // the lyrics tab.
                     live: panel.open && panel.tab === 1
                           && (Qt.platform.os !== "android" || panel.appActive)
                     // The edge fade has to blend with the island's real

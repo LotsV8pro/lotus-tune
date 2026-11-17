@@ -1,167 +1,43 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Qt_6_%2F_QML-141218?style=for-the-badge&logo=qt&logoColor=C4A8E2"/>
-  <img src="https://img.shields.io/badge/YouTube_Music-141218?style=for-the-badge&logo=youtubemusic&logoColor=C4A8E2"/>
-  <img src="https://img.shields.io/badge/Linux_%C2%B7_Windows_%C2%B7_Android-141218?style=for-the-badge&logo=linux&logoColor=C4A8E2"/>
-  <img src="https://img.shields.io/badge/MPRIS_%2B_Discord_RP-141218?style=for-the-badge&logo=discord&logoColor=C4A8E2"/>
-  <img src="https://img.shields.io/github/actions/workflow/status/LotsV8pro/lotus-tune/build.yml?style=for-the-badge&logo=githubactions&logoColor=C4A8E2&label=CI"/>
-  <img src="https://img.shields.io/badge/MIT_%2B_GPL--3.0-141218?style=for-the-badge&logo=open-source-initiative&logoColor=C4A8E2"/>
-</p>
+# Lotus Tune
 
-<h1 align="center">Lotus Tune</h1>
+Player de YouTube Music y SoundCloud escrito en Qt 6 y QML. Reproduce con mpv, muestra letras sincronizadas letra a letra y funciona en Linux, Windows y Android.
 
-Music player for YouTube Music and SoundCloud, written in Qt 6/QML. Plays through mpv and sings the synced lyrics word by word. Runs on Linux, Windows and Android.
+## Qué hace
 
-## What it does
+Busca canciones, artistas y listas de YouTube Music y SoundCloud. Puedes abrir una lista sin reproducirla o añadirla a la cola.
 
-- Searches YouTube Music and SoundCloud, together or one at a time: songs, artists and the playlists other people made.
-- Lights the lyrics word by word with the timings of the actual song.
-- Draws the cover at full resolution and a background that follows its colour.
-- Downloads with `yt-dlp` into the folder you pick and keeps a local library.
-- Publishes MPRIS for the system controls and Discord Rich Presence.
-- On Android it is the same interface, in an ARM64 APK.
-- Interface in English and Spanish, or following the system language.
+Las letras se alinean con la canción que suena. Cuando una fuente solo da el tiempo de cada frase, el tiempo se reparte entre las palabras para que el resaltado avance letra a letra. Se guardan en la caché, junto con la compensación que ajustes para cada canción.
 
-## What's new
+La biblioteca guarda listas, descargas y reproducciones recientes. La barra de Biblioteca tiene un botón para importar una playlist pública de Spotify a YouTube Music. Ajustes > Cuentas permite importar también el archivo `LikedSongs1.json` del exporte de datos de Spotify.
 
-2.0.9 fixes the crackle at the start of some songs on the phone: the app now plays through the phone's own audio player instead of the one Qt brings. A name with several artists opens a list of them, one per tap, instead of guessing the first result, and an artist page no longer shows the play count as the artist of its songs.
+La interfaz sale en español, inglés, francés, alemán y portugués. MPRIS funciona en escritorio. Discord Rich Presence funciona en escritorio; en Android figura como próximamente.
 
-2.0.8 turned the Windows download into a normal installer that carries everything the app needs, added the playlists of other people to the search, and stopped the phone from spending data and battery for nothing.
+## Ejecutar
 
-The whole history, version by version, is in [CHANGELOG.md](CHANGELOG.md).
+Linux necesita Qt 6, Qt Quick, Qt Multimedia, mpv, yt-dlp y Python 3.
 
-## Lyrics
-
-A lyric can come from Musixmatch (richsync, with a time per word), from the YouTube Music track itself, from LRCLIB, from NetEase or from the local Sonora cache. The app picks the source that matches the version playing, not the first one it finds: it compares the lines against the video timeline and drops the ones from another take, another album or a live recording.
-
-Word timings come from the album and the text from the video, so they line up, and the lyric you see is the one of the video. Missing words and lines are filled from the other sources once they are aligned.
-
-Stretches with no voice carry no text: the app draws three dots that light up one at a time. The lyrics can be dragged and they return to the line being sung after four seconds.
-
-### The lyrics shared with iNiR
-
-When Lotus Tune is the one playing, it writes the lyric and the position to:
-
-```
-~/.local/state/lotus-tune/lyrics.json
-~/.local/state/lotus-tune/lyrics-runtime.json
-```
-
-The iNiR lyrics service (`LyricsService.qml`) reads those files before going out on its own. Widgets and the lock screen then use the same timings and the same words as the app, without a second download. The format is described in [docs/LYRICS.md](docs/LYRICS.md).
-
-## Installation
-
-### Linux
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh -o install.sh
-bash install.sh
-```
-
-The installer detects the distro (Arch, Debian, Fedora), warns about missing dependencies (`qt6`, `mpv`, `yt-dlp`), builds the app and installs it into `~/.local`, with the menu entry and the icon.
-
-You can also clone and run the same script:
-
-```bash
-git clone https://github.com/LotsV8pro/lotus-tune.git
-cd lotus-tune
-./tools/install.sh
-```
-
-Options: `--prefix ~/.local`, `--system` (installs into `/usr/local`), `--no-pull`, `--jobs N`. `--help` lists the rest.
-
-The releases also carry a `.deb` for Debian/Ubuntu, a `.rpm` for Fedora/openSUSE and a `.tar.gz` that works on any distro.
-
-### Windows
-
-`LotusTune-Setup-<version>.exe` is the installer. It installs for the current user in `%LOCALAPPDATA%\Programs\LotusTune` (no administrator rights), creates the Start menu entry and the desktop shortcut if you ask for it, and leaves an uninstaller in Settings > Apps.
-
-It carries everything the app uses: the Qt libraries, `mpv` to play, `yt-dlp` to resolve and download and an embedded Python for the two helpers. Nothing else has to be installed first, and the `.exe` no longer opens a console window.
-
-The release also carries `lotus-tune-windows.zip` with the same tree and no installer. That is what the updater inside the app downloads and unpacks over its own folder, so a copy that came from the installer updates itself too.
-
-Windows 10 or newer, 64 bits. CI builds both on every tag and on every push to `master`.
-
-### Android
-
-`lotus-tune-<version>-arm64.apk`, for ARM64 phones. It is a debug build.
-
-```bash
-adb install -r lotus-tune-2.0.0-arm64.apk
-```
-
-The APK needs two resource bundles inside: `assets/qt_qml.rcc` with Qt's own QML modules and `assets/android_rcc_bundle` with the app's QML. A build without them installs and closes on the first import. `tools/build-android.sh` writes both and refuses to leave an APK that lacks them.
-
-## Building
-
-Requirements: Qt 6.5 or newer (`Quick`, `Network`, `Sql`, `Multimedia`), `cmake` 3.19, `ninja`, `mpv` 0.40 or newer, `yt-dlp` and `python3`.
-
-```bash
+```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --build build --parallel
 ./build/lotus-tune
 ```
 
-Tests:
+`tools/install.sh` instala el binario en `~/.local/bin`. `tools/package-linux.sh` genera un `.deb` y un `.tar.gz` en `dist/`.
 
-```bash
-./build/lotus-tune-tests
-# or
-cd build && ctest --output-on-failure
-```
+Windows se compila en GitHub Actions. El workflow genera `lotus-tune-windows.zip` para el actualizador y `LotusTune-Setup-<version>.exe` con Inno Setup. El instalador lleva Qt, mpv, yt-dlp y Python.
 
-Linux packages:
+Android se compila con `tools/build-android.sh` después de cargar `~/lotus-android-toolchain/env.sh`. El resultado es un APK arm64.
 
-```bash
-./tools/package-linux.sh
-```
+## Primer arranque
 
-Leaves the `.deb`, the `.rpm` (when `rpmbuild` is installed) and the `.tar.gz` in `dist/`.
+Abre Ajustes > Cuentas e inicia sesión con Google. Eso permite buscar letras con tiempos, sincronizar Me gusta y crear listas en YouTube Music. SoundCloud funciona sin cuenta.
 
-APK:
+## Archivos y documentación
 
-```bash
-source ~/lotus-android-toolchain/env.sh
-./tools/build-android.sh
-```
+- `CHANGELOG.md`: cambios por versión.
+- `INSTRUCCIONES.md`: instalación y primeros pasos en español.
+- `docs/LYRICS.md`: fuentes de letras y alineación.
+- `docs/I18N.md`: cómo añadir o actualizar traducciones.
+- `archive/legacy/`: scripts y archivos de versiones anteriores. No se usan en el build.
 
-The script needs the SDK, NDK 27, JDK 17 and Qt 6.6.3 for Android. `tools/setup-android-toolchain.sh` sets that toolchain up.
-
-## Status
-
-Working:
-
-- Search and playback on YouTube Music and SoundCloud.
-- Word by word karaoke and the lyrics shared with iNiR.
-- Covers, dynamic background, downloads and the local library.
-- MPRIS, Discord Rich Presence, Android APK.
-- Windows build in CI.
-
-Known limitations:
-
-- On Android the login is imported from the PC.
-- Search on Android depends on `yt-dlp`, which is not embedded yet.
-- The long press context menu on touch screens is still missing.
-- CI builds the Windows zip; it is not tried on a real Windows machine on every release.
-
-## Related repositories
-
-| Repo | What it is |
-|---|---|
-| [Lotus-Arch](https://github.com/LotsV8pro/Lotus-Arch) | Arch desktop with Niri and iNiR |
-| [lotus-discord](https://github.com/LotsV8pro/lotus-discord) | Vencord theme |
-| [lotus-spotify](https://github.com/LotsV8pro/lotus-spotify) | Spicetify theme |
-| [lotus-steam](https://github.com/LotsV8pro/lotus-steam) | Steam theme (Millennium) |
-| [lotus-mic-chain](https://github.com/LotsV8pro/lotus-mic-chain) | Microphone chain for EasyEffects |
-
-## Credits
-
-| Project | Used for |
-|---|---|
-| [mpv](https://mpv.io) | Playback (headless, JSON IPC) |
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Metadata and downloads |
-| [Musixmatch](https://www.musixmatch.com) | Word timings (richsync) |
-| [LRCLIB](https://lrclib.net) | Line synced lyrics |
-| [NetEase](https://music.163.com) | Klyric with word timings |
-| [Qt](https://www.qt.io) | Interface and network |
-
-The parts that link against mpv and yt-dlp are GPL-3.0. The rest of the project is MIT.
+La sesión, la biblioteca y la configuración viven en `~/.local/state/lotus-tune` y `~/.config/lotus-tune` en Linux, y en el directorio privado de la app en Android.

@@ -34,6 +34,7 @@
 #include <QResource>
 #include <QStandardPaths>
 #include <QThread>
+#include <QTimer>
 #include <QElapsedTimer>
 #include <QEvent>
 #include <QtQuick/QSGRendererInterface>
@@ -697,9 +698,15 @@ int main(int argc, char *argv[])
     // Audio cache cleanup: on Android every downloaded track leaves 4-8 MB
     // in cache/audio_<id>.bin and with no cap it eats the storage.
     AudioCache &audiocache = *AudioCache::instance();
-    audiocache.prunePartials();
-    audiocache.prune();
     engine.rootContext()->setContextProperty(QStringLiteral("audiocache"), &audiocache);
+    // Cache cleanup scans the audio cache directory on disk. On a phone that
+    // I/O used to run before the first frame and made the startup stutter:
+    // move it past the first frame. The context property is already exposed,
+    // so the settings UI still sees the result once it opens.
+    QTimer::singleShot(0, &app, [&audiocache] {
+        audiocache.prunePartials();
+        audiocache.prune();
+    });
 
     // mpv playback engine (headless, JSON IPC).
     Player player;

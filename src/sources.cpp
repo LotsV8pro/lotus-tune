@@ -29,24 +29,6 @@ void SourceManager::build()
             {QStringLiteral("note"), tr("Búsqueda y playlists públicas de SoundCloud.")},
             {QStringLiteral("searchPrefix"), QStringLiteral("scsearch15:")},
         },
-        // Locked sources: activated once the matching account/backend exists.
-        QVariantMap{
-            {QStringLiteral("id"), QStringLiteral("spotify")},
-            {QStringLiteral("name"), QStringLiteral("Spotify")},
-            {QStringLiteral("status"), QStringLiteral("locked")},
-            {QStringLiteral("note"),
-             tr("Requiere cuenta Premium y un Client ID de "
-                "developer.spotify.com (backend librespot, pendiente).")},
-            {QStringLiteral("searchPrefix"), QString()},
-        },
-        QVariantMap{
-            {QStringLiteral("id"), QStringLiteral("tidal")},
-            {QStringLiteral("name"), QStringLiteral("Tidal")},
-            {QStringLiteral("status"), QStringLiteral("locked")},
-            {QStringLiteral("note"),
-             tr("Requiere una cuenta Tidal y credenciales de la API (pendiente).")},
-            {QStringLiteral("searchPrefix"), QString()},
-        },
     };
 }
 

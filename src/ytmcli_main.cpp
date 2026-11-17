@@ -327,17 +327,19 @@ static QByteArray dechunk(const QByteArray &in)
     return out;
 }
 
-// Synchronous HTTPS POST straight on OpenSSL (the libssl.so and
+// Synchronous HTTPS request straight on OpenSSL (the libssl.so and
 // libcrypto.so that travel packaged next to the Qt libs from the APK) :
 // the Android QCoreApplication requires a live JVM (QJniEnvironment
 // disintegrate a null pointer inside of its constructor in a child spawned
 // process) so in the helper there is NO Qt event loop and QtNetwork is
 // unreachable. The certificated roots are loaded from the system
 // store (conscrypt apex on Android >= 14; /system path on the older).
-static QByteArray httpsPost(const QUrl &url,
-                            const QList<QPair<QByteArray, QByteArray>>
-                                &headers,
-                            const QByteArray &payload, int *statusOut)
+// `method` is POST for the InnerTube calls or GET for a public page
+// (Spotify embed); the payload is sent only for POST.
+static QByteArray httpsRequest(const QUrl &url, const QByteArray &method,
+                               const QList<QPair<QByteArray, QByteArray>>
+                                   &headers,
+                               const QByteArray &payload, int *statusOut)
 {
     // Optional trace (standalone diagnosis): LTM_DEBUG=1 prints every
     // transport step and the OpenSSL error to stderr.
@@ -521,18 +523,22 @@ static QByteArray httpsPost(const QUrl &url,
     int status = 0;
     if (SSL_connect(ssl) == 1) {
         log("tls handshake ok");
+        QByteArray target = url.path(QUrl::FullyEncoded).toLocal8Bit();
+        if (url.hasQuery())
+            target += "?" + url.query(QUrl::FullyEncoded).toLocal8Bit();
         QByteArray req;
-        req += "POST " + url.path(QUrl::FullyEncoded).toLocal8Bit()
-               + "?" + url.query(QUrl::FullyEncoded).toLocal8Bit()
-               + " HTTP/1.1\r\n"
+        req += method + " " + target + " HTTP/1.1\r\n"
                "Host: " + rawHost + "\r\n"
                "Connection: close\r\n"
                "Accept-Encoding: identity\r\n";
         for (const auto &h : headers) {
             req += h.first + ": " + h.second + "\r\n";
         }
-        req += "Content-Length: "
-               + QByteArray::number(payload.size()) + "\r\n\r\n";
+        if (method == "POST") {
+            req += "Content-Length: "
+                   + QByteArray::number(payload.size()) + "\r\n";
+        }
+        req += "\r\n";
         req += payload;
         int sent = 0;
         while (sent < req.size()) {
@@ -591,6 +597,21 @@ static QByteArray httpsPost(const QUrl &url,
     ::close(fd);
     *statusOut = status;
     return out;
+}
+
+static QByteArray httpsPost(const QUrl &url,
+                            const QList<QPair<QByteArray, QByteArray>>
+                                &headers,
+                            const QByteArray &payload, int *statusOut)
+{
+    return httpsRequest(url, "POST", headers, payload, statusOut);
+}
+
+static QByteArray httpsGet(const QUrl &url,
+                           const QList<QPair<QByteArray, QByteArray>> &headers,
+                           int *statusOut)
+{
+    return httpsRequest(url, "GET", headers, QByteArray(), statusOut);
 }
 #endif
 
@@ -713,6 +734,53 @@ NetResult browseJson(const QString &browseId)
                     QJsonObject{{QStringLiteral("browseId"), browseId}});
 }
 
+// Blocking GET of a public page (the Spotify embed). No session, no
+// cookies: it is the same anonymous fetch on desktop and on Android.
+QByteArray httpGet(const QUrl &url, int *statusOut)
+{
+#ifdef Q_OS_ANDROID
+    QList<QPair<QByteArray, QByteArray>> headers;
+    headers << qMakePair(QByteArrayLiteral("User-Agent"), kAnonUa.toUtf8());
+    headers << qMakePair(QByteArrayLiteral("Accept-Language"),
+                         QByteArrayLiteral("en-US,en;q=0.9"));
+    int status = 0;
+    QByteArray raw;
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        raw = httpsGet(url, headers, &status);
+        if (!raw.isEmpty() && status > 0)
+            break;
+        ::usleep(400000);
+    }
+    if (statusOut)
+        *statusOut = status;
+    if (status >= 300)
+        return QByteArray();
+    return raw;
+#else
+    QNetworkRequest req(url);
+    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                     QNetworkRequest::NoLessSafeRedirectPolicy);
+    req.setRawHeader("User-Agent", kAnonUa.toUtf8());
+    req.setRawHeader("Accept-Language", "en-US,en;q=0.9");
+    QNetworkReply *reply = nam()->get(req);
+    QEventLoop loop;
+    QObject::connect(reply, &QNetworkReply::finished, &loop,
+                     &QEventLoop::quit);
+    QTimer::singleShot(30000, &loop, &QEventLoop::quit);
+    loop.exec();
+    const int status = reply->attribute(
+        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const bool failed = reply->error() != QNetworkReply::NoError;
+    const QByteArray raw = reply->readAll();
+    reply->deleteLater();
+    if (statusOut)
+        *statusOut = status;
+    if (status >= 300 || failed)
+        return QByteArray();
+    return raw;
+#endif
+}
+
 void dieOnNet(const NetResult &r)
 {
     if (!r.ok)
@@ -806,6 +874,17 @@ QJsonArray flexColumnRuns(const Json &renderer, int index)
 
 // python _looks_like_play_count: "19 M reproducciones", "1.2M plays", ...
 // On the artist page that text sits in the artist column of the top songs.
+// YouTube writes some of these texts with non-breaking spaces ("3,3 M
+// reproducciones") and Qt's \s does not match those. They are turned into
+// plain spaces before looking at the text.
+static QString plainSpaces(QString s)
+{
+    s.replace(QChar(0x00A0), QLatin1Char(' '));
+    s.replace(QChar(0x202F), QLatin1Char(' '));
+    s.replace(QChar(0x2009), QLatin1Char(' '));
+    return s;
+}
+
 bool looksLikePlayCount(const QString &text)
 {
     static const QRegularExpression re(
@@ -814,7 +893,7 @@ bool looksLikePlayCount(const QString &text)
                        "(?:reproducciones|reproducci[oó]n|plays?|"
                        "visualizaciones|vistas|views)\\s*$"),
         QRegularExpression::CaseInsensitiveOption);
-    return re.match(text).hasMatch();
+    return re.match(plainSpaces(text)).hasMatch();
 }
 
 // python _subtitle_of.
@@ -1108,6 +1187,9 @@ QJsonObject trackOf(const Json &renderer)
     }
     if (artist.isEmpty())
         artist = flexText(renderer, 2);
+    // Never a play count where the artist goes.
+    if (looksLikePlayCount(artist))
+        artist.clear();
 
     QJsonObject t;
     t.insert(QLatin1String("id"), videoId);
@@ -1152,6 +1234,10 @@ QJsonObject panelTrackOf(const Json &renderer)
             artist = runs.first().toObject()
                          .value(QLatin1String("text")).toString().trimmed();
     }
+    // The byline of a radio entry sometimes has the play count where the
+    // artist goes: never keep it.
+    if (looksLikePlayCount(artist))
+        artist.clear();
     QString durText;
     const QJsonArray lengthRuns =
         o.value(QLatin1String("lengthText"))
@@ -1305,7 +1391,9 @@ void collectAlbumTracks(const Json &node, QJsonArray *found,
                         .value(QLatin1String("runs"))
                         .toArray());
             QJsonObject t = base;
-            if (!artist.isEmpty()) {
+            // The second flex column of a song on an artist page can be a
+            // play count: it is not a linked artist either.
+            if (!artist.isEmpty() && !looksLikePlayCount(artist)) {
                 t.insert(QLatin1String("channel"), artist);
             } else if (!headerArtist.isEmpty()) {
                 const QString ch =
@@ -2520,6 +2608,244 @@ void printArray(const QJsonArray &a) { printJson(QJsonDocument(a)); }
 
 void printObj(const QJsonObject &o) { printJson(QJsonDocument(o)); }
 
+// ------------------------------------------------------- spotify import ----
+
+static QString spotifyPlaylistId(const QString &value)
+{
+    const QString v = value.trimmed();
+    static const QRegularExpression re(QStringLiteral(
+        "(?:open\\.spotify\\.com/(?:embed/)?playlist/|spotify:playlist:)"
+        "([A-Za-z0-9]+)"));
+    const QRegularExpressionMatch m = re.match(v);
+    if (m.hasMatch())
+        return m.captured(1);
+    static const QRegularExpression bare(QStringLiteral("^[A-Za-z0-9]{10,}$"));
+    return bare.match(v).hasMatch() ? v : QString();
+}
+
+// Reads the public embed, no Spotify login involved.
+static QJsonObject spotifyEmbed(const QUrl &url)
+{
+    int status = 0;
+    const QByteArray html = httpGet(url, &status);
+    if (html.isEmpty())
+        die(QStringLiteral("no se pudo leer la playlist de Spotify"));
+    static const QRegularExpression re(
+        QStringLiteral("<script id=\"__NEXT_DATA__\"[^>]*>(.*?)</script>"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const QRegularExpressionMatch m = re.match(QString::fromUtf8(html));
+    if (!m.hasMatch())
+        die(QStringLiteral("Spotify no devolvió los datos de la playlist"));
+    const QJsonDocument doc = QJsonDocument::fromJson(m.captured(1).toUtf8());
+    const QJsonObject entity = doc.object()
+        .value(QStringLiteral("props")).toObject()
+        .value(QStringLiteral("pageProps")).toObject()
+        .value(QStringLiteral("state")).toObject()
+        .value(QStringLiteral("data")).toObject()
+        .value(QStringLiteral("entity")).toObject();
+    if (entity.isEmpty())
+        die(QStringLiteral("formato de playlist de Spotify desconocido"));
+    return entity;
+}
+
+void cmdImportpl(const QString &urlOrId, const QString &titleArg)
+{
+    const QString pid = spotifyPlaylistId(urlOrId);
+    if (pid.isEmpty())
+        die(QStringLiteral("enlace de playlist de Spotify no válido"));
+    const QJsonObject entity = spotifyEmbed(
+        QUrl(QStringLiteral("https://open.spotify.com/embed/playlist/") + pid));
+    QString title = titleArg.trimmed();
+    if (title.isEmpty())
+        title = entity.value(QStringLiteral("title")).toString().trimmed();
+    if (title.isEmpty())
+        title = QStringLiteral("Playlist de Spotify");
+
+    QStringList ids;
+    QSet<QString> seen;
+    int skipped = 0;
+    const QJsonArray raw = entity.value(QStringLiteral("trackList")).toArray();
+    for (const QJsonValue &v : raw) {
+        const QJsonObject t = v.toObject();
+        const QString name = t.value(QStringLiteral("title")).toString().trimmed();
+        if (name.isEmpty()) {
+            skipped++;
+            continue;
+        }
+        QString artist = t.value(QStringLiteral("subtitle")).toString();
+        artist.replace(QChar(0xa0), QLatin1Char(' '));
+        artist = artist.trimmed();
+        // rankedSearch() is the same path the `search` command uses: every
+        // result is a playable video, so the first id is the match.
+        const QJsonArray found = rankedSearch(
+            (name + QLatin1Char(' ') + artist).trimmed());
+        QString vid;
+        if (!found.isEmpty())
+            vid = found.first().toObject()
+                      .value(QStringLiteral("id")).toString();
+        if (vid.isEmpty() || seen.contains(vid)) {
+            skipped++;
+            continue;
+        }
+        seen.insert(vid);
+        ids << vid;
+    }
+    if (ids.isEmpty())
+        die(QStringLiteral("ninguna pista se encontró en YouTube Music"));
+
+    // Same primitives the createpl / addpl commands use.
+    const NetResult created = postAuth(QStringLiteral("playlist/create"),
+        QJsonObject{{QStringLiteral("title"), title},
+                    {QStringLiteral("description"), QString()},
+                    {QStringLiteral("privacyStatus"), QStringLiteral("PUBLIC")}});
+    dieOnNet(created);
+    const QString plId =
+        created.obj.value(QStringLiteral("playlistId")).toString();
+    if (plId.isEmpty())
+        die(QStringLiteral("no se pudo crear la lista"));
+    for (const QString &vid : ids) {
+        const NetResult added = postAuth(
+            QStringLiteral("browse/edit_playlist"),
+            QJsonObject{{QStringLiteral("playlistId"), plId},
+                        {QStringLiteral("actions"), QJsonArray{
+                            QJsonObject{
+                                {QStringLiteral("action"),
+                                 QStringLiteral("ACTION_ADD_VIDEO")},
+                                {QStringLiteral("addedVideoId"), vid}}}}});
+        dieOnNet(added);
+    }
+    printObj(QJsonObject{{QStringLiteral("status"), QStringLiteral("ok")},
+                         {QStringLiteral("id"), plId},
+                         {QStringLiteral("count"), ids.size()},
+                         {QStringLiteral("skipped"), skipped},
+                         {QStringLiteral("title"), title}});
+}
+
+// Spotify changes the shape of LikedSongs*.json between exports: the title
+// may be in name/title/track and the artist in artists:[{name}] or artist.
+// Any object carrying both counts, and recursion covers every nesting.
+void collectLikedTracks(const QJsonValue &node, QStringList &names,
+                        QStringList &artists, QSet<QString> &seen)
+{
+    if (node.isObject()) {
+        const QJsonObject o = node.toObject();
+        const QStringList nameKeys{QStringLiteral("name"),
+                                   QStringLiteral("title"),
+                                   QStringLiteral("track")};
+        QString name;
+        for (const QString &k : nameKeys) {
+            const QString v = o.value(k).toString().trimmed();
+            if (!v.isEmpty()) {
+                name = v;
+                break;
+            }
+        }
+        QString artist;
+        const QJsonValue av = o.value(QStringLiteral("artists"));
+        if (av.isArray()) {
+            QStringList parts;
+            for (const QJsonValue &a : av.toArray()) {
+                QString n;
+                if (a.isObject())
+                    n = a.toObject().value(QStringLiteral("name")).toString()
+                            .trimmed();
+                else if (a.isString())
+                    n = a.toString().trimmed();
+                if (!n.isEmpty())
+                    parts << n;
+            }
+            artist = parts.join(QStringLiteral(", "));
+        } else {
+            artist = o.value(QStringLiteral("artist")).toString().trimmed();
+        }
+        if (!name.isEmpty() && !artist.isEmpty()) {
+            const QString key = name.toLower() + QLatin1Char('|')
+                                + artist.toLower();
+            if (!seen.contains(key)) {
+                seen.insert(key);
+                names << name;
+                artists << artist;
+            }
+        }
+        for (const QJsonValue &v : o)
+            collectLikedTracks(v, names, artists, seen);
+    } else if (node.isArray()) {
+        for (const QJsonValue &v : node.toArray())
+            collectLikedTracks(v, names, artists, seen);
+    }
+}
+
+void cmdImportLiked(const QString &path, int limit)
+{
+    QFile fh(path);
+    if (!fh.open(QIODevice::ReadOnly))
+        die(QStringLiteral("no se encontró el archivo: ") + path);
+    const QJsonDocument doc = QJsonDocument::fromJson(fh.readAll());
+    if (doc.isNull())
+        die(QStringLiteral("no se pudo leer el JSON de Spotify"));
+    QStringList names, artists;
+    QSet<QString> seen;
+    collectLikedTracks(doc.object(), names, artists, seen);
+    if (names.isEmpty())
+        die(QStringLiteral("no se encontraron canciones en el JSON de Spotify"));
+
+    int count = 0, skipped = 0;
+    QSet<QString> liked;
+    for (int i = 0; i < names.size(); ++i) {
+        if (limit > 0 && count >= limit)
+            break;
+        const QString query =
+            (names.at(i) + QLatin1Char(' ') + artists.at(i)).trimmed();
+        const QJsonArray found = rankedSearch(query);
+        QString vid;
+        if (!found.isEmpty())
+            vid = found.first().toObject().value(QStringLiteral("id")).toString();
+        if (vid.isEmpty() || liked.contains(vid)) {
+            skipped++;
+            continue;
+        }
+        const NetResult resp = postAuth(
+            QStringLiteral("like/like"),
+            QJsonObject{{QStringLiteral("target"),
+                         QJsonObject{{QStringLiteral("videoId"), vid}}}});
+        if (!resp.ok) {
+            skipped++;
+            continue;
+        }
+        liked.insert(vid);
+        count++;
+    }
+    if (!count)
+        die(QStringLiteral("ninguna canción se pudo marcar como Me gusta"));
+    printObj(QJsonObject{{QStringLiteral("status"), QStringLiteral("ok")},
+                         {QStringLiteral("count"), count},
+                         {QStringLiteral("skipped"), skipped}});
+}
+
+// YouTube puts "logged_in" inside responseContext.serviceTrackingParams.
+// A stored cookies.txt can still be there and still have a SAPISID while
+// YouTube has already thrown the session away. That is the only definite
+// answer a status check can give; a network error says nothing about it.
+bool sessionRejected(const Json &resp)
+{
+    const QJsonArray groups = resp.toObject()
+        .value(QLatin1String("responseContext")).toObject()
+        .value(QLatin1String("serviceTrackingParams")).toArray();
+    for (const QJsonValue &group : groups) {
+        const QJsonArray params = group.toObject()
+            .value(QLatin1String("params")).toArray();
+        for (const QJsonValue &p : params) {
+            const QJsonObject pair = p.toObject();
+            if (pair.value(QLatin1String("key")).toString()
+                    == QLatin1String("logged_in")
+                && pair.value(QLatin1String("value")).toString()
+                    == QLatin1String("0"))
+                return true;
+        }
+    }
+    return false;
+}
+
 QJsonObject statusObj(const QJsonObject &resp)
 {
     return QJsonObject{{QLatin1String("status"),
@@ -2556,12 +2882,13 @@ int main(int argc, char *argv[])
         "artist",
         "artistpage", "album",     "alternate", "toptrack", "playlist",
         "playlistinfo", "albuminfo", "rate",   "addpl",    "rmpl",
-        "movepl",     "createpl", "renamepl", "setplpriv",
-        "deletepl",
+        "movepl",     "createpl", "importpl", "importliked", "renamepl",
+        "setplpriv",  "deletepl", "status",
     };
     static const QSet<QString> kAuthCommands{
         "rate", "addpl", "rmpl", "movepl",
-        "createpl", "renamepl", "setplpriv", "deletepl",
+        "createpl", "importpl", "importliked", "renamepl", "setplpriv",
+        "deletepl",
     };
 
     int cmdIdx = -1;
@@ -2584,6 +2911,27 @@ int main(int argc, char *argv[])
 
         if (cmd == QLatin1String("library")) {
             printArray(libraryItems());
+            return 0;
+        }
+        if (cmd == QLatin1String("status")) {
+            QString why;
+            if (!loadCookies(&why)) {
+                std::fputs("sin-sesion\n", stderr);
+                return 1;
+            }
+            const NetResult r =
+                browseJson(QStringLiteral("FEmusic_liked_playlists"));
+            if (!r.ok) {
+                // Offline (or the API failed): keep the stored session, it
+                // is the only way not to log people out on a bad network day.
+                printObj(statusObj(QJsonObject()));
+                return 0;
+            }
+            if (sessionRejected(r.obj)) {
+                std::fputs("sesion-caducada\n", stderr);
+                return 1;
+            }
+            printObj(statusObj(r.obj));
             return 0;
         }
         if (cmd == QLatin1String("search")) {
@@ -2791,6 +3139,28 @@ int main(int argc, char *argv[])
             printObj(QJsonObject{{QLatin1String("status"),
                                   QStringLiteral("ok")},
                                  {QLatin1String("id"), id}});
+            return 0;
+        }
+        if (cmd == QLatin1String("importpl")) {
+            if (rest.isEmpty())
+                die(QStringLiteral("uso: importpl <spotify-url-or-id> "
+                                   "[playlist-title]"));
+            cmdImportpl(rest.first(),
+                        rest.size() > 1 ? rest.mid(1).join(QLatin1Char(' '))
+                                        : QString());
+            return 0;
+        }
+        if (cmd == QLatin1String("importliked")) {
+            if (rest.isEmpty())
+                die(QStringLiteral("uso: importliked <archivo-json> [limite]"));
+            int limit = 0;
+            if (rest.size() > 1) {
+                bool ok = false;
+                limit = rest.at(1).toInt(&ok);
+                if (!ok || limit < 0)
+                    die(QStringLiteral("el límite debe ser un número"));
+            }
+            cmdImportLiked(rest.first(), limit);
             return 0;
         }
         if (cmd == QLatin1String("renamepl")) {

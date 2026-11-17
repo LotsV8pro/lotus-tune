@@ -3,13 +3,43 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
-## 2.0.9 (2026-11-17)
+## 2.1.0 (2026-11-17)
 
-El audio deja de petardear en el teléfono, los artistas de una canción se abren uno a uno y la página de un artista ya no confunde las reproducciones con el nombre.
+El audio suena limpio en el teléfono, los artistas de una canción se abren uno a uno, las letras avanzan letra a letra y las listas de Spotify se pueden traer a YouTube Music.
 
 - En el teléfono, las canciones que empezaban con chasquidos y petardeos ya suenan limpias. La app reproduce con el reproductor del propio teléfono, que entrega el audio sin cortes, en lugar del que traía Qt.
 - Cuando la canción tiene varios artistas ("A, B", "A & B", "A feat. B"), pulsar el nombre ya no abre el primero que devuelve el buscador. Sale la lista de los artistas encontrados, primero los que están de verdad en esa línea, y cada uno se abre por separado.
 - En la página de un artista, las canciones de arriba ya no se quedan con "19 M reproducciones" como nombre del artista: si la fila no trae el nombre enlazado, se pone el del artista de la página.
+- El número de reproducciones ya no aparece como artista en las radios del inicio ni en el historial, aunque la canción viniera de una lista guardada antes.
+- Si la sesión de YouTube deja de ser válida, la app lo dice al abrirse y ofrece volver a iniciar sesión. Antes, "Me gusta" salía vacía sin explicación.
+- Las letras se guardan al buscarlas por primera vez, para que la siguiente canción no tenga que buscarlas otra vez. Las canciones sin letra tampoco se vuelven a buscar durante una semana.
+- Hay un catálogo más de letras con tiempos por palabra y la opción de traducirlas línea a línea, los dos en Ajustes > Letras.
+- El estribillo se muestra un poco más grande y las palabras largas brillan un poco más al cantarlas.
+- Las letras se sincronizan al abrir el modo pantalla completa o al cambiar de canción, sin esperar a que pase una línea. El botón «Seguir la canción» solo sale si has movido la letra a mano.
+- El cambio de canción lleva un fundido breve en vez de un corte seco.
+- Inicio muestra radios de los artistas que más escuchas, calculadas solo con tus reproducciones guardadas en el teléfono.
+- Las búsquedas repetidas se responden al instante desde la memoria durante unos minutos.
+- La traducción de letras usa el idioma elegido en Ajustes y se aplica también al cambiar de idioma sin reiniciar.
+- La lista «Me gusta» ya no lleva debajo el nombre de una canción cualquiera: ahora dice «Tu lista».
+- Los sonidos de los botones vuelven a funcionar en el teléfono, sin tocar el sonido de la música.
+- Con el aleatorio activo, «Reproducir todo» empieza por una canción al azar, no siempre por la primera. El botón de aleatorio se ve activo de un vistazo, también en la pantalla completa.
+- Los ajustes ya no cortan las descripciones a media frase.
+- La traducción no añade notas musicales, usa el mismo blanco que la letra y se va con la frase.
+- La app se puede poner en francés, alemán y portugués, además de español e inglés.
+- Discord Rich Presence funciona en escritorio. En Android aparece como próximamente.
+- Si el servicio de traducción limita las peticiones, se prueba un segundo servicio antes de dejar la letra sin traducir, detectando el idioma de la canción en vez de suponer que es español.
+- Las letras ya no cambian de fuente a mitad de canción: se muestra una sola decisión. El karaoke palabra a palabra sigue funcionando aunque la letra viniera de la caché, y los intro instrumentales no desaparecen.
+- La búsqueda de letras prueba también el título limpio y la parte después de « - » como canción, con el artista delante. Así se encuentran tiempos por palabra aunque el vídeo traiga el artista repetido en el título.
+- Cuando una fuente solo da el principio y el final de cada frase, el tiempo se reparte entre las palabras para que el karaoke siga avanzando letra a letra.
+- Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
+- La barra inferior tiene cinco botones: el de Inicio usa el logo de la app y «Descargas» abre la pestaña de descargas. Ajustes tiene pestañas reales por sección, con Cuentas primero y el idioma en un desplegable.
+- Inicio y Buscar muestran las búsquedas recientes como chips arriba.
+- El color de acento por defecto es el morado del logo; el corazón de «Me gusta» se ve más grande cuando está marcado.
+- La animación de arranque ya no escala toda la pantalla: solo se mueve el logo, y el desenfoque del fondo y la limpieza de caché se hacen después del primer fotograma.
+- La traducción usa otro servidor cuando el anterior está saturado, guarda el resultado para no repetirlo, y detecta el idioma de la canción. El texto y los puntos instrumentales son blancos, y los puntos ya no desaparecen al terminar el intro.
+- Los nombres de los idiomas empiezan por mayúscula.
+- Ajustes tiene pestañas reales por sección, con la barra superior siempre visible y Cuentas como primera pestaña.
+- Se pueden importar playlists públicas de Spotify a YouTube Music pegando el enlace en Ajustes > Cuentas o desde el botón de enlace de la barra de Biblioteca. Las canciones se buscan una a una y las que no se encuentran se omiten. Las cuentas de Spotify y Tidal como fuentes de reproducción se han quitado: no tenían backend real.
 
 ## 2.0.8 (2026-11-16)
 

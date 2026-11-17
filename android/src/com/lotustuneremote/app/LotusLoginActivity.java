@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.widget.Button;
+import android.widget.LinearLayout;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -48,7 +50,19 @@ public class LotusLoginActivity extends Activity
 
         setTitle("Sesión de YouTube Music");
         web = new WebView(this);
-        setContentView(web, new ViewGroup.LayoutParams(
+        // The tab no longer closes on the first Google screen: the user
+        // needs a way back once the sign-in has landed.
+        Button done = new Button(this);
+        done.setText(R.string.login_done);
+        done.setOnClickListener(v -> finishIfSignedIn());
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.addView(web, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(done, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        setContentView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -78,15 +92,15 @@ public class LotusLoginActivity extends Activity
             @Override
             public void onPageFinished(WebView view, String url)
             {
-                // The session exists the moment the YouTube web shows
-                // up signed in (SAPISID cookie, the same check the C++
-                // side does with the file).
-                String pairs = collectCookies();
-                if (pairs.contains("SAPISID=")) {
-                    if (writeCookies(pairs)) {
-                        setResult(RESULT_OK);
-                        finish();
-                    }
+                // Save when a signed-in YouTube page is reached, but never
+                // close the tab by ourselves: Google's first screen also
+                // has an SAPISID and the old code closed the tab on
+                // "Siguiente", before the user could sign in. The button
+                // is the only way back.
+                if (isYoutube(url)) {
+                    String pairs = collectCookies();
+                    if (hasSession(pairs))
+                        writeCookies(pairs);
                 }
             }
         });
@@ -99,16 +113,16 @@ public class LotusLoginActivity extends Activity
                         + "https://music.youtube.com/");
     }
 
-    // Cookies of the two hosts the session needs. Domain cookies repeat
-    // in both lists, hence the map.
+    // Only the YouTube hosts are written. The Google cookies from the
+    // sign-in page were being saved as ".youtube.com", so two SAPISID
+    // values reached the API and YouTube treated the session as anonymous.
     private String collectCookies()
     {
         Map<String, String> all = new LinkedHashMap<>();
         CookieManager cm = CookieManager.getInstance();
         for (String host : new String[] {
                 "https://music.youtube.com/",
-                "https://www.youtube.com/",
-                "https://accounts.google.com/" }) {
+                "https://www.youtube.com/" }) {
             String pairs = cm.getCookie(host);
             if (pairs == null)
                 continue;
@@ -129,6 +143,30 @@ public class LotusLoginActivity extends Activity
             sb.append(e.getKey()).append('=').append(e.getValue());
         }
         return sb.toString();
+    }
+
+    private static boolean isYoutube(String url)
+    {
+        return url != null && url.contains("youtube.com");
+    }
+
+    // __Secure-3PSID is a signed-in cookie: an anonymous visit does not
+    // reach the YouTube host with it.
+    private static boolean hasSession(String pairs)
+    {
+        return pairs.contains("__Secure-3PSID=")
+            || pairs.contains("__Secure-1PSID=");
+    }
+
+    private void finishIfSignedIn()
+    {
+        String pairs = collectCookies();
+        if (!hasSession(pairs))
+            return;
+        if (writeCookies(pairs)) {
+            setResult(RESULT_OK);
+            finish();
+        }
     }
 
     // Netscape cookies.txt like the desktop helper and importSession
@@ -157,6 +195,12 @@ public class LotusLoginActivity extends Activity
             FileWriter fw = new FileWriter(out, false);
             fw.write(sb.toString());
             fw.close();
+            // Session cookies are credentials: the file must stay readable
+            // only by the app, even on a device with a permissive umask.
+            out.setReadable(false, false);
+            out.setWritable(false, false);
+            out.setReadable(true, true);
+            out.setWritable(true, true);
             CookieManager.getInstance().flush();
             return true;
         } catch (Exception e) {

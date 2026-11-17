@@ -44,3 +44,13 @@ lotus-tune-tests_autogen/
 keystore.properties
 *.jks
 *.keystore
+
+# Root artefacts kept out of the repository
+/*.apk
+/*.log
+/*.png
+/*.bak-*
+/lotus-tune_autogen/
+
+# Old local artefacts kept outside the repository
+/archive/

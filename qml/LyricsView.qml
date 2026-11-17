@@ -231,6 +231,15 @@ Item {
                                            && wordSpans[activeIndex].length > 0
     readonly property real activeSung: (karaokeOn && activeHasWords)
                                        ? sungFor(activeIndex) : 0
+    // A held note gets a wider, brighter front: the pulse follows the
+    // singing itself, so it works on the phone as well as on the desktop.
+    function heldAt(index, sung) {
+        var spans = wordSpans[index] || []
+        for (var i = 0; i < spans.length; ++i)
+            if (spans[i].held && sung >= spans[i].a && sung < spans[i].b)
+                return true
+        return false
+    }
     // Ink of the active line: the whole phrase in `activeInk` when it has
     // no word timings; with timings the phrase waits in `activeDimInk`
     // and the sung part lights in `activeInk`.
@@ -304,6 +313,7 @@ Item {
             if (!(e > t))
                 e = t + 0.2
             out.push({ a: at, b: at + len, t: t, e: e,
+                       held: w.held === true,
                        syl: _sylCuts(s.substr(at, len)) })
             from = at + Math.max(1, core.length)
         }
@@ -561,6 +571,11 @@ Item {
         // Every track has its own offset (the video may have a longer intro
         // than the album): the one saved for it is applied here.
         applyStoredOffset()
+        // The lines of a new song often arrive AFTER the cinema was opened.
+        // Without this the front stayed at the old position until the
+        // engine's next report, and the first line looked unsynchronised.
+        syncKaraokePos()
+        computeActive()
         // New track: we go back to following the singing from the beginning.
         following = true
         var key = (lyr && lyr.trackKey) ? String(lyr.trackKey) : ""
@@ -835,7 +850,11 @@ Item {
         syncKaraokePos()
         computeActive()
         following = true
-        Qt.callLater(function () { scrollToActive(true) })
+        Qt.callLater(function () {
+            syncKaraokePos()
+            computeActive()
+            scrollToActive(true)
+        })
     }
 
     // Opening the panel or the cinema has to catch up: while it was closed
@@ -846,7 +865,11 @@ Item {
         syncKaraokePos()
         computeActive()
         following = true
-        Qt.callLater(function () { scrollToActive(true) })
+        Qt.callLater(function () {
+            syncKaraokePos()
+            computeActive()
+            scrollToActive(true)
+        })
     }
 
     // A bright copy of the active line for the clipped fill layers: it has
@@ -934,12 +957,10 @@ Item {
         // where our own pin left the content.
         onContentYChanged: {
             lv.updatePinIndex()
-            if (lv._animating)
-                return
-            if (Math.abs(syncedFlick.contentY - lv._pinY) > 6) {
-                if (lv.following)
-                    lv.following = false
-            }
+            // A row growing, a resize or a new track all move contentY
+            // without the user asking. Only movementStarted (a drag, a
+            // fling or a wheel) stops the follow; otherwise the "Seguir la
+            // song" pill appeared on its own, even on a song change.
             if (!lv.following)
                 refollow.restart()
         }
@@ -996,6 +1017,11 @@ Item {
                                                                instrEnd - instrStart)
                     // Second duet voice: its phrase comes in from the right.
                     readonly property bool sec: modelData.secondary === true
+                    // A phrase sung more than once is the chorus.
+                    readonly property bool chorusRow: modelData.chorus === true
+                    // Optional translation, shown under the phrase.
+                    readonly property string trText: String(modelData.tr || "")
+                    readonly property bool hasTr: trText.length > 0
 
                     // With word timings the active line is drawn by a
                     // TextEdit (it can say where each character sits) and
@@ -1013,7 +1039,8 @@ Item {
                     readonly property real textW: Math.max(1, rrow.width - padL - padR)
                     readonly property int rowPx: focused
                         ? lv.lineSize + lv.activeBoost
-                        : Math.round(lv.lineSize * lv.dimScale)
+                        : Math.round(lv.lineSize * lv.dimScale
+                                     * (rrow.chorusRow ? 1.08 : 1))
                     // Row pitch of the TextEdit: the halo Text has to use
                     // the same one or it drifts from the line it outlines.
                     readonly property real editPitch: editBase.lineCount > 0
@@ -1059,9 +1086,10 @@ Item {
                     // the dim size, the sung one at its size): reserving
                     // the height of the active size for every row left a
                     // line of air above and below the short phrases.
-                    height: Math.ceil(rrow.karaokeRow
-                                      ? editBase.contentHeight
-                                      : base.implicitHeight)
+                    height: Math.ceil((rrow.karaokeRow
+                                       ? editBase.contentHeight
+                                       : base.implicitHeight)
+                                      + (rrow.hasTr ? translation.implicitHeight + 2 : 0))
                     // The opacity goes up on hover: the line under the
                     // cursor is marked as clickable (it jumps to that moment).
                     // All of that, multiplied by the edge fade. The rows
@@ -1132,12 +1160,34 @@ Item {
                         style: Text.Outline
                         styleColor: lv.inkHalo
                         font.pixelSize: rrow.rowPx
-                        font.weight: rrow.focused ? Font.DemiBold : Font.Normal
+                        font.weight: (rrow.focused || rrow.chorusRow)
+                                     ? Font.DemiBold : Font.Normal
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
                                              : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
                         lineHeight: 1.32
                         Behavior on color { ColorAnimation { duration: Theme.medMs } }
+                    }
+
+                    Text {
+                        id: translation
+                        // The translation belongs to the phrase being
+                        // sung: it fades with the line once it has passed.
+                        visible: rrow.hasTr && Math.abs(index - lv.focusedIndex) <= 1
+                        x: rrow.padL
+                        width: rrow.textW
+                        y: (rrow.karaokeRow ? editBase.contentHeight
+                                            : base.implicitHeight) + 2
+                        text: rrow.trText
+                        textFormat: Text.PlainText
+                        // Same ink as the lyrics: the translation is a
+                        // reading aid, not another accent element.
+                        color: lv.inkDim
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Math.max(11, Math.round(lv.lineSize * 0.56))
+                        horizontalAlignment: lv.duet
+                                             ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
+                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
                     }
 
                     // Instrumental stretch: three dots that light one by
@@ -1179,9 +1229,14 @@ Item {
                                 height: width
                                 radius: width / 2
                                 antialiasing: true
-                                color: Sys.accent
-                                opacity: 0.28 + 0.72 * lit
-                                scale: (0.82 + 0.18 * lit) * (1 - noteRow.away)
+                                // White like the rest of the lyrics. They
+                                // must stay on screen for the whole
+                                // stretch: shrinking to zero here made
+                                // the three dots vanish just as the
+                                // instrumental ended.
+                                color: lv.ink
+                                opacity: 0.35 + 0.65 * lit
+                                scale: 0.82 + 0.18 * lit
                             }
                         }
                     }
@@ -1252,10 +1307,10 @@ Item {
                         Item {
                             x: rrow.caret.x
                             y: rrow.caret.y
-                            width: 10
+                            width: lv.heldAt(lv.activeIndex, lv.activeSung) ? 18 : 10
                             height: Math.max(1, rrow.caret.height)
                             clip: true
-                            opacity: 0.45
+                            opacity: lv.heldAt(lv.activeIndex, lv.activeSung) ? 0.72 : 0.45
                             visible: rrow.caret.x > 0
                                      && lv.activeSung < rrow.modelData.text.length
                             KaraokeText {

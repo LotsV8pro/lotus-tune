@@ -48,6 +48,7 @@ private slots:
     void testAppConfig();
     void testSourceManager();
     void testVideoIdOf();
+    void testPlayCountArtist();
     void testLikes();
     void testLyricsState();
     void testLyricsTitleLines();
@@ -292,8 +293,7 @@ void TestLotusTune::testSourceManager()
     // Search prefixes that are passed to yt-dlp.
     QCOMPARE(sm.searchPrefix("ytm"), QString("ytsearch15:"));
     QCOMPARE(sm.searchPrefix("soundcloud"), QString("scsearch15:"));
-    QCOMPARE(sm.searchPrefix("spotify"), QString(""));
-    QCOMPARE(sm.list().size(), 4);
+    QCOMPARE(sm.list().size(), 2);
 
     // Change the source; an unknown source is ignored and re-selecting
     // the same one does not emit again.
@@ -348,6 +348,26 @@ void TestLotusTune::testVideoIdOf()
     }
     QCOMPARE(catalog.videoIdOf(QUrl::fromLocalFile(audio).toString()),
              QString("dQw4w9WgXcQ"));
+}
+
+void TestLotusTune::testPlayCountArtist()
+{
+    // YouTube writes the play count in the artist column of some lists,
+    // with a non-breaking space between the number and the unit.
+    const QString counts[] = {
+        QString::fromUtf8("19 M reproducciones"),
+        QString::fromUtf8("3,3\u00a0M reproducciones"),
+        QString::fromUtf8("262\u202fK reproducciones"),
+        QStringLiteral("2.1M views"),
+    };
+    for (const QString &count : counts)
+        QVERIFY2(Catalog::looksLikePlayCount(count),
+                 count.toUtf8().constData());
+
+    // Real artists, including one with a non-breaking space, survive.
+    QVERIFY(!Catalog::looksLikePlayCount(QStringLiteral("Skrillex")));
+    QVERIFY(!Catalog::looksLikePlayCount(
+        QString::fromUtf8("Porter\u00a0Robinson")));
 }
 
 void TestLotusTune::testLikes()
@@ -1093,7 +1113,8 @@ static QString makeAudioFile(const QString &dir, const QString &id,
     f.resize(size);
     f.close();
     QFile tf(path);
-    tf.open(QIODevice::ReadOnly);
+    if (!tf.open(QIODevice::ReadOnly))
+        return QString();
     tf.setFileTime(QDateTime::currentDateTime().addSecs(-hoursAgo * 3600),
                    QFileDevice::FileModificationTime);
     tf.close();
@@ -1138,7 +1159,7 @@ void TestLotusTune::testAudioCachePrune()
     op.write("x");
     op.close();
     QFile otf(oldPart);
-    otf.open(QIODevice::ReadOnly);
+    (void)otf.open(QIODevice::ReadOnly);
     otf.setFileTime(QDateTime::currentDateTime().addSecs(-7200),
                     QFileDevice::FileModificationTime);
     otf.close();

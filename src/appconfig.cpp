@@ -25,6 +25,10 @@ static const char *kAppKeys[] = {
      // Playing view settings (show or hide the lyrics). The compensation
      // used to live outside this list, so it was NOT restored on startup.
     "lyricsOffset", "karaokeWords", "npLyrics",
+    // Extra lyric sources, translation target and the adjustment saved
+    // for each track: without these here they were written to disk but
+    // never read back on the next start.
+    "lyricsLiriqo", "lyricsTranslate", "lyricsOffsetByTrack",
     // Chosen repeat mode (0/1/2), besides its mirror in the session.
     "repeatMode",
     // State of the last session (queue + track + volume), restored paused

@@ -57,15 +57,15 @@ QString Translator::name(const QString &code) const
     // "English", so the common ones are written out and the rest fall back
     // to whatever Qt knows.
     static const QHash<QString, QString> names = {
-        {QStringLiteral("es"), QStringLiteral("español")},
+        {QStringLiteral("es"), QStringLiteral("Español")},
         {QStringLiteral("en"), QStringLiteral("English")},
-        {QStringLiteral("fr"), QStringLiteral("français")},
-        {QStringLiteral("pt"), QStringLiteral("português")},
+        {QStringLiteral("fr"), QStringLiteral("Français")},
+        {QStringLiteral("pt"), QStringLiteral("Português")},
         {QStringLiteral("de"), QStringLiteral("Deutsch")},
-        {QStringLiteral("it"), QStringLiteral("italiano")},
-        {QStringLiteral("ca"), QStringLiteral("català")},
-        {QStringLiteral("gl"), QStringLiteral("galego")},
-        {QStringLiteral("eu"), QStringLiteral("euskara")},
+        {QStringLiteral("it"), QStringLiteral("Italiano")},
+        {QStringLiteral("ca"), QStringLiteral("Català")},
+        {QStringLiteral("gl"), QStringLiteral("Galego")},
+        {QStringLiteral("eu"), QStringLiteral("Euskara")},
         {QStringLiteral("ru"), QStringLiteral("русский")},
         {QStringLiteral("ja"), QStringLiteral("日本語")},
         {QStringLiteral("ko"), QStringLiteral("한국어")},
@@ -75,7 +75,9 @@ QString Translator::name(const QString &code) const
     const auto it = names.constFind(code);
     if (it != names.constEnd())
         return it.value();
-    return QLocale(code).nativeLanguageName();
+    const QString native = QLocale(code).nativeLanguageName();
+    return native.isEmpty() ? native
+        : native.at(0).toUpper() + native.mid(1);
 }
 
 QString Translator::resolve(const QString &choice) const
