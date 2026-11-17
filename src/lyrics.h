@@ -312,6 +312,8 @@ private:
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
+    // Rejoin words that a provider split ("blur ry", "lov ing").
+    static void joinSplitWords(QVector<LrcLine> &lines);
 
     // ---- YouTube Music cascade -------------------------------------
     void startYtm(int candidate = 0);

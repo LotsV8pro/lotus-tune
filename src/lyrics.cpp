@@ -407,6 +407,7 @@ bool Lyrics::loadFromDiskCache()
     }
     markNoteStretches(m_lines);
     markChorus(m_lines);
+    joinSplitWords(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
@@ -2648,6 +2649,95 @@ void Lyrics::schedulePublish()
     m_publishTimer->start(900);
 }
 
+static bool shouldJoinFragments(const QString &a, const QString &b)
+{
+    static const QSet<QString> keep = {
+        QStringLiteral("a"), QStringLiteral("an"), QStringLiteral("and"),
+        QStringLiteral("are"), QStringLiteral("as"), QStringLiteral("at"),
+        QStringLiteral("be"), QStringLiteral("but"), QStringLiteral("by"),
+        QStringLiteral("can"), QStringLiteral("do"), QStringLiteral("for"),
+        QStringLiteral("from"), QStringLiteral("get"), QStringLiteral("go"),
+        QStringLiteral("had"), QStringLiteral("has"), QStringLiteral("have"),
+        QStringLiteral("her"), QStringLiteral("his"), QStringLiteral("how"),
+        QStringLiteral("if"), QStringLiteral("in"), QStringLiteral("is"),
+        QStringLiteral("it"), QStringLiteral("just"), QStringLiteral("know"),
+        QStringLiteral("let"), QStringLiteral("like"), QStringLiteral("me"),
+        QStringLiteral("my"), QStringLiteral("no"), QStringLiteral("not"),
+        QStringLiteral("now"), QStringLiteral("of"), QStringLiteral("on"),
+        QStringLiteral("one"), QStringLiteral("or"), QStringLiteral("our"),
+        QStringLiteral("out"), QStringLiteral("say"), QStringLiteral("see"),
+        QStringLiteral("she"), QStringLiteral("so"), QStringLiteral("that"),
+        QStringLiteral("the"), QStringLiteral("they"), QStringLiteral("this"),
+        QStringLiteral("to"), QStringLiteral("two"), QStringLiteral("up"),
+        QStringLiteral("want"), QStringLiteral("was"), QStringLiteral("we"),
+        QStringLiteral("what"), QStringLiteral("when"), QStringLiteral("where"),
+        QStringLiteral("who"), QStringLiteral("why"), QStringLiteral("will"),
+        QStringLiteral("with"), QStringLiteral("you"), QStringLiteral("your"),
+    };
+    static const QSet<QString> suffixes = {
+        QStringLiteral("ing"), QStringLiteral("er"), QStringLiteral("ers"),
+        QStringLiteral("ed"), QStringLiteral("ly"), QStringLiteral("ry"),
+        QStringLiteral("ture"), QStringLiteral("dent"), QStringLiteral("dle"),
+        QStringLiteral("tle"), QStringLiteral("ble"), QStringLiteral("gle"),
+        QStringLiteral("ple"), QStringLiteral("ther"), QStringLiteral("ond"),
+    };
+    const QString x = a.trimmed();
+    const QString y = b.trimmed();
+    if (x.isEmpty() || y.isEmpty() || keep.contains(x.toLower())
+        || keep.contains(y.toLower()))
+        return false;
+    for (const QChar &c : x + y)
+        if (!c.isLetter())
+            return false;
+    if (suffixes.contains(y.toLower()))
+        return true;
+    if (x.size() <= 2)
+        return true;
+    return x.size() <= 5 && y.size() <= 3;
+}
+
+void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
+{
+    static const QRegularExpression split(
+        QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
+    for (LrcLine &l : lines) {
+        QString text = l.text;
+        for (int pass = 0; pass < 3; ++pass) {
+            QRegularExpressionMatchIterator it = split.globalMatch(text);
+            bool changed = false;
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
+                if (!shouldJoinFragments(m.captured(1), m.captured(2)))
+                    continue;
+                text.replace(m.capturedStart(), m.capturedLength(),
+                             m.captured(1) + m.captured(2));
+                changed = true;
+                break;
+            }
+            if (!changed)
+                break;
+        }
+        l.text = text;
+        for (int i = 0; i + 1 < l.words.size();) {
+            QVariantMap wa = l.words.at(i).toMap();
+            QVariantMap wb = l.words.at(i + 1).toMap();
+            const QString a = wa.value(QStringLiteral("text")).toString();
+            const QString b = wb.value(QStringLiteral("text")).toString();
+            if (shouldJoinFragments(a, b)) {
+                wa.insert(QStringLiteral("text"),
+                          a.trimmed() + b.trimmed()
+                          + (b.endsWith(QLatin1Char(' '))
+                                 ? QStringLiteral(" ") : QString()));
+                wa.insert(QStringLiteral("e"), wb.value(QStringLiteral("e")));
+                l.words[i] = wa;
+                l.words.removeAt(i + 1);
+                continue;
+            }
+            ++i;
+        }
+    }
+}
+
 void Lyrics::publishFinal()
 {
     if (m_published)
@@ -2663,6 +2753,7 @@ void Lyrics::publishFinal()
     }
     markNoteStretches(m_lines);
     markChorus(m_lines);
+    joinSplitWords(m_lines);
     computeWordMeta(m_lines);
     if (m_publishFailed)
         saveToDiskCache(/*found=*/false);
