@@ -376,6 +376,10 @@ private:
     // left with line level timings and the word level karaoke did not
     // show up.
     bool trySonoraByTitle();
+    // Reject a cached or network source whose words do not match the plain
+    // lyric of this track (it belongs to another recording).
+    static bool plainMatchesLines(const QString &plain,
+                                  const QVector<LrcLine> &lines);
     // A line-level disk-cache hit stays open to ONE late upgrade: a word
     // level network candidate that aligns with the video reference replaces
     // the shown lines. Every other late source keeps the anti-flicker rule.

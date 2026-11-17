@@ -327,6 +327,45 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     startYtm();
 }
 
+// A cached or network word-level source can belong to another recording
+// with a similar title. When a plain lyric of this track is known, almost
+// no shared word PAIRS means the source is not this song. Single words are
+// not enough: two English songs share most of "I", "you", "the", "love".
+bool Lyrics::plainMatchesLines(const QString &plain,
+                               const QVector<Lyrics::LrcLine> &lines)
+{
+    if (plain.trimmed().isEmpty())
+        return true;
+    static const QRegularExpression word(QStringLiteral("[\\p{L}\\p{N}]+"));
+    const auto wordsOf = [&word](const QString &s) {
+        QStringList out;
+        QRegularExpressionMatchIterator it = word.globalMatch(s.toLower());
+        while (it.hasNext()) {
+            const QString w = it.next().captured();
+            if (w.size() >= 3)
+                out.append(w);
+        }
+        return out;
+    };
+    const QStringList plainWords = wordsOf(plain);
+    QSet<QString> plainPairs;
+    for (int i = 0; i + 1 < plainWords.size(); ++i)
+        plainPairs.insert(plainWords.at(i) + QLatin1Char(' ') + plainWords.at(i + 1));
+    QStringList candidateWords;
+    for (const Lyrics::LrcLine &l : lines) {
+        if (!l.instrumental)
+            candidateWords.append(wordsOf(l.text));
+    }
+    int total = 0, hit = 0;
+    for (int i = 0; i + 1 < candidateWords.size(); ++i) {
+        ++total;
+        if (plainPairs.contains(candidateWords.at(i) + QLatin1Char(' ')
+                                + candidateWords.at(i + 1)))
+            ++hit;
+    }
+    return total < 8 || hit * 100 >= total * 10;
+}
+
 bool Lyrics::loadFromDiskCache()
 {
     QFile f(lyricCachePath(m_artist, m_title));
@@ -376,8 +415,12 @@ bool Lyrics::loadFromDiskCache()
         lines.append(cachedLine(v.toObject()));
     if (lines.size() < 2)
         return false;
-    m_lines = lines;
     m_plain = o.value(QStringLiteral("plain")).toString();
+    if (!plainMatchesLines(m_plain, lines)) {
+        qInfo().noquote() << QStringLiteral("[lyrics] cache descartado: la letra no es de esta cancion");
+        return false;
+    }
+    m_lines = lines;
     m_hasSynced = true;
     m_hasLyrics = true;
     m_loading = false;
@@ -1910,6 +1953,22 @@ void Lyrics::rememberPlain(const QString &plain, const char *source)
         return;
     m_plain = plain;
     m_plainSource = QString::fromLatin1(source);
+    // A word-level source adopted before this plain arrived can belong to
+    // another recording with a similar title. Now that the real words of
+    // this track are known, drop it instead of showing the wrong lyrics.
+    if (!m_lines.isEmpty() && !plainMatchesLines(m_plain, m_lines)) {
+        qInfo().noquote() << QStringLiteral("[lyrics] letra adoptada descartada: no es de esta cancion");
+        m_lines.clear();
+        m_candidates.clear();
+        m_refLines.clear();
+        m_worded = false;
+        m_hasSynced = false;
+        m_hasLyrics = true;
+        m_syncSource.clear();
+        m_upgradable = false;
+        publishLines();
+        emit changed();
+    }
 }
 
 bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
@@ -2160,10 +2219,21 @@ void Lyrics::pickWorded()
     int best = -1;
     WordedScore bestScore;
     QVector<LrcLine> bestLines;
+    QSet<int> rejected;
     for (int i = 0; i < m_candidates.size(); ++i) {
         const WordedCandidate &c = m_candidates.at(i);
         QVector<LrcLine> lines = c.lines;
         WordedScore score;
+        // The video timeline may be missing or may not have the lines the
+        // source joined. The plain lyric of this track is the last check
+        // that the source is not another song with a similar title.
+        if (!plainMatchesLines(m_plain, lines)) {
+            qInfo().noquote()
+                << QString("[lyrics] la fuente %1 no coincide con la letra de referencia: se descarta")
+                       .arg(c.source);
+            rejected.insert(i);
+            continue;
+        }
         if (canCompare) {
             // The alignment moves the lines, and it refuses a source that
             // is another take of the song.
@@ -2201,9 +2271,17 @@ void Lyrics::pickWorded()
         if (!canCompare) {
             // Without the timeline of the video the sources cannot be
             // compared: the first one is used (the local cache, which is
-            // instant).
-            best = 0;
-            bestLines = m_candidates.at(0).lines;
+            // instant). A source rejected by the plain reference is not
+            // a candidate at all.
+            for (int i = 0; i < m_candidates.size(); ++i) {
+                if (rejected.contains(i))
+                    continue;
+                best = i;
+                bestLines = m_candidates.at(i).lines;
+                break;
+            }
+            if (best < 0)
+                return;
         } else {
             return;   // none of them is this take of the song
         }

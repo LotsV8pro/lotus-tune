@@ -67,6 +67,7 @@ private slots:
     void testBestLrcRecordWins();
     void testMusicalEndKept();
     void testReferenceVersion();
+    void testWrongSongDiscardedByPlain();
     void testAudioCachePrune();
     void testAudioCacheClear();
     void testFriendlyNetError();
@@ -664,6 +665,47 @@ void TestLotusTune::testReferenceVersion()
     lyrics.m_duration = 184;
     QVector<Lyrics::LrcLine> edge{line(188.5)};
     QVERIFY(lyrics.referenceFitsDuration(edge));
+}
+
+// A word-level source of another song must not be shown just because the
+// video gave no reference timeline: the plain lyric of this track is
+// enough to reject it.
+void TestLotusTune::testWrongSongDiscardedByPlain()
+{
+    Lyrics lyrics;
+    lyrics.m_plain = QStringLiteral(
+        "In the life of the wrong a love lingered on "
+        "till your rapture falls to pieces "
+        "find in me the room to breathe simple things like suffering");
+    auto line = [](double t, const QString &s) {
+        Lyrics::LrcLine l;
+        l.time = t;
+        l.text = s;
+        return l;
+    };
+    QVector<Lyrics::LrcLine> wrong{
+        line(1, QStringLiteral("I set my self on fire")),
+        line(5, QStringLiteral("To get away from you")),
+        line(9, QStringLiteral("Of all your hearts desires")),
+        line(13, QStringLiteral("I was never who")),
+        line(17, QStringLiteral("Youd talk to late at night")),
+        line(21, QStringLiteral("In that dark ened room")),
+        line(25, QStringLiteral("I thought he said hes shy")),
+        line(29, QStringLiteral("I guess hes not with you")),
+    };
+    QVERIFY(!lyrics.adoptWorded(wrong, QStringLiteral("bad"), false, false));
+
+    QVector<Lyrics::LrcLine> good{
+        line(1, QStringLiteral("till your rapture falls to pieces")),
+        line(5, QStringLiteral("find in me the room to breathe")),
+        line(9, QStringLiteral("simple things like suffering")),
+        line(13, QStringLiteral("life had gone this way")),
+        line(17, QStringLiteral("until your rapture falls to pieces")),
+        line(21, QStringLiteral("find in me the room to breathe")),
+        line(25, QStringLiteral("simple things like suffering")),
+        line(29, QStringLiteral("till your rapture falls to pieces")),
+    };
+    QVERIFY(lyrics.adoptWorded(good, QStringLiteral("good"), false, false));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings
