@@ -2099,15 +2099,23 @@ void Lyrics::pickWorded()
             // The alignment moves the lines, and it refuses a source that
             // is another take of the song.
             if (!alignWords(lines, m_refLines, &score, c.musical)) {
-                qInfo() << "[lyrics] la fuente" << c.source
-                        << "no es la misma version: se descarta";
-                continue;
+                // A line-level source often joins phrases that a word-level
+                // source keeps apart ("Never forget, the way you took me by
+                // surprise" vs two short lines). No line matches then, but
+                // the candidate already passed the title and duration checks
+                // when it was fetched. Keep it with its own timings instead
+                // of losing word-by-word sync completely.
+                score.usable = true;
+                score.matched = 0;
+                qInfo() << "[lyrics] fuente" << c.source
+                        << "sin correspondencia de lineas: se usa tal cual";
             }
             // The musical timings are only trusted when the source is
             // clearly the same song: the video does not have the lines
             // that are only spoken (the dialogue of a duet), so the
             // match is never complete.
-            if (c.musical && score.matched * 20 < score.total * 7) {
+            if (score.matched > 0 && c.musical
+                && score.matched * 20 < score.total * 7) {
                 qInfo() << "[lyrics] la fuente" << c.source
                         << "no coincide con el video: se descarta";
                 continue;
@@ -2228,10 +2236,15 @@ void Lyrics::maybeUpgradeWorded()
             continue;
         QVector<LrcLine> lines = c.lines;
         WordedScore score;
-        if (!alignWords(lines, m_refLines, &score, c.musical))
+        if (!alignWords(lines, m_refLines, &score, c.musical)) {
+            // Different line split: no text match, but the source passed
+            // the title and duration checks. Keep its own timings so the
+            // cache can be upgraded to word-by-word karaoke.
+            score.usable = true;
+            score.matched = 0;
+        }
+        if (!score.usable)
             continue;
-        if (!score.usable || score.matched < 2)
-            continue;   // not this take of the song
         score.musical = c.musical;
         if (bestLines.isEmpty() || score.betterThan(bestScore)) {
             bestLines = std::move(lines);
@@ -2274,6 +2287,10 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
 {
     if (lines.size() < 2)
         return false;
+    // Providers split words ("Nev er for get"). Join them before comparing
+    // with a line-level reference: otherwise the text never matches and a
+    // valid karaoke source is thrown away as "another version".
+    joinSplitWords(lines);
     WordedCandidate candidate;
     candidate.lines = std::move(lines);
     candidate.source = source;
@@ -2768,8 +2785,14 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         if (!c.isLetter())
             return false;
     // "for get", "per son" and "be come" are split words, not phrases.
+    // Some tails are ordinary words on their own ("get"), so they need an
+    // explicit exception here; a prefix before them is still a split word.
+    static const QSet<QString> splitTails = {
+        QStringLiteral("get"), QStringLiteral("son"),
+        QStringLiteral("come"), QStringLiteral("prise"),
+    };
     if (prefixes.contains(x.toLower()) && x.size() <= 3
-        && !keep.contains(y.toLower()))
+        && (!keep.contains(y.toLower()) || splitTails.contains(y.toLower())))
         return true;
     if (keep.contains(x.toLower()) || keep.contains(y.toLower()))
         return false;
@@ -2831,12 +2854,41 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
                 break;
         }
         l.text = text;
+        // The word stamps need the same glue fixes as the line text, or the
+        // karaoke highlights "Icould" and "n't" as separate fragments.
+        static const QRegularExpression gluedIWord(
+            QStringLiteral("^I(could|would|will|never|think|know|am|have|"
+                           "was|said|saw|feel|remember|mean)"
+                           "(n't|'ll|'re|'ve|'s|'d|'m)?$"));
+        for (int i = 0; i < l.words.size();) {
+            QVariantMap w = l.words.at(i).toMap();
+            const QString a = w.value(QStringLiteral("text")).toString().trimmed();
+            const QRegularExpressionMatch gm = gluedIWord.match(a);
+            if (!gm.hasMatch()) {
+                ++i;
+                continue;
+            }
+            const QString tail = gm.captured(1) + gm.captured(2);
+            const QString lead = w.value(QStringLiteral("text")).toString();
+            const QString before = lead.left(lead.indexOf(a));
+            w.insert(QStringLiteral("text"), before + QStringLiteral("I "));
+            QVariantMap rest = w;
+            rest.insert(QStringLiteral("text"),
+                        tail + (lead.endsWith(QLatin1Char(' '))
+                                    ? QStringLiteral(" ") : QString()));
+            l.words[i] = w;
+            l.words.insert(i + 1, rest);
+            i += 2;
+        }
         for (int i = 0; i + 1 < l.words.size();) {
             QVariantMap wa = l.words.at(i).toMap();
             QVariantMap wb = l.words.at(i + 1).toMap();
             const QString a = wa.value(QStringLiteral("text")).toString();
             const QString b = wb.value(QStringLiteral("text")).toString();
-            if (shouldJoinFragments(a, b)) {
+            static const QRegularExpression wordContraction(
+                QStringLiteral("^(n't|'ll|'re|'ve|'s|'d|'m)$"));
+            if (wordContraction.match(b.trimmed()).hasMatch()
+                || shouldJoinFragments(a, b)) {
                 wa.insert(QStringLiteral("text"),
                           a.trimmed() + b.trimmed()
                           + (b.endsWith(QLatin1Char(' '))
