@@ -469,6 +469,9 @@ void Lyrics::saveToDiskCache(bool found)
 // ---------------------------------------------------------------------------
 void Lyrics::startLiriqo(int candidate)
 {
+    qInfo().noquote() << QString("[lyrics] liriqo: consultar \"%1\" - \"%2\"")
+                             .arg(searchCandidate(candidate).title,
+                                  searchCandidate(candidate).artist);
     const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QStringLiteral(
         "https://api.liriqo-alfarrizi.my.id/v1/lyrics"));
@@ -496,8 +499,10 @@ void Lyrics::onLiriqoReply(QNetworkReply *reply, const QString &key)
         if (candidate + 1 < m_searchCandidates.size())
             startLiriqo(candidate + 1);
     };
-    if (reply->error() != QNetworkReply::NoError)
+    if (reply->error() != QNetworkReply::NoError) {
+        qInfo() << "[lyrics] liriqo: error de red:" << reply->errorString();
         return;   // an optional source: the others keep running
+    }
     const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
     const QJsonObject meta = root.value(QStringLiteral("metadata")).toObject();
     const QString found = meta.value(QStringLiteral("title")).toString();
@@ -561,12 +566,30 @@ void Lyrics::onLiriqoReply(QNetworkReply *reply, const QString &key)
             ++withWords;
         lines.append(l);
     }
-    if (lines.size() < 3 || withWords < 1) {
+    if (lines.size() < 3) {
         retryOrReturn();
         return;
     }
     qInfo().noquote() << QString("[lyrics] liriqo: %1 lineas, %2 con tiempos")
                              .arg(lines.size()).arg(withWords);
+    if (withWords < 1) {
+        // The catalog only has line timings for this recording. Line-synced
+        // lyrics are still better than none: hand them to the line-level
+        // path so the track does not stay "Buscando letra..." forever.
+        QString lrc;
+        for (const LrcLine &l : lines) {
+            const int cs = qMax(0, qRound(l.time * 100.0));
+            lrc += QStringLiteral("[%1:%2]%3\n")
+                       .arg(cs / 6000)
+                       .arg((cs / 100) % 60, 2, 10, QLatin1Char('0'))
+                       .arg(l.text);
+        }
+        if (adoptSynced(lrc, QStringLiteral("liriqo"), /*filterCredits=*/true)) {
+            m_hasLyrics = true;
+            finish();
+        }
+        return;
+    }
     adoptWorded(std::move(lines), QStringLiteral("liriqo"),
                 /*local=*/false, /*musical=*/false);
     if (m_hasLyrics)
@@ -1892,6 +1915,10 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
         if (same >= 2) {
             m_lines = parsed;
             m_syncSource = source;
+            // A late line-level source is now the answer on screen: mark it
+            // as found so settleOrFail() cannot wipe it with "sin letra".
+            m_hasSynced = true;
+            m_hasLyrics = true;
             markNoteStretches(m_lines);
             markChorus(m_lines);
             computeWordMeta(m_lines);
@@ -2685,7 +2712,7 @@ void Lyrics::settleOrFail()
     // without this guard the NetEase "no match" reply called settleOrFail()
     // again, which launched the same search in a loop (one request every
     // ~300 ms until the app was closed).
-    if (!m_mxmTried) {
+    if (!m_mxmTried && !kOnlySelectedSources) {
         startMusixmatch();
         return;
     }
@@ -2770,10 +2797,17 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         QStringLiteral("tle"), QStringLiteral("ble"), QStringLiteral("gle"),
         QStringLiteral("ple"), QStringLiteral("ther"), QStringLiteral("ond"),
         QStringLiteral("nize"), QStringLiteral("come"), QStringLiteral("get"),
-        QStringLiteral("prise"),
+        QStringLiteral("prise"), QStringLiteral("ber"),
+        QStringLiteral("bye"), QStringLiteral("zon"),
     };
-    const QString x = a.trimmed();
-    const QString y = b.trimmed();
+    QString x = a.trimmed();
+    QString y = b.trimmed();
+    // A word stamp can carry its punctuation ("ing?"). It belongs to the
+    // phrase, not to the fragment, so it must not stop a split from joining.
+    while (!x.isEmpty() && !x.at(x.size() - 1).isLetter())
+        x.chop(1);
+    while (!y.isEmpty() && !y.at(y.size() - 1).isLetter())
+        y.chop(1);
     static const QSet<QString> prefixes = {
         QStringLiteral("for"), QStringLiteral("per"), QStringLiteral("in"),
         QStringLiteral("de"), QStringLiteral("re"), QStringLiteral("co"),
@@ -2790,8 +2824,10 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
     static const QSet<QString> splitTails = {
         QStringLiteral("get"), QStringLiteral("son"),
         QStringLiteral("come"), QStringLiteral("prise"),
+        QStringLiteral("ever"),
     };
     if (prefixes.contains(x.toLower()) && x.size() <= 3
+        && (y.size() <= 4 || splitTails.contains(y.toLower()))
         && (!keep.contains(y.toLower()) || splitTails.contains(y.toLower())))
         return true;
     if (keep.contains(x.toLower()) || keep.contains(y.toLower()))
@@ -2800,7 +2836,10 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         return true;
     if (x.size() <= 2)
         return true;
-    return x.size() <= 5 && y.size() <= 3;
+    // Only short fragments are one split word. A pair like "None too" or
+    // "glow don" is two real words and must stay apart: joining them was
+    // producing "Nonetoo" and "glowdon" on screen.
+    return x.size() <= 3 && y.size() <= 2;
 }
 
 void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
@@ -2813,6 +2852,9 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
         {QStringLiteral("waittoo"), QStringLiteral("wait too")},
         {QStringLiteral("neverwin"), QStringLiteral("never win")},
         {QStringLiteral("alot"), QStringLiteral("a lot")},
+        {QStringLiteral("nonetoo"), QStringLiteral("none too")},
+        {QStringLiteral("glowdon"), QStringLiteral("glow don")},
+        {QStringLiteral("inpharao"), QStringLiteral("in pharaoh")},
     };
     const auto unglue = [](const QString &s) {
         QString out = s;
@@ -2830,11 +2872,15 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
         static const QRegularExpression gluedI(
             QStringLiteral("\\bI(could|would|will|never|think|know|am|have|"
                            "was|said|saw|feel|remember|mean)\b"));
-        text.replace(gluedI, QStringLiteral("I %1"));
+        text.replace(gluedI, QStringLiteral("I %1%2"));
         // Contractions split as "could n't" or "I will" glued above.
         static const QRegularExpression contraction(
             QStringLiteral("\\b([A-Za-z]+) (n't|'ll|'re|'ve|'s|'d|'m)\\b"));
         text.replace(contraction, QStringLiteral("\\1\\2"));
+        // Liriqo splits a possessive as "pharao h's" instead of "pharaoh's".
+        static const QRegularExpression possessive(
+            QStringLiteral("\\b([A-Za-z]+) h's\\b"));
+        text.replace(possessive, QStringLiteral("\\1h's"));
         // Three-piece splits such as "Never for get" and "The per son".
         static const QRegularExpression triple(
             QStringLiteral("\\b([A-Za-z]+) (for|per|in|de|re|co) "
@@ -2911,6 +2957,7 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
             static const QRegularExpression wordContraction(
                 QStringLiteral("^(n't|'ll|'re|'ve|'s|'d|'m)$"));
             if (wordContraction.match(b.trimmed()).hasMatch()
+                || b.trimmed() == QLatin1String("h's")
                 || shouldJoinFragments(a, b)) {
                 wa.insert(QStringLiteral("text"),
                           a.trimmed() + b.trimmed()
