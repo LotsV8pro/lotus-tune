@@ -211,7 +211,8 @@ private:
         LrcRedSearch,     // GET lyrics-api.binimum.org
         LrcRedSheet,      // GET the TTML of the sheet
         LiriqoGet,        // GET the aggregated word-level lyrics
-        Translate         // POST the lines to translate
+        Translate,        // POST the lines to translate
+        TranslateFallback // MyMemory, one line per request
     };
 
     // `candidate` travels with the reply so its handler can retry with the
@@ -301,6 +302,10 @@ private:
     void startTranslate();
     void onTranslateReply(QNetworkReply *reply, const QString &key);
     void applyTranslatedText(const QString &all);
+    void applyTranslationMap(const QHash<QString, QString> &byText);
+    void startTranslateFallback();
+    void pumpTranslateFallback();
+    void onTranslateFallbackReply(QNetworkReply *reply, const QString &key);
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
@@ -462,6 +467,10 @@ private:
     // Bumped when a publish changes the lines, so a translation reply built
     // for the old lines drops itself (notably after a word-level upgrade).
     int m_translationGen = 0;
+    QStringList m_fallbackTexts;
+    QHash<int, QString> m_fallbackResults;
+    int m_fallbackIndex = 0;
+    int m_fallbackGen = 0;
     // Which variant of the query is being tried: Musixmatch matches a
     // different song depending on how the artist is written.
     int m_mxmVariant = 0;

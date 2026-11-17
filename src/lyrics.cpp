@@ -592,13 +592,14 @@ void Lyrics::onTranslateReply(QNetworkReply *reply, const QString &key)
         || reply->property("translationGen").toInt() != m_translationGen)
         return;   // built for lines that were replaced (e.g. by an upgrade)
     if (reply->error() != QNetworkReply::NoError) {
-        qInfo() << "[lyrics] traduccion no disponible:"
-                << reply->errorString();
+        qInfo() << "[lyrics] traduccion limitada, probando MyMemory";
+        startTranslateFallback();
         return;
     }
     const QJsonArray root = QJsonDocument::fromJson(reply->readAll()).array();
     if (root.isEmpty() || !root.at(0).isArray()) {
-        qInfo() << "[lyrics] traduccion descartada: respuesta inesperada";
+        qInfo() << "[lyrics] traduccion descartada, probando MyMemory";
+        startTranslateFallback();
         return;
     }
     QString all;
@@ -608,6 +609,84 @@ void Lyrics::onTranslateReply(QNetworkReply *reply, const QString &key)
             all += seg.at(0).toString();
     }
     applyTranslatedText(all);
+}
+
+// Google is the primary service. MyMemory with a contact address has a
+// higher daily limit than its anonymous tier, and accepts one line per
+// request, so translations cannot be mixed between lines.
+void Lyrics::startTranslateFallback()
+{
+    m_fallbackTexts.clear();
+    m_fallbackResults.clear();
+    m_fallbackIndex = 0;
+    m_fallbackGen = m_translationGen;
+    for (const LrcLine &l : m_lines) {
+        if (l.instrumental)
+            continue;
+        const QString t = l.text.trimmed();
+        if (!t.isEmpty() && !m_fallbackTexts.contains(t))
+            m_fallbackTexts.append(t);
+    }
+    if (m_fallbackTexts.isEmpty() || m_fallbackTexts.size() > 80)
+        return;
+    qInfo() << "[lyrics] traduccion MyMemory:" << m_fallbackTexts.size()
+            << "lineas";
+    pumpTranslateFallback();
+}
+
+void Lyrics::pumpTranslateFallback()
+{
+    if (m_fallbackIndex >= m_fallbackTexts.size()) {
+        QHash<QString, QString> byText;
+        for (int i = 0; i < m_fallbackTexts.size(); ++i) {
+            const QString tr = m_fallbackResults.value(i).trimmed();
+            if (!tr.isEmpty())
+                byText.insert(m_fallbackTexts.at(i), tr);
+        }
+        applyTranslationMap(byText);
+        return;
+    }
+    const int index = m_fallbackIndex;
+    QUrl url(QStringLiteral("https://api.mymemory.translated.net/get"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("q"), m_fallbackTexts.at(index));
+    q.addQueryItem(QStringLiteral("langpair"),
+                   QStringLiteral("autodetect|") + m_translateTo);
+    q.addQueryItem(QStringLiteral("de"),
+                   QStringLiteral("lotus-tune@users.noreply.github.com"));
+    url.setQuery(q);
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", QByteArray(kUserAgent));
+    req.setTransferTimeout(kTimeoutMs);
+    QNetworkReply *reply = m_net->get(req);
+    reply->setProperty("trackKey", m_trackKey);
+    reply->setProperty("gen", m_gen);
+    reply->setProperty("translationGen", m_fallbackGen);
+    reply->setProperty("lineIndex", index);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        onTranslateFallbackReply(reply, reply->property("trackKey").toString());
+    });
+}
+
+void Lyrics::onTranslateFallbackReply(QNetworkReply *reply, const QString &key)
+{
+    const int index = reply->property("lineIndex").toInt();
+    const int gen = reply->property("translationGen").toInt();
+    QString text;
+    if (reply->error() == QNetworkReply::NoError) {
+        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        text = o.value(QStringLiteral("responseData")).toObject()
+                .value(QStringLiteral("translatedText")).toString();
+        if (text.contains(QStringLiteral("MYMEMORY WARNING")))
+            text.clear();
+    }
+    reply->deleteLater();
+    if (isStale(reply, key, m_trackKey, m_gen) || gen != m_fallbackGen)
+        return;
+    if (!text.isEmpty())
+        m_fallbackResults.insert(index, text);
+    ++m_fallbackIndex;
+    pumpTranslateFallback();
 }
 
 void Lyrics::applyTranslatedText(const QString &all)
@@ -636,6 +715,11 @@ void Lyrics::applyTranslatedText(const QString &all)
         if (!tr.isEmpty() && tr.toLower() != seen.at(i).toLower())
             byText.insert(seen.at(i), tr);
     }
+    applyTranslationMap(byText);
+}
+
+void Lyrics::applyTranslationMap(const QHash<QString, QString> &byText)
+{
     for (LrcLine &l : m_lines)
         l.translation = byText.value(l.text.trimmed());
     qInfo() << "[lyrics] traduccion aplicada a" << byText.size() << "lineas";
@@ -743,6 +827,8 @@ void Lyrics::request(const QUrl &url, Stage stage, const QString &key,
         case Stage::LrcRedSheet:   onLrcRedSheetReply(reply, key); break;
         case Stage::LiriqoGet:     onLiriqoReply(reply, key); break;
         case Stage::Translate:     onTranslateReply(reply, key); break;
+        case Stage::TranslateFallback:
+                                   onTranslateFallbackReply(reply, key); break;
         }
     });
 }
