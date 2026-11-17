@@ -989,67 +989,67 @@
     <name>Main</name>
     <message>
         <location filename="../qml/Main.qml" line="21"/>
-        <location filename="../qml/Main.qml" line="5910"/>
+        <location filename="../qml/Main.qml" line="5959"/>
         <source>Lotus Tune</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="68"/>
+        <location filename="../qml/Main.qml" line="80"/>
         <source>Sistema</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="94"/>
+        <location filename="../qml/Main.qml" line="106"/>
         <source>No se pudo iniciar sesión. Inténtalo de nuevo.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="102"/>
+        <location filename="../qml/Main.qml" line="114"/>
         <source>Sesión de YouTube caducada: vuelve a iniciar sesión para ver tus listas y Me gusta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="111"/>
+        <location filename="../qml/Main.qml" line="123"/>
         <source>Actualiza la app</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="193"/>
-        <location filename="../qml/Main.qml" line="386"/>
-        <location filename="../qml/Main.qml" line="463"/>
-        <location filename="../qml/Main.qml" line="539"/>
+        <location filename="../qml/Main.qml" line="205"/>
+        <location filename="../qml/Main.qml" line="398"/>
+        <location filename="../qml/Main.qml" line="475"/>
+        <location filename="../qml/Main.qml" line="551"/>
         <source>Reproducir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="200"/>
-        <location filename="../qml/Main.qml" line="448"/>
-        <location filename="../qml/Main.qml" line="484"/>
+        <location filename="../qml/Main.qml" line="212"/>
+        <location filename="../qml/Main.qml" line="460"/>
+        <location filename="../qml/Main.qml" line="496"/>
         <source>Desinstalar descarga</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="286"/>
+        <location filename="../qml/Main.qml" line="298"/>
         <source>¿Eliminar la lista «%1»? Esto no se puede deshacer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="304"/>
+        <location filename="../qml/Main.qml" line="316"/>
         <source>Enlace copiado</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="323"/>
+        <location filename="../qml/Main.qml" line="335"/>
         <source>Se reproducirá a continuación</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="336"/>
+        <location filename="../qml/Main.qml" line="348"/>
         <source>Añadido a la cola</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <location filename="../qml/Main.qml" line="355"/>
+        <location filename="../qml/Main.qml" line="367"/>
         <source>%n pista añadida a la cola</source>
         <translation>
             <numerusform>%n pista añadida a la cola</numerusform>
@@ -1057,1081 +1057,1091 @@
         </translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="392"/>
+        <location filename="../qml/Main.qml" line="404"/>
         <source>Escuchar radio de esta canción</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="396"/>
+        <location filename="../qml/Main.qml" line="408"/>
         <source>Radio de %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="400"/>
+        <location filename="../qml/Main.qml" line="412"/>
         <source>Añadir a lista de reproducción…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="403"/>
-        <location filename="../qml/Main.qml" line="550"/>
+        <location filename="../qml/Main.qml" line="415"/>
+        <location filename="../qml/Main.qml" line="562"/>
         <source>Quitar de la biblioteca</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="404"/>
+        <location filename="../qml/Main.qml" line="416"/>
         <source>Añadir a la biblioteca</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="410"/>
+        <location filename="../qml/Main.qml" line="422"/>
         <source>Reproducir a continuación</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="412"/>
+        <location filename="../qml/Main.qml" line="424"/>
         <source>Añadir a la cola</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="423"/>
+        <location filename="../qml/Main.qml" line="435"/>
         <source>Quitar de esta lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="425"/>
+        <location filename="../qml/Main.qml" line="437"/>
         <source>Mover arriba</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="427"/>
+        <location filename="../qml/Main.qml" line="439"/>
         <source>Mover abajo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="432"/>
+        <location filename="../qml/Main.qml" line="444"/>
         <source>Buscar el artista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="441"/>
-        <location filename="../qml/Main.qml" line="477"/>
-        <location filename="../qml/Main.qml" line="547"/>
+        <location filename="../qml/Main.qml" line="453"/>
+        <location filename="../qml/Main.qml" line="489"/>
+        <location filename="../qml/Main.qml" line="559"/>
         <source>Copiar enlace</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="465"/>
-        <location filename="../qml/Main.qml" line="541"/>
-        <location filename="../qml/Main.qml" line="5070"/>
-        <location filename="../qml/Main.qml" line="5096"/>
+        <location filename="../qml/Main.qml" line="477"/>
+        <location filename="../qml/Main.qml" line="553"/>
+        <location filename="../qml/Main.qml" line="5119"/>
+        <location filename="../qml/Main.qml" line="5145"/>
         <source>Abrir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="471"/>
+        <location filename="../qml/Main.qml" line="483"/>
         <source>Editar lista…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="474"/>
+        <location filename="../qml/Main.qml" line="486"/>
         <source>Eliminar lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="520"/>
+        <location filename="../qml/Main.qml" line="532"/>
         <source>¿Desinstalar la descarga de «%1»? Se borrarán los archivos descargados y se liberarán %2.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="522"/>
+        <location filename="../qml/Main.qml" line="534"/>
         <source>¿Desinstalar la descarga de «%1»? Se borrarán los archivos descargados.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="524"/>
+        <location filename="../qml/Main.qml" line="536"/>
         <source>Desinstalar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="530"/>
+        <location filename="../qml/Main.qml" line="542"/>
         <source>Descarga desinstalada</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="587"/>
+        <location filename="../qml/Main.qml" line="599"/>
         <source>Buscar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="593"/>
+        <location filename="../qml/Main.qml" line="605"/>
         <source>Biblioteca</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="594"/>
+        <location filename="../qml/Main.qml" line="606"/>
         <source>Inicio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="598"/>
-        <location filename="../qml/Main.qml" line="875"/>
+        <location filename="../qml/Main.qml" line="610"/>
+        <location filename="../qml/Main.qml" line="887"/>
         <source>Cargando la lista…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="600"/>
+        <location filename="../qml/Main.qml" line="612"/>
         <source>Buscando en %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="602"/>
-        <location filename="../qml/Main.qml" line="933"/>
+        <location filename="../qml/Main.qml" line="614"/>
+        <location filename="../qml/Main.qml" line="945"/>
         <source>Fuente activa: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="603"/>
+        <location filename="../qml/Main.qml" line="615"/>
         <source>Tus listas y descargas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="668"/>
+        <location filename="../qml/Main.qml" line="680"/>
         <source>No hay ninguna canción sonando</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="875"/>
+        <location filename="../qml/Main.qml" line="887"/>
         <source>Cargando la lista para reproducir…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="895"/>
+        <location filename="../qml/Main.qml" line="907"/>
         <source>Me gusta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1118"/>
-        <location filename="../qml/Main.qml" line="4924"/>
+        <location filename="../qml/Main.qml" line="1130"/>
+        <location filename="../qml/Main.qml" line="4973"/>
         <source>Fuente por defecto</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1118"/>
+        <location filename="../qml/Main.qml" line="1130"/>
         <source>Bloqueada · abre Ajustes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1132"/>
-        <location filename="../qml/Main.qml" line="3996"/>
+        <location filename="../qml/Main.qml" line="1144"/>
+        <location filename="../qml/Main.qml" line="4045"/>
         <source>Sin nombre</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1163"/>
+        <location filename="../qml/Main.qml" line="1175"/>
         <source>MÚSICA</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1165"/>
+        <location filename="../qml/Main.qml" line="1177"/>
         <source>YouTube Music, SoundCloud, Spotify y Tidal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1597"/>
+        <location filename="../qml/Main.qml" line="1609"/>
         <source>Montando la radio de %1…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1620"/>
+        <location filename="../qml/Main.qml" line="1632"/>
         <source>La radio no responde, inténtalo otra vez</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1818"/>
+        <location filename="../qml/Main.qml" line="1836"/>
         <source>No encuentro a %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1893"/>
+        <location filename="../qml/Main.qml" line="1937"/>
         <source>Las descargas no están disponibles aquí</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1910"/>
+        <location filename="../qml/Main.qml" line="1954"/>
         <source>No hay discos que descargar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1931"/>
+        <location filename="../qml/Main.qml" line="1975"/>
         <source>«%1»</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1932"/>
+        <location filename="../qml/Main.qml" line="1976"/>
         <source>la discografía de %1 (%2 discos)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1933"/>
+        <location filename="../qml/Main.qml" line="1977"/>
         <source>este artista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1934"/>
+        <location filename="../qml/Main.qml" line="1978"/>
         <source>Vas a descargar %1. Ocupará aproximadamente %2 en disco. ¿Continuar?</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1936"/>
+        <location filename="../qml/Main.qml" line="1980"/>
         <source>Descargar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1946"/>
+        <location filename="../qml/Main.qml" line="1990"/>
         <source>Preparando «%1»…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1947"/>
+        <location filename="../qml/Main.qml" line="1991"/>
         <source>Preparando %1 discos…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1955"/>
+        <location filename="../qml/Main.qml" line="1999"/>
         <source>%1 discos en la cola de descargas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1957"/>
+        <location filename="../qml/Main.qml" line="2001"/>
         <source> (%1 singles ya incluidos, omitidos)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1973"/>
+        <location filename="../qml/Main.qml" line="2017"/>
         <source>Este artista no tiene discos que reproducir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="1983"/>
+        <location filename="../qml/Main.qml" line="2027"/>
         <source>Añadiendo la discografía de %1…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2036"/>
+        <location filename="../qml/Main.qml" line="2080"/>
         <source>%1 temas de %2 en la cola</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2188"/>
+        <location filename="../qml/Main.qml" line="2232"/>
         <source>Aleatorio activado</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2188"/>
+        <location filename="../qml/Main.qml" line="2232"/>
         <source>Aleatorio desactivado</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2216"/>
+        <location filename="../qml/Main.qml" line="2260"/>
         <source>Repetición desactivada</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2217"/>
+        <location filename="../qml/Main.qml" line="2261"/>
         <source>Repetir la lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2217"/>
+        <location filename="../qml/Main.qml" line="2261"/>
         <source>Repetir la canción</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2527"/>
+        <location filename="../qml/Main.qml" line="2571"/>
         <source>[queue] vídeo no disponible, buscando otra versión:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2549"/>
+        <location filename="../qml/Main.qml" line="2593"/>
         <source>«%1» no está disponible; avanzando</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2564"/>
+        <location filename="../qml/Main.qml" line="2608"/>
         <source>No se pudo reproducir «%1»</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2578"/>
+        <location filename="../qml/Main.qml" line="2622"/>
         <source>Motor de audio: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2659"/>
+        <location filename="../qml/Main.qml" line="2703"/>
         <source>Importar la sesión de YouTube Music</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2660"/>
+        <location filename="../qml/Main.qml" line="2704"/>
         <source>Sesión de LotusTune (*.json)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2663"/>
+        <location filename="../qml/Main.qml" line="2707"/>
         <source>Sesión importada</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2665"/>
+        <location filename="../qml/Main.qml" line="2709"/>
         <source>No se pudo importar la sesión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2698"/>
+        <location filename="../qml/Main.qml" line="2742"/>
         <source>Hay una versión nueva: %1. Toca aquí para descargarla.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2699"/>
+        <location filename="../qml/Main.qml" line="2743"/>
         <source>Hay una versión nueva: %1. Toca aquí para actualizarla.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2719"/>
-        <source>Widget de la letra</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2720"/>
-        <source>• La línea que se canta sale entera de una vez. Antes se iba encendiendo palabra a palabra y en la pantalla de inicio se veía a saltos.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2721"/>
-        <source>• Al pasar a la línea siguiente, el cambio llega cuando se canta, sin quedarse atrás.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2722"/>
-        <source>• El widget solo se redibuja cuando cambia la letra, así que gasta menos batería.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2724"/>
-        <source>Notificación</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2725"/>
-        <source>• El corazón se rellena cuando la canción está en Me gusta y queda vacío cuando no. Antes no cambiaba nunca, así que no había forma de saber si el toque había hecho algo.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2726"/>
-        <source>• Tocar el corazón desde la notificación ya funciona, y el widget de la pantalla de inicio se entera al momento.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2727"/>
-        <source>• Cuando hay una versión nueva sale un aviso en la persiana. Al tocarlo se descarga.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location filename="../qml/Main.qml" line="2729"/>
-        <location filename="../qml/Main.qml" line="5254"/>
+        <location filename="../qml/Main.qml" line="5303"/>
         <source>Actualizaciones</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2730"/>
-        <source>• El icono del menú abre siempre la versión que tienes instalada, no una copia antigua que hubiera por medio.</source>
+        <location filename="../qml/Main.qml" line="2763"/>
+        <source>Audio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2731"/>
-        <source>• El instalador te dice qué versión ha dejado puesta y avisa si la copia desde la que compilas está atrasada.</source>
+        <location filename="../qml/Main.qml" line="2764"/>
+        <source>• En Android se baja siempre el m4a, que es el formato que el teléfono reproduce limpio. El webm con opus queda solo para las canciones que no traen otra cosa.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2732"/>
-        <source>• Ya no queda un programa suelto en la carpeta del código cuando se compila dentro de ella y luego se abre por error.</source>
+        <location filename="../qml/Main.qml" line="2765"/>
+        <source>• El bucle de silencio que mantiene el audio despierto se para mientras suena música. Era ese segundo flujo el que chasqueaba al empezar algunas canciones.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2767"/>
+        <location filename="../qml/Main.qml" line="2773"/>
+        <source>Artistas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2768"/>
+        <source>• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista de los que se han encontrado y cada uno se abre por separado.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2770"/>
+        <source>Buscador</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <location filename="../qml/Main.qml" line="2771"/>
-        <location filename="../qml/Main.qml" line="2791"/>
+        <source>• Una fila de listas encima de la de artistas: las listas que ha hecho otra gente en YouTube Music. Al pulsar una se abre tal cual, sin guardarla antes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2774"/>
+        <source>• Con varios artistas en una canción, el nombre abre la lista de los encontrados y cada uno se abre por separado.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2776"/>
+        <source>Windows</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2777"/>
+        <source>• El archivo que se descarga ya es un instalador normal. Se instala para el usuario actual, deja los accesos directos y el desinstalador, y lleva dentro mpv, yt-dlp y Python: no hay que instalar nada más.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2778"/>
+        <source>• El programa ya no abre una ventana de consola detrás del reproductor.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2780"/>
+        <source>Diagnóstico</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2781"/>
+        <source>• El registro dice qué formato de audio se baja de cada pista, y el diagnóstico si la conexión es de datos.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2820"/>
+        <location filename="../qml/Main.qml" line="2840"/>
         <source>La pista actual no es de YouTube</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2803"/>
-        <location filename="../qml/Main.qml" line="2814"/>
+        <location filename="../qml/Main.qml" line="2852"/>
+        <location filename="../qml/Main.qml" line="2863"/>
         <source>Esta pista no se puede quitar de la lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2868"/>
+        <location filename="../qml/Main.qml" line="2917"/>
         <source>«%1» ya está en un disco: se omite</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2873"/>
+        <location filename="../qml/Main.qml" line="2922"/>
         <source>Álbum</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2886"/>
+        <location filename="../qml/Main.qml" line="2935"/>
         <source>No se pudo preparar «%1»</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2887"/>
+        <location filename="../qml/Main.qml" line="2936"/>
         <source>el disco</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2910"/>
-        <location filename="../qml/Main.qml" line="2919"/>
+        <location filename="../qml/Main.qml" line="2959"/>
+        <location filename="../qml/Main.qml" line="2968"/>
         <source>«%1» no está disponible</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="2932"/>
+        <location filename="../qml/Main.qml" line="2981"/>
         <source>Suena otra versión de «%1»</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3052"/>
+        <location filename="../qml/Main.qml" line="3101"/>
         <source>No se pudo montar la radio de %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3068"/>
+        <location filename="../qml/Main.qml" line="3117"/>
         <source>Ese álbum no trae pistas reproducibles</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3075"/>
+        <location filename="../qml/Main.qml" line="3124"/>
         <source>Ese álbum no trae pistas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3333"/>
+        <location filename="../qml/Main.qml" line="3382"/>
         <source>No hay descargas que reproducir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3630"/>
+        <location filename="../qml/Main.qml" line="3679"/>
         <source>Cargando letra…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3834"/>
+        <location filename="../qml/Main.qml" line="3883"/>
         <source>COLA</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3841"/>
+        <location filename="../qml/Main.qml" line="3890"/>
         <source>%1 pistas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3925"/>
+        <location filename="../qml/Main.qml" line="3974"/>
         <source>Añadir a lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="3951"/>
+        <location filename="../qml/Main.qml" line="4000"/>
         <source>Nueva lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4007"/>
+        <location filename="../qml/Main.qml" line="4056"/>
         <source>No hay listas en tu cuenta de YouTube Music</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4043"/>
+        <location filename="../qml/Main.qml" line="4092"/>
         <source>Quitar de la lista actual</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4115"/>
+        <location filename="../qml/Main.qml" line="4164"/>
         <source>Novedades de la %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4123"/>
+        <location filename="../qml/Main.qml" line="4172"/>
         <source>Esto es lo que cambia al actualizar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4165"/>
+        <location filename="../qml/Main.qml" line="4214"/>
         <source>Entendido</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4253"/>
-        <location filename="../qml/Main.qml" line="5450"/>
+        <location filename="../qml/Main.qml" line="4302"/>
+        <location filename="../qml/Main.qml" line="5499"/>
         <source>Cancelar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4360"/>
+        <location filename="../qml/Main.qml" line="4409"/>
         <source>Pulsa otra vez para salir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4696"/>
+        <location filename="../qml/Main.qml" line="4745"/>
         <source>Lista</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4753"/>
+        <location filename="../qml/Main.qml" line="4802"/>
         <source>Ajustes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4811"/>
+        <location filename="../qml/Main.qml" line="4860"/>
         <source>Idioma</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4814"/>
+        <location filename="../qml/Main.qml" line="4863"/>
         <source>Idioma de la app</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4815"/>
+        <location filename="../qml/Main.qml" line="4864"/>
         <source>Se aplica al momento, sin reiniciar. «Sistema» sigue el idioma del móvil o del ordenador.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4838"/>
+        <location filename="../qml/Main.qml" line="4887"/>
         <source>Apariencia</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4841"/>
+        <location filename="../qml/Main.qml" line="4890"/>
         <source>Seguir el tema del sistema</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4842"/>
+        <location filename="../qml/Main.qml" line="4891"/>
         <source>Usa la paleta del escritorio (iNiR/matugen)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4848"/>
-        <location filename="../qml/Main.qml" line="4869"/>
-        <location filename="../qml/Main.qml" line="4910"/>
-        <location filename="../qml/Main.qml" line="4936"/>
-        <location filename="../qml/Main.qml" line="5529"/>
-        <location filename="../qml/Main.qml" line="5575"/>
+        <location filename="../qml/Main.qml" line="4897"/>
+        <location filename="../qml/Main.qml" line="4918"/>
+        <location filename="../qml/Main.qml" line="4959"/>
+        <location filename="../qml/Main.qml" line="4985"/>
+        <location filename="../qml/Main.qml" line="5578"/>
+        <location filename="../qml/Main.qml" line="5624"/>
         <source>Guardado en la configuración</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4860"/>
+        <location filename="../qml/Main.qml" line="4909"/>
         <source>Fondo dinámico</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4861"/>
+        <location filename="../qml/Main.qml" line="4910"/>
         <source>La portada de la pista tiñe el fondo y esmerila los paneles</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4875"/>
+        <location filename="../qml/Main.qml" line="4924"/>
         <source>Sonidos de interfaz</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4876"/>
+        <location filename="../qml/Main.qml" line="4925"/>
         <source>Chasquido al pulsar botones, corazones y ajustes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4883"/>
+        <location filename="../qml/Main.qml" line="4932"/>
         <source>Sonidos activados</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4884"/>
+        <location filename="../qml/Main.qml" line="4933"/>
         <source>Sonidos desactivados</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4890"/>
+        <location filename="../qml/Main.qml" line="4939"/>
         <source>Color de acento</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4891"/>
+        <location filename="../qml/Main.qml" line="4940"/>
         <source>Hexadecimal, por ejemplo #e3bae5</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4897"/>
+        <location filename="../qml/Main.qml" line="4946"/>
         <source>#e3bae5</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4901"/>
+        <location filename="../qml/Main.qml" line="4950"/>
         <source>Aplicar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4906"/>
+        <location filename="../qml/Main.qml" line="4955"/>
         <source>Color inválido: usa #rrggbb</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4921"/>
+        <location filename="../qml/Main.qml" line="4970"/>
         <source>Reproducción</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4925"/>
+        <location filename="../qml/Main.qml" line="4974"/>
         <source>Con qué servicio empieza la app</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4943"/>
+        <location filename="../qml/Main.qml" line="4992"/>
         <source>Calidad de audio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4944"/>
+        <location filename="../qml/Main.qml" line="4993"/>
         <source>Máxima sin recodificar; bájala para ahorrar datos</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4947"/>
-        <location filename="../qml/Main.qml" line="5205"/>
+        <location filename="../qml/Main.qml" line="4996"/>
+        <location filename="../qml/Main.qml" line="5254"/>
         <source>Máxima</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4948"/>
-        <location filename="../qml/Main.qml" line="5206"/>
+        <location filename="../qml/Main.qml" line="4997"/>
+        <location filename="../qml/Main.qml" line="5255"/>
         <source>Alta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4949"/>
+        <location filename="../qml/Main.qml" line="4998"/>
         <source>Media</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4950"/>
-        <location filename="../qml/Main.qml" line="5208"/>
+        <location filename="../qml/Main.qml" line="4999"/>
+        <location filename="../qml/Main.qml" line="5257"/>
         <source>Baja</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4960"/>
+        <location filename="../qml/Main.qml" line="5009"/>
         <source>Calidad: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4970"/>
+        <location filename="../qml/Main.qml" line="5019"/>
         <source>Reproducción automática</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4971"/>
+        <location filename="../qml/Main.qml" line="5020"/>
         <source>Al terminar la cola, sigue con canciones parecidas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4989"/>
+        <location filename="../qml/Main.qml" line="5038"/>
         <source>Continuar al abrir</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="4990"/>
+        <location filename="../qml/Main.qml" line="5039"/>
         <source>Recupera la última cola y la canción en la que estabas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5006"/>
+        <location filename="../qml/Main.qml" line="5055"/>
         <source>Letras</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5009"/>
+        <location filename="../qml/Main.qml" line="5058"/>
         <source>Letras sincronizadas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5010"/>
+        <location filename="../qml/Main.qml" line="5059"/>
         <source>Busca la letra de cada canción</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5026"/>
+        <location filename="../qml/Main.qml" line="5075"/>
         <source>Karaoke palabra a palabra</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5027"/>
+        <location filename="../qml/Main.qml" line="5076"/>
         <source>Enciende cada palabra al cantarla; si no hay tiempos, frase entera</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5038"/>
+        <location filename="../qml/Main.qml" line="5087"/>
         <source>Compensación de tiempo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5039"/>
+        <location filename="../qml/Main.qml" line="5088"/>
         <source>Adelanta (+) o retrasa (−) la letra respecto al audio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5051"/>
+        <location filename="../qml/Main.qml" line="5100"/>
         <source>−</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5058"/>
+        <location filename="../qml/Main.qml" line="5107"/>
         <source>+</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5067"/>
+        <location filename="../qml/Main.qml" line="5116"/>
         <source>Letra a pantalla completa</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5068"/>
+        <location filename="../qml/Main.qml" line="5117"/>
         <source>Modo cine de dos columnas; también con L, F o Ctrl+L</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5083"/>
+        <location filename="../qml/Main.qml" line="5132"/>
         <source>Almacenamiento</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5090"/>
-        <location filename="../qml/Main.qml" line="5197"/>
+        <location filename="../qml/Main.qml" line="5139"/>
+        <location filename="../qml/Main.qml" line="5246"/>
         <source>Descargas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5104"/>
-        <location filename="../qml/Main.qml" line="5122"/>
+        <location filename="../qml/Main.qml" line="5153"/>
+        <location filename="../qml/Main.qml" line="5171"/>
         <source>Borrar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5108"/>
+        <location filename="../qml/Main.qml" line="5157"/>
         <source>¿Borrar TODAS las descargas? Se eliminan los archivos descargados; no se puede deshacer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5109"/>
+        <location filename="../qml/Main.qml" line="5158"/>
         <source>Borrar todo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5111"/>
+        <location filename="../qml/Main.qml" line="5160"/>
         <source>Descargas borradas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5118"/>
+        <location filename="../qml/Main.qml" line="5167"/>
         <source>Caché de audio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5120"/>
+        <location filename="../qml/Main.qml" line="5169"/>
         <source> · se borran primero las más antiguas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5128"/>
+        <location filename="../qml/Main.qml" line="5177"/>
         <source>Caché borrada (%1 pistas)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5129"/>
+        <location filename="../qml/Main.qml" line="5178"/>
         <source>El caché ya estaba vacío</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5134"/>
+        <location filename="../qml/Main.qml" line="5183"/>
         <source>Límite del caché</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5135"/>
+        <location filename="../qml/Main.qml" line="5184"/>
         <source>Al pasarse, se eliminan las pistas que hace más tiempo que no suenan</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5139"/>
+        <location filename="../qml/Main.qml" line="5188"/>
         <source>512 MB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5140"/>
+        <location filename="../qml/Main.qml" line="5189"/>
         <source>1 GB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5141"/>
+        <location filename="../qml/Main.qml" line="5190"/>
         <source>2 GB</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5142"/>
+        <location filename="../qml/Main.qml" line="5191"/>
         <source>Sin límite</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5152"/>
+        <location filename="../qml/Main.qml" line="5201"/>
         <source>Total en disco</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5153"/>
+        <location filename="../qml/Main.qml" line="5202"/>
         <source>Descargas + caché de audio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5167"/>
+        <location filename="../qml/Main.qml" line="5216"/>
         <source>Discord</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5170"/>
+        <location filename="../qml/Main.qml" line="5219"/>
         <source>Discord Rich Presence</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5171"/>
+        <location filename="../qml/Main.qml" line="5220"/>
         <source>Muestra lo que suena en tu perfil</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5175"/>
+        <location filename="../qml/Main.qml" line="5224"/>
         <source>Conectado</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5176"/>
+        <location filename="../qml/Main.qml" line="5225"/>
         <source>Sin conexión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5200"/>
+        <location filename="../qml/Main.qml" line="5249"/>
         <source>Calidad de las descargas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5201"/>
+        <location filename="../qml/Main.qml" line="5250"/>
         <source>Compacta es la misma grabación en la mitad de espacio; las demás guardan más bitrate</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5207"/>
+        <location filename="../qml/Main.qml" line="5256"/>
         <source>Compacta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5223"/>
+        <location filename="../qml/Main.qml" line="5272"/>
         <source>Carpeta de descargas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5224"/>
+        <location filename="../qml/Main.qml" line="5273"/>
         <source>Dónde se guardan las canciones descargadas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5245"/>
+        <location filename="../qml/Main.qml" line="5294"/>
         <source>Abrir carpeta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5255"/>
+        <location filename="../qml/Main.qml" line="5304"/>
         <source>Se busca la última versión publicada en el repositorio</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5265"/>
+        <location filename="../qml/Main.qml" line="5314"/>
         <source>Hay una versión nueva: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5266"/>
+        <location filename="../qml/Main.qml" line="5315"/>
         <source>Versión actual: %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5274"/>
+        <location filename="../qml/Main.qml" line="5323"/>
         <source>Buscar actualizaciones</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5285"/>
+        <location filename="../qml/Main.qml" line="5334"/>
         <source>Descargar la versión nueva</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5286"/>
+        <location filename="../qml/Main.qml" line="5335"/>
         <source>Actualizar ahora</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5303"/>
+        <location filename="../qml/Main.qml" line="5352"/>
         <source>Copiar diagnóstico</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5307"/>
+        <location filename="../qml/Main.qml" line="5356"/>
         <source>Diagnóstico copiado</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5315"/>
+        <location filename="../qml/Main.qml" line="5364"/>
         <source>Sesión de YouTube Music</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5316"/>
+        <location filename="../qml/Main.qml" line="5365"/>
         <source>Las cookies de la cuenta: hacen falta para las listas privadas y, en Android, para que suene el audio. Se puede exportar aquí y llevarla a otro dispositivo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5318"/>
+        <location filename="../qml/Main.qml" line="5367"/>
         <source>Exportar la sesión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5323"/>
+        <location filename="../qml/Main.qml" line="5372"/>
         <source>Sesión exportada a %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5324"/>
+        <location filename="../qml/Main.qml" line="5373"/>
         <source>No se pudo exportar la sesión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5328"/>
+        <location filename="../qml/Main.qml" line="5377"/>
         <source>Importar la sesión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5341"/>
+        <location filename="../qml/Main.qml" line="5390"/>
         <source>Cuentas</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5373"/>
+        <location filename="../qml/Main.qml" line="5422"/>
         <source>Inicia sesión con Google y sincroniza tus «Me gusta».</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5383"/>
+        <location filename="../qml/Main.qml" line="5432"/>
         <source>Sesión iniciada</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5385"/>
+        <location filename="../qml/Main.qml" line="5434"/>
         <source>Sincronizar Me gusta</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5392"/>
+        <location filename="../qml/Main.qml" line="5441"/>
         <source>Cerrar sesión</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5405"/>
+        <location filename="../qml/Main.qml" line="5454"/>
         <source>Iniciar sesión con Google</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5444"/>
+        <location filename="../qml/Main.qml" line="5493"/>
         <source>Esperando a que inicies sesión en la ventana de Google…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5473"/>
+        <location filename="../qml/Main.qml" line="5522"/>
         <source>Reintentar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5485"/>
+        <location filename="../qml/Main.qml" line="5534"/>
         <source>Acceso público, sin necesidad de cuenta.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5503"/>
+        <location filename="../qml/Main.qml" line="5552"/>
         <source>Client ID</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5504"/>
+        <location filename="../qml/Main.qml" line="5553"/>
         <source>developer.spotify.com</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5509"/>
-        <location filename="../qml/Main.qml" line="5555"/>
+        <location filename="../qml/Main.qml" line="5558"/>
+        <location filename="../qml/Main.qml" line="5604"/>
         <source>Usuario</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5510"/>
+        <location filename="../qml/Main.qml" line="5559"/>
         <source>cuenta Premium</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5515"/>
-        <location filename="../qml/Main.qml" line="5561"/>
+        <location filename="../qml/Main.qml" line="5564"/>
+        <location filename="../qml/Main.qml" line="5610"/>
         <source>Contraseña</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5516"/>
-        <location filename="../qml/Main.qml" line="5562"/>
+        <location filename="../qml/Main.qml" line="5565"/>
+        <location filename="../qml/Main.qml" line="5611"/>
         <source>••••••••</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5524"/>
-        <location filename="../qml/Main.qml" line="5570"/>
+        <location filename="../qml/Main.qml" line="5573"/>
+        <location filename="../qml/Main.qml" line="5619"/>
         <source>Guardar</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5534"/>
+        <location filename="../qml/Main.qml" line="5583"/>
         <source>Se activará cuando el backend librespot esté listo.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5556"/>
+        <location filename="../qml/Main.qml" line="5605"/>
         <source>cuenta Tidal</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5580"/>
+        <location filename="../qml/Main.qml" line="5629"/>
         <source>Se activará cuando el backend esté listo.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5709"/>
+        <location filename="../qml/Main.qml" line="5758"/>
         <source>Intro busca · Esc</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <location filename="../qml/Main.qml" line="5736"/>
+        <location filename="../qml/Main.qml" line="5785"/>
         <source>Sin resultados</source>
         <translation type="unfinished"></translation>
     </message>

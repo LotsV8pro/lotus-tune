@@ -29,10 +29,22 @@ Window {
         target: Qt.application
         function onStateChanged() {
             root.appActive = Qt.application.state === Qt.ApplicationActive
-            // The audio "warm-up" is only needed with the app in front.
-            if (typeof sfx !== "undefined" && sfx.setWarm)
-                sfx.setWarm(root.appActive)
+            root.updateWarm()
         }
+    }
+    // The audio "warm-up" is the silent loop that keeps the engine open so
+    // a click sounds on the first tap. It is only worth it with the app in
+    // front AND with nothing playing: while a song plays the engine is
+    // already open, and a second silent stream on the same output is what
+    // made the music crackle on some phones.
+    Connections {
+        target: player
+        function onPlayingChanged() { root.updateWarm() }
+    }
+    function updateWarm() {
+        if (typeof sfx === "undefined" || !sfx.setWarm)
+            return
+        sfx.setWarm(root.appActive && !player.playing)
     }
 
     Settings {
@@ -1796,6 +1808,12 @@ Window {
     // looked up and the closest one is opened - the first results of the
     // search - preferring the one with exactly the same name.
     property string artistNavPending: ""
+    // A line with more than one artist: a separator between names, or a
+    // "feat."/"ft." inside it.
+    function looksMultiArtist(name) {
+        const n = String(name || "")
+        return /,|&|\bfeat\b|\bft\b|\bfeaturing\b| con /i.test(n)
+    }
     function openArtistByName(name) {
         const n = String(name || "").trim()
         if (n === "" || root.artistNavPending !== "")
@@ -1824,6 +1842,44 @@ Window {
                 if (String(a.name || "").trim().toLowerCase() === ln) {
                     pick = a
                     break
+                }
+            }
+            // "A, B", "A & B", "A feat. B": that line is not one artist, so
+            // the search of the whole string never matches exactly. Instead
+            // of opening the first thing that comes back (which used to be
+            // the wrong one), the artists found are offered one by one.
+            if (!pick && root.looksMultiArtist(n)) {
+                // The ones whose name really appears in the line come
+                // first: the search also brings back artists that are not
+                // in it, and they would be noise.
+                const inside = []
+                const rest = []
+                for (const ar of list) {
+                    const an = String(ar.name || "").trim()
+                    if (an === "")
+                        continue
+                    if (ln.indexOf(an.toLowerCase()) >= 0)
+                        inside.push(ar)
+                    else
+                        rest.push(ar)
+                }
+                const pool = inside.length > 0 ? inside : rest
+                const items = []
+                const top = Math.min(6, pool.length)
+                for (let i = 0; i < top; i++) {
+                    const ar = pool[i]
+                    items.push({
+                        label: String(ar.name || "").trim(),
+                        icon: "",
+                        action: function() { root.openArtist(ar) }
+                    })
+                }
+                if (items.length > 0) {
+                    // Above the playback bar, where the name was tapped.
+                    const h = playBar.visible ? playBar.height : 0
+                    root.showContextMenu(items, root.width / 2,
+                                         Math.max(90, root.height - h - 120))
+                    return
                 }
             }
             if (!pick)
@@ -2716,20 +2772,25 @@ Window {
     // about the installer of the desktop, and the reverse. Both lists are
     // per version and are replaced when the version goes up.
     readonly property string whatsNewText: root.isPhone ? [
-        qsTr("Widget de la letra"),
-        qsTr("• La línea que se canta sale entera de una vez. Antes se iba encendiendo palabra a palabra y en la pantalla de inicio se veía a saltos."),
-        qsTr("• Al pasar a la línea siguiente, el cambio llega cuando se canta, sin quedarse atrás."),
-        qsTr("• El widget solo se redibuja cuando cambia la letra, así que gasta menos batería."),
+        qsTr("Audio"),
+        qsTr("• En Android se baja siempre el m4a, que es el formato que el teléfono reproduce limpio. El webm con opus queda solo para las canciones que no traen otra cosa."),
+        qsTr("• El bucle de silencio que mantiene el audio despierto se para mientras suena música. Era ese segundo flujo el que chasqueaba al empezar algunas canciones."),
         "",
-        qsTr("Notificación"),
-        qsTr("• El corazón se rellena cuando la canción está en Me gusta y queda vacío cuando no. Antes no cambiaba nunca, así que no había forma de saber si el toque había hecho algo."),
-        qsTr("• Tocar el corazón desde la notificación ya funciona, y el widget de la pantalla de inicio se entera al momento."),
-        qsTr("• Cuando hay una versión nueva sale un aviso en la persiana. Al tocarlo se descarga.")
+        qsTr("Artistas"),
+        qsTr("• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista de los que se han encontrado y cada uno se abre por separado.")
     ].join("\n") : [
-        qsTr("Actualizaciones"),
-        qsTr("• El icono del menú abre siempre la versión que tienes instalada, no una copia antigua que hubiera por medio."),
-        qsTr("• El instalador te dice qué versión ha dejado puesta y avisa si la copia desde la que compilas está atrasada."),
-        qsTr("• Ya no queda un programa suelto en la carpeta del código cuando se compila dentro de ella y luego se abre por error.")
+        qsTr("Buscador"),
+        qsTr("• Una fila de listas encima de la de artistas: las listas que ha hecho otra gente en YouTube Music. Al pulsar una se abre tal cual, sin guardarla antes."),
+        "",
+        qsTr("Artistas"),
+        qsTr("• Con varios artistas en una canción, el nombre abre la lista de los encontrados y cada uno se abre por separado."),
+        "",
+        qsTr("Windows"),
+        qsTr("• El archivo que se descarga ya es un instalador normal. Se instala para el usuario actual, deja los accesos directos y el desinstalador, y lleva dentro mpv, yt-dlp y Python: no hay que instalar nada más."),
+        qsTr("• El programa ya no abre una ventana de consola detrás del reproductor."),
+        "",
+        qsTr("Diagnóstico"),
+        qsTr("• El registro dice qué formato de audio se baja de cada pista, y el diagnóstico si la conexión es de datos.")
     ].join("\n")
 
     function closeWhatsNew() {

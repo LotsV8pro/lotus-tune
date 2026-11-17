@@ -23,7 +23,9 @@ Music player for YouTube Music and SoundCloud, written in Qt 6/QML. Plays throug
 
 ## What's new
 
-2.0.8 turns the Windows download into a normal installer that carries everything the app needs, adds the playlists of other people to the search, and stops the phone from spending data and battery for nothing.
+2.0.9 fixes the crackle in the phone's audio: on Android the app now always takes the m4a stream, and the silent loop that kept the audio engine awake stops while a song is playing. A name with several artists now opens a list of them, one per tap, instead of guessing the first result.
+
+2.0.8 turned the Windows download into a normal installer that carries everything the app needs, added the playlists of other people to the search, and stopped the phone from spending data and battery for nothing.
 
 The whole history, version by version, is in [CHANGELOG.md](CHANGELOG.md).
 

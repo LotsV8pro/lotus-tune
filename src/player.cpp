@@ -1852,10 +1852,29 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     // m4a/AAC is the most compatible container, but if the node serves a
     // clearly better opus (e.g. 160k against 128k) it is used: it plays
     // from a local file and FFmpeg opens both.
+    // On the phone the opus is NOT taken even when it has more bitrate: the
+    // m4a is what the Android decoder plays without a hitch, and switching
+    // to webm was the difference between a clean song and a crackling one
+    // on some phones. It is only used there when the track has no m4a.
+#ifdef Q_OS_ANDROID
+    if (chosen.isEmpty())
+        chosen = chosenOpus;
+#else
     if (!chosenOpus.isEmpty() && opusBitrate > bestBitrate + bestBitrate / 10)
         chosen = chosenOpus;
     else if (chosen.isEmpty())
         chosen = chosenOpus;
+#endif
+    if (!chosen.isEmpty()) {
+        // The one that actually gets downloaded: it is the first thing to
+        // look at when a track sounds wrong.
+        qInfo() << "[player] audio elegido: itag"
+                << chosen.value(QStringLiteral("itag")).toInt()
+                << chosen.value(QStringLiteral("mimeType"))
+                       .toString().section(QLatin1Char(';'), 0, 0)
+                << chosen.value(QStringLiteral("bitrate")).toInt() / 1000
+                << "k";
+    }
     if (chosen.isEmpty()) {
         // YouTube rotates what each client is allowed to answer without
         // warning: this one may have run dry. Try the next one on the same
