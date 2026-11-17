@@ -39,6 +39,7 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - Las líneas que MyMemory no puede traducir se envían juntas y en grupos cortos al respaldo, así que se traducen casi todas de una vez sin agotar el límite de peticiones.
 - Discord Rich Presence deja de reenviar la canción cada tres segundos: la barra de progreso ya no se reinicia.
 - Los artistas de la barra del reproductor salen como etiquetas separadas; al tocar una se abre la página de ese artista.
+- Las palabras partidas se juntan usando la letra limpia de otra fuente como diccionario, en vez de reglas de longitud que pegaban `I need` o dejaban `Sor row`.
 - La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
 - Si el servicio principal de traducción está saturado, se prueba un segundo servicio y, si este también agota su cupo, un tercero línea a línea. Las líneas que faltaban se completan en la siguiente escucha sin borrar las que ya estaban traducidas.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.

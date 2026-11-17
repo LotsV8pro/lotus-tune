@@ -316,7 +316,8 @@ private:
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
     // Rejoin words that a provider split ("blur ry", "lov ing").
-    static void joinSplitWords(QVector<LrcLine> &lines);
+    static void joinSplitWords(QVector<LrcLine> &lines,
+                               const QString &plain);
 
     // ---- YouTube Music cascade -------------------------------------
     void startYtm(int candidate = 0);

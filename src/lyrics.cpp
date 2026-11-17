@@ -407,7 +407,7 @@ bool Lyrics::loadFromDiskCache()
     }
     markNoteStretches(m_lines);
     markChorus(m_lines);
-    joinSplitWords(m_lines);
+    joinSplitWords(m_lines, m_plain);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
@@ -2359,7 +2359,7 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
     // Providers split words ("Nev er for get"). Join them before comparing
     // with a line-level reference: otherwise the text never matches and a
     // valid karaoke source is thrown away as "another version".
-    joinSplitWords(lines);
+    joinSplitWords(lines, m_plain);
     WordedCandidate candidate;
     candidate.lines = std::move(lines);
     candidate.source = source;
@@ -2807,7 +2807,8 @@ void Lyrics::schedulePublish()
     m_publishTimer->start(900);
 }
 
-static bool shouldJoinFragments(const QString &a, const QString &b)
+static bool shouldJoinFragments(const QString &a, const QString &b,
+                                const QSet<QString> &dict)
 {
     static const QSet<QString> keep = {
         QStringLiteral("a"), QStringLiteral("an"), QStringLiteral("and"),
@@ -2817,7 +2818,8 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         QStringLiteral("from"), QStringLiteral("get"), QStringLiteral("go"),
         QStringLiteral("had"), QStringLiteral("has"), QStringLiteral("have"),
         QStringLiteral("her"), QStringLiteral("his"), QStringLiteral("how"),
-        QStringLiteral("if"), QStringLiteral("in"), QStringLiteral("is"),
+        QStringLiteral("i"), QStringLiteral("if"), QStringLiteral("in"),
+        QStringLiteral("is"),
         QStringLiteral("it"), QStringLiteral("just"), QStringLiteral("know"),
         QStringLiteral("let"), QStringLiteral("like"), QStringLiteral("me"),
         QStringLiteral("my"), QStringLiteral("no"), QStringLiteral("not"),
@@ -2841,6 +2843,7 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
         QStringLiteral("nize"), QStringLiteral("come"), QStringLiteral("get"),
         QStringLiteral("prise"), QStringLiteral("ber"),
         QStringLiteral("bye"), QStringLiteral("zon"),
+        QStringLiteral("ish"),
     };
     QString x = a.trimmed();
     QString y = b.trimmed();
@@ -2860,6 +2863,8 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
     for (const QChar &c : x + y)
         if (!c.isLetter())
             return false;
+    if (dict.contains(x.toLower() + y.toLower()))
+        return true;
     // "for get", "per son" and "be come" are split words, not phrases.
     // Some tails are ordinary words on their own ("get"), so they need an
     // explicit exception here; a prefix before them is still a split word.
@@ -2884,8 +2889,17 @@ static bool shouldJoinFragments(const QString &a, const QString &b)
     return x.size() <= 3 && y.size() <= 2;
 }
 
-void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
+void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
 {
+    // The plain text of the same track (from another source) is a clean
+    // dictionary: when two fragments form one of its words, they are one
+    // word here too. This avoids guessing from fragment length alone.
+    QSet<QString> dict;
+    for (const QString &w : plain.split(QRegularExpression(QStringLiteral("[^\\p{L}']+")),
+                                         Qt::SkipEmptyParts))
+        if (w.size() >= 2)
+            dict.insert(w.toLower());
+
     static const QRegularExpression split(
         QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
     // A few words arrive glued ("waittoo", "neverwin"). They are split
@@ -2898,6 +2912,30 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
         {QStringLiteral("glowdon"), QStringLiteral("glow don")},
         {QStringLiteral("inpharao"), QStringLiteral("in pharaoh")},
     };
+    // Two words that are one word in English. The provider splits them;
+    // a generic length rule would also glue real phrases ("one thing").
+    static const QHash<QString, QString> compounds = {
+        {QStringLiteral("some thing"), QStringLiteral("something")},
+        {QStringLiteral("any thing"), QStringLiteral("anything")},
+        {QStringLiteral("every thing"), QStringLiteral("everything")},
+        {QStringLiteral("no thing"), QStringLiteral("nothing")},
+        {QStringLiteral("some one"), QStringLiteral("someone")},
+        {QStringLiteral("any one"), QStringLiteral("anyone")},
+        {QStringLiteral("every one"), QStringLiteral("everyone")},
+        {QStringLiteral("some body"), QStringLiteral("somebody")},
+        {QStringLiteral("any body"), QStringLiteral("anybody")},
+        {QStringLiteral("every body"), QStringLiteral("everybody")},
+    };
+    const auto joinCompound = [](const QString &s) {
+        QString out = s;
+        for (auto it = compounds.cbegin(); it != compounds.cend(); ++it) {
+            out.replace(QRegularExpression(QStringLiteral("(?i)(?<![A-Za-z])")
+                                           + it.key()
+                                           + QStringLiteral("(?![A-Za-z])")),
+                        it.value());
+        }
+        return out;
+    };
     const auto unglue = [](const QString &s) {
         QString out = s;
         for (auto it = glued.cbegin(); it != glued.cend(); ++it) {
@@ -2909,7 +2947,7 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
         return out;
     };
     for (LrcLine &l : lines) {
-        QString text = unglue(l.text);
+        QString text = joinCompound(unglue(l.text));
         // A provider sometimes glues the pronoun to the next word.
         static const QRegularExpression gluedI(
             QStringLiteral("\\bI(could|would|will|never|think|know|am|have|"
@@ -2932,7 +2970,7 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
             bool changed = false;
             while (it.hasNext()) {
                 const QRegularExpressionMatch m = it.next();
-                if (!shouldJoinFragments(m.captured(2), m.captured(3)))
+                if (!shouldJoinFragments(m.captured(2), m.captured(3), dict))
                     continue;
                 text.replace(m.capturedStart(), m.capturedLength(),
                              m.captured(1) + QLatin1Char(' ')
@@ -2948,7 +2986,7 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
             bool changed = false;
             while (it.hasNext()) {
                 const QRegularExpressionMatch m = it.next();
-                if (!shouldJoinFragments(m.captured(1), m.captured(2)))
+                if (!shouldJoinFragments(m.captured(1), m.captured(2), dict))
                     continue;
                 text.replace(m.capturedStart(), m.capturedLength(),
                              m.captured(1) + m.captured(2));
@@ -2998,9 +3036,17 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
             const QString b = wb.value(QStringLiteral("text")).toString();
             static const QRegularExpression wordContraction(
                 QStringLiteral("^(n't|'ll|'re|'ve|'s|'d|'m)$"));
+            const QString pair = a.trimmed() + QLatin1Char(' ') + b.trimmed();
+            bool isCompound = false;
+            for (auto it = compounds.cbegin(); it != compounds.cend(); ++it) {
+                if (pair.compare(it.key(), Qt::CaseInsensitive) == 0) {
+                    isCompound = true;
+                    break;
+                }
+            }
             if (wordContraction.match(b.trimmed()).hasMatch()
-                || b.trimmed() == QLatin1String("h's")
-                || shouldJoinFragments(a, b)) {
+                || b.trimmed() == QLatin1String("h's") || isCompound
+                || shouldJoinFragments(a, b, dict)) {
                 wa.insert(QStringLiteral("text"),
                           a.trimmed() + b.trimmed()
                           + (b.endsWith(QLatin1Char(' '))
@@ -3048,7 +3094,7 @@ void Lyrics::publishFinal()
     }
     markNoteStretches(m_lines);
     markChorus(m_lines);
-    joinSplitWords(m_lines);
+    joinSplitWords(m_lines, m_plain);
     computeWordMeta(m_lines);
     if (m_publishFailed)
         saveToDiskCache(/*found=*/false);
