@@ -27,18 +27,15 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - La traducción no añade notas musicales, usa el mismo blanco que la letra y se va con la frase.
 - La app se puede poner en francés, alemán y portugués, además de español e inglés.
 - Discord Rich Presence funciona en escritorio. En Android aparece como próximamente.
-- Si el servicio de traducción limita las peticiones, se prueba un segundo servicio antes de dejar la letra sin traducir, detectando el idioma de la canción en vez de suponer que es español.
 - Las letras ya no cambian de fuente a mitad de canción: se muestra una sola decisión. El karaoke palabra a palabra sigue funcionando aunque la letra viniera de la caché, y los intro instrumentales no desaparecen.
 - La búsqueda de letras prueba también el título limpio y la parte después de « - » como canción, con el artista delante. Así se encuentran tiempos por palabra aunque el vídeo traiga el artista repetido en el título.
-- Cuando una fuente solo da el principio y el final de cada frase, el tiempo se reparte entre las palabras para que el karaoke siga avanzando letra a letra.
+- La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
-- Los tiempos por palabra que salen de otra versión de la canción se descartan, y las palabras partidas por el proveedor ("nev er") se juntan en el texto y en los tiempos. El barrido vuelve a seguir la línea que suena.
 - Al terminar una canción se pasa a la siguiente sin fundido, para que la cola no se quede parada en 0:00.
 - La barra inferior tiene cinco botones: el de Inicio usa el logo de la app y «Descargas» abre la pestaña de descargas. Ajustes tiene pestañas reales por sección, con Cuentas primero y el idioma en un desplegable.
 - Inicio y Buscar muestran las búsquedas recientes como chips arriba.
 - El color de acento por defecto es el morado del logo; el corazón de «Me gusta» se ve más grande cuando está marcado.
 - La animación de arranque ya no escala toda la pantalla: solo se mueve el logo, y el desenfoque del fondo y la limpieza de caché se hacen después del primer fotograma.
-- La traducción usa otro servidor cuando el anterior está saturado, guarda el resultado para no repetirlo, y detecta el idioma de la canción. El texto y los puntos instrumentales son blancos, y los puntos ya no desaparecen al terminar el intro.
 - Los nombres de los idiomas empiezan por mayúscula.
 - Ajustes tiene pestañas reales por sección, con la barra superior siempre visible y Cuentas como primera pestaña.
 - Se pueden importar playlists públicas de Spotify a YouTube Music pegando el enlace en Ajustes > Cuentas o desde el botón de enlace de la barra de Biblioteca. Las canciones se buscan una a una y las que no se encuentran se omiten. Las cuentas de Spotify y Tidal como fuentes de reproducción se han quitado: no tenían backend real.

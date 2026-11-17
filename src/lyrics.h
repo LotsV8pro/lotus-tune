@@ -211,8 +211,7 @@ private:
         LrcRedSearch,     // GET lyrics-api.binimum.org
         LrcRedSheet,      // GET the TTML of the sheet
         LiriqoGet,        // GET the aggregated word-level lyrics
-        Translate,        // POST the lines to translate
-        TranslateFallback // MyMemory, when the first service is throttled
+        Translate         // POST the lines to translate
     };
 
     // `candidate` travels with the reply so its handler can retry with the
@@ -220,9 +219,8 @@ private:
     void request(const QUrl &url, Stage stage, const QString &key,
                  const char *agent = nullptr, const char *accept = nullptr,
                  int candidate = 0);
-    // True when a reply belongs to an older fetch OR the result of this
-    // fetch has already been published: a late source must never replace
-    // the one decision shown on screen.
+    // True when a reply belongs to an older fetch. A late source may still
+    // replace the lines on screen.
     bool finishedOrStale(QNetworkReply *reply, const QString &key) const;
     // The word level timings come from the ALBUM while the reference
     // timeline is the video being played: the text of the reference wins
@@ -302,21 +300,10 @@ private:
     // back by text (the same phrase is translated once).
     void startTranslate();
     void onTranslateReply(QNetworkReply *reply, const QString &key);
-    void onTranslateFallbackReply(QNetworkReply *reply, const QString &key);
     void applyTranslatedText(const QString &all);
-    void startTranslateFallback();
-    // MyMemory fallback: one line per request, at most 4 in flight.
-    void pumpTranslateQueue();
-    void applyLineTranslations();
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
-    // Word stamps from another take can run past the next line. Drop them
-    // and let synthesizeWordTimes rebuild the front inside the line.
-    static void validateWordTimes(QVector<LrcLine> &lines);
-    // Some providers split a word into two runs ("nev er"). Join those
-    // fragments in both the text and the word stamps.
-    static void joinSplitWords(QVector<LrcLine> &lines);
 
     // ---- YouTube Music cascade -------------------------------------
     void startYtm(int candidate = 0);
@@ -340,12 +327,6 @@ private:
     void fail(const QString &message);
     // No synced lyrics in any source: it keeps the plain one if there is
     void settleOrFail();
-    // The sources answer at very different times (the local cache is
-    // instant, the network ones are not). A debounce collects the answers
-    // that arrive close together and publishes ONE final decision, so the
-    // view never shows a provisional source that a later answer replaces.
-    void schedulePublish();
-    void publishFinal();
 
     // Dumps a LRCLIB JSON object (get or search) into the state. A result
     // with "syncedLyrics" always wins; the plain one is only stored if
@@ -477,29 +458,17 @@ private:
     bool m_mxmTokenRetried = false;   // one fresh token per fetch, no loop
     bool m_liriqoEnabled = true;
     bool m_translated = false;
-    bool m_translateFallbackTried = false;
     QString m_translateTo;
     // Bumped when a publish changes the lines, so a translation reply built
     // for the old lines drops itself (notably after a word-level upgrade).
     int m_translationGen = 0;
-    // MyMemory fallback: one request per line, indexed by m_lines position.
-    QHash<int, QString> m_translationByLine;
-    QList<int> m_translateQueue;   // line indexes still to send
-    int m_translateInFlight = 0;
     // Which variant of the query is being tried: Musixmatch matches a
     // different song depending on how the artist is written.
     int m_mxmVariant = 0;
     QString m_mxmToken;
     QDateTime m_mxmTokenAt;
     bool m_loading = false;
-    // One publish per fetch: every finish()/fail() rearms the debounce, and
-    // once publishFinal() has run a late source may not replace the set on
-    // screen (no provisional result followed by a flip).
-    QTimer *m_publishTimer = nullptr;
-    bool m_publishFailed = false;
-    bool m_published = false;
-    // Invariant: m_published stays true after a cache hit (one QA decision),
-    // but a line-level cache hit sets m_upgradable so one aligned word-level
+    // A line-level cache hit sets m_upgradable so one aligned word-level
     // source may still replace the shown lines. Once it does, the flag clears.
     bool m_upgradable = false;
     bool m_hasLyrics = false;
