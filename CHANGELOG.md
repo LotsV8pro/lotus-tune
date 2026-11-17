@@ -5,52 +5,53 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
 ## 2.1.0 (2026-11-17)
 
-El audio suena limpio en el teléfono, los artistas de una canción se abren uno a uno, las letras avanzan letra a letra y las listas de Spotify se pueden traer a YouTube Music.
+Esta versión se centra en que la música suene bien, la letra esté siempre a tiempo y la app se use igual en escritorio, Windows y teléfono.
 
-- En el teléfono, las canciones que empezaban con chasquidos y petardeos ya suenan limpias. La app reproduce con el reproductor del propio teléfono, que entrega el audio sin cortes, en lugar del que traía Qt.
-- Cuando la canción tiene varios artistas ("A, B", "A & B", "A feat. B"), pulsar el nombre ya no abre el primero que devuelve el buscador. Sale la lista de los artistas encontrados, primero los que están de verdad en esa línea, y cada uno se abre por separado.
-- En la página de un artista, las canciones de arriba ya no se quedan con "19 M reproducciones" como nombre del artista: si la fila no trae el nombre enlazado, se pone el del artista de la página.
-- El número de reproducciones ya no aparece como artista en las radios del inicio ni en el historial, aunque la canción viniera de una lista guardada antes.
-- Si la sesión de YouTube deja de ser válida, la app lo dice al abrirse y ofrece volver a iniciar sesión. Antes, "Me gusta" salía vacía sin explicación.
-- Las letras se guardan al buscarlas por primera vez, para que la siguiente canción no tenga que buscarlas otra vez. Las canciones sin letra tampoco se vuelven a buscar durante una semana.
-- Hay un catálogo más de letras con tiempos por palabra y la opción de traducirlas línea a línea, los dos en Ajustes > Letras.
-- El estribillo se muestra un poco más grande y las palabras largas brillan un poco más al cantarlas.
-- Las letras se sincronizan al abrir el modo pantalla completa o al cambiar de canción, sin esperar a que pase una línea. El botón «Seguir la canción» solo sale si has movido la letra a mano.
-- El cambio de canción lleva un fundido breve en vez de un corte seco.
-- Inicio muestra radios de los artistas que más escuchas, calculadas solo con tus reproducciones guardadas en el teléfono.
-- Las búsquedas repetidas se responden al instante desde la memoria durante unos minutos.
-- La traducción de letras usa el idioma elegido en Ajustes y se aplica también al cambiar de idioma sin reiniciar.
-- La lista «Me gusta» ya no lleva debajo el nombre de una canción cualquiera: ahora dice «Tu lista».
-- Los sonidos de los botones vuelven a funcionar en el teléfono, sin tocar el sonido de la música.
-- Con el aleatorio activo, «Reproducir todo» empieza por una canción al azar, no siempre por la primera. El botón de aleatorio se ve activo de un vistazo, también en la pantalla completa.
-- Los ajustes ya no cortan las descripciones a media frase.
-- La traducción no añade notas musicales, usa el mismo blanco que la letra y se va con la frase.
-- La app se puede poner en francés, alemán y portugués, además de español e inglés.
-- Discord Rich Presence funciona en escritorio. En Android aparece como próximamente.
-- Las letras ya no cambian de fuente a mitad de canción: se muestra una sola decisión. El karaoke palabra a palabra sigue funcionando aunque la letra viniera de la caché, y los intro instrumentales no desaparecen.
-- La búsqueda de letras prueba también el título limpio y la parte después de « - » como canción, con el artista delante. Así se encuentran tiempos por palabra aunque el vídeo traiga el artista repetido en el título.
-- Se consultan LRCLIB, NetEase, Liriqo y Apple Music. Apple Music cubre las canciones que faltaban con las tres fuentes anteriores.
-- La letra se publica una sola vez por canción, cuando han llegado todas las fuentes. Ya no salta de una letra a otra al cabo de un segundo.
-- Cambiar de canción es directo a la primera pulsación. Se preparan las letras de las dos canciones siguientes sin mostrarlas.
-- Las palabras partidas por el proveedor ("blur ry", "lov ing") se juntan otra vez sin pegar contracciones ni palabras sueltas.
-- Se prefiere la fuente con letra a letra aunque otra fuente junte las frases de otro modo. Antes esa diferencia descartaba el karaoke y la canción se quedaba solo con letra por línea.
-- El texto visible se reconstruye desde los tiempos de cada palabra, así que el resaltado y la frase coinciden aunque el proveedor partiese o pegase palabras (`oth erdoor`, `waittoo`).
-- Una fuente con letra solo por línea ya no descarta la canción: se muestra esa letra sincronizada en vez de dejar el estado en «Buscando letra…» para siempre.
-- Las líneas que MyMemory no puede traducir se envían juntas y en grupos cortos al respaldo, así que se traducen casi todas de una vez sin agotar el límite de peticiones.
-- Discord Rich Presence deja de reenviar la canción cada tres segundos: la barra de progreso ya no se reinicia.
-- Los artistas de la barra del reproductor salen como etiquetas separadas; al tocar una se abre la página de ese artista.
-- Las palabras partidas se juntan usando la letra limpia de otra fuente como diccionario, en vez de reglas de longitud que pegaban `I need` o dejaban `Sor row`.
-- La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
-- Si el servicio principal de traducción está saturado, se prueba un segundo servicio y, si este también agota su cupo, un tercero línea a línea. Las líneas que faltaban se completan en la siguiente escucha sin borrar las que ya estaban traducidas.
-- Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
-- Al terminar una canción se pasa a la siguiente sin fundido, para que la cola no se quede parada en 0:00.
-- La barra inferior tiene cinco botones: el de Inicio usa el logo de la app y «Descargas» abre la pestaña de descargas. Ajustes tiene pestañas reales por sección, con Cuentas primero y el idioma en un desplegable.
-- Inicio y Buscar muestran las búsquedas recientes como chips arriba.
+### Audio y reproducción
+
+- En el teléfono, las canciones que empezaban con chasquidos y petardeos ya suenan limpias. La app usa el reproductor del propio dispositivo, que entrega el audio sin cortes, en lugar del que traía Qt.
+- Los sonidos de los botones vuelven a funcionar en el teléfono sin mezclarse con la música.
+- Cambiar de canción es directo a la primera pulsación. El fundido solo queda para el final de pista, donde evitaba que la cola se parara en 0:00.
+- Con el aleatorio activo, «Reproducir todo» empieza por una canción al azar, no siempre por la primera. El botón de aleatorio se ve activo de un vistazo, también en pantalla completa.
+- La sesión de YouTube caducada se detecta al abrir la app: se avisa y se ofrece volver a iniciar sesión, en vez de mostrar «Me gusta» vacía sin explicación.
+
+### Letras y traducción
+
+- Se consultan LRCLIB, NetEase, Liriqo y Apple Music. Apple cubre las canciones que faltaban con las otras tres fuentes.
+- La letra se publica una sola vez por canción, cuando han llegado todas las fuentes. Ya no salta de una versión a otra al cabo de un segundo.
+- Se prefiere la fuente con tiempos por palabra aunque otra fuente junte las frases de otro modo. Antes esa diferencia descartaba el karaoke y la canción se quedaba solo con letra por línea.
+- Una fuente con letra solo por línea ya no deja el estado en «Buscando letra…» para siempre: esa letra sincronizada se muestra igual.
+- Las palabras partidas por el proveedor (`blur ry`, `Nev er for get`, `Sor row`) se reconstruyen usando la letra limpia de otra fuente como diccionario. El texto visible se arma desde los tiempos de palabra, así que el resaltado y la frase coinciden. No se pegan contracciones ni palabras sueltas como `I need`.
+- Los intro instrumentales siguen visibles, el estribillo se muestra un poco más grande y las palabras largas brillan más al cantarlas.
+- La letra se sincroniza al abrir la pantalla completa o al cambiar de canción, sin esperar a que pase una línea. «Seguir la canción» solo aparece si has movido la letra a mano.
+- Las letras y su traducción se guardan en caché. Las líneas que faltaban se completan en la siguiente escucha sin borrar las ya traducidas, y una canción sin letra no se vuelve a buscar durante una semana.
+- Si el servicio principal de traducción está saturado, se prueba un segundo y, si este también agota su cupo, un tercero que envía las líneas pendientes en grupos cortos. Así se traducen casi todas de una vez sin gastar el límite de peticiones.
+- La traducción respeta el idioma de Ajustes, no añade notas musicales, usa el mismo blanco que la letra y se va con la frase.
+- Sin conexión medida se preparan las letras de las dos canciones siguientes; con datos móviles se mantiene una.
+- La búsqueda prueba también el título limpio y la parte después de « - » como canción, con el artista delante, para encontrar tiempos por palabra aunque el vídeo repita el artista en el título.
+
+### Interfaz
+
+- Ajustes tiene pestañas reales por sección, con la barra superior siempre visible y Cuentas primero. El idioma se cambia en un desplegable y las descripciones ya no se cortan.
+- La barra inferior del teléfono tiene cinco botones: Inicio usa el logo de la app y «Descargas» abre su pestaña.
+- Los artistas de la barra del reproductor salen como etiquetas separadas; al tocar una se abre la página de ese artista. Cuando una línea trae varios, se ofrecen uno a uno en vez de abrir el primero que devuelve el buscador.
+- En la página de un artista, las canciones de arriba ya no muestran «19 M reproducciones» como nombre: si la fila no trae el enlazado, se usa el artista de la página. Tampoco aparece como artista en radios del inicio ni en el historial.
+- Inicio y Buscar muestran las búsquedas recientes como chips arriba. Las búsquedas repetidas se responden al instante desde la memoria durante unos minutos.
+- Inicio muestra radios de los artistas más escuchados, calculadas solo con las reproducciones guardadas en el teléfono.
+- La lista «Me gusta» dice «Tu lista» en vez de llevar debajo el nombre de una canción cualquiera.
 - El color de acento por defecto es el morado del logo; el corazón de «Me gusta» se ve más grande cuando está marcado.
-- La animación de arranque ya no escala toda la pantalla: solo se mueve el logo, y el desenfoque del fondo y la limpieza de caché se hacen después del primer fotograma.
-- Los nombres de los idiomas empiezan por mayúscula.
-- Ajustes tiene pestañas reales por sección, con la barra superior siempre visible y Cuentas como primera pestaña.
-- Se pueden importar playlists públicas de Spotify a YouTube Music pegando el enlace en Ajustes > Cuentas o desde el botón de enlace de la barra de Biblioteca. Las canciones se buscan una a una y las que no se encuentran se omiten. Las cuentas de Spotify y Tidal como fuentes de reproducción se han quitado: no tenían backend real.
+- La animación de arranque solo mueve el logo. El desenfoque del fondo y la limpieza de caché se hacen después del primer fotograma.
+- Los nombres de los idiomas empiezan por mayúscula. La app se puede poner en francés, alemán y portugués, además de español e inglés.
+
+### Cuentas y listas
+
+- Se pueden importar playlists públicas de Spotify a YouTube Music pegando el enlace en Ajustes > Cuentas o desde el botón de enlace de la barra de Biblioteca. Las canciones se buscan una a una y las que no se encuentran se omiten. También se puede importar el historial de «Me gusta» exportado por Spotify.
+- Las cuentas de Spotify y Tidal como fuentes de reproducción se han quitado: no tenían backend real.
+
+### Escritorio y plataformas
+
+- Discord Rich Presence funciona en escritorio y deja de reenviar la canción cada tres segundos, para que la barra de progreso no se reinicie. En Android aparece como «Próximamente en Android».
+- El widget del escritorio lee la misma letra que la app, aplica el desplazamiento guardado por canción y recarga las republicaciones de la misma pista. Las palabras publicadas llevan su espacio para que no se peguen unas con otras.
 
 ## 2.0.8 (2026-11-16)
 

@@ -39,5 +39,6 @@ Abre Ajustes > Cuentas e inicia sesión con Google. Eso permite buscar letras co
 - `docs/LYRICS.md`: fuentes de letras y alineación.
 - `docs/I18N.md`: cómo añadir o actualizar traducciones.
 - `archive/legacy/`: scripts y archivos de versiones anteriores. No se usan en el build.
+- `archive/build-root/`: restos de compilaciones en la raíz, fuera del árbol de fuentes. No se usan en el build.
 
 La sesión, la biblioteca y la configuración viven en `~/.local/state/lotus-tune` y `~/.config/lotus-tune` en Linux, y en el directorio privado de la app en Android.
