@@ -28,8 +28,8 @@
 
 #include <QDebug>
 
-// Same source mix as FollowTheLyrics: LRCLIB, NetEase and Liriqo.
-// The other providers stay in the file but are disabled at their entry.
+// Source mix: FollowTheLyrics (LRCLIB, NetEase, Liriqo) plus Apple Music
+// via lrc.red, which covers the songs the three others do not know.
 namespace {
 constexpr bool kOnlySelectedSources = true;
 }
@@ -89,6 +89,9 @@ Lyrics::Lyrics(QObject *parent)
     : QObject(parent)
     , m_net(new QNetworkAccessManager(this))
 {
+    m_publishTimer = new QTimer(this);
+    m_publishTimer->setSingleShot(true);
+    connect(m_publishTimer, &QTimer::timeout, this, &Lyrics::publishFinal);
 }
 
 // Normalises for comparison: no capitals, no accents, no spaces, no
@@ -235,6 +238,9 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     m_translated = false;
     m_upgradable = false;
     ++m_gen;
+    if (m_publishTimer)
+        m_publishTimer->stop();
+    m_published = false;
 
     m_loading = true;
     m_hasLyrics = false;
@@ -2600,15 +2606,38 @@ void Lyrics::finish()
     // The lines of a source without word timings did not go through
     // prepareWordedLines: a notes-only line would still reach the view as
     // text (a lone "♪" where the dots belong).
+    if (m_published)
+        return;
+    m_publishFailed = false;
+    schedulePublish();
+}
+
+void Lyrics::schedulePublish()
+{
+    if (!m_publishTimer)
+        return;
+    // Rearmed by every source that lands. LRCLIB, NetEase and Liriqo
+    // answer in parallel; 900 ms after the last one the set is final.
+    m_publishTimer->start(900);
+}
+
+void Lyrics::publishFinal()
+{
+    if (m_published)
+        return;
+    m_published = true;
     markNoteStretches(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
-    if (!m_lines.isEmpty())
+    if (m_publishFailed)
+        saveToDiskCache(/*found=*/false);
+    else if (!m_lines.isEmpty())
         saveToDiskCache(/*found=*/true);
     const QString source = m_hasSynced
         ? (m_syncSource.isEmpty() ? QStringLiteral("?") : m_syncSource)
-        : (m_plainSource.isEmpty() ? QStringLiteral("ninguna")
-                                   : QStringLiteral("plana de ") + m_plainSource);
+        : (m_publishFailed || m_plainSource.isEmpty()
+               ? QStringLiteral("ninguna")
+               : QStringLiteral("plana de ") + m_plainSource);
     const int count = m_hasSynced
         ? m_lines.size()
         : m_plain.split(QLatin1Char('\n'), Qt::SkipEmptyParts).size();
@@ -2618,7 +2647,7 @@ void Lyrics::finish()
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
-    publishLines();   // full dump to the published state (lines or discard)
+    publishLines();
     startTranslate();
     emit changed();
 }
@@ -2641,7 +2670,8 @@ void Lyrics::fail(const QString &message)
     // Same format as in finish(): QA always expects the source line.
     qInfo().noquote() << QString("[lyrics] fuente: ninguna | synced: no | "
                                  "pista=\"%1\"").arg(m_trackKey);
-    emit changed();
+    m_publishFailed = true;
+    schedulePublish();
 }
 
 // The shell widget rebuilds the line from the word texts. Without a
@@ -2885,6 +2915,9 @@ int Lyrics::lineIndexAt(double seconds)
 
 void Lyrics::clear()
 {
+    if (m_publishTimer)
+        m_publishTimer->stop();
+    m_published = false;
     ++m_gen;              // it invalidates any answer still in flight
     m_upgradable = false;
     m_trackKey.clear();
@@ -3536,8 +3569,6 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
 // the other ones are per line.
 void Lyrics::startLrcRed(int candidate)
 {
-    if (kOnlySelectedSources)
-        return;
 
     if (m_title.trimmed().isEmpty())
         return;

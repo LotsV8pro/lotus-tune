@@ -329,6 +329,8 @@ private:
     void startNetease(int candidate = 0);
     // Closes the search and emits `changed` with the accumulated result.
     void finish();
+    void schedulePublish();
+    void publishFinal();
     void fail(const QString &message);
     // No synced lyrics in any source: it keeps the plain one if there is
     void settleOrFail();
@@ -480,6 +482,12 @@ private:
     // A line-level cache hit sets m_upgradable so one aligned word-level
     // source may still replace the shown lines. Once it does, the flag clears.
     bool m_upgradable = false;
+    // Sources answer in parallel. Publish once, after the last one has
+    // landed, so the view does not flip from a first answer to a better
+    // one a second later.
+    QTimer *m_publishTimer = nullptr;
+    bool m_publishFailed = false;
+    bool m_published = false;
     bool m_hasLyrics = false;
     bool m_hasSynced = false;
     QString m_plain;
