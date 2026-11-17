@@ -28,6 +28,12 @@
 
 #include <QDebug>
 
+// Test mode: only Liriqo and Apple Music via lrc.red are queried. The
+// other providers are left in the file but disabled at their entry point.
+namespace {
+constexpr bool kOnlyLiriqoAndApple = true;
+}
+
 // Helpers of the lyrics alignment (they are defined next to the
 // Musixmatch code, further down).
 static QString normLine(const QString &t);
@@ -779,6 +785,8 @@ void Lyrics::computeWordMeta(QVector<LrcLine> &lines)
 // for the track.
 void Lyrics::startLrclib(int candidate)
 {
+    if (kOnlyLiriqoAndApple)
+        return;
     const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kApiGet));
     QUrlQuery q;
@@ -956,6 +964,8 @@ static QString firstString(const QJsonValue &v, const QString &key)
 
 void Lyrics::startYtm(int candidate)
 {
+    if (kOnlyLiriqoAndApple)
+        return;
     m_ytmCandidate = candidate;
     // If the track comes from YouTube with its exact videoId, that video
     // is tried directly in /next (its timings match the recording being
@@ -1468,6 +1478,8 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
 
 void Lyrics::startNetease(int candidate)
 {
+    if (kOnlyLiriqoAndApple)
+        return;
     if (m_title.trimmed().isEmpty()) {
         settleOrFail();
         return;
@@ -2184,6 +2196,8 @@ static double secsOf(const QJsonValue &v)
 
 bool Lyrics::trySonoraCache()
 {
+    if (kOnlyLiriqoAndApple)
+        return false;
     if (m_videoId.isEmpty())
         return false;
     const QString path = QDir::homePath()
@@ -2318,6 +2332,8 @@ bool Lyrics::trySonoraCache()
 // and brings the word level timings.
 bool Lyrics::trySonoraByTitle()
 {
+    if (kOnlyLiriqoAndApple)
+        return false;
     if (m_title.isEmpty())
         return false;
     const QString path = QDir::homePath()
@@ -3226,6 +3242,8 @@ static QString cleanTrackArtist(const QString &in)
 
 void Lyrics::startMusixmatch(int candidate)
 {
+    if (kOnlyLiriqoAndApple)
+        return;
     if (m_mxmTried)
         return;   // it is already on its way
     m_mxmTried = true;

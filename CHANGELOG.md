@@ -29,6 +29,7 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - Discord Rich Presence funciona en escritorio. En Android aparece como próximamente.
 - Las letras ya no cambian de fuente a mitad de canción: se muestra una sola decisión. El karaoke palabra a palabra sigue funcionando aunque la letra viniera de la caché, y los intro instrumentales no desaparecen.
 - La búsqueda de letras prueba también el título limpio y la parte después de « - » como canción, con el artista delante. Así se encuentran tiempos por palabra aunque el vídeo traiga el artista repetido en el título.
+- Prueba de fuentes: de momento solo se consultan Liriqo y Apple Music; el resto está desactivado temporalmente.
 - La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
 - Si el servicio principal de traducción está saturado, se usa un segundo servicio línea a línea. Las líneas que no se traducen se dejan sin traducir sin descartar las demás.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
