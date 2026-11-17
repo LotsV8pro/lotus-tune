@@ -2807,8 +2807,25 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
 {
     static const QRegularExpression split(
         QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
+    // A few words arrive glued ("waittoo", "neverwin"). They are split
+    // in both the line text and the word stamps, so karaoke and text agree.
+    static const QHash<QString, QString> glued = {
+        {QStringLiteral("waittoo"), QStringLiteral("wait too")},
+        {QStringLiteral("neverwin"), QStringLiteral("never win")},
+        {QStringLiteral("alot"), QStringLiteral("a lot")},
+    };
+    const auto unglue = [](const QString &s) {
+        QString out = s;
+        for (auto it = glued.cbegin(); it != glued.cend(); ++it) {
+            out.replace(QRegularExpression(QStringLiteral("(?i)(?<![A-Za-z])")
+                                           + it.key()
+                                           + QStringLiteral("(?![A-Za-z])")),
+                        it.value());
+        }
+        return out;
+    };
     for (LrcLine &l : lines) {
-        QString text = l.text;
+        QString text = unglue(l.text);
         // A provider sometimes glues the pronoun to the next word.
         static const QRegularExpression gluedI(
             QStringLiteral("\\bI(could|would|will|never|think|know|am|have|"
@@ -2880,6 +2897,12 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
             l.words.insert(i + 1, rest);
             i += 2;
         }
+        for (QVariant &wv : l.words) {
+            QVariantMap w = wv.toMap();
+            w.insert(QStringLiteral("text"),
+                     unglue(w.value(QStringLiteral("text")).toString()));
+            wv = w;
+        }
         for (int i = 0; i + 1 < l.words.size();) {
             QVariantMap wa = l.words.at(i).toMap();
             QVariantMap wb = l.words.at(i + 1).toMap();
@@ -2899,6 +2922,24 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
                 continue;
             }
             ++i;
+        }
+        // The line text and the word stamps can split the same words in
+        // different places ("oth erdoor" vs "other door"). The word stamps
+        // are the karaoke itself, so rebuild the visible text from them.
+        // Only do it when no character is lost, to keep punctuation intact.
+        if (!l.words.isEmpty()) {
+            QString rebuilt;
+            for (int i = 0; i < l.words.size(); ++i) {
+                rebuilt += l.words.at(i).toMap()
+                               .value(QStringLiteral("text")).toString().trimmed();
+                if (i + 1 < l.words.size())
+                    rebuilt += QLatin1Char(' ');
+            }
+            QString a = text, b = rebuilt;
+            a.remove(QLatin1Char(' '));
+            b.remove(QLatin1Char(' '));
+            if (!rebuilt.trimmed().isEmpty() && a == b)
+                l.text = rebuilt.trimmed();
         }
     }
 }

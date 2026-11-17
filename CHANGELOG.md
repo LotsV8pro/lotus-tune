@@ -34,6 +34,7 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - Cambiar de canción es directo a la primera pulsación. Se preparan las letras de las dos canciones siguientes sin mostrarlas.
 - Las palabras partidas por el proveedor ("blur ry", "lov ing") se juntan otra vez sin pegar contracciones ni palabras sueltas.
 - Se prefiere la fuente con letra a letra aunque otra fuente junte las frases de otro modo. Antes esa diferencia descartaba el karaoke y la canción se quedaba solo con letra por línea.
+- El texto visible se reconstruye desde los tiempos de cada palabra, así que el resaltado y la frase coinciden aunque el proveedor partiese o pegase palabras (`oth erdoor`, `waittoo`).
 - La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
 - Si el servicio principal de traducción está saturado, se prueba un segundo servicio y, si este también agota su cupo, un tercero línea a línea. Las líneas que faltaban se completan en la siguiente escucha sin borrar las que ya estaban traducidas.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
