@@ -2528,7 +2528,7 @@ Window {
         // Ten tracks ahead on an unmetered connection makes the next
         // change instant. On metered mobile data keep it to one: each
         // prefetch is a whole 4-8 MB file.
-        prefetchAhead(queueIndex, catalog.metered ? 1 : 10)
+        prefetchAhead(queueIndex, catalog.metered ? 1 : 2)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "",
                             setId: t.setId || "" })
@@ -2637,26 +2637,16 @@ Window {
             reshuffleQueue()
         }
         if (queueIndex + 1 < queue.count) {
-            if (immediate) {
-                queueIndex++
-                startCurrent()
-            } else root.switchTrack(function () {
-                queueIndex++
-                startCurrent()
-            })
+            queueIndex++
+            startCurrent()
             return
         }
         // End of the queue with the LIST on repeat: it goes back to the
         // first track without asking for autoplay (the music returns on
         // its own).
         if (root.repeatMode === 1 && queue.count > 0) {
-            if (immediate) {
-                queueIndex = 0
-                startCurrent()
-            } else root.switchTrack(function () {
-                queueIndex = 0
-                startCurrent()
-            })
+            queueIndex = 0
+            startCurrent()
             return
         }
         // End of the queue. With the autoplay on it does not stop: YouTube
@@ -2704,10 +2694,8 @@ Window {
             return
         }
         if (queueIndex > 0) {
-            root.switchTrack(function () {
-                queueIndex--
-                startCurrent()
-            })
+            queueIndex--
+            startCurrent()
         } else {
             player.seek(0)
         }

@@ -278,9 +278,11 @@ void Lyrics::fetch(const QString &artist, const QString &title,
         return;
     }
 
-    qInfo().noquote() << QString("[lyrics] buscar pista=\"%1\" dur=%2s")
+    qInfo().noquote() << QString("[lyrics] buscar pista=\"%1\" dur=%2s%3")
                              .arg(m_trackKey)
-                             .arg(m_duration);
+                             .arg(m_duration)
+                             .arg(m_prefetchOnly ? QStringLiteral(" (precarga)")
+                                                 : QString());
 
     if (loadFromDiskCache()) {
         if (m_upgradable) {
