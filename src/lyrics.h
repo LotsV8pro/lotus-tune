@@ -87,6 +87,9 @@ public:
     void setOffset(double v);
     bool karaoke() const { return m_karaoke; }
     void setKaraoke(bool on);
+    // A second engine can warm the disk cache for upcoming tracks without
+    // touching the published state of the song that is playing.
+    Q_INVOKABLE void setPrefetchOnly(bool on) { m_prefetchOnly = on; }
     // Lines already parsed (with their seconds). It is the single source
     // of truth for painting and for lineIndexAt(), so the index and the
     // highlighted row can never drift apart.
@@ -465,6 +468,8 @@ private:
     bool m_mxmTokenRetried = false;   // one fresh token per fetch, no loop
     bool m_liriqoEnabled = true;
     bool m_translated = false;
+    bool m_prefetchOnly = false;
+    bool m_partialTranslation = false;
     QString m_translateTo;
     // Bumped when a publish changes the lines, so a translation reply built
     // for the old lines drops itself (notably after a word-level upgrade).

@@ -32,7 +32,7 @@ El audio suena limpio en el teléfono, los artistas de una canción se abren uno
 - Se consultan LRCLIB, NetEase, Liriqo y Apple Music. Apple Music cubre las canciones que faltaban con las tres fuentes anteriores.
 - La letra se publica una sola vez por canción, cuando han llegado todas las fuentes. Ya no salta de una letra a otra al cabo de un segundo.
 - La traducción se guarda con la letra, así que una canción ya traducida no vuelve a gastar peticiones. El texto de traducción y los puntos instrumentales son blancos.
-- Si el servicio principal de traducción está saturado, se usa un segundo servicio línea a línea. Las líneas que no se traducen se dejan sin traducir sin descartar las demás.
+- Si el servicio principal de traducción está saturado, se usa un segundo servicio línea a línea. Las líneas que faltaban se completan en la siguiente escucha sin borrar las que ya estaban traducidas.
 - Las palabras publicadas llevan su espacio, para que el widget del escritorio no pegue unas con otras. Sin conexión medida se preparan hasta diez canciones por delante; con datos móviles se mantiene una.
 - Al terminar una canción se pasa a la siguiente sin fundido, para que la cola no se quede parada en 0:00.
 - La barra inferior tiene cinco botones: el de Inicio usa el logo de la app y «Descargas» abre la pestaña de descargas. Ajustes tiene pestañas reales por sección, con Cuentas primero y el idioma en un desplegable.

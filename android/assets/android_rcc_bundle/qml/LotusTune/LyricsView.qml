@@ -18,6 +18,10 @@ Item {
     id: lv
     clip: true
 
+    // Right click on the lyrics opens the context menu (translation and
+    // reading tweaks). The owner builds the menu items.
+    signal contextRequested(real x, real y)
+
     // Base size of a lyrics line. NowPlaying raises it for the big view.
     property int lineSize: 16
     // Size bump of the ACTIVE line: it is the one "singing", so it is
@@ -1173,7 +1177,8 @@ Item {
                         id: translation
                         // The translation belongs to the phrase being
                         // sung: it fades with the line once it has passed.
-                        visible: rrow.hasTr && Math.abs(index - lv.focusedIndex) <= 1
+                        visible: rrow.hasTr && !rrow.instrumental
+                                 && Math.abs(index - lv.focusedIndex) <= 1
                         x: rrow.padL
                         width: rrow.textW
                         y: (rrow.karaokeRow ? editBase.contentHeight
@@ -1594,4 +1599,13 @@ Item {
             }
         }
     }
+    // Right click anywhere on the lyrics: hand the position to the owner,
+    // which opens its shared context menu with translation and reading options.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        z: 1000
+        onClicked: (mouse) => lv.contextRequested(mouse.x, mouse.y)
+    }
+
 }

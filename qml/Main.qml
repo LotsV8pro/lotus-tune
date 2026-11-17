@@ -2549,8 +2549,16 @@ Window {
             return
         for (let i = from + 1; i <= from + n && i < queue.count; i++) {
             const t = queue.get(i)
-            if (t && t.url)
+            if (t && t.url) {
                 player.prefetch(t.url)
+                // Warm the lyrics cache too: when the track starts, the
+                // providers have already answered and the widget shows
+                // the right lines from the first second.
+                if (typeof lyricsNext !== "undefined"
+                        && t.title && Number(t.duration) > 0)
+                    lyricsNext.fetch(String(t.artist || ""), String(t.title),
+                                     Number(t.duration), videoIdOf(t.url))
+            }
         }
     }
 

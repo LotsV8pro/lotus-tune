@@ -383,23 +383,39 @@ bool Lyrics::loadFromDiskCache()
     m_worded = hasWordTimings();
     // Translations are kept with the lyrics: a translated song must not
     // spend translator quota again on every play.
-    bool hasTr = false;
-    for (const LrcLine &l : lines)
+    int withTr = 0;
+    int singable = 0;
+    for (const LrcLine &l : lines) {
+        if (l.instrumental)
+            continue;
+        ++singable;
         if (!l.translation.isEmpty())
-            hasTr = true;
-    m_translated = hasTr;
+            ++withTr;
+    }
+    m_translated = singable > 0 && withTr == singable;
+    m_partialTranslation = withTr > 0 && withTr < singable;
     m_refLines = lines;
+    for (LrcLine &l : m_lines) {
+        if (isInstrumental(norm(l.text))) {
+            l.instrumental = true;
+            l.text = QStringLiteral("♪");
+            l.words.clear();
+            l.translation.clear();
+        }
+    }
     markNoteStretches(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
-    publishLines();
-    startTranslate();
+    if (!m_prefetchOnly) {
+        publishLines();
+        startTranslate();
+        emit changed();
+    }
     // A line-level cache hit stays upgradable: a late word-level source may
     // still replace these lines through maybeUpgradeWorded().
     m_upgradable = !hasWordTimings();
-    emit changed();
     return true;
 }
 
@@ -560,6 +576,8 @@ void Lyrics::onLiriqoReply(QNetworkReply *reply, const QString &key)
 // ---------------------------------------------------------------------------
 void Lyrics::startTranslate()
 {
+    if (m_prefetchOnly)
+        return;
     if (m_translateTo.isEmpty() || m_translated || m_lines.isEmpty())
         return;
     QStringList texts;
@@ -569,6 +587,8 @@ void Lyrics::startTranslate()
         if (l.instrumental)
             continue;
         const QString t = l.text.trimmed();
+        if (m_partialTranslation && !l.translation.isEmpty())
+            continue;
         if (!t.isEmpty() && !texts.contains(t))
             texts.append(t);
     }
@@ -736,8 +756,13 @@ void Lyrics::applyTranslatedText(const QString &all)
 
 void Lyrics::applyTranslationMap(const QHash<QString, QString> &byText)
 {
-    for (LrcLine &l : m_lines)
-        l.translation = byText.value(l.text.trimmed());
+    for (LrcLine &l : m_lines) {
+        const QString key = l.text.trimmed();
+        if (byText.contains(key))
+            l.translation = byText.value(key);
+        // A missing line keeps the translation it already had from the
+        // cache; partial results must never erase good ones.
+    }
     qInfo() << "[lyrics] traduccion aplicada a" << byText.size() << "lineas";
     // Save the translated lines too: the next listen costs no quota.
     if (!m_lines.isEmpty())
@@ -2626,6 +2651,14 @@ void Lyrics::publishFinal()
     if (m_published)
         return;
     m_published = true;
+    for (LrcLine &l : m_lines) {
+        if (isInstrumental(norm(l.text))) {
+            l.instrumental = true;
+            l.text = QStringLiteral("♪");
+            l.words.clear();
+            l.translation.clear();
+        }
+    }
     markNoteStretches(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
@@ -2647,9 +2680,11 @@ void Lyrics::publishFinal()
                     m_hasSynced ? QStringLiteral("sí") : QStringLiteral("no"),
                     QString::number(count),
                     m_trackKey);
-    publishLines();
-    startTranslate();
-    emit changed();
+    if (!m_prefetchOnly) {
+        publishLines();
+        startTranslate();
+        emit changed();
+    }
 }
 
 void Lyrics::fail(const QString &message)
@@ -3030,6 +3065,8 @@ void Lyrics::setKaraoke(bool on)
 // for the same thing.
 void Lyrics::publishTrack()
 {
+    if (m_prefetchOnly)
+        return;
     if (m_trackKey.isEmpty()) {
         removePublished();
         return;
@@ -3055,6 +3092,8 @@ void Lyrics::publishTrack()
 // contract), with a reasonable cap so no huge durations are announced.
 void Lyrics::publishLines()
 {
+    if (m_prefetchOnly)
+        return;
     if (m_trackKey.isEmpty())
         return;
     // The widget waits for the lyrics of a finished track; if the search
@@ -3456,9 +3495,17 @@ static QString normLine(const QString &t)
 // say anything about when the words are sung.
 static bool isInstrumental(const QString &norm)
 {
-    return norm == QStringLiteral("♪") || norm == QStringLiteral("♫")
-        || norm == QStringLiteral("♬") || norm == QStringLiteral("music")
-        || norm == QStringLiteral("instrumental");
+    // Providers label non-sung stretches with text such as "Guitar Intro"
+    // or "Introducción de guitarra". They are dots, not lyrics.
+    static const QSet<QString> labels = {
+        QStringLiteral("♪"), QStringLiteral("♫"), QStringLiteral("♬"),
+        QStringLiteral("music"), QStringLiteral("instrumental"),
+        QStringLiteral("intro"), QStringLiteral("introduccion"),
+        QStringLiteral("guitarintro"), QStringLiteral("introducciondeguitarra"),
+        QStringLiteral("pianointro"), QStringLiteral("drumintro"),
+        QStringLiteral("bassintro"), QStringLiteral("violinintro"),
+    };
+    return labels.contains(norm);
 }
 
 // The last word of a line usually inherits the end of the line: the

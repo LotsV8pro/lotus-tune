@@ -76,6 +76,8 @@ Rectangle {
     // Right click on the artwork: the same track menu as in the lists
     // (radio, queue, library...). Click on the artist: open their page.
     signal trackMenuRequested(real x, real y)
+    // Right click on the lyrics: translation and reading options.
+    signal lyricsMenuRequested(real x, real y)
     signal artistRequested(string name)
     // Swipe-down on the artwork: closes the overlay (same as the back
     // button on the phone).
@@ -357,6 +359,10 @@ Rectangle {
                 edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
                 leftAlign: true
                 duetSides: true
+                onContextRequested: (x, y) => {
+                    const p = mapToItem(fl, x, y)
+                    fl.lyricsMenuRequested(p.x, p.y)
+                }
                 // Subtitle window: previous, active and next line. The
                 // whole song made the column run into the progress bar of
                 // the left block.

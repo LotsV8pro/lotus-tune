@@ -715,6 +715,10 @@ int main(int argc, char *argv[])
     // Synced lyrics (LRCLIB) for the "Now Playing" view.
     Lyrics lyrics;
     engine.rootContext()->setContextProperty(QStringLiteral("lyrics"), &lyrics);
+    // Warms the lyrics cache for upcoming tracks. It never publishes state.
+    Lyrics lyricsNext;
+    lyricsNext.setPrefetchOnly(true);
+    engine.rootContext()->setContextProperty(QStringLiteral("lyricsNext"), &lyricsNext);
     // The engine feeds the lyrics state published for the inir widgets
     // (clock position and play/pause). See Lyrics::setEngine.
     lyrics.setEngine(&player);
