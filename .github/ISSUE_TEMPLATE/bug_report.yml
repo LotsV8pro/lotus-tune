@@ -1,0 +1,54 @@
+name: Informar de un error
+description: Cuéntanos qué falló y cómo reproducirlo.
+title: "[Error]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por avisar. Cuanto más concreto sea el paso a paso, más fácil será corregirlo.
+
+  - type: input
+    id: version
+    attributes:
+      label: Versión de la app
+      description: La ves en Ajustes o en el nombre del archivo que descargaste.
+      placeholder: "2.1.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: Sistema
+      options:
+        - Linux
+        - Windows
+        - Android
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: Qué ocurrió
+      description: Describe lo que viste y lo que esperabas que pasara.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Cómo reproducirlo
+      placeholder: |
+        1. Abrir la app.
+        2. Ir a ...
+        3. Pulsar ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Mensajes de error
+      description: Si la app mostró algún error, pégalo aquí. No incluyas contraseñas ni datos personales.
+      render: shell

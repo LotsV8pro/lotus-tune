@@ -38,6 +38,8 @@ Abre Ajustes > Cuentas e inicia sesión con Google. Eso permite buscar letras co
 - `INSTRUCCIONES.md`: instalación y primeros pasos en español.
 - `docs/LYRICS.md`: fuentes de letras y alineación.
 - `docs/I18N.md`: cómo añadir o actualizar traducciones.
+- `CONTRIBUTING.md`: cómo participar y preparar el entorno.
+- `CODE_OF_CONDUCT.md`, `SECURITY.md` y `ACCESSIBILITY.md`: normas de convivencia, avisos de seguridad y acceso a la interfaz.
 - `archive/legacy/`: scripts y archivos de versiones anteriores. No se usan en el build.
 - `archive/build-root/`: restos de compilaciones en la raíz, fuera del árbol de fuentes. No se usan en el build.
 

@@ -1,0 +1,42 @@
+name: Proponer una mejora
+description: Sugiere una función o un cambio que haga la app más útil.
+title: "[Mejora]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes de escribir, busca si ya existe un issue con la misma idea.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qué problema resuelve
+      description: Cuéntanos qué te resulta difícil o qué te gustaría poder hacer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Qué te gustaría que pasara
+      description: Describe la función con palabras sencillas. No hace falta detalle técnico.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: system
+    attributes:
+      label: Dónde la usarías
+      options:
+        - Linux
+        - Windows
+        - Android
+        - En varios sistemas
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas que has probado
+      description: Si hay otra forma de hacerlo ahora mismo, cuáles son y qué les falta.
