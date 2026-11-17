@@ -400,9 +400,9 @@ static void attachParentConsole()
     if (!AttachConsole(ATTACH_PARENT_PROCESS))
         return;
     FILE *f = nullptr;
-    std::freopen_s(&f, "CONOUT$", "w", stdout);
-    std::freopen_s(&f, "CONOUT$", "w", stderr);
-    std::freopen_s(&f, "CONIN$", "r", stdin);
+    freopen_s(&f, "CONOUT$", "w", stdout);
+    freopen_s(&f, "CONOUT$", "w", stderr);
+    freopen_s(&f, "CONIN$", "r", stdin);
 }
 #endif
 
