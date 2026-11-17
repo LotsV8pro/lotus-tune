@@ -19,8 +19,10 @@ env:
   # flavour is built with the same version.
   QT_VERSION: '6.6.3'
   # The Python the Windows installer carries (the embedded package: stdlib
-  # only, which is all the two helpers use).
-  PY_EMBED_VERSION: '3.12.16'
+  # only, which is all the two helpers use). 3.13.17 is the newest release
+  # that still publishes Windows binaries: from 3.13.18 on the zip is not on
+  # python.org (it gave a 404 and stopped the job).
+  PY_EMBED_VERSION: '3.13.17'
 
 jobs:
   linux:
