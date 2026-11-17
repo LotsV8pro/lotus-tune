@@ -309,6 +309,7 @@ private:
     void startTranslateFallback();
     void pumpTranslateFallback();
     void onTranslateFallbackReply(QNetworkReply *reply, const QString &key);
+    void requestJinaLine(int index);
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);

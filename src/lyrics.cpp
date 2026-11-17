@@ -686,11 +686,24 @@ void Lyrics::pumpTranslateFallback()
         return;
     }
     const int index = m_fallbackIndex;
+    const QString text = m_fallbackTexts.at(index);
     QUrl url(QStringLiteral("https://api.mymemory.translated.net/get"));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("q"), m_fallbackTexts.at(index));
+    q.addQueryItem(QStringLiteral("q"), text);
+    // MyMemory no longer accepts "autodetect" as a source language.
+    // Spanish accents mark Spanish lyrics; everything else is treated as
+    // English, which is what the interface normally translates.
+    const bool looksSpanish = text.contains(QRegularExpression(
+        QStringLiteral("[áéíóúñ¿¡]"), QRegularExpression::CaseInsensitiveOption));
+    const QString source = looksSpanish ? QStringLiteral("es")
+                                        : QStringLiteral("en");
+    if (source == m_translateTo) {
+        ++m_fallbackIndex;
+        pumpTranslateFallback();
+        return;
+    }
     q.addQueryItem(QStringLiteral("langpair"),
-                   QStringLiteral("autodetect|") + m_translateTo);
+                   source + QLatin1Char('|') + m_translateTo);
     q.addQueryItem(QStringLiteral("de"),
                    QStringLiteral("lotus-tune@users.noreply.github.com"));
     url.setQuery(q);
@@ -707,25 +720,84 @@ void Lyrics::pumpTranslateFallback()
     });
 }
 
+// Public reader proxy. It fetches the same Google endpoint from its own
+// network, so a throttled home IP does not block the translation.
+void Lyrics::requestJinaLine(int index)
+{
+    QUrlQuery inner;
+    inner.addQueryItem(QStringLiteral("client"), QStringLiteral("gtx"));
+    inner.addQueryItem(QStringLiteral("sl"), QStringLiteral("auto"));
+    inner.addQueryItem(QStringLiteral("tl"), m_translateTo);
+    inner.addQueryItem(QStringLiteral("dt"), QStringLiteral("t"));
+    inner.addQueryItem(QStringLiteral("q"), m_fallbackTexts.at(index));
+    const QUrl url(QStringLiteral("https://r.jina.ai/")
+                   + QStringLiteral("https://translate.googleapis.com/translate_a/single?")
+                   + inner.toString(QUrl::FullyEncoded));
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", QByteArray(kUserAgent));
+    req.setTransferTimeout(kTimeoutMs);
+    QNetworkReply *reply = m_net->get(req);
+    reply->setProperty("trackKey", m_trackKey);
+    reply->setProperty("gen", m_gen);
+    reply->setProperty("translationGen", m_fallbackGen);
+    reply->setProperty("lineIndex", index);
+    reply->setProperty("viaJina", true);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        onTranslateFallbackReply(reply, reply->property("trackKey").toString());
+    });
+}
+
 void Lyrics::onTranslateFallbackReply(QNetworkReply *reply, const QString &key)
 {
     const int index = reply->property("lineIndex").toInt();
     const int gen = reply->property("translationGen").toInt();
     QString text;
+    const bool viaJina = reply->property("viaJina").toBool();
     if (reply->error() == QNetworkReply::NoError) {
-        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
-        text = o.value(QStringLiteral("responseData")).toObject()
-                .value(QStringLiteral("translatedText")).toString();
-        if (text.contains(QStringLiteral("MYMEMORY WARNING")))
-            text.clear();
+        const QByteArray body = reply->readAll();
+        if (viaJina) {
+            const int at = body.indexOf("Markdown Content:");
+            if (at >= 0) {
+                const int from = body.indexOf('[', at + 17);
+                if (from >= 0) {
+                    const QJsonArray root =
+                        QJsonDocument::fromJson(body.mid(from)).array();
+                    if (!root.isEmpty() && root.at(0).isArray()) {
+                        const QJsonArray seg = root.at(0).toArray();
+                        if (!seg.isEmpty() && seg.at(0).isArray()) {
+                            const QJsonArray first = seg.at(0).toArray();
+                            if (!first.isEmpty())
+                                text = first.at(0).toString();
+                        }
+                    }
+                }
+            }
+        } else {
+            const QJsonObject o = QJsonDocument::fromJson(body).object();
+            text = o.value(QStringLiteral("responseData")).toObject()
+                    .value(QStringLiteral("translatedText")).toString();
+            if (text.contains(QStringLiteral("MYMEMORY WARNING")))
+                text.clear();
+        }
     }
     reply->deleteLater();
     if (isStale(reply, key, m_trackKey, m_gen) || gen != m_fallbackGen)
         return;
-    if (!text.isEmpty())
+    if (viaJina) {
+        if (!text.isEmpty())
+            m_fallbackResults.insert(index, text);
+        ++m_fallbackIndex;
+        pumpTranslateFallback();
+        return;
+    }
+    if (!text.isEmpty()) {
         m_fallbackResults.insert(index, text);
-    ++m_fallbackIndex;
-    pumpTranslateFallback();
+        ++m_fallbackIndex;
+        pumpTranslateFallback();
+        return;
+    }
+    // MyMemory is out of quota: ask the public reader for this one line.
+    requestJinaLine(index);
 }
 
 void Lyrics::applyTranslatedText(const QString &all)
