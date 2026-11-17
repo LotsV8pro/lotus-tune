@@ -311,13 +311,12 @@ private:
     // Visual emphasis taken from the timings themselves (no audio work).
     static void markChorus(QVector<LrcLine> &lines);
     static void computeWordMeta(QVector<LrcLine> &lines);
-    // When a provider only knows where a line starts and ends, give the
-    // view word stamps spread across that line. FollowTheLyrics does the
-    // same so the front can still move letter by letter.
-    static void synthesizeWordTimes(QVector<LrcLine> &lines);
     // Word stamps from another take can run past the next line. Drop them
     // and let synthesizeWordTimes rebuild the front inside the line.
     static void validateWordTimes(QVector<LrcLine> &lines);
+    // Some providers split a word into two runs ("nev er"). Join those
+    // fragments in both the text and the word stamps.
+    static void joinSplitWords(QVector<LrcLine> &lines);
 
     // ---- YouTube Music cascade -------------------------------------
     void startYtm(int candidate = 0);

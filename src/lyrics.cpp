@@ -390,10 +390,9 @@ bool Lyrics::loadFromDiskCache()
     m_translated = hasTr;
     m_refLines = lines;
     markNoteStretches(m_lines);
+    joinSplitWords(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
-    validateWordTimes(m_lines);
-    synthesizeWordTimes(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
@@ -1827,6 +1826,8 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
             m_lines = parsed;
             m_syncSource = source;
             markNoteStretches(m_lines);
+            joinSplitWords(m_lines);
+    joinSplitWords(m_lines);
             markChorus(m_lines);
             computeWordMeta(m_lines);
             ++m_translationGen;
@@ -2194,8 +2195,6 @@ void Lyrics::maybeUpgradeWorded()
     m_hasSynced = true;
     m_syncSource = bestSource;
     m_upgradable = false;   // one upgrade per fetch
-    validateWordTimes(m_lines);
-    synthesizeWordTimes(m_lines);
 
     // The translation in flight was built for the line-level set: drop its
     // replies and translate the final (word-level) lines instead.
@@ -2663,6 +2662,85 @@ void Lyrics::schedulePublish()
     m_publishTimer->start(1500);
 }
 
+static bool isJoinableFragment(const QString &word)
+{
+    static const QSet<QString> keep = {
+        QStringLiteral("a"), QStringLiteral("i"), QStringLiteral("an"),
+        QStringLiteral("and"), QStringLiteral("as"), QStringLiteral("at"),
+        QStringLiteral("be"), QStringLiteral("but"), QStringLiteral("by"),
+        QStringLiteral("can"), QStringLiteral("do"), QStringLiteral("for"),
+        QStringLiteral("from"), QStringLiteral("get"), QStringLiteral("go"),
+        QStringLiteral("had"), QStringLiteral("has"), QStringLiteral("have"),
+        QStringLiteral("her"), QStringLiteral("his"), QStringLiteral("how"),
+        QStringLiteral("if"), QStringLiteral("in"), QStringLiteral("is"),
+        QStringLiteral("it"), QStringLiteral("just"), QStringLiteral("know"),
+        QStringLiteral("let"), QStringLiteral("like"), QStringLiteral("me"),
+        QStringLiteral("my"), QStringLiteral("no"), QStringLiteral("not"),
+        QStringLiteral("now"), QStringLiteral("of"), QStringLiteral("on"),
+        QStringLiteral("one"), QStringLiteral("or"), QStringLiteral("our"),
+        QStringLiteral("out"), QStringLiteral("say"), QStringLiteral("see"),
+        QStringLiteral("she"), QStringLiteral("so"), QStringLiteral("that"),
+        QStringLiteral("the"), QStringLiteral("they"), QStringLiteral("this"),
+        QStringLiteral("to"), QStringLiteral("two"), QStringLiteral("up"),
+        QStringLiteral("want"), QStringLiteral("was"), QStringLiteral("we"),
+        QStringLiteral("what"), QStringLiteral("when"), QStringLiteral("where"),
+        QStringLiteral("who"), QStringLiteral("why"), QStringLiteral("will"),
+        QStringLiteral("with"), QStringLiteral("you"), QStringLiteral("your"),
+    };
+    const QString w = word.trimmed();
+    if (w.isEmpty() || w.size() > 5 || keep.contains(w.toLower()))
+        return false;
+    for (const QChar &c : w)
+        if (!c.isLetter())
+            return false;
+    return true;
+}
+
+void Lyrics::joinSplitWords(QVector<LrcLine> &lines)
+{
+    static const QRegularExpression split(
+        QStringLiteral("\\b([A-Za-z]{2,5}) ([A-Za-z]{2,3})\\b"));
+    for (LrcLine &l : lines) {
+        QString text = l.text;
+        for (int pass = 0; pass < 2; ++pass) {
+            QRegularExpressionMatchIterator it = split.globalMatch(text);
+            bool changed = false;
+            while (it.hasNext()) {
+                const QRegularExpressionMatch m = it.next();
+                if (!isJoinableFragment(m.captured(1))
+                    || !isJoinableFragment(m.captured(2)))
+                    continue;
+                text.replace(m.capturedStart(), m.capturedLength(),
+                             m.captured(1) + m.captured(2));
+                changed = true;
+                break;
+            }
+            if (!changed)
+                break;
+        }
+        l.text = text;
+
+        for (int i = 0; i + 1 < l.words.size();) {
+            QVariantMap a = l.words.at(i).toMap();
+            QVariantMap b = l.words.at(i + 1).toMap();
+            const QString wa = a.value(QStringLiteral("text")).toString().trimmed();
+            const QString wb = b.value(QStringLiteral("text")).toString().trimmed();
+            if (isJoinableFragment(wa) && isJoinableFragment(wb)) {
+                a.insert(QStringLiteral("text"),
+                         wa + wb + (b.value(QStringLiteral("text"))
+                                    .toString().endsWith(QLatin1Char(' '))
+                                    ? QStringLiteral(" ") : QString()));
+                a.insert(QStringLiteral("e"),
+                         b.value(QStringLiteral("e")).toDouble());
+                l.words[i] = a;
+                l.words.removeAt(i + 1);
+                continue;
+            }
+            ++i;
+        }
+    }
+}
+
 void Lyrics::validateWordTimes(QVector<LrcLine> &lines)
 {
     for (LrcLine &l : lines) {
@@ -2698,47 +2776,6 @@ void Lyrics::validateWordTimes(QVector<LrcLine> &lines)
     }
 }
 
-void Lyrics::synthesizeWordTimes(QVector<LrcLine> &lines)
-{
-    for (LrcLine &l : lines) {
-        if (l.instrumental || !l.words.isEmpty())
-            continue;
-        const QString text = l.text.trimmed();
-        if (text.isEmpty())
-            continue;
-        double end = l.end;
-        if (!(end > l.time)) {
-            // A line without an end lasts until the next one, capped so a
-            // long instrumental gap does not freeze the front for seconds.
-            end = l.time + 6.0;
-        }
-        const double span = qMin(end - l.time, 8.0);
-        if (span <= 0.2)
-            continue;
-        const QStringList words = text.split(QRegularExpression(QStringLiteral("\\s+")),
-                                             Qt::SkipEmptyParts);
-        if (words.isEmpty())
-            continue;
-        int total = 0;
-        for (const QString &w : words)
-            total += w.size();
-        if (total <= 0)
-            continue;
-        int used = 0;
-        for (const QString &w : words) {
-            const double from = l.time + span * double(used) / total;
-            used += w.size();
-            const double to = l.time + span * double(used) / total;
-            QVariantMap m;
-            m.insert(QStringLiteral("t"), from);
-            m.insert(QStringLiteral("e"), to);
-            m.insert(QStringLiteral("text"), w);
-            m.insert(QStringLiteral("synthetic"), true);
-            l.words.append(m);
-        }
-    }
-}
-
 void Lyrics::publishFinal()
 {
     if (m_published)
@@ -2748,10 +2785,9 @@ void Lyrics::publishFinal()
     // prepareWordedLines: a notes-only line would still reach the view as
     // text (a lone "♪" where the dots belong).
     markNoteStretches(m_lines);
+    joinSplitWords(m_lines);
     markChorus(m_lines);
     computeWordMeta(m_lines);
-    validateWordTimes(m_lines);
-    synthesizeWordTimes(m_lines);
     computeWordMeta(m_lines);
     if (m_publishFailed)
         saveToDiskCache(/*found=*/false);
