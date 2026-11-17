@@ -28,10 +28,10 @@
 
 #include <QDebug>
 
-// Test mode: only Liriqo and Apple Music via lrc.red are queried. The
-// other providers are left in the file but disabled at their entry point.
+// Same source mix as FollowTheLyrics: LRCLIB, NetEase and Liriqo.
+// The other providers stay in the file but are disabled at their entry.
 namespace {
-constexpr bool kOnlyLiriqoAndApple = true;
+constexpr bool kOnlySelectedSources = true;
 }
 
 // Helpers of the lyrics alignment (they are defined next to the
@@ -283,6 +283,8 @@ void Lyrics::fetch(const QString &artist, const QString &title,
             // lines through maybeUpgradeWorded().
             if (m_liriqoEnabled)
                 startLiriqo();
+            startLrclib();
+            startNetease();
             trySonoraCache();
             trySonoraByTitle();
             if (m_upgradable) {
@@ -295,6 +297,8 @@ void Lyrics::fetch(const QString &artist, const QString &title,
 
     if (m_liriqoEnabled)
         startLiriqo();
+    startLrclib();
+    startNetease();
 
     // The local Sonora cache: it is instant and it brings word level
     // timings (real karaoke). It is shown at once, but the network is
@@ -785,8 +789,6 @@ void Lyrics::computeWordMeta(QVector<LrcLine> &lines)
 // for the track.
 void Lyrics::startLrclib(int candidate)
 {
-    if (kOnlyLiriqoAndApple)
-        return;
     const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kApiGet));
     QUrlQuery q;
@@ -964,7 +966,7 @@ static QString firstString(const QJsonValue &v, const QString &key)
 
 void Lyrics::startYtm(int candidate)
 {
-    if (kOnlyLiriqoAndApple)
+    if (kOnlySelectedSources)
         return;
     m_ytmCandidate = candidate;
     // If the track comes from YouTube with its exact videoId, that video
@@ -1478,8 +1480,6 @@ void Lyrics::onSearchReply(QNetworkReply *reply, const QString &key)
 
 void Lyrics::startNetease(int candidate)
 {
-    if (kOnlyLiriqoAndApple)
-        return;
     if (m_title.trimmed().isEmpty()) {
         settleOrFail();
         return;
@@ -2196,7 +2196,7 @@ static double secsOf(const QJsonValue &v)
 
 bool Lyrics::trySonoraCache()
 {
-    if (kOnlyLiriqoAndApple)
+    if (kOnlySelectedSources)
         return false;
     if (m_videoId.isEmpty())
         return false;
@@ -2332,7 +2332,7 @@ bool Lyrics::trySonoraCache()
 // and brings the word level timings.
 bool Lyrics::trySonoraByTitle()
 {
-    if (kOnlyLiriqoAndApple)
+    if (kOnlySelectedSources)
         return false;
     if (m_title.isEmpty())
         return false;
@@ -3242,7 +3242,7 @@ static QString cleanTrackArtist(const QString &in)
 
 void Lyrics::startMusixmatch(int candidate)
 {
-    if (kOnlyLiriqoAndApple)
+    if (kOnlySelectedSources)
         return;
     if (m_mxmTried)
         return;   // it is already on its way
@@ -3536,6 +3536,9 @@ void Lyrics::dropJunkLines(QVector<LrcLine> &lines, const QString &title,
 // the other ones are per line.
 void Lyrics::startLrcRed(int candidate)
 {
+    if (kOnlySelectedSources)
+        return;
+
     if (m_title.trimmed().isEmpty())
         return;
     const SearchCandidate &c = searchCandidate(candidate);
