@@ -2915,6 +2915,9 @@ Window {
     // about the installer of the desktop, and the reverse. Both lists are
     // per version and are replaced when the version goes up.
     readonly property string whatsNewText: root.isPhone ? [
+        qsTr("Instalación"),
+        qsTr("• Esta versión cambia la firma de la app. Desinstala la anterior antes de instalarla y vuelve a iniciar sesión la primera vez."),
+        "",
         qsTr("Audio"),
         qsTr("• Se ha corregido el fallo que hacía que algunas canciones empezaran con chasquidos y petardeos."),
         "",

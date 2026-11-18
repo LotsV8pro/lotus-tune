@@ -68,9 +68,12 @@ android {
     // lives in ~/lotus-android-toolchain on a dev machine and in GitHub
     // Secrets in CI. Both the file and its password come from the
     // environment, with the local toolchain path as a fallback.
+    def toolchain = "${System.getProperty('user.home')}/lotus-android-toolchain"
     def keystorePath = System.getenv('LOTUS_KEYSTORE_PATH') ?:
-        "${System.getProperty('user.home')}/lotus-android-toolchain/lotus-tune.keystore"
-    def keystorePass = System.getenv('LOTUS_KEYSTORE_PASSWORD') ?: 'lotustune'
+        "${toolchain}/lotus-tune.keystore"
+    def passFile = file("${toolchain}/keystore.pass")
+    def keystorePass = System.getenv('LOTUS_KEYSTORE_PASSWORD') ?:
+        (passFile.exists() ? passFile.text.trim() : '')
     signingConfigs {
         lotus {
             storeFile file(keystorePath)

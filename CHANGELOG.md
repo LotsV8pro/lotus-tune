@@ -3,6 +3,14 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.2 (2026-11-18)
+
+**Teléfono: desinstala la versión anterior antes de instalar esta y vuelve a iniciar sesión la primera vez.** La clave con la que se firma la app ha cambiado.
+
+### Seguridad
+
+- La clave de firma ya no está en el código publicado. La app que descargues está firmada con una clave nueva que solo existe en el sistema de publicación.
+
 ## 2.1.1 (2026-11-17)
 
 ### Seguridad
