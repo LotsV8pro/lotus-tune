@@ -2234,7 +2234,7 @@ Window {
                     // Prefer thumb, but if it's empty derive it from the video ID
                     // (YouTube tracks always have a videoId; this avoids a frozen
                     // background when the song has no explicit thumbnail).
-                    currentThumb = t.thumb || (videoIdOf(t.url) ? "https://i.ytimg.com/vi/" + videoIdOf(t.url) + "/mqdefault.jpg" : "")
+                    currentThumb = root.preferCover(t.thumb, t.url)
                     root.currentVideoId = videoIdOf(t.url)
                     root.currentSetId = t.setId || ""
                     root.currentLiked = catalog.likedReady
@@ -2325,6 +2325,19 @@ Window {
             return m[1]
         const m2 = u.match(/youtu\.be\/([A-Za-z0-9_-]+)/)
         return m2 ? m2[1] : ""
+    }
+
+    // A stored 120x120 Google avatar (w120 / s-l90) is NOT the cover: as a
+    // wash it paints the artist's face, often from the previous track. When
+    // the video is known, the YouTube thumbnail is the real artwork.
+    function preferCover(thumb, url) {
+        const vid = videoIdOf(url)
+        const t = String(thumb || "")
+        const avatar = t.indexOf("yt3.googleusercontent.com") >= 0
+                    && /w120|s-l90|w48|s68/.test(t)
+        if (vid && (t === "" || avatar))
+            return "https://i.ytimg.com/vi/" + vid + "/mqdefault.jpg"
+        return t
     }
 
     // Extracts the id from a YouTube Music playlist URL (?list=XXXX).
@@ -2505,7 +2518,7 @@ Window {
         // looked up while the song starts.
         if (currentArtist === "" && typeof catalog !== "undefined")
             catalog.resolveTrackArtist(t.url, t.title)
-        currentThumb = t.thumb || (videoIdOf(t.url) ? "https://i.ytimg.com/vi/" + videoIdOf(t.url) + "/mqdefault.jpg" : "")
+        currentThumb = root.preferCover(t.thumb, t.url)
         root.currentVideoId = videoIdOf(t.url)
         root.currentSetId = t.setId || ""
         root.currentLiked = catalog.likedReady
