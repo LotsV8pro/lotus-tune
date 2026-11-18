@@ -170,6 +170,7 @@ void Wash::setSource(const QUrl &url)
     m_wanted = url;
 
     QNetworkRequest req(url);
+    req.setTransferTimeout(10000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
@@ -349,6 +350,7 @@ void ColorPick::pick(const QUrl &url)
 void ColorPick::fetch(const QUrl &orig, const QUrl &download, const QString &key)
 {
     QNetworkRequest req(download);
+    req.setTransferTimeout(10000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);

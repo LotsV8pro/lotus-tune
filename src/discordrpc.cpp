@@ -620,6 +620,7 @@ bool DiscordRpc::isLoggedIn() const
 void DiscordRpc::androidRequestToken(const QByteArray &body, bool refresh)
 {
     QNetworkRequest req{QUrl(kTokenUrl)};
+    req.setTransferTimeout(15000);
     req.setHeader(QNetworkRequest::ContentTypeHeader,
                   QStringLiteral("application/x-www-form-urlencoded"));
     QNetworkReply *reply = m_net->post(req, body);

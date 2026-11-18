@@ -19,16 +19,6 @@
 #include <QJniObject>
 #endif
 
-namespace {
-
-// Where the releases are published.
-const char *kRepo = "LotsV8pro/lotus-tune";
-// The list of releases (not "latest"): the pre-releases do not come in
-// "latest" and they are published too.
-const char *kApi = "https://api.github.com/repos/LotsV8pro/lotus-tune/releases";
-
-// The version of the release, without the "v" and the pre-release part
-// ("1.2.0-beta.3" -> "1.2.0").
 QString versionOf(const QString &raw)
 {
     QString v = raw.trimmed();
@@ -40,9 +30,6 @@ QString versionOf(const QString &raw)
     return v;
 }
 
-// The artifact of THIS platform: Android looks for the .apk, Windows for
-// its .exe/.zip and Linux for its AppImage/tarball. A release without that
-// artifact is not an update for this app (it is for another platform).
 bool assetMatches(const QString &nameIn)
 {
     const QString name = nameIn.trimmed().toLower();
@@ -72,22 +59,6 @@ bool assetMatches(const QString &nameIn)
 #endif
 }
 
-// The name of this platform, for the messages.
-QString platformName()
-{
-#if defined(Q_OS_ANDROID)
-    return QStringLiteral("Android");
-#elif defined(Q_OS_WIN)
-    return QStringLiteral("Windows");
-#elif defined(Q_OS_MACOS)
-    return QStringLiteral("macOS");
-#else
-    return QStringLiteral("Linux");
-#endif
-}
-
-// Compares two versions ("1.10.0" is newer than "1.9.0"). A version
-// without a suffix is newer than the same one with one (1.0.0 > 1.0.0-rc1).
 bool isNewer(const QString &candidate, const QString &current)
 {
     const QStringList a = versionOf(candidate).split(QLatin1Char('.'));
@@ -105,6 +76,35 @@ bool isNewer(const QString &candidate, const QString &current)
     return false;
 }
 
+namespace {
+
+// Where the releases are published.
+const char *kRepo = "LotsV8pro/lotus-tune";
+// The list of releases (not "latest"): the pre-releases do not come in
+// "latest" and they are published too.
+const char *kApi = "https://api.github.com/repos/LotsV8pro/lotus-tune/releases";
+
+// The version of the release, without the "v" and the pre-release part
+// ("1.2.0-beta.3" -> "1.2.0").
+// The artifact of THIS platform: Android looks for the .apk, Windows for
+// its .exe/.zip and Linux for its AppImage/tarball. A release without that
+// artifact is not an update for this app (it is for another platform).
+// The name of this platform, for the messages.
+QString platformName()
+{
+#if defined(Q_OS_ANDROID)
+    return QStringLiteral("Android");
+#elif defined(Q_OS_WIN)
+    return QStringLiteral("Windows");
+#elif defined(Q_OS_MACOS)
+    return QStringLiteral("macOS");
+#else
+    return QStringLiteral("Linux");
+#endif
+}
+
+// Compares two versions ("1.10.0" is newer than "1.9.0"). A version
+// without a suffix is newer than the same one with one (1.0.0 > 1.0.0-rc1).
 #if defined(Q_OS_ANDROID)
 // The phone's notification shade. The app is closed most of the time, and a
 // notice that only exists inside it is a notice nobody sees. The Java side
@@ -150,8 +150,7 @@ bool runUpdateInTerminal()
     // SHA256 of tools/install.sh at this release. If the file upstream
     // changes (a compromised repo, or a deliberate new installer), do NOT
     // pipe it into bash: fall back to the release page instead.
-    const QString installSha = QStringLiteral(
-        "f11aff3ba58140e10b10f311abae0c6fa9bf1aa55e9964513cff8c3af7be02cc");
+    const QString installSha = QStringLiteral(LOTUS_INSTALL_SHA);
     const QString installUrl = QStringLiteral(
         "https://raw.githubusercontent.com/LotsV8pro/lotus-tune/master/tools/install.sh");
     const QString command =
@@ -266,6 +265,7 @@ void Updates::check()
                             .arg(QString::fromLatin1(kRepo));
     QNetworkAccessManager *net = new QNetworkAccessManager(this);
     QNetworkRequest req(QUrl(QString::fromLatin1(kApi)));
+    req.setTransferTimeout(20000);
     req.setRawHeader("Accept", "application/vnd.github+json");
     req.setRawHeader("User-Agent", "LotusTune");
     // A private repository needs a token; a public one does not.

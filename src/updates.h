@@ -3,6 +3,12 @@
 #include <QObject>
 #include <QString>
 
+// Helpers of the release parser. Declared here so the suite can check the
+// version and asset rules without reaching into a .cpp private namespace.
+QString versionOf(const QString &raw);
+bool assetMatches(const QString &name);
+bool isNewer(const QString &candidate, const QString &current);
+
 // Looks for a new version of the app in the repository.
 //
 // The releases are published by the CI, so the app asks GitHub for the

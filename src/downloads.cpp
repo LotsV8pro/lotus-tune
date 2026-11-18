@@ -185,6 +185,13 @@ Downloads::Downloads(QObject *parent)
     connect(&m_metaProc,
             QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, [this](int code, QProcess::ExitStatus) { finishFolderMeta(code); });
+    // FailedToStart never reaches finished(): log it so the folder keeps
+    // its cached metadata instead of silently looking like "no change".
+    connect(&m_metaProc, &QProcess::errorOccurred, this,
+            [](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart)
+            qWarning() << "[downloads] no se pudo leer la metainformacion: yt-dlp no arranca";
+    });
 #endif
 
     // Auto sync: any change on disk (files added/removed) rescans the
@@ -364,6 +371,7 @@ void Downloads::cacheCover(const QString &dir, const QString &url)
         m_coverNet = new QNetworkAccessManager(this);
     m_coverBusy.insert(dir);
     QNetworkRequest req{u};
+    req.setTransferTimeout(8000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_coverNet->get(req);

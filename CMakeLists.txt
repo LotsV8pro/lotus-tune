@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(lotus-tune
-    VERSION 2.1.2
+    VERSION 2.1.3
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -275,8 +275,13 @@ endif()
 
 # The version is compiled in so the app can compare it with the one
 # published in the repository.
+# The Linux updater checks this hash before running the installer fetched
+# from master. Deriving it here keeps the check in sync with tools/install.sh:
+# a pasted hash went stale the first time the script changed.
+file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/tools/install.sh" LOTUS_INSTALL_SHA)
 target_compile_definitions(lotus-tune PRIVATE
-    LOTUS_TUNE_VERSION="${PROJECT_VERSION}")
+    LOTUS_TUNE_VERSION="${PROJECT_VERSION}"
+    LOTUS_INSTALL_SHA="${LOTUS_INSTALL_SHA}")
 
 # For Android, the QML module must be importable from the source tree
 # (the APK does not embed the module by default). We add the QML import
@@ -368,8 +373,11 @@ add_executable(lotus-tune-tests
     src/sources.cpp
     src/lyrics.cpp
     src/catalog.cpp
+    src/updates.cpp
 )
 target_include_directories(lotus-tune-tests PRIVATE src)
+target_compile_definitions(lotus-tune-tests PRIVATE
+    LOTUS_INSTALL_SHA="${LOTUS_INSTALL_SHA}")
 target_link_libraries(lotus-tune-tests PRIVATE
     Qt6::Core
     Qt6::Gui

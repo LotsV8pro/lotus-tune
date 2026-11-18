@@ -313,6 +313,7 @@ void RoundedArt::tryNext(const QString &key, int index)
         return;
     }
     QNetworkRequest req{QUrl(url)};
+    req.setTransferTimeout(4000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);

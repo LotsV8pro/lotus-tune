@@ -19,6 +19,7 @@
 #include "catalog.h"
 #include "sources.h"
 #include "lyrics.h"
+#include "updates.h"
 
 class TestLotusTune : public QObject
 {
@@ -68,6 +69,7 @@ private slots:
     void testMusicalEndKept();
     void testReferenceVersion();
     void testWrongSongDiscardedByPlain();
+    void testUpdateHelpers();
     void testAudioCachePrune();
     void testAudioCacheClear();
     void testFriendlyNetError();
@@ -706,6 +708,29 @@ void TestLotusTune::testWrongSongDiscardedByPlain()
         line(29, QStringLiteral("till your rapture falls to pieces")),
     };
     QVERIFY(lyrics.adoptWorded(good, QStringLiteral("good"), false, false));
+}
+
+// The updater picks a release by comparing versions and matching the
+// artifact of this platform. A wrong choice downloads the wrong binary.
+void TestLotusTune::testUpdateHelpers()
+{
+    QCOMPARE(versionOf(QStringLiteral("v2.1.2")), QStringLiteral("2.1.2"));
+    QCOMPARE(versionOf(QStringLiteral("  v2.1.2-beta.3 ")), QStringLiteral("2.1.2"));
+    QCOMPARE(versionOf(QStringLiteral("2.1.2")), QStringLiteral("2.1.2"));
+
+    QVERIFY(isNewer(QStringLiteral("v2.1.2"), QStringLiteral("2.1.1")));
+    QVERIFY(isNewer(QStringLiteral("1.10.0"), QStringLiteral("1.9.0")));
+    QVERIFY(isNewer(QStringLiteral("2.1.2"), QStringLiteral("2.1.2-rc1")));
+    QVERIFY(!isNewer(QStringLiteral("2.1.1"), QStringLiteral("2.1.1")));
+    QVERIFY(!isNewer(QStringLiteral("2.1.1"), QStringLiteral("2.1.2")));
+
+    // Linux: a Windows installer or a phone APK is never an update.
+    QVERIFY(assetMatches(QStringLiteral("lotus-tune-2.1.2-Linux.tar.gz")));
+    QVERIFY(assetMatches(QStringLiteral("lotus-tune_2.1.2_amd64.deb")));
+    QVERIFY(assetMatches(QStringLiteral("lotus-tune-2.1.2-1.x86_64.rpm")));
+    QVERIFY(!assetMatches(QStringLiteral("lotus-tune-android.apk")));
+    QVERIFY(!assetMatches(QStringLiteral("LotusTune-Setup-2.1.2.exe")));
+    QVERIFY(!assetMatches(QString()));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings

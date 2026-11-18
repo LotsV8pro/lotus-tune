@@ -3710,6 +3710,16 @@
 <context>
     <name>Main</name>
     <message>
+        <location filename="../qml/Main.qml" line="2918"/>
+        <source>Correcciones</source>
+        <translation>Correções</translation>
+    </message>
+    <message>
+        <location filename="../qml/Main.qml" line="2919"/>
+        <source>• Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde.</source>
+        <translation>Capas, busca e verificação de atualizações não esperam mais para sempre quando uma página não responde.</translation>
+    </message>
+    <message>
         <location filename="../qml/Main.qml" line="21"/>
         <location filename="../qml/Main.qml" line="6387"/>
         <source>Lotus Tune</source>

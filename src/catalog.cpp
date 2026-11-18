@@ -843,6 +843,25 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                 emit changed();
             });
 
+    // A helper that fails to START never emits finished(): without this the
+    // failure was silent and the UI just sat there with no explanation.
+    // Only log here: every process already has its own finished() handler
+    // that clears its state and reports the error to the user.
+    for (QProcess *p : {&m_proc, &m_loginProc, &m_statusProc, &m_libraryProc,
+                        &m_artistProc, &m_plSearchProc, &m_albumInfoProc,
+                        &m_altProc, &m_ytmProc, &m_spotifyProc,
+                        &m_spotifyLikedProc, &m_plProc, &m_likedProc,
+                        &m_faceProc}) {
+        connect(p, &QProcess::errorOccurred, this,
+                [p](QProcess::ProcessError e) {
+            if (e != QProcess::FailedToStart)
+                return;   // the finished() handler covers the rest
+            qWarning().noquote()
+                << QStringLiteral("[catalog] no se pudo ejecutar %1: %2")
+                       .arg(p->program(), p->errorString());
+        });
+    }
+
     // If there is a stored session, bring "my lists" on startup.
     if (ytmLoggedIn()) {
         refreshYtmLibrary();

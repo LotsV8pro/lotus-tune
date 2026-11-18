@@ -3,6 +3,15 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.3 (2026-11-18)
+
+### Correcciones
+
+- Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde.
+- Los fallos al iniciar las herramientas de búsqueda y descarga ya se registran en lugar de pasar desapercibidos.
+- El actualizador comprueba el instalador con una huella calculada del propio proyecto, así que sigue siendo válida cuando cambia el script.
+- El aviso de la nueva versión está traducido a los cinco idiomas de la app.
+
 ## 2.1.2 (2026-11-18)
 
 **Teléfono: desinstala la versión anterior antes de instalar esta y vuelve a iniciar sesión la primera vez.** La clave con la que se firma la app ha cambiado.

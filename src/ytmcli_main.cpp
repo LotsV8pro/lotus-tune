@@ -635,6 +635,7 @@ NetResult postJson(const QString &endpoint, const QJsonObject &bodyIn)
     QNetworkRequest req(
         QUrl(kBaseUrl + endpoint
              + QStringLiteral("?key=%1&prettyPrint=false").arg(kApiKey)));
+    req.setTransferTimeout(30000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setHeader(QNetworkRequest::ContentTypeHeader,
@@ -758,6 +759,7 @@ QByteArray httpGet(const QUrl &url, int *statusOut)
     return raw;
 #else
     QNetworkRequest req(url);
+    req.setTransferTimeout(30000);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     req.setRawHeader("User-Agent", kAnonUa.toUtf8());
