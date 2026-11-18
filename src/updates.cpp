@@ -134,15 +134,19 @@ void notifyAndroid(const QString &version, const QString &url)
 // the result can be read.
 bool runUpdateInTerminal()
 {
-    // The two messages go inside single quotes of a bash command: they must
-    // not carry one ("don't" would close the string and break the line).
-    const QString done = QCoreApplication::translate(
-        "Updates", "Listo. Abre Lotus Tune otra vez.");
-    const QString wait = QCoreApplication::translate(
-        "Updates", "Pulsa una tecla para cerrar.");
-    const QString bad = QCoreApplication::translate(
+    // The messages go inside single quotes of a bash command. A translation
+    // with an apostrophe must not close the string early.
+    const auto bashQuote = [](const QString &s) {
+        return QString(s).replace(QLatin1Char('\''),
+                                  QStringLiteral("'\\''"));
+    };
+    const QString done = bashQuote(QCoreApplication::translate(
+        "Updates", "Listo. Abre Lotus Tune otra vez."));
+    const QString wait = bashQuote(QCoreApplication::translate(
+        "Updates", "Pulsa una tecla para cerrar."));
+    const QString bad = bashQuote(QCoreApplication::translate(
         "Updates", "El instalador no pasó la comprobación; "
-                   "descárgalo desde la página de la versión.");
+                   "descárgalo desde la página de la versión."));
     // SHA256 of tools/install.sh at this release. If the file upstream
     // changes (a compromised repo, or a deliberate new installer), do NOT
     // pipe it into bash: fall back to the release page instead.

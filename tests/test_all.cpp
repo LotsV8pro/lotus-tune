@@ -75,7 +75,7 @@ private slots:
 
 void TestLotusTune::initTestCase()
 {
-    qDebug() << "Iniciando suite de pruebas de Lotus Tune 1.0...";
+    qDebug() << "Iniciando suite de pruebas de Lotus Tune...";
 
     m_homeDir = new QTemporaryDir;
     QVERIFY(m_homeDir->isValid());
