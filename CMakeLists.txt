@@ -12,7 +12,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 project(lotus-tune
-    VERSION 2.1.3
+    VERSION 2.1.4
     DESCRIPTION "Reproductor de música para YouTube Music (Qt 6 / QML)"
     HOMEPAGE_URL "https://github.com/LotsV8pro/lotus-tune"
     LANGUAGES CXX
@@ -377,7 +377,8 @@ add_executable(lotus-tune-tests
 )
 target_include_directories(lotus-tune-tests PRIVATE src)
 target_compile_definitions(lotus-tune-tests PRIVATE
-    LOTUS_INSTALL_SHA="${LOTUS_INSTALL_SHA}")
+    LOTUS_INSTALL_SHA="${LOTUS_INSTALL_SHA}"
+    LOTUS_INSTALL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/tools/install.sh")
 target_link_libraries(lotus-tune-tests PRIVATE
     Qt6::Core
     Qt6::Gui

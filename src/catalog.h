@@ -207,6 +207,10 @@ public:
     // exported to a file and imported in another device.
     Q_INVOKABLE bool exportSession(const QString &path);
     Q_INVOKABLE bool importSession(const QString &path);
+    // Copy the saved lists and history to a JSON file, or restore them
+    // from one. The import replaces the current library after validating it.
+    Q_INVOKABLE bool exportLibrary(const QString &path);
+    Q_INVOKABLE bool importLibrary(const QString &path);
     Q_INVOKABLE bool isLiked(const QString &videoId) const;
     // Updates the local set after a vote (without waiting for the server).
     Q_INVOKABLE void setLiked(const QString &videoId, bool liked);

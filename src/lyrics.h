@@ -80,6 +80,8 @@ public:
     bool hasSynced() const { return m_hasSynced; }
     QString plain() const { return m_plain; }
     QString synced() const { return m_synced; }
+    // The text shown on screen, one line per row, ready to copy.
+    Q_INVOKABLE QString lyricsText() const;
     QString error() const { return m_error; }
     QString trackKey() const { return m_trackKey; }
     int duration() const { return m_duration; }
@@ -359,6 +361,9 @@ private:
     int scoreLrcRecord(const QJsonObject &obj) const;
 
     static QVector<LrcLine> parseLrc(const QString &text, bool filterCredits);
+    // LRCLIB's `lyricsfile` YAML: when it carries lines[].words it is the
+    // only real word-level timing LRCLIB offers.
+    static QVector<LrcLine> parseLyricsfile(const QString &yaml);
     static bool looksLikeCredit(const QString &line);
 
     // ---- local Sonora cache (lyrics with WORD level timings) ------------
@@ -380,6 +385,9 @@ private:
     // lyric of this track (it belongs to another recording).
     static bool plainMatchesLines(const QString &plain,
                                   const QVector<LrcLine> &lines);
+    // A line-timed source has no word stamps. Spread its [time, end] over
+    // the words by character weight so the karaoke still advances.
+    static void distributeWordTimes(QVector<LrcLine> &lines);
     // A line-level disk-cache hit stays open to ONE late upgrade: a word
     // level network candidate that aligns with the video reference replaces
     // the shown lines. Every other late source keeps the anti-flicker rule.

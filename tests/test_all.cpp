@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -54,6 +55,8 @@ private slots:
     void testLyricsState();
     void testLyricsTitleLines();
     void testParseLrc();
+    void testParseLyricsfile();
+    void testLrclibWordSyncPayload();
     void testLooksLikeCredit();
     void testLineIndexAt();
     void testWordTimings();
@@ -70,6 +73,7 @@ private slots:
     void testReferenceVersion();
     void testWrongSongDiscardedByPlain();
     void testUpdateHelpers();
+    void testInstallerHash();
     void testAudioCachePrune();
     void testAudioCacheClear();
     void testFriendlyNetError();
@@ -456,6 +460,84 @@ void TestLotusTune::testLyricsTitleLines()
     QCOMPARE(lines.at(3).time, 45.0);
 }
 
+// LRCLIB's word-synced records arrive as a small YAML document. The app
+// used to ignore it and fell back to the line-only LRC.
+void TestLotusTune::testParseLyricsfile()
+{
+    const QString yaml = QStringLiteral(
+        "version: '1.0'\n"
+        "metadata:\n"
+        "  title: Song\n"
+        "lines:\n"
+        "- text: Hello, it's me\n"
+        "  start_ms: 6320\n"
+        "  end_ms: 9500\n"
+        "  words:\n"
+        "  - text: 'Hello, '\n"
+        "    start_ms: 6320\n"
+        "  - text: 'it''s '\n"
+        "    start_ms: 9000\n"
+        "  - text: me\n"
+        "    start_ms: 9340\n"
+        "plain: |\n"
+        "  The club is mine\n");
+    const QVector<Lyrics::LrcLine> lines = Lyrics::parseLyricsfile(yaml);
+    QCOMPARE(lines.size(), 1);
+    QCOMPARE(lines.at(0).text, QStringLiteral("Hello, it's me"));
+    QCOMPARE(lines.at(0).time, 6.32);
+    QCOMPARE(lines.at(0).words.size(), 3);
+    const QVariantMap w = lines.at(0).words.at(1).toMap();
+    QCOMPARE(w.value(QStringLiteral("text")).toString(), QStringLiteral("it's "));
+    QCOMPARE(w.value(QStringLiteral("t")).toDouble(), 9.0);
+    // No end_ms in the source: the word ends where the next one starts.
+    QCOMPARE(w.value(QStringLiteral("e")).toDouble(), 9.34);
+    const QVariantMap last = lines.at(0).words.at(2).toMap();
+    QCOMPARE(last.value(QStringLiteral("e")).toDouble(), 9.5);
+    // Plain-only records (lines: []) yield nothing and are left alone.
+    QVERIFY(Lyrics::parseLyricsfile(QStringLiteral("version: '1.0'\nlines: []\nplain: |\n  hi\n")).isEmpty());
+}
+
+// A real LRCLIB payload with word-level lyricsfile must end as karaoke,
+// not as a line-only track.
+void TestLotusTune::testLrclibWordSyncPayload()
+{
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Hello");
+    lyrics.m_artist = QStringLiteral("Adele");
+    lyrics.m_duration = 300;
+    const QString yaml = QStringLiteral(
+        "version: '1.0'\n"
+        "lines:\n"
+        "- text: Hello, it's me\n"
+        "  start_ms: 6320\n"
+        "  end_ms: 9500\n"
+        "  words:\n"
+        "  - text: 'Hello, '\n"
+        "    start_ms: 6320\n"
+        "  - text: 'it''s '\n"
+        "    start_ms: 9000\n"
+        "  - text: me\n"
+        "    start_ms: 9340\n"
+        "- text: I was wondering\n"
+        "  start_ms: 11920\n"
+        "  end_ms: 14000\n"
+        "  words:\n"
+        "  - text: 'I '\n"
+        "    start_ms: 11920\n"
+        "  - text: 'was wondering'\n"
+        "    start_ms: 12180\n");
+    QJsonObject obj;
+    obj.insert(QStringLiteral("trackName"), QStringLiteral("Hello"));
+    obj.insert(QStringLiteral("artistName"), QStringLiteral("Adele"));
+    obj.insert(QStringLiteral("plainLyrics"), QStringLiteral("Hello, it's me"));
+    obj.insert(QStringLiteral("syncedLyrics"), QStringLiteral("[00:06.32]Hello, it's me"));
+    obj.insert(QStringLiteral("lyricsfile"), yaml);
+    lyrics.applyPayload(obj);
+    QVERIFY(lyrics.m_worded);
+    QCOMPARE(lyrics.m_lines.size(), 2);
+    QCOMPARE(lyrics.m_lines.at(0).words.size(), 3);
+}
+
 void TestLotusTune::testParseLrc()
 {
     // Basic LRC: exact timings and trimmed text.
@@ -731,6 +813,18 @@ void TestLotusTune::testUpdateHelpers()
     QVERIFY(!assetMatches(QStringLiteral("lotus-tune-android.apk")));
     QVERIFY(!assetMatches(QStringLiteral("LotusTune-Setup-2.1.2.exe")));
     QVERIFY(!assetMatches(QString()));
+}
+
+// The updater refuses to run tools/install.sh when its hash does not match
+// the one compiled in. CMake derives that hash from the file itself, so a
+// change to the script can never leave a stale value in the app.
+void TestLotusTune::testInstallerHash()
+{
+    QFile f(QStringLiteral(LOTUS_INSTALL_PATH));
+    QVERIFY2(f.open(QIODevice::ReadOnly), "no se encontro tools/install.sh");
+    const QByteArray sha = QCryptographicHash::hash(
+        f.readAll(), QCryptographicHash::Sha256).toHex();
+    QCOMPARE(QString::fromLatin1(sha), QStringLiteral(LOTUS_INSTALL_SHA));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings

@@ -3056,6 +3056,42 @@ void Catalog::loadLibrary()
     }
 }
 
+bool Catalog::exportLibrary(const QString &path)
+{
+    if (path.isEmpty())
+        return false;
+    saveLibrary();
+    return QFile::copy(stateFile(), path);
+}
+
+bool Catalog::importLibrary(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    if (!doc.isObject())
+        return false;
+    const QJsonObject o = doc.object();
+    const QJsonValue pls = o.value(QStringLiteral("playlists"));
+    const QJsonValue rec = o.value(QStringLiteral("recent"));
+    // A bad file must not wipe the current library.
+    if (!pls.isArray() || !rec.isArray())
+        return false;
+    QFile dest(stateFile());
+    if (!dest.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    if (dest.write(QJsonDocument(o).toJson(QJsonDocument::Indented)) < 0)
+        return false;
+    dest.close();
+    m_playlists.clear();
+    m_recent.clear();
+    loadLibrary();
+    emit libraryChanged();
+    return true;
+}
+
 void Catalog::saveLibrary() const
 {
     QJsonArray pls, rec;

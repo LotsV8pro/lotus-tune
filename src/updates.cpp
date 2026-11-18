@@ -363,11 +363,17 @@ void Updates::check()
 void Updates::openDownload()
 {
 #if defined(Q_OS_LINUX) && !defined(Q_OS_ANDROID)
-    // Linux: the update is the installer (it builds the new version and
-    // installs it over the running one). Only when the session has no
-    // terminal the download page is opened, so the user is never stuck.
-    if (runUpdateInTerminal())
+    // If the release carries a real package, let the user install that:
+    // no script with sudo is needed. The installer in a terminal stays as
+    // the fallback for releases that only ship the tarball.
+    const bool hasPackage = m_asset.endsWith(QLatin1String(".deb"))
+                         || m_asset.endsWith(QLatin1String(".rpm"));
+    if (!hasPackage && runUpdateInTerminal())
         return;
+    if (hasPackage && !m_page.isEmpty()) {
+        QDesktopServices::openUrl(QUrl(m_page));
+        return;
+    }
 #endif
 #if defined(Q_OS_WIN)
     // Windows: the zip is downloaded and unpacked over this folder, and the

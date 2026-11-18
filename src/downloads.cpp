@@ -141,6 +141,7 @@ Downloads::Downloads(QObject *parent)
     : QObject(parent)
 {    // Folder persisted by the user; if there is none, the default one.
     const QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    m_speedLimit = s.value(QStringLiteral("downloadSpeedLimit"), 0).toInt();
     QString saved = s.value(QStringLiteral("downloadFolder")).toString().trimmed();
     // A value inherited from old test runs (temp folders like
     // /tmp/lotus-tune-tests-XXXX) is not a real folder: it is dropped and
@@ -310,6 +311,18 @@ void Downloads::setQuality(const QString &q)
     m_quality = q;
     QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
     s.setValue(QStringLiteral("downloadQuality"), m_quality);
+    s.sync();
+    emit changed();
+}
+
+void Downloads::setSpeedLimit(int kib)
+{
+    const int v = qBound(0, kib, 100000);
+    if (v == m_speedLimit)
+        return;
+    m_speedLimit = v;
+    QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    s.setValue(QStringLiteral("downloadSpeedLimit"), v);
     s.sync();
     emit changed();
 }
@@ -919,6 +932,9 @@ void Downloads::startNext()
     }
 
     // A title that starts with '-' must not be read as a yt-dlp option.
+    if (m_speedLimit > 0)
+        args << QStringLiteral("--limit-rate")
+             << QString::number(m_speedLimit) + QStringLiteral("K");
     args << QStringLiteral("--") << j.url;
 
     m_proc.setProgram(QStringLiteral("yt-dlp"));
@@ -1413,6 +1429,9 @@ void Downloads::startAndroidJob(int index)
             || j.url.contains(QLatin1String("youtu.be")))) {
         args << QStringLiteral("--cookies") << cookies;
     }
+    if (m_speedLimit > 0)
+        args << QStringLiteral("--limit-rate")
+             << QString::number(m_speedLimit) + QStringLiteral("K");
     args << QStringLiteral("--") << j.url;
 
     // The child does not resolve DNS (netd answers NODATA): the parent
@@ -2189,6 +2208,9 @@ void Downloads::startNextFolderMeta()
         && (url.contains(QLatin1String("youtube.com"))
             || url.contains(QLatin1String("youtu.be"))))
         args << QStringLiteral("--cookies") << cookies;
+    if (m_speedLimit > 0)
+        args << QStringLiteral("--limit-rate")
+             << QString::number(m_speedLimit) + QStringLiteral("K");
     args << QStringLiteral("--") << url;
     m_metaProc.setProgram(QStringLiteral("yt-dlp"));
     m_metaProc.setArguments(args);

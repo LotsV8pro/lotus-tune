@@ -3,6 +3,26 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.4 (2026-11-18)
+
+### Letras
+
+- Se aprovechan las letras con tiempos por palabra que ofrece LRCLIB. Antes se descartaban y la canción se quedaba sin karaoke.
+- Las líneas que solo tenían tiempo de frase ahora avanzan palabra por palabra.
+- Los títulos con signos, como «Nosebleed!», se buscan sin puntuación para encontrar más coincidencias.
+- El widget del escritorio respeta el ajuste de karaoke: si lo desactivas en la app, deja de resaltar palabras.
+
+### Novedades
+
+- «Qué hay de nuevo» muestra directamente las notas de la versión publicada, sin depender de un texto guardado en la app.
+- Se pueden exportar e importar las listas y el historial desde Ajustes.
+- Límite de velocidad para las descargas, configurable en Ajustes.
+- En Linux, cuando la versión nueva trae un paquete `.deb` o `.rpm`, se ofrece descargarlo antes que ejecutar el instalador por terminal.
+
+### Correcciones
+
+- Comprobación de la huella del instalador dentro de la suite de pruebas.
+
 ## 2.1.3 (2026-11-18)
 
 ### Correcciones

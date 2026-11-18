@@ -187,6 +187,17 @@ static QString cleanSearchTitle(const QString &title, const QString &artist)
     return t.isEmpty() ? title.trimmed() : t;
 }
 
+// Titles such as "Nosebleed!" reach the providers with the exclamation mark.
+// Most catalogues index the bare name; keep letters, digits, spaces, apostrophes
+// and dashes only. normMatch does this for comparisons, but the queries were
+// still sending the raw title.
+static QString queryText(const QString &s)
+{
+    QString t = s;
+    t.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} '\\-]+")));
+    return t.simplified();
+}
+
 // Cache of answers, one file per artist/title. The hash keeps the file
 // name short and safe on every filesystem.
 static QString lyricCachePath(const QString &artist, const QString &title)
@@ -366,6 +377,61 @@ bool Lyrics::plainMatchesLines(const QString &plain,
     return total < 8 || hit * 100 >= total * 10;
 }
 
+// A source with timestamps only per line (YouTube Music, LRCLIB, NetEase)
+// leaves `words` empty, and the view then shows the whole line as one block.
+// Giving each word a slice of the phrase pays for itself: the karaoke moves
+// word by word instead of jumping between lines. The slice is estimated by
+// character weight, which is all the source gives us.
+// shortcut: the end of a phrase is taken from the next line; an instrumental
+// gap after it stretches the last word. Upgrade if providers send real word
+// timings for these tracks.
+void Lyrics::distributeWordTimes(QVector<LrcLine> &lines)
+{
+    for (int i = 0; i < lines.size(); ++i) {
+        LrcLine &l = lines[i];
+        if (l.instrumental || !l.words.isEmpty() || l.text.trimmed().isEmpty())
+            continue;
+        const QStringList words = l.text.split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (words.size() < 2)
+            continue;
+        // End of the phrase: its own end when known, otherwise the next
+        // line starts. A lone last line gets a short, bounded duration.
+        double end = l.end;
+        if (!(end > l.time)) {
+            for (int j = i + 1; j < lines.size(); ++j) {
+                if (lines.at(j).time > l.time) {
+                    end = lines.at(j).time;
+                    break;
+                }
+            }
+        }
+        if (!(end > l.time))
+            end = l.time + 3.0;
+        end = qMin(end, l.time + 8.0);   // never run across a long gap
+        int total = 0;
+        for (const QString &w : words)
+            total += w.size();
+        if (total <= 0)
+            continue;
+        double t = l.time;
+        QVariantList stamps;
+        for (int k = 0; k < words.size(); ++k) {
+            const double next = (k + 1 == words.size())
+                ? end
+                : t + (end - l.time) * words.at(k).size() / total;
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), t);
+            w.insert(QStringLiteral("e"), next);
+            w.insert(QStringLiteral("text"), words.at(k));
+            stamps.append(w);
+            t = next;
+        }
+        l.words = stamps;
+        l.end = end;
+    }
+}
+
 bool Lyrics::loadFromDiskCache()
 {
     QFile f(lyricCachePath(m_artist, m_title));
@@ -451,6 +517,7 @@ bool Lyrics::loadFromDiskCache()
     markNoteStretches(m_lines);
     markChorus(m_lines);
     joinSplitWords(m_lines, m_plain);
+    distributeWordTimes(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
@@ -1006,8 +1073,8 @@ void Lyrics::startLrclib(int candidate)
     const SearchCandidate &c = searchCandidate(candidate);
     QUrl url(QString::fromLatin1(kApiGet));
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("artist_name"), c.artist);
-    q.addQueryItem(QStringLiteral("track_name"), c.title);
+    q.addQueryItem(QStringLiteral("artist_name"), queryText(c.artist));
+    q.addQueryItem(QStringLiteral("track_name"), queryText(c.title));
     if (m_duration > 0)
         q.addQueryItem(QStringLiteral("duration"), QString::number(m_duration));
     url.setQuery(q);
@@ -1599,8 +1666,8 @@ void Lyrics::startSearch(int candidate)
     QUrl url(QString::fromLatin1(kApiSearch));
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("track_name"),
-                   c.title.isEmpty() ? m_title : c.title);
-    q.addQueryItem(QStringLiteral("artist_name"), c.artist);
+                   queryText(c.title.isEmpty() ? m_title : c.title));
+    q.addQueryItem(QStringLiteral("artist_name"), queryText(c.artist));
     url.setQuery(q);
     request(url, Stage::LrclibSearch, m_trackKey, nullptr, nullptr, candidate);
 }
@@ -1941,6 +2008,20 @@ int Lyrics::scoreLrcRecord(const QJsonObject &obj) const
 // ---- result ------------------------------------------------------------
 void Lyrics::applyPayload(const QJsonObject &obj)
 {
+    const QString file = obj.value(QStringLiteral("lyricsfile")).toString();
+    QVector<LrcLine> worded = parseLyricsfile(file);
+    if (worded.size() >= 2) {
+        // This is the only word-level timing LRCLIB can give. Prefer it to
+        // the line-only LRC; keep the plain text of the record as reference.
+        bool hasWords = false;
+        for (const LrcLine &l : worded)
+            if (!l.words.isEmpty()) { hasWords = true; break; }
+        if (hasWords) {
+            rememberPlain(obj.value(QStringLiteral("plainLyrics")).toString(), "lrclib");
+            adoptWorded(std::move(worded), "lrclib", /*local=*/false, /*musical=*/false);
+            return;
+        }
+    }
     rememberPlain(obj.value(QStringLiteral("plainLyrics")).toString(), "lrclib");
     const QString synced = obj.value(QStringLiteral("syncedLyrics")).toString();
     if (!synced.trimmed().isEmpty())
@@ -2014,6 +2095,7 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
             }
         }
         if (same >= 2) {
+            distributeWordTimes(parsed);
             m_lines = parsed;
             m_syncSource = source;
             // A late line-level source is now the answer on screen: mark it
@@ -2042,6 +2124,7 @@ bool Lyrics::adoptSynced(const QString &lrc, const QString &source,
     m_refLines = parsed;
     // The word level lyrics are never replaced by the line ones.
     if (!m_worded) {
+        distributeWordTimes(parsed);
         m_lines = std::move(parsed);
     } else {
         // The lines of the video arrived after the karaoke: the words are
@@ -3238,6 +3321,19 @@ static QVariantList wordsForOutput(const QVariantList &words)
     return out;
 }
 
+QString Lyrics::lyricsText() const
+{
+    QStringList out;
+    for (const LrcLine &l : m_lines) {
+        if (l.instrumental)
+            continue;
+        const QString t = l.text.trimmed();
+        if (!t.isEmpty() && t != QStringLiteral("♪"))
+            out.append(t);
+    }
+    return out.join(QLatin1Char('\n'));
+}
+
 QVariantList Lyrics::lines() const
 {
     QVariantList out;
@@ -3291,6 +3387,119 @@ QVariantList Lyrics::lines() const
 // several timestamps per line ("[00:12.00][01:20.00]chorus"), takes both
 // the dot and the colon as the decimal separator and drops the lines
 // without a time (metadata like [ar:...]) and, optionally, the credits.
+// Reads the small YAML subset LRCLIB publishes in `lyricsfile`. A word-synced
+// record has `lines:` with `- text:`, `start_ms:` and a nested `words:` list.
+// Plain-only records have an empty `lines: []`, which simply yields nothing.
+QVector<Lyrics::LrcLine> Lyrics::parseLyricsfile(const QString &yaml)
+{
+    QVector<LrcLine> out;
+    const QStringList rows = yaml.split(QLatin1Char('\n'));
+    enum Section { None, Lines, Words } section = None;
+    LrcLine line;
+    bool haveLine = false;
+    QVariantList words;
+    auto scalar = [](const QString &s) {
+        int c = s.indexOf(QLatin1Char(':'));
+        if (c < 0)
+            return QString();
+        QString v = s.mid(c + 1).trimmed();
+        if (v.size() >= 2 && ((v.startsWith(QLatin1Char('"')) && v.endsWith(QLatin1Char('"')))
+                             || (v.startsWith(QLatin1Char('\'')) && v.endsWith(QLatin1Char('\''))))) {
+            v = v.mid(1, v.size() - 2);
+            // YAML escapes an apostrophe inside single quotes by doubling it.
+            v.replace(QStringLiteral("''"), QStringLiteral("'"));
+        }
+        return v;
+    };
+    auto finish = [&]() {
+        if (!haveLine)
+            return;
+        if (!words.isEmpty()) {
+            // LRCLIB word lists send only start_ms. The end of a word is
+            // the start of the next one; the last one ends with the phrase.
+            for (int i = 0; i < words.size(); ++i) {
+                QVariantMap w = words.at(i).toMap();
+                if (!(w.value(QStringLiteral("e")).toDouble() > 0))
+                    w.insert(QStringLiteral("e"),
+                             i + 1 < words.size()
+                                 ? words.at(i + 1).toMap().value(QStringLiteral("t")).toDouble()
+                                 : line.end);
+                words[i] = w;
+            }
+            line.words = words;
+        }
+        out.append(line);
+        line = LrcLine();
+        haveLine = false;
+        words.clear();
+    };
+    for (const QString &raw : rows) {
+        const QString s = raw.trimmed();
+        if (s.isEmpty() || s.startsWith(QLatin1Char('#')))
+            continue;
+        const int indent = raw.size() - raw.trimmed().size();
+        if (s == QLatin1String("lines:") || s == QLatin1String("lines: []")) {
+            finish();
+            section = (s == QLatin1String("lines:")) ? Lines : None;
+            continue;
+        }
+        if (indent <= 2 && s.startsWith(QLatin1String("metadata:")))
+            section = None;
+        if (indent <= 2 && (s.startsWith(QLatin1String("plain:"))
+                            || s.startsWith(QLatin1String("version:"))))
+            section = None;
+        if (s == QLatin1String("words:")) { section = Words; continue; }
+        if (section == None)
+            continue;
+        if (section == Lines) {
+            if (indent <= 2 && s.startsWith(QLatin1String("- text:"))) {
+                finish();
+                haveLine = true;
+                line.text = scalar(s.mid(2));
+                continue;
+            }
+            if (!haveLine)
+                continue;
+            if (s.startsWith(QLatin1String("start_ms:")))
+                line.time = scalar(s).toDouble() / 1000.0;
+            else if (s.startsWith(QLatin1String("end_ms:")))
+                line.end = scalar(s).toDouble() / 1000.0;
+        } else if (section == Words) {
+            // A top-level "- text:" starts the next line, not a word.
+            if (indent == 0 && s.startsWith(QLatin1String("- text:"))) {
+                finish();
+                section = Lines;
+                haveLine = true;
+                line.text = scalar(s.mid(2));
+                continue;
+            }
+            if (s.startsWith(QLatin1String("- text:"))) {
+                QVariantMap w;
+                w.insert(QStringLiteral("text"), scalar(s.mid(2)));
+                w.insert(QStringLiteral("t"), 0.0);
+                w.insert(QStringLiteral("e"), 0.0);
+                words.append(w);
+                continue;
+            }
+            if (words.isEmpty())
+                continue;
+            QVariantMap w = words.last().toMap();
+            if (s.startsWith(QLatin1String("start_ms:")))
+                w.insert(QStringLiteral("t"), scalar(s).toDouble() / 1000.0);
+            else if (s.startsWith(QLatin1String("end_ms:")))
+                w.insert(QStringLiteral("e"), scalar(s).toDouble() / 1000.0);
+            else
+                continue;
+            words[words.size() - 1] = w;
+        }
+    }
+    finish();
+    for (LrcLine &l : out)
+        if (!(l.end > l.time) && !l.words.isEmpty())
+            l.end = l.words.last().toMap().value(QStringLiteral("e")).toDouble();
+    return out;
+}
+
 QVector<Lyrics::LrcLine> Lyrics::parseLrc(const QString &text, bool filterCredits)
 {
     static const QRegularExpression re(

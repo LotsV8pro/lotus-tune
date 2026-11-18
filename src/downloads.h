@@ -50,6 +50,8 @@ class Downloads : public QObject
     // Quality of new downloads: "max" | "alta" | "media" | "baja"
     // (persisted in QSettings; the smallest one is the default).
     Q_PROPERTY(QString quality READ quality WRITE setQuality NOTIFY changed)
+    // Speed cap for new downloads, in KiB/s (0 = unlimited). Persisted.
+    Q_PROPERTY(int speedLimit READ speedLimit WRITE setSpeedLimit NOTIFY changed)
     Q_PROPERTY(QString storageSummary READ storageSummary NOTIFY libraryChanged)
     // Storage bar (Downloads tab): `usedBytes` is the folder total already
     // recounted by the incremental scan; `freeBytes` comes from QStorageInfo.
@@ -72,6 +74,8 @@ public:
     qint64 bytes() const { return m_bytes; }
     QString quality() const { return m_quality; }
     void setQuality(const QString &q);
+    int speedLimit() const { return m_speedLimit; }
+    void setSpeedLimit(int kib);
     // "1,2 GB · 64 pistas en 14 listas" (or "Sin descargas").
     QString storageSummary() const;
     qint64 usedBytes() const { return m_bytes; }
@@ -277,6 +281,7 @@ private:
 
     QString m_folder;
     QString m_quality = QStringLiteral("media");
+    int m_speedLimit = 0;   // KiB/s, 0 = unlimited
     QVariantList m_local;
     // Space taken by the folder: recounted in every scan (see scanChunk).
     qint64 m_bytes = 0;

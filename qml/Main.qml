@@ -453,6 +453,13 @@ Window {
             out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         }
+        if (typeof lyrics !== "undefined" && lyrics.hasLyrics) {
+            out.push({ label: qsTr("Copiar letra"), icon: "lyrics",
+                       action: function() {
+                           root.copyToClipboard(lyrics.lyricsText(),
+                                                qsTr("Letra copiada"))
+                       } })
+        }
         // Downloaded track inside a list: allows uninstalling the whole
         // list (it deletes the download folder).
         if (String(t.source || "") === "local" && String(t.folder || "")) {
@@ -2854,6 +2861,17 @@ Window {
     property string sessionPath: (downloads.folder || "") + "/lotus-tune-sesion.json"
     property bool sessionExported: false
     FileDialog {
+        id: libraryDialog
+        title: qsTr("Importar la biblioteca de Lotus Tune")
+        nameFilters: [qsTr("Biblioteca de LotusTune (*.json)")]
+        onAccepted: {
+            if (catalog.importLibrary(selectedFile.toString().replace("file://", "")))
+                root.toast(qsTr("Biblioteca importada"))
+            else
+                root.toast(qsTr("No se pudo importar la biblioteca"))
+        }
+    }
+    FileDialog {
         id: sessionDialog
         title: qsTr("Importar la sesión de YouTube Music")
         nameFilters: [qsTr("Sesión de LotusTune (*.json)")]
@@ -2914,7 +2932,14 @@ Window {
     // Only the notes of the platform that is running: a phone does not care
     // about the installer of the desktop, and the reverse. Both lists are
     // per version and are replaced when the version goes up.
-    readonly property string whatsNewText: root.isPhone ? [
+    // The release body is preferred: it is written once, for every platform,
+    // and this file no longer has to be edited on each release. The text
+    // below stays as the offline fallback (the dialog can open before the
+    // update check answers, or with no network at all).
+    readonly property string whatsNewText: (typeof updates !== "undefined"
+            && String(updates.notes || "").trim().length > 0)
+        ? String(updates.notes).trim()
+        : (root.isPhone ? [
         qsTr("Correcciones"),
         qsTr("• Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde."),
         "",
@@ -2954,7 +2979,7 @@ Window {
         "",
         qsTr("Windows"),
         qsTr("• La descarga es un instalador normal, con sus accesos directos y su desinstalador, y ya no abre una ventana de consola detrás del reproductor.")
-    ].join("\n")
+    ].join("\n"))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
@@ -5942,6 +5967,29 @@ Window {
                         }
 
                         SettingBlock {
+                            label: qsTr("Velocidad máxima")
+                            desc: qsTr("Límite para las descargas; 0 las deja ir a máxima velocidad")
+                            RowLayout {
+                                spacing: Theme.s2
+                                Repeater {
+                                    model: [ { v: 0, t: qsTr("Sin límite") },
+                                             { v: 500, t: "500 KB/s" },
+                                             { v: 1000, t: "1 MB/s" },
+                                             { v: 2000, t: "2 MB/s" } ]
+                                    Chip {
+                                        text: modelData.t
+                                        selected: downloads.speedLimit === modelData.v
+                                        onPicked: {
+                                            if (typeof sfx !== "undefined")
+                                                sfx.play("tap")
+                                            downloads.speedLimit = modelData.v
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
                             label: qsTr("Carpeta de descargas")
                             desc: qsTr("Dónde se guardan las canciones descargadas")
                             Rectangle {
@@ -6051,6 +6099,29 @@ Window {
                                 onClicked: {
                                     if (typeof sfx !== "undefined") sfx.play("tap")
                                     sessionDialog.open()
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Biblioteca")
+                            desc: qsTr("Tus listas e historial. Guárdalos antes de cambiar de equipo o de reinstalar la app.")
+                            GhostButton {
+                                text: qsTr("Exportar la biblioteca")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const p = (downloads.folder || "")
+                                              + "/lotus-tune-biblioteca.json"
+                                    root.toast(catalog.exportLibrary(p)
+                                               ? qsTr("Biblioteca exportada a %1").arg(p)
+                                               : qsTr("No se pudo exportar la biblioteca"))
+                                }
+                            }
+                            GhostButton {
+                                text: qsTr("Importar la biblioteca")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    libraryDialog.open()
                                 }
                             }
                         }
