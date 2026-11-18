@@ -3,6 +3,18 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.5 (2026-11-18)
+
+### Letras
+
+- Se añade Musixmatch como fuente de letras con tiempos por palabra.
+- Las carátulas en blanco y negro ya tiñen el fondo en vez de conservar el de la canción anterior.
+- El fondo usa la portada del vídeo cuando la guardada era un avatar pequeño del artista.
+
+### Correcciones
+
+- El widget del escritorio deja de mostrar la letra de la canción anterior cuando la app no encuentra letra para la actual.
+
 ## 2.1.4 (2026-11-18)
 
 ### Letras
