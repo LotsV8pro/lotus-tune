@@ -3,6 +3,12 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.7 (2026-11-18)
+
+### Letras
+
+- Se corrigen más formas de palabras pegadas o partidas (`forfar`, `betoo`, `infear`) usando la letra limpia de la canción.
+
 ## 2.1.6 (2026-11-18)
 
 ### Letras

@@ -837,7 +837,9 @@ void TestLotusTune::testRestoreSpacesFromPlain()
         "Verte ya no es nada\n"
         "Escuchar tu voz en las campeadas\n"
         "La noche de colores\n"
-        "That fear is only fatal 'til it's alchemized\n");
+        "That fear is only fatal 'til it's alchemized\n"
+        "I've been gone for far too long\n"
+        "So don't be too concerned, you've got a lot to learn\n");
     Lyrics lyrics;
     auto line = [](const QString &text) {
         Lyrics::LrcLine l;
@@ -851,6 +853,8 @@ void TestLotusTune::testRestoreSpacesFromPlain()
         line(QStringLiteral("Escuchar tuvoz enlas campeadas")),
         line(QStringLiteral("Lanoche decolores")),
         line(QStringLiteral("That fear is on lyfa tal till it's alchemized")),
+        line(QStringLiteral("I've been gone forfar too long")),
+        line(QStringLiteral("So don't betoo concerned, you've got a lot to learn")),
     };
     Lyrics::restoreSpacesFromPlain(lines, plain);
     QCOMPARE(lines.at(0).text, QStringLiteral("Verte ya no es nada"));
@@ -859,6 +863,9 @@ void TestLotusTune::testRestoreSpacesFromPlain()
     // A word split in three still finds its clean line by similarity.
     QCOMPARE(lines.at(3).text,
              QStringLiteral("That fear is only fatal 'til it's alchemized"));
+    QCOMPARE(lines.at(4).text, QStringLiteral("I've been gone for far too long"));
+    QCOMPARE(lines.at(5).text,
+             QStringLiteral("So don't be too concerned, you've got a lot to learn"));
     // Lines not present in the plain text are left alone.
     QVector<Lyrics::LrcLine> other{line(QStringLiteral("otra cosa distinta"))};
     Lyrics::restoreSpacesFromPlain(other, plain);
