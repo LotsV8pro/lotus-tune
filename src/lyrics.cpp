@@ -32,6 +32,10 @@
 // via lrc.red, which covers the songs the three others do not know.
 namespace {
 constexpr bool kOnlySelectedSources = true;
+// Musixmatch richsync is the widest word-level catalogue. Its public
+// android client token works without a paid key; when it asks for a captcha
+// the app already reuses the cached token and retries.
+constexpr bool kEnableMusixmatch = true;
 }
 
 // Helpers of the lyrics alignment (they are defined next to the
@@ -2927,7 +2931,7 @@ void Lyrics::settleOrFail()
     // without this guard the NetEase "no match" reply called settleOrFail()
     // again, which launched the same search in a loop (one request every
     // ~300 ms until the app was closed).
-    if (!m_mxmTried && !kOnlySelectedSources) {
+    if (!m_mxmTried && kEnableMusixmatch) {
         startMusixmatch();
         return;
     }
@@ -4047,7 +4051,7 @@ static QString cleanTrackArtist(const QString &in)
 
 void Lyrics::startMusixmatch(int candidate)
 {
-    if (kOnlySelectedSources)
+    if (!kEnableMusixmatch)
         return;
     if (m_mxmTried)
         return;   // it is already on its way

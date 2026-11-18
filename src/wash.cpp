@@ -192,10 +192,11 @@ void Wash::setSource(const QUrl &url)
             return;
         }
         // YouTube serves a GRAY placeholder frame (120x90, film-strip
-        // icon) for tracks without real thumbnails. As a wash it reads
-        // as a black and white cover: discard it and keep the previous
-        // wash (or a theme-clean background at startup).
-        if (src.allGray()) {
+        // icon) for tracks without real thumbnails. Discard it — but only
+        // by its SMALL size: many real covers are black and white, and
+        // rejecting every gray image kept the previous track's wash on
+        // screen when the new artwork was monochrome.
+        if (src.allGray() && src.width() <= 200 && src.height() <= 150) {
             return;
         }
         const QImage blurred = blurPipeline(src);
