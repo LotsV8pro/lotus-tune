@@ -2936,9 +2936,19 @@ Window {
     // and this file no longer has to be edited on each release. The text
     // below stays as the offline fallback (the dialog can open before the
     // update check answers, or with no network at all).
-    readonly property string whatsNewText: (typeof updates !== "undefined"
+    // GitHub writes "## Section" and "- bullet". Qt's Markdown understands
+    // bold and asterisks, so translate the two before showing the notes.
+    function formatNotes(s) {
+        return String(s || "")
+            .replace(/^#{1,4}\s+(.*)$/gm, "**$1**")
+            .replace(/^[-*]\s+/gm, "• ")
+            .replace(/^\s*Descargas:[\s\S]*$/mi, "")
+            .trim()
+    }
+    readonly property string whatsNewText: root.formatNotes(
+        (typeof updates !== "undefined"
             && String(updates.notes || "").trim().length > 0)
-        ? String(updates.notes).trim()
+        ? updates.notes
         : (root.isPhone ? [
         qsTr("Correcciones"),
         qsTr("• Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde."),
@@ -2979,7 +2989,7 @@ Window {
         "",
         qsTr("Windows"),
         qsTr("• La descarga es un instalador normal, con sus accesos directos y su desinstalador, y ya no abre una ventana de consola detrás del reproductor.")
-    ].join("\n"))
+    ].join("\n")))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
@@ -4399,6 +4409,10 @@ Window {
                         font.pixelSize: Theme.tBase
                         lineHeight: 1.3
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                        // The body comes straight from the GitHub release:
+                        // headings and bullets must keep their shape instead
+                        // of arriving as one flat paragraph.
+                        textFormat: Text.MarkdownText
                     }
                 }
 

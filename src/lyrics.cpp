@@ -482,6 +482,14 @@ bool Lyrics::loadFromDiskCache()
     if (lines.size() < 2)
         return false;
     m_plain = o.value(QStringLiteral("plain")).toString();
+    // A cached word-level entry without the plain text has no reference to
+    // prove it belongs to this track. In the past one slipped in from
+    // another song and stayed forever. Drop it and ask the sources again.
+    if (m_plain.trimmed().isEmpty()) {
+        qInfo().noquote() << QStringLiteral("[lyrics] cache sin referencia: se descarta y se busca de nuevo");
+        QFile::remove(lyricCachePath(m_artist, m_title));
+        return false;
+    }
     if (!plainMatchesLines(m_plain, lines)) {
         qInfo().noquote() << QStringLiteral("[lyrics] cache descartado: la letra no es de esta cancion");
         return false;
@@ -538,6 +546,10 @@ void Lyrics::saveToDiskCache(bool found)
     o.insert(QStringLiteral("v"), 1);
     o.insert(QStringLiteral("duration"), m_duration);
     o.insert(QStringLiteral("saved"), QDateTime::currentSecsSinceEpoch());
+    // Keep the clean text as the reference that proves these lines belong
+    // to this track. A cache without it is dropped on the next load.
+    if (!m_plain.trimmed().isEmpty())
+        o.insert(QStringLiteral("plain"), m_plain);
     if (!found) {
         o.insert(QStringLiteral("lines"), QJsonValue::Null);
     } else {
@@ -4383,8 +4395,26 @@ void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
     QJsonObject best;
     bool bestWorded = false;
     int bestDiff = 1 << 30;
+    const SearchCandidate &wanted = searchCandidate(candidate);
+    const QString wantTitle = norm(wanted.title);
+    const QString wantArtist = norm(wanted.artist);
+    int matched = 0;
     for (const QJsonValue &rv : results) {
         const QJsonObject r = rv.toObject();
+        // Apple's index sometimes answers with a completely different song
+        // ("Nobody" for an instrumental track). Never trust a hit whose
+        // title (and artist, when given) is not the one we searched for.
+        const QString gotTitle = norm(r.value(QStringLiteral("track_name")).toString());
+        const QString gotArtist = norm(r.value(QStringLiteral("artist_name")).toString());
+        const bool titleOk = gotTitle.isEmpty()
+            || gotTitle == wantTitle
+            || gotTitle.contains(wantTitle) || wantTitle.contains(gotTitle);
+        const bool artistOk = gotArtist.isEmpty() || wantArtist.isEmpty()
+            || gotArtist == wantArtist
+            || gotArtist.contains(wantArtist) || wantArtist.contains(gotArtist);
+        if (!titleOk || !artistOk)
+            continue;
+        ++matched;
         const QString timing = r.value(QStringLiteral("timing_type")).toString();
         const bool worded = (timing == QLatin1String("word")
                              || timing == QLatin1String("syllable"));
@@ -4400,6 +4430,11 @@ void Lyrics::onLrcRedSearchReply(QNetworkReply *reply, const QString &key)
             bestWorded = worded;
             bestDiff = diff;
         }
+    }
+    if (matched == 0) {
+        qInfo().noquote() << QStringLiteral("[lyrics] lrc.red: ningun resultado coincide con \"%1\": se descarta").arg(wanted.title);
+        retryOrReturn();
+        return;
     }
     const QString sheet = best.value(QStringLiteral("lyricsUrl")).toString();
     if (sheet.isEmpty() || !sheet.startsWith(QLatin1String("https://"))
