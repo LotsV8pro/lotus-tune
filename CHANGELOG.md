@@ -10,14 +10,11 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 ### Seguridad
 
 - La clave de firma ya no está en el código publicado. La app que descargues está firmada con una clave nueva que solo existe en el sistema de publicación.
-
-## 2.1.1 (2026-11-17)
-
-### Seguridad
-
 - El instalador se descarga y se comprueba antes de ejecutarse.
 - Los archivos con la sesión y los permisos de acceso ya no son legibles por otros usuarios del equipo.
 - La app deja de pedir permisos del sistema que no necesita.
+
+## 2.1.1 (2026-11-17)
 
 ### Correcciones
 
