@@ -3066,8 +3066,89 @@ static bool shouldJoinFragments(const QString &a, const QString &b,
     return x.size() <= 3 && y.size() <= 2;
 }
 
+// Removes spaces and accents so two spellings of the same sung line match
+// even when one of them lost its spaces.
+static QString lettersOnly(const QString &s)
+{
+    QString n = s.normalized(QString::NormalizationForm_KD);
+    n.remove(QRegularExpression(QStringLiteral("\\p{M}+")));
+    n.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")));
+    return n.toLower();
+}
+
+// Edit distance over two short strings. Used to match a provider's mangled
+// line to the clean one ("on lyfa tal" vs "only fatal", "'til" vs "till").
+static int editDistance(const QString &a, const QString &b)
+{
+    const int n = a.size(), m = b.size();
+    QVector<int> prev(m + 1), cur(m + 1);
+    for (int j = 0; j <= m; ++j)
+        prev[j] = j;
+    for (int i = 1; i <= n; ++i) {
+        cur[0] = i;
+        for (int j = 1; j <= m; ++j)
+            cur[j] = std::min(std::min(cur[j - 1] + 1, prev[j] + 1),
+                              prev[j - 1] + (a.at(i - 1) == b.at(j - 1) ? 0 : 1));
+        std::swap(prev, cur);
+    }
+    return prev[m];
+}
+
+void Lyrics::restoreSpacesFromPlain(QVector<LrcLine> &lines,
+                                    const QString &plain)
+{
+    if (plain.trimmed().isEmpty())
+        return;
+    QStringList clean;
+    for (const QString &row : plain.split(QLatin1Char('\n'))) {
+        const QString key = lettersOnly(row);
+        if (key.size() >= 4)
+            clean.append(row.trimmed());
+    }
+    for (LrcLine &l : lines) {
+        if (l.instrumental || l.text.trimmed().isEmpty())
+            continue;
+        const QString key = lettersOnly(l.text);
+        if (key.isEmpty())
+            continue;
+        // The closest clean line wins. An exact match is best; otherwise a
+        // small edit distance (a provider that split a word in three)
+        // still identifies the line unambiguously.
+        QString fixed;
+        double best = 0.0;
+        for (const QString &row : clean) {
+            const QString ck = lettersOnly(row);
+            const int dist = editDistance(key, ck);
+            const double sim = 1.0 - double(dist) / qMax(key.size(), ck.size());
+            if (sim > best) {
+                best = sim;
+                fixed = row;
+            }
+        }
+        if (best < 0.85 || fixed == l.text)
+            continue;
+        // Rebuild the word stamps from the clean words, keeping the times.
+        // A provider that dropped spaces often also dropped them inside a
+        // word, so the counts usually match.
+        const QStringList words = fixed.split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (words.size() == l.words.size()) {
+            for (int i = 0; i < words.size(); ++i) {
+                QVariantMap w = l.words.at(i).toMap();
+                w.insert(QStringLiteral("text"), words.at(i));
+                l.words[i] = w;
+            }
+        }
+        l.text = fixed;
+    }
+}
+
 void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
 {
+    // A provider that dropped the spaces inside lines is repaired first,
+    // using the clean text as the reference. The rest of this function
+    // deals with the opposite case: fragments that must be JOINED.
+    restoreSpacesFromPlain(lines, plain);
     // The plain text of the same track (from another source) is a clean
     // dictionary: when two fragments form one of its words, they are one
     // word here too. This avoids guessing from fragment length alone.

@@ -388,6 +388,11 @@ private:
     // A line-timed source has no word stamps. Spread its [time, end] over
     // the words by character weight so the karaoke still advances.
     static void distributeWordTimes(QVector<LrcLine> &lines);
+    // Some providers drop spaces inside lines ("esnada", "tuvoz"). When the
+    // clean text of the track is known, rebuild each line from it: matching
+    // by letters-without-spaces is exact and language independent.
+    static void restoreSpacesFromPlain(QVector<LrcLine> &lines,
+                                       const QString &plain);
     // A line-level disk-cache hit stays open to ONE late upgrade: a word
     // level network candidate that aligns with the video reference replaces
     // the shown lines. Every other late source keeps the anti-flicker rule.

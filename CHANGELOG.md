@@ -3,6 +3,12 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.1.6 (2026-11-18)
+
+### Letras
+
+- Las palabras que llegaban pegadas (`esnada`, `tuvoz`) o partidas (`on lyfa tal`) se reconstruyen usando la letra limpia de la canción como referencia.
+
 ## 2.1.5 (2026-11-18)
 
 ### Letras

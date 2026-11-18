@@ -72,6 +72,7 @@ private slots:
     void testMusicalEndKept();
     void testReferenceVersion();
     void testWrongSongDiscardedByPlain();
+    void testRestoreSpacesFromPlain();
     void testUpdateHelpers();
     void testInstallerHash();
     void testAudioCachePrune();
@@ -825,6 +826,43 @@ void TestLotusTune::testInstallerHash()
     const QByteArray sha = QCryptographicHash::hash(
         f.readAll(), QCryptographicHash::Sha256).toHex();
     QCOMPARE(QString::fromLatin1(sha), QStringLiteral(LOTUS_INSTALL_SHA));
+}
+
+// Some providers drop the spaces inside a line ("esnada", "tuvoz").
+// The clean text of the track must restore them, with the word stamps
+// rebuilt so the karaoke still agrees with the text.
+void TestLotusTune::testRestoreSpacesFromPlain()
+{
+    const QString plain = QStringLiteral(
+        "Verte ya no es nada\n"
+        "Escuchar tu voz en las campeadas\n"
+        "La noche de colores\n"
+        "That fear is only fatal 'til it's alchemized\n");
+    Lyrics lyrics;
+    auto line = [](const QString &text) {
+        Lyrics::LrcLine l;
+        l.time = 1.0;
+        l.text = text;
+        l.end = 4.0;
+        return l;
+    };
+    QVector<Lyrics::LrcLine> lines{
+        line(QStringLiteral("Verte ya no esnada")),
+        line(QStringLiteral("Escuchar tuvoz enlas campeadas")),
+        line(QStringLiteral("Lanoche decolores")),
+        line(QStringLiteral("That fear is on lyfa tal till it's alchemized")),
+    };
+    Lyrics::restoreSpacesFromPlain(lines, plain);
+    QCOMPARE(lines.at(0).text, QStringLiteral("Verte ya no es nada"));
+    QCOMPARE(lines.at(1).text, QStringLiteral("Escuchar tu voz en las campeadas"));
+    QCOMPARE(lines.at(2).text, QStringLiteral("La noche de colores"));
+    // A word split in three still finds its clean line by similarity.
+    QCOMPARE(lines.at(3).text,
+             QStringLiteral("That fear is only fatal 'til it's alchemized"));
+    // Lines not present in the plain text are left alone.
+    QVector<Lyrics::LrcLine> other{line(QStringLiteral("otra cosa distinta"))};
+    Lyrics::restoreSpacesFromPlain(other, plain);
+    QCOMPARE(other.at(0).text, QStringLiteral("otra cosa distinta"));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings
