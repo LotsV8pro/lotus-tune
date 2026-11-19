@@ -26,6 +26,15 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 - Exportación e importación de ajustes, historial y cola; borrado de cachés por canción, artista y lista.
 - Búsqueda global, ordenación de listas, filtros por fuente y vistas de artistas y géneros.
 
+### Correcciones (build actual)
+
+- Los botones de estilo de interfaz y color de acento de Ajustes vuelven a responder.
+- La cola deja de mostrar `0:00` en las pistas al reordenar la lista.
+- La cabecera de las listas propias dice «Mi cuenta · YouTube Music» en vez del artista de la primera canción.
+- Se quita el velo oscuro que cubría la cabecera y el fondo de las listas abiertas.
+- El control de volumen aparece también en ventanas estrechas de escritorio.
+- La barra de progreso avanza de forma continua en escritorio.
+
 ### Correcciones
 
 - El artista y el título se muestran limpios en la barra, el widget y la pantalla de letras.

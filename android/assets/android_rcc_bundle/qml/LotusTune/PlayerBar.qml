@@ -121,32 +121,34 @@ Rectangle {
     // every notice from the engine only corrects the drift, so the bar moves
     // smoothly even at 60 Hz.
     property real shownPosition: 0
-    property bool _shownSynced: false
+    property real _lastEnginePos: 0
 
-    function syncShownPosition() {
+    // Only a real seek or a new track jumps the line. Ordinary 240 ms
+    // notices are ignored: FrameAnimation already advanced smoothly past
+    // them, and correcting against them made the dot jump ("tick").
+    onPositionChanged: {
         if (bar.scrubbing)
             return
-        // Direct jump: first value, pause or a big change (seek or new track).
-        // Otherwise, the correction is spread over several frames.
-        if (!bar._shownSynced || !bar.playing
-            || Math.abs(bar.position - bar.shownPosition) > 1.0) {
+        if (Math.abs(bar.position - bar._lastEnginePos) > 2.0)
             bar.shownPosition = bar.position
-            bar._shownSynced = true
-            return
-        }
-        bar.shownPosition += (bar.position - bar.shownPosition) * 0.35
+        bar._lastEnginePos = bar.position
     }
-    onPositionChanged: syncShownPosition()
-    onPlayingChanged: syncShownPosition()
-    Component.onCompleted: syncShownPosition()
+    onPlayingChanged: {
+        bar._lastEnginePos = bar.position
+        if (!bar.playing)
+            bar.shownPosition = bar.position
+    }
+    Component.onCompleted: {
+        bar.shownPosition = bar.position
+        bar._lastEnginePos = bar.position
+    }
 
-    // It advances on its own between notices from the engine, with the real
-    // time of each frame (no adding a fixed value: it adapts to 60/120/165 Hz).
+    // Advances with the real time of each rendered frame. With the `threads`
+    // loop there is a frame every ~10 ms, so the line moves continuously.
     FrameAnimation {
         running: bar.playing && bar.duration > 0 && !bar.scrubbing
         onTriggered: {
-            const p = bar.shownPosition + frameTime
-            bar.shownPosition = Math.min(bar.duration, p)
+            bar.shownPosition = Math.min(bar.duration, bar.shownPosition + frameTime)
         }
     }
     // How far the finger has travelled up while pulling. Kept private:
@@ -398,13 +400,6 @@ Rectangle {
                         height: 3; radius: 1.5
                         color: Sys.interfaceStyle === "lotus" ? "transparent" : bar._fill
                         gradient: Sys.interfaceStyle === "lotus" ? lotusFill : null
-                        Behavior on width {
-                            enabled: !bar.scrubbing
-                            NumberAnimation {
-                                duration: Theme.fastMs
-                                easing.type: Easing.OutCubic
-                            }
-                        }
                     }
                     // Position dot: a 6 px point riding the filled end, Lotus only.
                     Rectangle {
@@ -416,13 +411,6 @@ Rectangle {
                         color: Theme.mix(Sys.accent, "#ffffff", 0.45)
                         scale: bar.scrubbing ? 1.5 : 1.0
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                        Behavior on x {
-                            enabled: !bar.scrubbing
-                            NumberAnimation {
-                                duration: Theme.fastMs
-                                easing.type: Easing.OutCubic
-                            }
-                        }
                     }
                     // Knob: small, always visible (there is no hover on a
                     // phone) and bigger while scrubbing.
@@ -947,8 +935,9 @@ Rectangle {
                             spacing: Theme.s1
                             // On the phone the slider is meaningless (touch has
                             // no hover nor drag precision and the transport
-                            // needs the room): it stays desktop-only.
-                            visible: island.width >= 620 && !Theme.touch
+                            // needs the room): it stays desktop-only. The
+                            // threshold is lower so it shows on narrow desktops.
+                            visible: island.width >= 520 && !Theme.touch
 
                     Item {
                         Layout.alignment: Qt.AlignVCenter
@@ -983,7 +972,9 @@ Rectangle {
 
                     Rectangle {
                         id: volTrack
-                        Layout.preferredWidth: 70
+                        Layout.preferredWidth: 48
+                        Layout.minimumWidth: 48
+                        Layout.maximumWidth: 48
                         Layout.alignment: Qt.AlignVCenter
                         height: 10
                         color: "transparent"

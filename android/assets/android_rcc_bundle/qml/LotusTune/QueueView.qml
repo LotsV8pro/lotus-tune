@@ -76,8 +76,11 @@ Item {
         const n = qv.count
         let secs = 0
         if (qv.tracks)
-            for (let i = 0; i < n; ++i)
-                secs += Number(qv.tracks.get(i).duration || 0)
+            for (let i = 0; i < n; ++i) {
+                const row = qv.tracks.get(i)
+                if (row)
+                    secs += Number(row.duration || 0)
+            }
         const mins = Math.floor(secs / 60)
         let dur
         if (mins >= 60)
@@ -99,8 +102,11 @@ Item {
         const from = qv.currentIndex + 1
         let secs = 0
         if (qv.tracks && qv.rev >= 0 && from < n)
-            for (let i = from; i < n; ++i)
-                secs += Number(qv.tracks.get(i).duration || 0)
+            for (let i = from; i < n; ++i) {
+                const row = qv.tracks.get(i)
+                if (row)
+                    secs += Number(row.duration || 0)
+            }
         const mins = Math.floor(secs / 60)
         return mins >= 60
                ? Math.floor(mins / 60) + " h " + (mins % 60) + " min"

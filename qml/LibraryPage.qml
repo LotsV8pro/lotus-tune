@@ -517,12 +517,20 @@ Item {
     }
 
     function currentOwned() {
-        const id = String(catalog.openPlaylistId || "")
+        let id = String(catalog.openPlaylistId || "")
+        if (!id) {
+            const m = /[?&]list=([^&]+)/.exec(String(catalog.openListUrl || ""))
+            if (m) id = decodeURIComponent(m[1])
+        }
         if (!id) return false
         const l = catalog.ytmLibrary
         for (var i = 0; i < l.length; i++)
             if (String(l[i].id || "") === id)
                 return l[i].owned === true
+        const p = catalog.playlists || []
+        for (var j = 0; j < p.length; j++)
+            if (String(p[j].id || "") === id)
+                return p[j].owned === true
         return false
     }
 
@@ -842,6 +850,10 @@ Item {
         if (catalog.openPlaylistId === "LM"
                 || String(catalog.openListUrl || "").indexOf("list=LM") >= 0)
             return qsTr("Tu lista · YouTube Music")
+        // Playlists owned by the signed-in account: the first track's artist
+        // is not the author of the list. Name the account instead.
+        if (page.currentOwned())
+            return qsTr("Mi cuenta · YouTube Music")
         const t = page.viewTracks()
         return (t && t.length > 0) ? String(t[0].artist || "") : ""
     }
@@ -1358,7 +1370,8 @@ Item {
     Item {
         anchors.fill: parent
         z: -1
-        visible: page.showingTracks
+        // Test build: no blurred cover shade behind the playlist header.
+        visible: false
         clip: true
 
         // REAL blur in C++ (rart plus the wash pipeline): the app runs on the

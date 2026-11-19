@@ -3806,6 +3806,12 @@ Window {
         "- Exportación e importación de ajustes, historial y cola; borrado de cachés.",
         "",
         "**Correcciones**",
+        "- Los botones de estilo y color de acento de Ajustes vuelven a responder.",
+        "- La cola deja de mostrar 0:00 en las pistas al reordenar la lista.",
+        "- La cabecera de las listas propias dice «Mi cuenta · YouTube Music» en vez del artista de la primera canción.",
+        "- Se quita el velo oscuro que cubría la cabecera y el fondo de las listas abiertas.",
+        "- El control de volumen aparece también en ventanas estrechas de escritorio.",
+        "- La barra de progreso avanza de forma continua en escritorio.",
         "- El artista y el título se muestran limpios en la barra y el widget.",
         "- La pantalla de letras sale del modo presentación con Escape, el gesto atrás o tocando el fondo.",
         "- En el teléfono, los controles de una lista dejan de superponerse y el botón de cola funciona.",
@@ -4298,9 +4304,10 @@ Window {
         // the only lit surface.
         Rectangle {
             anchors.fill: parent
-            color: Theme.alpha(Sys.bg, 0.62)
-            opacity: (root.page === "library" && libPage.showingTracks) ? 1 : 0
-            visible: opacity > 0.001
+            // Test build: no shade over the playlist track view.
+            color: "transparent"
+            opacity: 0
+            visible: false
             Behavior on opacity { NumberAnimation { duration: 240 } }
         }
     }
@@ -5753,11 +5760,10 @@ Window {
                 radius: Theme.radiusCard(Sys.interfaceStyle)
                 antialiasing: true
                 // A shade lighter than the island, so the card reads as a
-                // card on top of it (like the rest of the app). Lotus keeps
-                // the same hierarchy but tints it towards violet.
-                color: Sys.interfaceStyle === "lotus"
-                       ? Theme.accentSoft(Sys.interfaceStyle, Sys.accent, Sys.bg)
-                       : Theme.sAlt(Sys.bg, Sys.text)
+                // card on top of it (like the rest of the app). The Lotus
+                // violet tint on this card was removed: it made the whole
+                // settings panel read as purple.
+                color: Theme.sAlt(Sys.bg, Sys.text)
                 // The same faint edge as the islands: the hierarchy is
                 // marked by the air, not by a hard line.
                 border.width: 1

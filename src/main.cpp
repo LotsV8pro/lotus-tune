@@ -476,7 +476,7 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND"))
         qputenv("QSG_RHI_BACKEND", "software");
     if (qEnvironmentVariableIsEmpty("QSG_RENDER_LOOP"))
-        qputenv("QSG_RENDER_LOOP", "basic");
+        qputenv("QSG_RENDER_LOOP", "threads");
 #endif
 
     // This player never decodes video: the interface sounds use

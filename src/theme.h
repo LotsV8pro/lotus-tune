@@ -70,9 +70,9 @@ public:
     void refreshInsets();
     QString source() const { return m_source; }
     QString interfaceStyle() const { return m_interfaceStyle; }
-    void setInterfaceStyle(const QString &style);
+    Q_INVOKABLE void setInterfaceStyle(const QString &style);
     QString lotusAccent() const { return m_lotusAccent; }
-    void setLotusAccent(const QString &accent);
+    Q_INVOKABLE void setLotusAccent(const QString &accent);
     Q_INVOKABLE void reload();
     bool dynamicBg() const { return m_dynamicBg; }
     void setDynamicBg(bool on) {
