@@ -211,7 +211,23 @@ public:
     // from one. The import replaces the current library after validating it.
     Q_INVOKABLE bool exportLibrary(const QString &path);
     Q_INVOKABLE bool importLibrary(const QString &path);
+    // Export the listening history as CSV (artist, title, url).
+    Q_INVOKABLE bool exportRecentCsv(const QString &path);
+    // Radio cards of Inicio. They are the artists with the most saved plays
+    // on this phone (the listening history), most played first; ties go by
+    // artist name. The liked tracks fill the remaining slots. Content of the
+    // cards is unchanged: only their order depends on the play count.
+    Q_INVOKABLE QVariantList homeRadios() const;
+    // Search the saved lists and the history, all in memory, no network.
+    Q_INVOKABLE QVariantList searchLibraryTracks(const QString &query) const;
+    static QVariantList searchInLists(const QVariantList &playlists,
+                                      const QVariantList &recent,
+                                      const QString &query);
     Q_INVOKABLE bool isLiked(const QString &videoId) const;
+    // Tracks the person never wants to hear again. Keyed by videoId (or the
+    // raw url when it is not from YouTube), persisted in QSettings.
+    Q_INVOKABLE bool isBlocked(const QString &url) const;
+    Q_INVOKABLE void setBlocked(const QString &url, bool blocked);
     // Updates the local set after a vote (without waiting for the server).
     Q_INVOKABLE void setLiked(const QString &videoId, bool liked);
     // videoId of a YouTube URL (or the id itself if it already is one);
@@ -220,6 +236,10 @@ public:
     // A text in the artist column that is really a play count
     // ("19 M reproducciones"), never an artist.
     static bool looksLikePlayCount(const QString &text);
+    // Channel/label in the artist column (SUMERIAN, Fearless Records...):
+    // recover the real artist from a "Artista - T\u00edtulo" title.
+    static QString realArtistFromTitle(const QString &artist,
+                                       const QString &title);
     // Toggles "liked" of a track (URL or videoId): it votes and updates
     // the set.
     Q_INVOKABLE void toggleLiked(const QString &videoIdOrUrl, bool currentlyLiked);
@@ -498,6 +518,7 @@ private:
     static QString faceKey(const QString &name);
     void startNextFace();
     void saveFaces() const;
+    QSet<QString> m_blocked;   // videoIds/urls never to play again
     QSet<QString> m_likedIds;  // videoIds in "liked"
     QVariantList m_likedTracks;  // "liked" with its artist and title
     // Local path (downloaded file) -> YouTube videoId, resolved once by

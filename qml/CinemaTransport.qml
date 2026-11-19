@@ -12,6 +12,21 @@ ColumnLayout {
     id: ct
     spacing: Theme.s2
 
+    // Shared tap feedback for the transport buttons.
+    property real popAmount: 1.25
+    SequentialAnimation {
+        id: ctPop
+        property var popTarget: null
+        NumberAnimation { target: ctPop.popTarget; property: "scale"; to: ct.popAmount; duration: Theme.animMs(90) }
+        NumberAnimation { target: ctPop.popTarget; property: "scale"; to: 1; duration: Theme.animMs(220); easing.type: Easing.OutBack }
+    }
+    function pop(item, amount) {
+        ctPop.stop()
+        ctPop.popTarget = item
+        ct.popAmount = amount || 1.25
+        ctPop.restart()
+    }
+
     property real position: 0
     property real duration: 0
     property bool playing: false
@@ -121,6 +136,7 @@ ColumnLayout {
 
         // Shuffle
         Item {
+            id: shuffleBtn
             width: 40; height: 40
             Rectangle {
                 anchors.centerIn: parent
@@ -146,12 +162,14 @@ ColumnLayout {
                 onClicked: {
                     if (typeof sfx !== "undefined")
                         sfx.play("toggle")
+                    ct.pop(shuffleBtn)
                     ct.shuffleRequested()
                 }
             }
         }
         // Previous
         Item {
+            id: prevBtn
             width: 40; height: 40
             Glyph {
                 anchors.centerIn: parent
@@ -166,6 +184,7 @@ ColumnLayout {
                 onClicked: {
                     if (typeof sfx !== "undefined")
                         sfx.play("tap")
+                    ct.pop(prevBtn)
                     ct.prevRequested()
                 }
             }
@@ -191,12 +210,14 @@ ColumnLayout {
                 onClicked: {
                     if (typeof sfx !== "undefined")
                         sfx.play("play")
+                    ct.pop(bigPlay, 1.22)
                     ct.toggleRequested()
                 }
             }
         }
         // Next
         Item {
+            id: nextBtn
             width: 40; height: 40
             Glyph {
                 anchors.centerIn: parent
@@ -211,6 +232,7 @@ ColumnLayout {
                 onClicked: {
                     if (typeof sfx !== "undefined")
                         sfx.play("tap")
+                    ct.pop(nextBtn)
                     ct.nextRequested()
                 }
             }
@@ -219,6 +241,7 @@ ColumnLayout {
         // inner "1" of the glyph is invisible at this size: mode 2 is marked
         // with a badge.
         Item {
+            id: repeatBtn
             width: 40; height: 40
             Rectangle {
                 id: repDisc
@@ -263,6 +286,7 @@ ColumnLayout {
                 onClicked: {
                     if (typeof sfx !== "undefined")
                         sfx.play("toggle")
+                    ct.pop(repeatBtn)
                     ct.repeatRequested()
                 }
             }

@@ -66,6 +66,10 @@ Ajustes > Idioma abre un desplegable con español, inglés, francés, alemán, p
 
 En escritorio, Ajustes > Discord permite activar Rich Presence. En Android figura como próximamente.
 
+## Atajos de teclado
+
+Espacio reproduce o pausa; las flechas buscan ±5 s y Ctrl+flechas cambian de canción. Subir y bajar ajustan el volumen, M lo silencia y L (o F) abre la letra a pantalla completa. `[` y `]` corrigen el desfase de la letra, Ctrl+D marca «Me gusta» y Ctrl+R vuelve a buscar la letra. Q muestra la cola, Ctrl+, los ajustes y F11 la pantalla completa.
+
 ## Más información
 
 `CHANGELOG.md` tiene los cambios de cada versión. `docs/LYRICS.md` y `docs/I18N.md` explican las fuentes de letras y las traducciones. `archive/legacy/` guarda scripts antiguos que ya no intervienen en el build.

@@ -34,6 +34,12 @@ class AppTheme : public QObject
     Q_PROPERTY(QColor danger READ danger NOTIFY paletteChanged)
     Q_PROPERTY(bool followingSystem READ followingSystem NOTIFY paletteChanged)
     Q_PROPERTY(QString source READ source NOTIFY paletteChanged)
+    // Visual interface: "classic" (default) or "lotus". Kept here so every
+    // QML component can react to one signal and so the choice survives
+    // restarts through QSettings.
+    Q_PROPERTY(QString interfaceStyle READ interfaceStyle WRITE setInterfaceStyle NOTIFY paletteChanged)
+    // Lotus accent theme: "violet" (default), "rose", "gold" or "blue".
+    Q_PROPERTY(QString lotusAccent READ lotusAccent WRITE setLotusAccent NOTIFY paletteChanged)
     // "Dynamic background" (Liner style): the current track's artwork tints
     // the desktop and the islands become translucent. The UI decides it (it
     // is remembered in appcfg); it only lives here so every QML reacts.
@@ -63,6 +69,11 @@ public:
     int safeBottom() const { return m_safeBottom; }
     void refreshInsets();
     QString source() const { return m_source; }
+    QString interfaceStyle() const { return m_interfaceStyle; }
+    void setInterfaceStyle(const QString &style);
+    QString lotusAccent() const { return m_lotusAccent; }
+    void setLotusAccent(const QString &accent);
+    Q_INVOKABLE void reload();
     bool dynamicBg() const { return m_dynamicBg; }
     void setDynamicBg(bool on) {
         if (m_dynamicBg == on)
@@ -77,7 +88,6 @@ signals:
     void insetsChanged();
 
 private:
-    void reload();
     void scheduleReload();
     void rearmWatch(const QString &path = QString());
     void loadSystemPalette();
@@ -101,4 +111,6 @@ private:
     QColor m_bg, m_surface, m_surfaceAlt, m_border, m_borderSubtle;
     QColor m_accent, m_onAccent, m_accentDim, m_text, m_textDim, m_danger;
     QString m_source;
+    QString m_interfaceStyle = QStringLiteral("classic");
+    QString m_lotusAccent = QStringLiteral("violet");
 };

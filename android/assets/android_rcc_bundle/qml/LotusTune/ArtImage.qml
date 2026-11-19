@@ -154,6 +154,9 @@ Item {
         asynchronous: true
         cache: true
         smooth: true
+        // Fade in when the artwork finishes loading.
+        opacity: img.status === Image.Ready ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
     }
 
     Glyph {

@@ -19,6 +19,10 @@ Item {
     // by Main, exactly what the rail receives.
     property string page: "home"
 
+    // Orden elegido por el usuario para Inicio/Buscar/Biblioteca. El
+    // resto de pestanas (Me gusta, Descargas) quedan fijas al final.
+    property var mainPageOrder: ["home", "search", "library"]
+
     signal navigate(string page)
     signal likedRequested()
 
@@ -39,15 +43,26 @@ Item {
             bar.navigate(id)
     }
 
-    // Five equal cells. Inicio keeps the lotus mark, the bigger glyph and
-    // halo of the hero tab; every cell stays above the 48 dp touch floor.
-    readonly property var items: [
-        { id: "library",   label: qsTr("Biblioteca"), icon: "library",   w: 1.0, big: false },
-        { id: "search",    label: qsTr("Buscar"),     icon: "search",    w: 1.0, big: false },
-        { id: "home",      label: qsTr("Inicio"),     icon: "logo",      w: 1.0, big: true },
-        { id: "liked",     label: qsTr("Me gusta"),   icon: "heart",     w: 1.0, big: false },
-        { id: "downloads", label: qsTr("Descargas"),  icon: "download",  w: 1.0, big: false }
-    ]
+    readonly property var allItems: ({
+        home:      { id: "home",      label: qsTr("Inicio"),     icon: "logo",     w: 1.0, big: true },
+        search:    { id: "search",    label: qsTr("Buscar"),     icon: "search",   w: 1.0, big: false },
+        library:   { id: "library",   label: qsTr("Biblioteca"), icon: "library",  w: 1.0, big: false },
+        liked:     { id: "liked",     label: qsTr("Me gusta"),   icon: "heart",    w: 1.0, big: false },
+        downloads: { id: "downloads", label: qsTr("Descargas"),  icon: "download", w: 1.0, big: false }
+    })
+
+    // Las tres paginas principalas van en el orden elegido; Me gusta y
+    // Descargas cierran la barra siempre.
+    readonly property var items: {
+        const out = []
+        bar.mainPageOrder.forEach(function (id) {
+            if (bar.allItems[id]) out.push(bar.allItems[id])
+        })
+        ;["liked", "downloads"].forEach(function (id) {
+            if (bar.allItems[id]) out.push(bar.allItems[id])
+        })
+        return out
+    }
 
     // Same island as the desktop rail (Sidebar.qml): a faint light wash
     // over the dynamic background, radius 12, no edge. On the phone it is

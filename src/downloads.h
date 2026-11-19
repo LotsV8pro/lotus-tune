@@ -115,6 +115,12 @@ public:
     Q_INVOKABLE void refreshStorage();
     // xdg-open on the root folder.
     Q_INVOKABLE void openFolder();
+    // Renames a finished download on disk (no tag writing): `oldPath` must
+    // be inside the downloads folder and `newName` is the new base name
+    // (the original extension is kept). False on traversal, empty name or
+    // an existing destination.
+    Q_INVOKABLE bool renameDownload(const QString &oldPath,
+                                    const QString &newName);
     // Uninstalls a downloaded list: deletes its top level folder
     // (recursively and with safety guards) and rescans the library.
     Q_INVOKABLE void removeList(const QString &folder);

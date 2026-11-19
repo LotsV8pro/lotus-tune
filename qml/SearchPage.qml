@@ -21,6 +21,39 @@ Item {
     // A playlist of the search results was clicked: it opens like any other
     // list, without saving it first.
     signal playlistRequested(var playlist)
+
+    // Small play / enqueue action shown on each result row. On touch it is
+    // always visible; on desktop it fades in on row hover. Clicking it does
+    // not reach the row MouseArea, so no context menu opens.
+    component QuickAction: Rectangle {
+        id: qa
+        property string icon: "play"
+        property bool revealed: false
+        signal clicked()
+        width: 26
+        height: 26
+        radius: Theme.rXl
+        antialiasing: true
+        opacity: Theme.touch || qa.revealed ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+        color: qaMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        Glyph {
+            anchors.centerIn: parent
+            width: 15; height: 15
+            kind: qa.icon
+            color: qaMa.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg)
+                                      : Theme.tDim(Sys.bg, Sys.text)
+        }
+        MouseArea {
+            id: qaMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: (mouse) => { mouse.accepted = true; qa.clicked() }
+        }
+    }
+
     property bool artistMode: false
     // Results of the last artist search ({ name, browseId, thumb, subtitle });
     // only relevant in artists mode.
@@ -112,6 +145,29 @@ Item {
     readonly property bool locked: !src || src.status !== "ready"
 
     readonly property int rowHeight: Theme.rowH
+
+    // Total de resultados visibles: canciones, artistas y listas. En modo
+    // artistas solo cuenta la rejilla de artistas.
+    readonly property int resultCount: page.artistMode
+        ? page.artistResults.length
+        : page.flatTracks.length + page.artistResults.length
+          + page.playlistResults.length
+
+    // Fade suave de los resultados cuando cambia la query. La bajada al
+    // escribir y la subida al llegar los resultados se animan en el Panel.
+    property real resultsOpacity: 1
+    onLastQueryChanged: {
+        if (lastQuery !== "") {
+            resultsOpacity = 0.15
+            resultsFadeTimer.restart()
+        }
+    }
+    Timer {
+        id: resultsFadeTimer
+        interval: Theme.slowMs
+        repeat: false
+        onTriggered: if (!catalog.busy && !page.artistBusy) page.resultsOpacity = 1
+    }
 
     // ---- predictive search (search-as-you-type) -------------------------
     // While typing, after a brief pause it searches by itself (without
@@ -235,6 +291,10 @@ Item {
         }
         function onPlaylistsReady(playlists) {
             page.playlistResults = playlists || []
+        }
+        function onBusyChanged() {
+            if (!catalog.busy && !page.artistBusy && page.lastQuery !== "")
+                page.resultsOpacity = 1
         }
     }
 
@@ -427,6 +487,20 @@ Item {
                 }
             }
 
+            // Contador debajo del campo: cambia al escribir y al llegar
+            // resultados, sin ocupar altura fija (no desplaza la lista).
+            Text {
+                Layout.fillWidth: true
+                Layout.leftMargin: Theme.s1
+                visible: page.lastQuery !== ""
+                text: (catalog.busy || page.artistBusy)
+                      ? qsTr("Buscando…")
+                      : qsTr("%1 resultados").arg(page.resultCount)
+                color: Theme.tDim(Sys.bg, Sys.text)
+                font.pixelSize: Theme.tSm
+                elide: Text.ElideRight
+            }
+
             // ---- mode: Songs / Artists --------------------------------------
             // The same voice as the field, two targets. The chosen one is
             // remembered.
@@ -481,7 +555,7 @@ Item {
                 spacing: Theme.s2
                 clip: true
                 model: page.searchHistory
-                reuseItems: true
+          reuseItems: true
                 cacheBuffer: 400
                 boundsBehavior: Flickable.StopAtBounds
 
@@ -574,6 +648,9 @@ Item {
                 antialiasing: true
                 color: "transparent"
                 clipContent: true
+                // Fade suave al cambiar la query (sin shaders).
+                opacity: page.resultsOpacity
+                Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
 
                 ListView {
                     id: results
@@ -584,7 +661,7 @@ Item {
                     model: page.flatResults
                     spacing: Theme.s1
                     boundsBehavior: Flickable.StopAtBounds
-                    reuseItems: true
+              reuseItems: true
                     cacheBuffer: 600
 
                 // When new results arrive, it cooks the first tracks: a
@@ -627,6 +704,10 @@ Item {
                     color: !rrow.modelData.secHead && rrowMouse.containsMouse
                            ? Theme.hover(Sys.bg) : "transparent"
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    // Escala al hover en filas (solo escritorio).
+                    scale: (!Theme.touch && !rrow.modelData.secHead
+                            && rrowMouse.containsMouse) ? 1.01 : 1
+                    Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
 
                     // ---- source header (YT, SoundCloud, …) --------------------
                     Text {
@@ -765,6 +846,35 @@ Item {
                             }
                         }
 
+                        // Fixed-width slot: title position never moves when
+                        // the actions fade in on hover.
+                        Item {
+                            Layout.preferredWidth: 60
+                            Layout.preferredHeight: 26
+                            visible: !rrow.isArtist && !rrow.modelData.secHead
+                            Row {
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 4
+                                QuickAction {
+                                    icon: "play"
+                                    revealed: rrowMouse.containsMouse
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("play")
+                                        page.playRequested(page.flatTracks, rrow.modelData.ti)
+                                    }
+                                }
+                                QuickAction {
+                                    icon: "plus"
+                                    revealed: rrowMouse.containsMouse
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        page.enqueueRequested(rrow.modelData)
+                                    }
+                                }
+                            }
+                        }
+
                         ColumnLayout {
                             Layout.fillWidth: true
                             spacing: 1
@@ -878,6 +988,8 @@ Item {
                             height: playlistRail.cardW + Theme.cardLineH(Theme.tMd)
                                     + Theme.cardLineH(Theme.tSm) + Theme.s1
                             orientation: ListView.Horizontal
+                            reuseItems: true
+                            cacheBuffer: 400
                             spacing: Theme.s3
                             clip: true
                             interactive: true
@@ -924,6 +1036,8 @@ Item {
                             height: artistRail.cardW + Theme.cardLineH(Theme.tMd)
                                     + Theme.cardLineH(Theme.tSm) + Theme.s1
                             orientation: ListView.Horizontal
+                            reuseItems: true
+                            cacheBuffer: 400
                             spacing: Theme.s3
                             clip: true
                             interactive: true
@@ -949,6 +1063,8 @@ Item {
                 // ---- artists (artists mode): cards in a grid ----------------
                 GridView {
                     id: artistGrid
+                    reuseItems: true
+                    cacheBuffer: 800
                     anchors.fill: parent
                     anchors.margins: Theme.s2
                     visible: page.artistMode

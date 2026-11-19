@@ -25,6 +25,8 @@ Window {
     // when HOME is pressed, but the binding is not always re-evaluated in
     // time: it is stored here and notified on change.
     property bool appActive: Qt.application.state === Qt.ApplicationActive
+    // Interfaz compacta: espaciados un 10% menores en toda la app.
+    property bool compactUi: false
     Connections {
         target: Qt.application
         function onStateChanged() {
@@ -65,6 +67,81 @@ Window {
         appcfg.set(k, String(v))
         appcfg.save()
     }
+
+    // Atajos configurables en Ajustes > Atajos. El valor guardado manda;
+    // si no hay nada guardado se usan estos por defecto.
+    property string shortcutLyrics: cfgGet("shortcutLyrics") || "L"
+    property string shortcutQueue: cfgGet("shortcutQueue") || "Q"
+    property string shortcutFullscreen: cfgGet("shortcutFullscreen") || "F11"
+
+    function setShortcut(key, seq) {
+        if (key === "shortcutLyrics") root.shortcutLyrics = seq
+        else if (key === "shortcutQueue") root.shortcutQueue = seq
+        else if (key === "shortcutFullscreen") root.shortcutFullscreen = seq
+        else return
+        root.cfgSet(key, seq)
+    }
+    function shortcutValue(key) {
+        if (key === "shortcutLyrics") return root.shortcutLyrics
+        if (key === "shortcutQueue") return root.shortcutQueue
+        if (key === "shortcutFullscreen") return root.shortcutFullscreen
+        return ""
+    }
+    function shortcutDefault(key) {
+        if (key === "shortcutFullscreen") return "F11"
+        if (key === "shortcutQueue") return "Q"
+        return "L"
+    }
+    // Convierte la tecla pulsada en una secuencia QKeySequence.
+    function sequenceFromKeyEvent(e) {
+        if (e.key === Qt.Key_Control || e.key === Qt.Key_Shift
+                || e.key === Qt.Key_Alt || e.key === Qt.Key_Meta)
+            return ""
+        var name = ""
+        if (e.key >= Qt.Key_F1 && e.key <= Qt.Key_F35)
+            name = "F" + (e.key - Qt.Key_F1 + 1)
+        else if (e.key >= Qt.Key_A && e.key <= Qt.Key_Z)
+            name = String.fromCharCode(e.key)
+        else if (e.key >= Qt.Key_0 && e.key <= Qt.Key_9)
+            name = String.fromCharCode(e.key)
+        else {
+            const named = {}
+            named[Qt.Key_Space] = "Space"
+            named[Qt.Key_Return] = "Return"
+            named[Qt.Key_Enter] = "Enter"
+            named[Qt.Key_Tab] = "Tab"
+            named[Qt.Key_Backspace] = "Backspace"
+            named[Qt.Key_Delete] = "Delete"
+            named[Qt.Key_Home] = "Home"
+            named[Qt.Key_End] = "End"
+            named[Qt.Key_PageUp] = "PageUp"
+            named[Qt.Key_PageDown] = "PageDown"
+            named[Qt.Key_Left] = "Left"
+            named[Qt.Key_Right] = "Right"
+            named[Qt.Key_Up] = "Up"
+            named[Qt.Key_Down] = "Down"
+            named[Qt.Key_Escape] = "Escape"
+            named[Qt.Key_Minus] = "-"
+            named[Qt.Key_Plus] = "+"
+            named[Qt.Key_Equal] = "="
+            named[Qt.Key_BracketLeft] = "["
+            named[Qt.Key_BracketRight] = "]"
+            named[Qt.Key_Semicolon] = ";"
+            named[Qt.Key_Apostrophe] = "'"
+            named[Qt.Key_Comma] = ","
+            named[Qt.Key_Period] = "."
+            named[Qt.Key_Slash] = "/"
+            named[Qt.Key_Backslash] = "\\"
+            named[Qt.Key_Grave] = "`"
+            name = named[e.key] || ""
+        }
+        if (name === "") return ""
+        var seq = ""
+        if (e.modifiers & Qt.ControlModifier) seq += "Ctrl+"
+        if (e.modifiers & Qt.AltModifier) seq += "Alt+"
+        if (e.modifiers & Qt.ShiftModifier) seq += "Shift+"
+        return seq + name
+    }
     // Languages offered in Ajustes: the source one, the system option and
     // every code that has a translation in the build.
     function languageCodes() {
@@ -96,6 +173,13 @@ Window {
     }
     function ytmCode() {
         return (typeof catalog.loginCode !== "undefined") ? String(catalog.loginCode || "") : ""
+    }
+    function sourceState(id) {
+        if (typeof sources === "undefined") return ""
+        for (var i = 0; i < sources.list.length; i++)
+            if (sources.list[i].id === id)
+                return sources.list[i].status === "ready" ? "ok" : ""
+        return ""
     }
     function ytmUrl() {
         return (typeof catalog.loginUrl !== "undefined") ? String(catalog.loginUrl || "") : ""
@@ -143,13 +227,63 @@ Window {
 
     // ---- new preferences (quality, lyrics, Discord, downloads) ------------
     property bool lyricsEnabled: true
+    // Only use the saved lyrics; never ask any network source.
+    property bool offlineOnly: false
+    // Skip tracks without lyrics when one ends (not on manual next).
+    property bool skipNoLyrics: false
+    // Lyrics font size delta in px relative to the automatic size.
+    // 0 = automatic (the cinema picks the size from the window height).
+    property real lyricsFontSize: 0
+    function lyricsSizeText() {
+        const d = Math.round(root.lyricsFontSize)
+        if (d === 0)
+            return qsTr("Automático (20–30 px)")
+        return qsTr("%1 a %2 px").arg(20 + d).arg(30 + d)
+    }
     property bool discordEnabled: false
     // Autoplay: when the queue runs out, YouTube Music is asked for the
     // continuation (a radio seeded with the last track) so the music does
     // not stop. On by default; remembered between sessions.
     property bool autoplayEnabled: true
+    // 0 = parar, 1 = repetir la cola, 2 = seguir con radio (por defecto)
+    property int queueEndMode: 2
     // "Continue where you left off" at startup (queue + track paused).
     property bool resumeOnOpen: true
+    // Sleep timer: 0 = off, otherwise minutes left. Counts down only while
+    // music plays; at zero it pauses and shows a toast.
+    property int sleepTimerMinutes: 0
+    property int sleepRemaining: 0   // seconds left (shown in the player bar)
+
+    // Ajustes > Personalizar ajustes: ids de sección que el usuario oculta.
+    // Se guardan como lista separada por comas.
+    property var hiddenSections: []
+
+    function loadHiddenSections() {
+        const raw = root.cfgGet("hiddenSections")
+        root.hiddenSections = raw ? raw.split(",").filter(function(s) { return s !== "" }) : []
+    }
+    function saveHiddenSections() {
+        root.cfgSet("hiddenSections", root.hiddenSections.join(","))
+    }
+    function isSectionHidden(id) {
+        return root.hiddenSections.indexOf(id) >= 0
+    }
+    function toggleSectionHidden(id) {
+        if (id === "personalizar")   // siempre visible para poder deshacer
+            return
+        if (root.isSectionHidden(id))
+            root.hiddenSections = root.hiddenSections.filter(function(s) { return s !== id })
+        else
+            root.hiddenSections = root.hiddenSections.concat([id])
+        root.saveHiddenSections()
+    }
+
+    // Size of the cover in the player bar: 0 small, 1 normal, 2 large.
+    // 28 / 40 / 56 px. The phone keeps its own compact 40 px cover.
+    property int coverSizeMode: 1
+
+    // Home view: 0 cards in horizontal rails, 1 compact rows.
+    property int homeViewMode: 0
 
     // ---- right panel (queue / lyrics) -------------------------------------
     property bool panelOpen: false
@@ -158,11 +292,14 @@ Window {
     function openPanel(tab) {
         panelTab = tab
         panelOpen = true
+        cfgSet("panelTab", String(panelTab))
+        cfgSet("panelOpen", "true")
     }
     function togglePanel(tab) {
-        if (panelOpen && panelTab === tab)
+        if (panelOpen && panelTab === tab) {
             panelOpen = false
-        else
+            cfgSet("panelOpen", "false")
+        } else
             openPanel(tab)
     }
 
@@ -193,8 +330,60 @@ Window {
     function showTrackMenu(t, x, y) {
         root.showContextMenu(root.trackMenuItems(t), x, y)
     }
+    // Context menu of the lyrics in cinema mode (right click/long press
+    // on a line). Mirrors the lyrics entries of the track menu.
+    function showLyricsMenu(x, y) {
+        const items = []
+        if (typeof lyrics !== "undefined" && lyrics.hasLyrics) {
+            items.push({ label: qsTr("Copiar letra"), icon: "lyrics",
+                         action: function() {
+                             root.copyToClipboard(lyrics.lyricsText(),
+                                                  qsTr("Letra copiada"))
+                         } })
+            items.push({ label: qsTr("Guardar letra (LRC)"), icon: "download",
+                         action: function() {
+                             const name = String(root.currentArtist || "")
+                                        + " - " + String(root.currentTitle || "")
+                                        + ".lrc"
+                             const p = (downloads.folder || "") + "/"
+                                     + name.replace(/[\\/:*?"<>|]/g, "_")
+                             root.toast(lyrics.exportLyrics(p)
+                                        ? qsTr("Letra guardada")
+                                        : qsTr("No se pudo guardar la letra"))
+                         } })
+            items.push({ label: qsTr("Compartir letra…"), icon: "share",
+                         action: function() {
+                             const name = ("compartir-" + String(root.currentTitle || "")
+                                           + ".lrc").replace(/[\\/:*?"<>|]/g, "_")
+                             let folder = ""
+                             if (typeof StandardPaths !== "undefined")
+                                 folder = StandardPaths.writableLocation(
+                                              StandardPaths.TempLocation)
+                             if (!folder)
+                                 folder = downloads.folder || ""
+                             const p = folder + "/" + name
+                             if (lyrics.exportLyrics(p)) {
+                                 Qt.openUrlExternally("file://" + p)
+                                 root.toast(p)
+                             } else
+                                 root.toast(qsTr("No se pudo guardar la letra"))
+                         } })
+        }
+        root.showContextMenu(items, x, y)
+    }
     function showPlaylistMenu(c, x, y) {
         root.showContextMenu(root.playlistMenuItems(c), x, y)
+    }
+
+    // Menu of a compact row in Home: opens the same list as a card click,
+    // or plays it like the card's play button.
+    function showHomeItemMenu(item, x, y) {
+        root.showContextMenu([
+            { label: qsTr("Abrir"), icon: "list",
+              action: function() { homePage.openListItem(item, false) } },
+            { label: qsTr("Reproducir"), icon: "play",
+              action: function() { homePage.openListItem(item, true) } }
+        ], x, y)
     }
 
     // Menu (...) of a downloaded list opened as a playlist.
@@ -316,6 +505,38 @@ Window {
         root.toast(message || qsTr("Enlace copiado"))
     }
 
+    // Ctrl+F on the library: close the side panel and focus the search box.
+    function focusLibrarySearch() {
+        if (root.panelOpen)
+            root.panelOpen = false
+        if (typeof libPage !== "undefined" && libPage.libSearchInput)
+            libPage.libSearchInput.forceActiveFocus()
+        else
+            root.toast(qsTr("Usa el campo Buscar en la biblioteca"))
+    }
+
+    // Ctrl+F with the queue panel open: focus its local search field.
+    function focusQueueSearch() {
+        function findInput(o) {
+            if (!o)
+                return null
+            if (typeof o.qSearchInput !== "undefined" && o.qSearchInput)
+                return o.qSearchInput
+            const kids = o.children || []
+            for (let i = 0; i < kids.length; i++) {
+                const r = findInput(kids[i])
+                if (r)
+                    return r
+            }
+            return null
+        }
+        const input = findInput(rightPanel)
+        if (input)
+            input.forceActiveFocus()
+        else
+            root.toast(qsTr("Usa el campo Buscar en la cola"))
+    }
+
     // ---- queue: play next / add to the queue --------------
     function queueRow(t) {
         t = trackObj(t)
@@ -333,6 +554,20 @@ Window {
         }
         queue.insert(Math.min(queue.count, root.queueIndex + 1), root.queueRow(t))
         root.toast(qsTr("Se reproducirá a continuación"))
+    }
+
+    function moveQueueItem(from, to) {
+        if (from < 0 || to < 0 || from >= queue.count || to >= queue.count
+            || from === to)
+            return
+        queue.move(from, to)
+        // Keep the playing track pointing at the same row after the move.
+        if (root.queueIndex === from)
+            root.queueIndex = to
+        else if (from < root.queueIndex && to >= root.queueIndex)
+            root.queueIndex--
+        else if (from > root.queueIndex && to <= root.queueIndex)
+            root.queueIndex++
     }
 
     function enqueueTrack(t) {
@@ -395,18 +630,77 @@ Window {
         const liked = (catalog.likedReady === true) ? catalog.isLiked(url)
                                                     : (t.liked === true)
         const out = []
+        if (t.queueIndex !== undefined && t.queueIndex >= 0) {
+            if (t.queueIndex > 0)
+                out.push({ label: qsTr("Mover arriba en la cola"), icon: "arrow-up",
+                           action: function() { root.moveQueueItem(t.queueIndex, t.queueIndex - 1) } })
+            if (t.queueIndex + 1 < queue.count)
+                out.push({ label: qsTr("Mover abajo en la cola"), icon: "arrow-down",
+                           action: function() { root.moveQueueItem(t.queueIndex, t.queueIndex + 1) } })
+            out.push({ label: qsTr("Duplicar en la cola"), icon: "plus",
+                       action: function() {
+                           const idx = t.queueIndex
+                           const row = t.rowData || t
+                           queue.insert(idx + 1, root.queueRow(row))
+                           if (idx < root.queueIndex)
+                               root.queueIndex++
+                           root.saveSession()
+                       } })
+            if (out.length > 0)
+                out.push({ separator: true })
+        }
         out.push({ label: qsTr("Reproducir"), icon: "play",
                    action: function() { root.playTracks([t], 0) } })
+        if (url !== "") {
+            out.push({ label: qsTr("Repetir esta canción"), icon: "repeat",
+                       action: function() {
+                           root.repeatMode = 2
+                           root.cfgSet("repeatMode", "2")
+                           mpris.setLoopStatus("Track")
+                           root.saveSession()
+                           const cur = queue.count > 0 ? queue.get(root.queueIndex) : null
+                           if (cur && cur.url === url) {
+                               root.startCurrent()
+                           } else {
+                               let idx = -1
+                               for (let i = 0; i < queue.count; i++) {
+                                   const row = queue.get(i)
+                                   if (row && row.url === url) { idx = i; break }
+                               }
+                               if (idx >= 0) {
+                                   root.queueIndex = idx
+                                   root.startCurrent()
+                               } else {
+                                   root.playTracks([t], 0)
+                               }
+                           }
+                           root.toast(qsTr("Repitiendo esta canción"))
+                       } })
+        }
         // Radio in YouTube Music's style (YouTube tracks only): the one of
         // the song itself and the one of the artist, each seeded with its
         // top track.
         if (vid !== "") {
             out.push({ label: qsTr("Escuchar radio de esta canción"), icon: "radio",
                        action: function() { root.startSongRadio(t) } })
-            const artistName = String(t.artist || "")
-            if (artistName)
-                out.push({ label: qsTr("Radio de %1").arg(artistName), icon: "radio",
-                           action: function() { root.startArtistRadio(t) } })
+            const artistName = root.cleanArtist(t.artist)
+            if (artistName) {
+                if (root.looksMultiArtist(artistName)) {
+                    const names = artistName.split(/\s*(?:,|&|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b|con)\s*/i)
+                    const seen = []
+                    for (const raw of names) {
+                        const n = root.cleanArtist(raw)
+                        if (!n || seen.indexOf(n.toLowerCase()) >= 0)
+                            continue
+                        seen.push(n.toLowerCase())
+                        out.push({ label: qsTr("Radio de %1").arg(n), icon: "radio",
+                                   action: function() { root.openArtistByName(n) } })
+                    }
+                } else {
+                    out.push({ label: qsTr("Radio de %1").arg(artistName), icon: "radio",
+                               action: function() { root.startArtistRadio(t) } })
+                }
+            }
         }
         if (canYt)
             out.push({ label: qsTr("Añadir a lista de reproducción…"), icon: "plus",
@@ -419,6 +713,32 @@ Window {
                        action: function() { catalog.toggleLiked(url, liked) } })
         if (canYt)
             out.push({ separator: true })
+        const trackArtist = String(t.artist || "")
+        const trackTitle = String(t.title || "")
+        if (typeof lyrics !== "undefined" && trackArtist !== "" && trackTitle !== "") {
+            const isCurrent = (trackArtist === root.currentArtist
+                               && trackTitle === root.currentTitle)
+            out.push({ label: qsTr("Ver letra"), icon: "lyrics",
+                       action: function() {
+                           if (!isCurrent) {
+                               root.toast(qsTr("Reproduce la canción para ver su letra"))
+                               return
+                           }
+                           root.fsLyricsOpen = true
+                       } })
+        }
+        if (url) {
+            const blocked = catalog.isBlocked(url)
+            out.push({ label: blocked ? qsTr("Volver a permitir")
+                                      : qsTr("No volver a reproducir"),
+                       icon: "lock", checked: blocked,
+                       action: function() {
+                           catalog.setBlocked(url, !catalog.isBlocked(url))
+                           root.toast(blocked ? qsTr("Pista permitida de nuevo")
+                                              : qsTr("Pista bloqueada"))
+                       } })
+            out.push({ separator: true })
+        }
         out.push({ label: qsTr("Reproducir a continuación"), icon: "next",
                    action: function() { root.playNextTrack(t) } })
         out.push({ label: qsTr("Añadir a la cola"), icon: "queue",
@@ -450,6 +770,8 @@ Window {
         if (url) {
             if (!String(t.artist || ""))
                 out.push({ separator: true })
+            out.push({ label: qsTr("Abrir en YouTube Music"), icon: "expand",
+                       action: function() { Qt.openUrlExternally(url) } })
             out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(url) } })
         }
@@ -459,6 +781,36 @@ Window {
                            root.copyToClipboard(lyrics.lyricsText(),
                                                 qsTr("Letra copiada"))
                        } })
+            out.push({ label: qsTr("Copiar letra y traducción"), icon: "lyrics",
+                       action: function() {
+                           root.copyToClipboard(lyrics.translatedText(),
+                                                qsTr("Letra y traducción copiadas"))
+                       } })
+            out.push({ label: qsTr("Guardar letra (LRC)"), icon: "download",
+                       action: function() {
+                           const name = String(t.artist || "") + " - "
+                                      + String(t.title || "") + ".lrc"
+                           const p = (downloads.folder || "") + "/" + name.replace(/[\\/:*?"<>|]/g, "_")
+                           root.toast(lyrics.exportLyrics(p)
+                                      ? qsTr("Letra guardada")
+                                      : qsTr("No se pudo guardar la letra"))
+                       } })
+            out.push({ label: qsTr("Borrar letra guardada"), icon: "trash",
+                       action: function() {
+                           lyrics.clearCacheFor(root.currentArtist,
+                                                root.currentTitle)
+                           root.fetchLyrics()
+                       } })
+            if (typeof lyrics.clearCacheForArtist === "function"
+                    && trackArtist !== "") {
+                out.push({ label: qsTr("Borrar letras de este artista"), icon: "trash",
+                           action: function() {
+                               const n = lyrics.clearCacheForArtist(trackArtist)
+                               root.toast(qsTr("Borradas %1 letras").arg(n))
+                               if (String(root.currentArtist || "") === trackArtist)
+                                   root.fetchLyrics()
+                           } })
+            }
         }
         // Downloaded track inside a list: allows uninstalling the whole
         // list (it deletes the download folder).
@@ -495,6 +847,25 @@ Window {
         if (url)
             out.push({ label: qsTr("Copiar enlace"), icon: "link",
                        action: function() { root.copyToClipboard(url) } })
+        if (typeof lyrics !== "undefined"
+                && typeof lyrics.clearCacheForUrls === "function" && url) {
+            out.push({ label: qsTr("Borrar letras de esta lista"), icon: "trash",
+                       action: function() {
+                           const clear = function(ts) {
+                               const urls = []
+                               for (let i = 0; i < ts.length; i++)
+                                   if (ts[i].url) urls.push(String(ts[i].url))
+                               const n = lyrics.clearCacheForUrls(urls)
+                               root.toast(qsTr("Borradas %1 letras").arg(n))
+                           }
+                           if (String(catalog.openListUrl || "") === url) {
+                               clear(catalog.tracks)
+                           } else {
+                               root.pendingLyricsClearUrl = url
+                               catalog.openUrl(url, c.name || "")
+                           }
+                       } })
+        }
         // If the list is downloaded it can be uninstalled (it deletes the
         // files).
         const dlFolder = root.downloadedFolderFor(url, c.name)
@@ -623,7 +994,18 @@ Window {
         return ""
     }
 
-    function toggleSettings() { closeLauncher(); settingsOpen = !settingsOpen }
+    property int cachedCount: 0
+    function refreshCachedCount() {
+        cachedCount = typeof lyrics !== "undefined"
+                      && typeof lyrics.cachedLyricsCount === "function"
+                      ? lyrics.cachedLyricsCount() : 0
+    }
+    function toggleSettings() {
+        closeLauncher()
+        if (!settingsOpen)
+            refreshCachedCount()
+        settingsOpen = !settingsOpen
+    }
     // Closes the launcher for real: the focus must leave the field ALWAYS.
     // If it stays, `typing()` keeps returning true and the window
     // shortcuts (F, L, Space, M, arrows...) stay dead until the launcher
@@ -804,6 +1186,17 @@ Window {
     // - at the end - goes back to the previous page (a list/album ->
     // Home).
     function goBack() {
+        // Android's back gesture peels one layer: presentation -> focus ->
+        // cinema -> app, matching Escape. The first back from the mic
+        // restores the cinema with its artwork and controls.
+        if (root.fsLyricsOpen && fsLyrics.presentationMode) {
+            fsLyrics.togglePresentationMode()
+            return
+        }
+        if (root.fsLyricsOpen && fsLyrics.focusMode) {
+            fsLyrics.toggleFocusMode()
+            return
+        }
         if (root.whatsNewOpen) { root.closeWhatsNew(); return }
         if (root.ctxOpen) { root.ctxOpen = false; return }
         if (root.fsLyricsOpen) { root.fsLyricsOpen = false; return }
@@ -814,7 +1207,7 @@ Window {
         if (root.settingsOpen) {
             if (settingsOverlay.activeSection !== "") {
                 settingsOverlay.activeSection = ""
-                settingsOverlay.settingsScroll.contentY = 0
+                settingsScroll.contentY = 0
             } else {
                 root.settingsOpen = false
             }
@@ -967,6 +1360,20 @@ Window {
         sequence: "Ctrl+,"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleSettings() }
     }
+    // Ctrl+1/2/3: van a la pagina por su nombre, no por su posicion,
+    // de modo que reordenar la barra no cambie el atajo.
+    Shortcut {
+        sequence: "Ctrl+1"
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.navTo("home") }
+    }
+    Shortcut {
+        sequence: "Ctrl+2"
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.navTo("search") }
+    }
+    Shortcut {
+        sequence: "Ctrl+3"
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.navTo("library") }
+    }
     Shortcut {
         sequence: "Ctrl+Space"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleLauncher() }
@@ -1024,22 +1431,75 @@ Window {
         enabled: !root.typing()
         onActivated: { if (typeof sfx !== "undefined") sfx.play("toggle"); root.toggleRepeat() }
     }
+    // Ctrl+R: ask the sources for this track's lyrics again (useful after
+    // fixing a source or when a song got its timed lyrics later).
+    // [ and ] nudge the lyric sync without leaving the fullscreen view.
+    Shortcut {
+        sequence: "["
+        enabled: !root.typing()
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.setLyricsOffset(root.lyricsOffset - 0.1)
+        }
+    }
+    Shortcut {
+        sequence: "]"
+        enabled: !root.typing()
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.setLyricsOffset(root.lyricsOffset + 0.1)
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+D"
+        enabled: !root.typing() && root.currentTitle !== ""
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("like"); root.toggleLike() }
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+A"
+        enabled: !root.typing() && root.currentTitle !== ""
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.enqueueTrack(root.nowPlayingTrack())
+            root.toast("Añadida a la cola")
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+R"
+        enabled: !root.typing()
+        onActivated: {
+            if (typeof sfx !== "undefined") sfx.play("tap")
+            root.lyricsKey = ""
+            lyrics.clear()
+            root.fetchLyrics()
+        }
+    }
     // L, F and Ctrl+L: fullscreen lyrics, the two column cinema mode.
     // Q: queue; F11: fullscreen. (The old "Now playing" with the cover
     // on top and the lyrics below is gone: the cinema mode replaces
     // it.)
     Shortcut {
-        sequence: "L"
-        enabled: !root.typing()
+        sequence: root.shortcutLyrics
+        enabled: !root.typing() && settingsOverlay.capturing === ""
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreenLyrics() }
     }
     Shortcut {
-        sequence: "Q"
-        enabled: !root.typing()
+        sequence: root.shortcutQueue
+        enabled: !root.typing() && settingsOverlay.capturing === ""
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.togglePanel(0) }
     }
     Shortcut {
-        sequence: "F11"
+        sequence: "Tab"
+        enabled: !root.typing() && !root.settingsOpen && !root.launcherOpen
+        onActivated: { root.togglePanel(root.panelTab) }
+    }
+    Shortcut {
+        sequence: root.shortcutFullscreen
+        enabled: settingsOverlay.capturing === ""
+        onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreen() }
+    }
+    Shortcut {
+        sequence: "F12"
         onActivated: { if (typeof sfx !== "undefined") sfx.play("tap"); root.toggleFullscreen() }
     }
     // F: two column cinema mode, as long as it is not being typed in a
@@ -1059,6 +1519,20 @@ Window {
             if (typeof sfx !== "undefined") sfx.play("tap")
             root.navTo("search")
             searchPage.focusField()
+        }
+    }
+    // Ctrl+F: queue or library search field, or copy the lyric line in cinema.
+    Shortcut {
+        sequence: "Ctrl+F"
+        enabled: root.page === "library" || root.fsLyricsOpen
+                 || (root.panelOpen && root.panelTab === 0)
+        onActivated: {
+            if (root.fsLyricsOpen)
+                root.copyToClipboard(lyrics.lyricsText(), qsTr("Linea copiada"))
+            else if (root.panelOpen && root.panelTab === 0)
+                root.focusQueueSearch()
+            else
+                root.focusLibrarySearch()
         }
     }
 
@@ -1321,6 +1795,50 @@ Window {
 
     // ---- navigation ------------------------------------------------------
     property string page: "home"
+
+    // Orden de las paginas principales en la navegacion. Solo estos tres
+    // ids se reordenan; "liked"/"downloads" quedan fijos al final.
+    property var pageOrder: ["home", "search", "library"]
+
+    function savePageOrder() {
+        cfgSet("pageOrder", root.pageOrder.join(","))
+    }
+
+    // Mueve una pagina una posicion. dir = -1 sube, +1 baja.
+    function movePage(id, dir) {
+        const a = root.pageOrder.slice()
+        const i = a.indexOf(id)
+        const j = i + dir
+        if (i < 0 || j < 0 || j >= a.length)
+            return
+        const t = a[i]
+        a[i] = a[j]
+        a[j] = t
+        root.pageOrder = a
+        root.savePageOrder()
+    }
+
+    function orderedPagesFromString(s) {
+        const known = { home: 1, search: 1, library: 1 }
+        const out = String(s || "").split(",").filter(function (p) { return known[p] })
+        ;["home", "search", "library"].forEach(function (p) {
+            if (out.indexOf(p) < 0) out.push(p)
+        })
+        return out
+    }
+
+    function orderedPages() {
+        // El telefono siempre lleva Inicio en medio (entre Biblioteca y
+        // Buscar); el escritorio respeta el orden elegido por el usuario.
+        if (root.isPhone)
+            return ["library", "search", "home"]
+        const known = { home: 1, search: 1, library: 1 }
+        const out = root.pageOrder.slice().filter(function (p) { return known[p] })
+        ;["home", "search", "library"].forEach(function (p) {
+            if (out.indexOf(p) < 0) out.push(p)
+        })
+        return out
+    }
     // QA query (--search=): it is fired on startup.
     property string cliSearch: ""
 
@@ -1343,6 +1861,7 @@ Window {
                 if (p === "home" || p === "search" || p === "library")
                     page = p
             } else if (a.startsWith("--src=")) {
+                root.qaHasSrc = true
                 const s = a.substring(6)
                 for (let j = 0; j < sources.list.length; j++)
                     if (sources.list[j].id === s)
@@ -1392,6 +1911,16 @@ Window {
                 Qt.callLater(function() { catalog.openUrl(a.substring(10), "selftest") })
             }
         }
+        // Apply the source chosen in Settings. A --src= argument above
+        // wins for that run; otherwise the saved default takes effect.
+        if (!root.qaHasSrc) {
+            const defSrc = root.cfgGet("defaultSource")
+            if (defSrc !== "") {
+                for (let j = 0; j < sources.list.length; j++)
+                    if (sources.list[j].id === defSrc)
+                        sources.select(defSrc)
+            }
+        }
         // The QA launcher query: the launcher is opened with it typed in.
         if (root.qaLauncherSearch.length > 0)
             Qt.callLater(root.toggleLauncher)
@@ -1405,13 +1934,41 @@ Window {
                 catalog.searchPlaylists(cliSearch)
             })
         }
+        root.loadHiddenSections()
+        root.shortcutLyrics = cfgGet("shortcutLyrics") || "L"
+        root.shortcutQueue = cfgGet("shortcutQueue") || "Q"
+        root.shortcutFullscreen = cfgGet("shortcutFullscreen") || "F11"
         followSys = cfgGet("followSystem") !== "false"
+        root.compactUi = cfgGet("compactUi") === "true"
+        root.pageOrder = root.orderedPagesFromString(cfgGet("pageOrder"))
+        {
+            const cs = parseInt(cfgGet("coverSizeMode"))
+            root.coverSizeMode = (cs >= 0 && cs <= 2) ? cs : 1
+        }
+        root.homeViewMode = parseInt(cfgGet("homeViewMode")) === 1 ? 1 : 0
 
         // Player, lyrics, Discord and download preferences.
+        skipNoLyrics = cfgGet("skipNoLyrics") === "true"   // off by default
+        offlineOnly = cfgGet("offlineOnly") === "true"
         lyricsEnabled = cfgGet("lyricsEnabled") !== "false"
+        {
+            const fs = parseFloat(cfgGet("lyricsFontSize"))
+            root.lyricsFontSize = (!isNaN(fs) && fs >= -2 && fs <= 2 && fs !== 0)
+                                  ? fs : 0
+        }
         discordEnabled = cfgGet("discordRpc") === "true"
         autoplayEnabled = cfgGet("autoplay") !== "false"
+        queueEndMode = parseInt(cfgGet("queueEndMode"))
+        if (isNaN(queueEndMode) || queueEndMode < 0 || queueEndMode > 2)
+            queueEndMode = 2
         resumeOnOpen = cfgGet("resumeOnOpen") !== "false"
+        {
+            const sm = parseInt(cfgGet("sleepTimerMinutes"))
+            root.sleepTimerMinutes = (sm > 0) ? sm : 0
+            root.sleepRemaining = root.sleepTimerMinutes * 60
+            if (root.sleepTimerMinutes > 0)
+                sleepTick.running = true
+        }
         // Dynamic background (the blurred artwork behind everything): on a
         // phone the veil is 5x larger and the artwork turns into a smear
         // that eats the contrast, so it is OFF by default there. It stays
@@ -1439,10 +1996,14 @@ Window {
             mpris.setLoopStatus(root.repeatMode === 1 ? "Playlist"
                                   : root.repeatMode === 2 ? "Track" : "None")
         }
+        // Remember which side panel the user had open (queue or lyrics).
+        root.panelTab = cfgGet("panelTab") === "1" ? 1 : 0
+        root.panelOpen = cfgGet("panelOpen") === "true"
         root.karaokeWords = cfgGet("karaokeWords") !== "false"
         root.lyricsLiriqo = cfgGet("lyricsLiriqo") !== "false"
         root.lyricsTranslate = cfgGet("lyricsTranslate") === "true"
         lyrics.setLiriqoEnabled(root.lyricsLiriqo)
+        lyrics.setOfflineOnly(root.offlineOnly)
         lyrics.setTranslateTo(root.lyricsTranslate
                               ? (lang.current === "en" ? "en" : "es") : "")
         if (typeof lyrics !== "undefined")
@@ -1545,6 +2106,8 @@ Window {
     property bool fsQueueOpen: false
     // QA: open the cinema mode as soon as there is a track playing.
     property bool qaFsLyrics: false
+    property bool qaHasSrc: false
+    property bool npPlaying: false
     // QA: open the launcher with a query already in the field.
     property string qaLauncherSearch: ""
 
@@ -1574,11 +2137,27 @@ Window {
     // A list is loading / it has to be played as soon as it arrives.
     property bool listLoading: false
     property bool pendingPlay: false
+    // List URL whose lyrics cache is being cleared once its tracks arrive.
+    property string pendingLyricsClearUrl: ""
     // Avoids repeating the lyrics request for the same track+duration.
     property string lyricsKey: ""
     // Avoids resending the MPRIS/Discord metadata on every position
     // tick.
     property string metaKey: ""
+    property string metaArtist: ""
+    // Last.fm: metadata of the track being played and the position it
+    // reached, so the previous track can be scrobbled when it changes.
+    property string scrobbleArtist: ""
+    property string scrobbleTitle: ""
+    property real scrobbleDuration: 0
+    property real scrobblePlayPos: 0
+    Connections {
+        target: player
+        function onPositionChanged() {
+            if (root.currentTitle.length > 0)
+                root.scrobblePlayPos = Math.max(root.scrobblePlayPos, Number(player.position))
+        }
+    }
     // ---- persistent session (restored PAUSED on startup) ---------------
     // sessionLoaded avoids saving before the session has been restored.
     property bool sessionLoaded: false
@@ -1842,6 +2421,58 @@ Window {
     function looksLikePlayCount(text) {
         const t = String(text || "").trim()
         return /^[\d.,]+\s*([kmb]|mil|mill[oó]n(es)?|million)?\s*(reproducciones|reproducci[oó]n|plays?|visualizaciones|vistas|views)$/i.test(t)
+    }
+    // YouTube's "Isirecords and 2 more" is a UI hint, not an artist name.
+    function cleanArtist(text) {
+        return String(text || "")
+            .replace(/,?\s+(?:and|y)\s+\d+\s+(?:more|m[aá]s)\s*$/i, "")
+            .trim()
+    }
+    // Some providers put "Artist - Title" in the title field. Strip the
+    // artist prefix and trailing video tags so the dock shows only the name.
+    // Shared tap feedback: a quick grow then settle with a soft overshoot.
+    // Call from any control's click/tap handler to give it a lively pop.
+    property real popAmount: 1.18
+    SequentialAnimation {
+        id: tapPopAnim
+        property var popTarget: null
+        NumberAnimation { target: tapPopAnim.popTarget; property: "scale"; to: root.popAmount; duration: Theme.animMs(90) }
+        NumberAnimation { target: tapPopAnim.popTarget; property: "scale"; to: 1; duration: Theme.animMs(240); easing.type: Easing.OutBack }
+    }
+    function tapPop(item, amount) {
+        tapPopAnim.stop()
+        tapPopAnim.popTarget = item
+        root.popAmount = amount || 1.18
+        tapPopAnim.restart()
+    }
+
+    function displayTitle(title, artist) {
+        let t = String(title || "").trim()
+        const a = root.cleanArtist(artist)
+        // The provider often puts "Artist - Title" in the title even when
+        // its artist field is the uploader ("SUMERIAN"): strip any leading
+        // "Name - " when the title has that shape.
+        const dash = t.indexOf(" - ")
+        if (dash > 0 && dash < 40)
+            t = t.slice(dash + 3)
+        else if (a !== "" && t.toLowerCase().indexOf(a.toLowerCase() + " - ") === 0)
+            t = t.slice(a.length + 3)
+        // Video suffixes, with or without brackets.
+        t = t.replace(/[\s\[\(]*(?:official\s*)?(?:music\s*)?(?:lyric\s*)?(?:video|audio|visualizer|hd|hq|4k)[\s\]\)]*$/gi, "")
+        return t.trim()
+    }
+    // Some providers put the record label / uploader in the artist field
+    // ("SUMERIAN") while the real artist is the prefix of the title.
+    function displayArtist(title, artist) {
+        let a = root.cleanArtist(artist)
+        const t = String(title || "").trim()
+        const dash = t.indexOf(" - ")
+        if (dash > 0 && dash < 40) {
+            const prefix = t.slice(0, dash).trim()
+            if (prefix !== "" && !/^(?:official|video|audio|music|hd|hq|4k)$/i.test(prefix))
+                a = root.cleanArtist(prefix)
+        }
+        return a
     }
     // A line with more than one artist: a separator between names, or a
     // "feat."/"ft." inside it.
@@ -2230,7 +2861,7 @@ Window {
                 if (t) {
                     currentTitle = t.title
                     currentArtist = root.looksLikePlayCount(t.artist)
-                                   ? "" : t.artist
+                                   ? "" : root.cleanArtist(t.artist)
                     // Prefer thumb, but if it's empty derive it from the video ID
                     // (YouTube tracks always have a videoId; this avoids a frozen
                     // background when the song has no explicit thumbnail).
@@ -2293,6 +2924,37 @@ Window {
         player.playPause()
     }
 
+    function setSleepTimer(min) {
+        root.sleepTimerMinutes = min
+        root.sleepRemaining = min * 60
+        root.cfgSet("sleepTimerMinutes", min)
+        if (min > 0)
+            sleepTick.running = true
+        else
+            sleepTick.stop()
+    }
+
+    // Counts down only while music plays. When it reaches zero: pause,
+    // clear the setting and tell the user.
+    Timer {
+        id: sleepTick
+        interval: 1000
+        running: false
+        repeat: true
+        onTriggered: {
+            if (!player.playing)
+                return
+            root.sleepRemaining--
+            if (root.sleepRemaining <= 0) {
+                root.sleepRemaining = 0
+                root.setSleepTimer(0)
+                if (player.playing)
+                    player.playPause()
+                root.toast(qsTr("Temporizador terminado"))
+            }
+        }
+    }
+
     function requestPlay() {
         if (!player.hasFile && root.currentTitle.length > 0
                 && root.queueIndex >= 0 && root.queueIndex < queue.count) {
@@ -2300,6 +2962,20 @@ Window {
         } else if (!player.playing) {
             player.playPause()
         }
+    }
+
+    // Queue panel "Mezclar": turn shuffle on if needed, then reshuffle the
+    // visible order in place. The current track keeps its index.
+    function reshuffleQueueFromPanel() {
+        if (!shuffle) {
+            shuffle = true
+            mpris.setShuffle(true)
+        }
+        if (queue.count > 1)
+            reshuffleQueue()
+        queueShuffled = shuffle && queue.count > 1
+        toast(qsTr("Cola mezclada"))
+        saveSession()
     }
 
     function toggleShuffle() {
@@ -2432,13 +3108,71 @@ Window {
     // changes.
     function updateNowPlaying() {
         const dur = player.duration
-        const key = root.currentTitle + "|" + root.currentArtist + "|"
+        const clean = root.cleanArtist(root.currentArtist)
+        const key = root.currentTitle + "|" + clean + "|"
                     + Math.round(dur) + "|" + root.currentThumb
+        // A track loaded before the artist cleanup had a raw "and N more"
+        // value: republish once with the cleaned name.
+        if (key === root.metaKey && root.metaArtist !== clean)
+            root.metaKey = ""
         if (key !== root.metaKey) {
+            root.metaArtist = clean
+            // A new track: scrobble the previous one with the time it
+            // actually played (LastFm applies the 30 s / 50% rule).
+            if (root.scrobbleTitle.length > 0
+                    && typeof lastfm !== "undefined") {
+                lastfm.scrobble(root.scrobbleArtist, root.scrobbleTitle,
+                                root.scrobbleDuration, root.scrobblePlayPos)
+            }
+            if (typeof lastfm !== "undefined")
+                lastfm.nowPlaying(root.currentArtist, root.currentTitle)
+            root.scrobbleArtist = root.currentArtist
+            root.scrobbleTitle = root.currentTitle
+            root.scrobbleDuration = dur
+            root.scrobblePlayPos = 0
             root.metaKey = key
-            mpris.updateMetadata(root.currentTitle, root.currentArtist, "", dur, root.currentThumb)
+            const publishArtist = root.displayArtist(root.currentTitle, root.currentArtist)
+            // Keep the desktop widget's published state in sync with the
+            // track (title, artist, cover) as soon as it changes.
+            if (typeof lyrics.setPublishedArt === "function") {
+                lyrics.setPublishedMeta(root.displayTitle(root.currentTitle,
+                                                          root.currentArtist),
+                                        publishArtist, root.currentVideoId)
+                lyrics.setPublishedArt(root.currentThumb)
+            }
+            mpris.updateMetadata(root.currentTitle, publishArtist, "", dur, root.currentThumb)
+            // Publish a plain JSON file for desktop bars and OBS: no socket,
+            // no auth, just read ~/.local/state/lotus-tune/now-playing.json.
+            if (typeof appcfg !== "undefined") {
+                const np = {
+                    app: "lotus-tune",
+                    title: String(root.currentTitle || ""),
+                    artist: String(publishArtist || ""),
+                    album: "",
+                    art: String(root.currentThumb || ""),
+                    duration: dur,
+                    playing: player.playing,
+                    ts: Date.now()
+                }
+                appcfg.writeNowPlaying(JSON.stringify(np))
+            }
         }
-        discord.setActivity(root.currentTitle, root.currentArtist, "", root.currentThumb,
+        if (typeof appcfg !== "undefined"
+            && root.npPlaying !== player.playing) {
+            root.npPlaying = player.playing
+            const np = {
+                app: "lotus-tune",
+                title: String(root.currentTitle || ""),
+                artist: String(root.displayArtist(root.currentTitle, root.currentArtist) || ""),
+                album: "",
+                art: String(root.currentThumb || ""),
+                duration: dur,
+                playing: player.playing,
+                ts: Date.now()
+            }
+            appcfg.writeNowPlaying(JSON.stringify(np))
+        }
+        discord.setActivity(root.currentTitle, root.displayArtist(root.currentTitle, root.currentArtist), "", root.currentThumb,
                             player.position, dur, player.playing)
         // stopped=false on EVERY call: default parameters are not filled in
         // when invoking from QML (Qt demands all the arguments) and
@@ -2505,15 +3239,28 @@ Window {
         }
     }
 
+    // How many blocked tracks were skipped in this chain. Reset whenever a
+    // track really plays, so it cannot loop forever on a full-blocked queue.
+    property int _blockedSkips: 0
+
     function startCurrent() {
         if (queueIndex < 0 || queueIndex >= queue.count)
             return
         const t = queue.get(queueIndex)
         if (!t || !t.url)
             return
+        if (catalog.isBlocked(t.url)) {
+            root.toast(qsTr("Pista bloqueada: se omite"), "", 2200)
+            if (root._blockedSkips >= queue.count)
+                return
+            root._blockedSkips++
+            root.next(true)
+            return
+        }
+        root._blockedSkips = 0
         currentTitle = t.title
         const rawArtist = String(t.artist || "")
-        currentArtist = root.looksLikePlayCount(rawArtist) ? "" : rawArtist
+        currentArtist = root.looksLikePlayCount(rawArtist) ? "" : root.cleanArtist(rawArtist)
         // No artist in the list (or it carried the play count): it is
         // looked up while the song starts.
         if (currentArtist === "" && typeof catalog !== "undefined")
@@ -2669,6 +3416,19 @@ Window {
             startCurrent()
             return
         }
+        // Al terminar la cola, el modo elegido en Ajustes decide: parar,
+        // volver al inicio o seguir con la radio.
+        if (root.queueEndMode === 0) {
+            // Just pause: the title and metadata stay on screen.
+            if (player.playing)
+                player.playPause()
+            return
+        }
+        if (root.queueEndMode === 1 && queue.count > 0) {
+            root.queueIndex = 0
+            root.startCurrent()
+            return
+        }
         // End of the queue. With the autoplay on it does not stop: YouTube
         // Music is asked to continue from the last track (it arrives in
         // ~1.4 s with prefetchRadio). While it arrives, the last song
@@ -2703,6 +3463,8 @@ Window {
         root.currentVideoId = ""
         root.lyricsKey = ""
         root.metaKey = ""
+        root.scrobbleTitle = ""
+        root.scrobblePlayPos = 0
         lyrics.clear()
         discord.clear()
         mpris.updatePlayback(false, 0, true)
@@ -2788,6 +3550,23 @@ Window {
                 root.cancelFade()
                 root.startCurrent()
                 return
+            }
+            // Skip tracks without lyrics at end of file (not on manual
+            // next). The current track missing lyrics is the trigger; the
+            // forward search only picks a track whose lyrics are already
+            // cached, so the next song shows them right away.
+            if (root.skipNoLyrics && !lyrics.hasLyrics
+                    && typeof lyrics.isCached === "function") {
+                for (let i = root.queueIndex + 1; i < queue.count; ++i) {
+                    const row = queue.get(i)
+                    if (!row || !row.url)
+                        continue
+                    if (!lyrics.isCached(String(row.url)))
+                        continue
+                    root.queueIndex = i
+                    root.startCurrent()
+                    return
+                }
             }
             root.next(true)
         }
@@ -2885,6 +3664,28 @@ Window {
         }
     }
     FileDialog {
+        id: settingsDialog
+        title: qsTr("Importar los ajustes de Lotus Tune")
+        nameFilters: [qsTr("Ajustes (*.json)")]
+        onAccepted: {
+            const p = selectedFile.toString().replace("file://", "")
+            root.toast(appcfg.importSettingsFile(p)
+                       ? qsTr("Ajustes importados; reinicia la app")
+                       : qsTr("No se pudo importar los ajustes"))
+        }
+    }
+    FileDialog {
+        id: lyricsDialog
+        title: qsTr("Importar una letra (LRC)")
+        nameFilters: [qsTr("Letra LRC (*.lrc)"), qsTr("Todos los archivos (*)")]
+        onAccepted: {
+            const p = selectedFile.toString().replace("file://", "")
+            root.toast(lyrics.importLrc(p)
+                       ? qsTr("Letra importada")
+                       : qsTr("No se pudo importar la letra"))
+        }
+    }
+    FileDialog {
         id: sessionDialog
         title: qsTr("Importar la sesión de YouTube Music")
         nameFilters: [qsTr("Sesión de LotusTune (*.json)")]
@@ -2893,6 +3694,31 @@ Window {
                 root.toast(qsTr("Sesión importada"))
             else
                 root.toast(qsTr("No se pudo importar la sesión"))
+        }
+    }
+    FileDialog {
+        id: queueDialog
+        title: qsTr("Importar la cola de reproducción")
+        nameFilters: [qsTr("Cola de LotusTune (*.json)")]
+        onAccepted: {
+            const p = selectedFile.toString().replace("file://", "")
+            const raw = appcfg.readQueueFile(p)
+            let ok = false
+            try {
+                const o = JSON.parse(raw)
+                const arr = Array.isArray(o.tracks) ? o.tracks : []
+                const idx = Number(o.index)
+                if (arr.length > 0 && idx >= 0 && idx < arr.length) {
+                    // playTracks shuffles when shuffle is on: keep the saved order.
+                    const wasShuffled = root.shuffle
+                    root.shuffle = false
+                    root.playTracks(arr, idx)
+                    root.shuffle = wasShuffled
+                    ok = true
+                }
+            } catch (e) { ok = false }
+            root.toast(ok ? qsTr("Cola importada")
+                          : qsTr("No se pudo importar la cola"))
         }
     }
 
@@ -2958,7 +3784,36 @@ Window {
             .replace(/^\s*Descargas:[\s\S]*$/mi, "")
             .trim()
     }
-    readonly property string whatsNewText: root.formatNotes(
+    // Notas de la version que esta en el working tree. Mientras no haya release
+    // publicado, estan ganan a las notas de GitHub (que son de la 2.1.7).
+    // Notas en Markdown: Qt las renderiza con titulo en su linea y cada
+    // cambio en un bullet, sin convertirlas a texto plano.
+    readonly property string localNotes: [
+        "**Interfaz**",
+        "- Nueva apariencia Lotus, seleccionable en Ajustes. La clásica sigue siendo la que viene por defecto.",
+        "- Temas de color, modo compacto, vistas de Inicio y orden de las páginas de navegación.",
+        "- Animaciones en botones, tarjetas, letra y menús, con respeto al movimiento reducido.",
+        "- Barra del reproductor rediseñada, panel lateral flotante y cola con resumen y mezcla.",
+        "",
+        "**Letras**",
+        "- Más correcciones de palabras pegadas y de letras duplicadas.",
+        "- Instrumentales con barrido, traducción al copiar y exportación e importación en LRC.",
+        "- Más fuentes encontradas al buscar letras y edición de la línea activa.",
+        "",
+        "**Reproducción y datos**",
+        "- Temporizador de sueño, scrobble a Last.fm y archivo now-playing.json para barras de escritorio.",
+        "- Perfiles de audio en escritorio, opciones al terminar la cola y saltar canciones sin letra.",
+        "- Exportación e importación de ajustes, historial y cola; borrado de cachés.",
+        "",
+        "**Correcciones**",
+        "- El artista y el título se muestran limpios en la barra y el widget.",
+        "- La pantalla de letras sale del modo presentación con Escape, el gesto atrás o tocando el fondo.",
+        "- En el teléfono, los controles de una lista dejan de superponerse y el botón de cola funciona.",
+        "- Rendimiento y fluidez mejorados en listas largas y en Android."
+    ].join("\n")
+    readonly property string whatsNewText: root.whatsNewVersion === "2.1.8"
+        ? root.localNotes
+        : root.formatNotes(
         (typeof updates !== "undefined"
             && String(updates.notes || "").trim().length > 0)
         ? updates.notes
@@ -3229,6 +4084,19 @@ Window {
             }
         }
         function onTracksReady(tracks, title) {
+            if (root.pendingLyricsClearUrl) {
+                const want = root.pendingLyricsClearUrl
+                root.pendingLyricsClearUrl = ""
+                if (String(catalog.openListUrl || "") === want
+                        && typeof lyrics.clearCacheForUrls === "function") {
+                    const urls = []
+                    for (let i = 0; i < tracks.length; i++)
+                        if (tracks[i].url) urls.push(String(tracks[i].url))
+                    root.toast(qsTr("Borradas %1 letras")
+                               .arg(lyrics.clearCacheForUrls(urls)))
+                    return
+                }
+            }
             const play = root.pendingPlay
             root.pendingPlay = false
             root.listLoading = false
@@ -3448,12 +4316,12 @@ Window {
         // the window, so the whole frame (bottom tab bar included) is
         // lifted by the system inset. On the desktop it is 0.
         anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
-        spacing: Theme.panelGap
+        spacing: Theme.spacing(root.compactUi, Theme.panelGapFor(Sys.interfaceStyle))
 
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: Theme.panelGap
+            spacing: Theme.spacing(root.compactUi, Theme.panelGapFor(Sys.interfaceStyle))
 
             Item {
                 id: sideCol
@@ -3467,12 +4335,15 @@ Window {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                spacing: Theme.panelGap
+                spacing: Theme.spacing(root.compactUi, Theme.panelGapFor(Sys.interfaceStyle))
 
-                TopBar {
+                Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.topBarH
-                    title: root.pageTitle()
+
+                    TopBar {
+                        anchors.fill: parent
+                        title: root.pageTitle()
                     subtitle: root.pageSubtitle()
                     // Inicio is the default place: no back arrow there, even
                     // if the stack still has steps (there is nothing above
@@ -3481,6 +4352,30 @@ Window {
                     onBackRequested: root.navBack()
                     onLauncherRequested: root.toggleLauncher()
                     onSettingsRequested: root.toggleSettings()
+                    }
+
+                    // Lotus interface only: a quiet lotus drawn with Path
+                    // (Canvas) in the header, behind the actions. Classic
+                    // never paints it, so that interface stays untouched.
+                    LotusMark {
+                        z: -1
+                        visible: Sys.interfaceStyle === "lotus"
+                        enabled: false
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.s6
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: Theme.topBarH * (Theme.touch ? 1.15 : 1.25)
+                        height: Theme.topBarH * (Theme.touch ? 1.15 : 1.25)
+                        petalColor: Theme.accentOn(Sys.accent, Sys.bg)
+                        baseScale: 1.25
+                        opacity: Sys.interfaceStyle === "lotus" ? 0.18 : 0
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: Theme.animMs(Theme.medMs)
+                                easing.type: Easing.InOutSine
+                            }
+                        }
+                    }
                 }
 
                 // FLAT content like the reference repo: no box of its
@@ -3493,47 +4388,60 @@ Window {
                     clipContent: true
                     color: "transparent"
 
-                    NumberAnimation {
-                        id: pageIn
-                        target: stack
-                        property: "opacity"
-                        to: 1
-                        duration: 220
-                        easing.type: Easing.OutCubic
-                    }
-                    NumberAnimation {
-                        id: pageShiftIn
-                        target: pageShift
-                        property: "y"
-                        to: 0
-                        duration: 260
-                        easing.type: Easing.OutCubic
-                    }
-
                     StackLayout {
                         id: stack
                         anchors.fill: parent
                         currentIndex: root.pageIndex(root.page)
 
-                        // The page enters with a short fade and a 10 px
-                        // rise: changing section is no longer a dry cut.
-                        // Only opacity/transform: it runs at 120 Hz.
+                        // Previous index gives the slide its direction.
+                        property int prevIndex: 0
+
+                        // Fade + slide, driven by the Behaviors below.
+                        // Only opacity/transform: no layout, no focus loss.
                         onCurrentIndexChanged: {
                             // Reloads the home search history (it is
                             // written from Search while it is not visible).
                             homePage.refreshSearchHistory()
+                            const dir = currentIndex >= prevIndex ? 1 : -1
                             stack.opacity = 0
+                            pageShift.x = dir * (Theme.touch ? 12 : 24)
                             pageShift.y = 10
-                            pageIn.restart()
-                            pageShiftIn.restart()
+                            stack.opacity = 1
+                            pageShift.x = 0
+                            pageShift.y = 0
+                            prevIndex = currentIndex
                         }
 
-                        transform: Translate { id: pageShift }
+                        Behavior on opacity {
+                            NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
+                        }
+
+                        transform: Translate {
+                            id: pageShift
+                            Behavior on x {
+                                NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
+                            }
+                            Behavior on y {
+                                NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
+                            }
+                        }
 
                         HomePage {
                             id: homePage
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            viewMode: root.homeViewMode
+                            compact: root.compactUi
+                            onItemMenuRequested: (item, x, y) => {
+                                const p = homePage.mapToItem(root, x, y)
+                                root.showHomeItemMenu(item, p.x, p.y)
+                            }
+                            // Lotus opens the shortcut grid to 4 columns on
+                            // wide screens, 3 on tablets, 2 on phones and classic.
+                            picksCols: Theme.lotusLayout(Sys.interfaceStyle, root.width) === "wide"
+                                       ? Theme.homeGridCols(Sys.interfaceStyle, true, 3)
+                                       : (Theme.lotusLayout(Sys.interfaceStyle, root.width) === "tablet"
+                                          ? 3 : Theme.homeGridCols(Sys.interfaceStyle, false, 3))
                             onPlayRequested: (list, idx) => root.playTracks(list, idx)
                             onNavigateRequested: (p) => root.navTo(p)
                             onOpenListRequested: (play) => root.beginOpenList(play)
@@ -3574,6 +4482,7 @@ Window {
                             id: libPage
                             Layout.fillWidth: true
                             Layout.fillHeight: true
+                            compact: root.compactUi
                             // Discography batch being queued: the Downloads
                             // page groups it as one "artist" download.
                             discArtist: root.albumDlArtist
@@ -3622,48 +4531,80 @@ Window {
                 }
             }
 
-            RightPanel {
-                id: rightPanel
-                // Nothing shows up all at once: the column opens pushing
-                // the content (animated width) and fades in; on close it
-                // collapses the same way. All layout+opacity, no effects.
-                visible: root.panelOpen || width > 1
-                Layout.preferredWidth: root.panelOpen
-                                        ? (root.isPhone ? 290 : 360) : 0
-                Behavior on Layout.preferredWidth {
-                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
-                }
-                opacity: root.panelOpen ? 1 : 0
-                Behavior on opacity { NumberAnimation { duration: 190 } }
-                enabled: root.panelOpen
-                clip: true
-                Layout.fillHeight: true
-                appActive: root.appActive
-                tab: root.panelTab
-                onTabRequested: (t) => root.panelTab = t
-                queueModel: queue
-                queueIndex: root.queueIndex
-                open: root.panelOpen
-                playing: player.playing
-                onCloseRequested: root.panelOpen = false
-                onTrackActivated: (i) => {
-                    root.queueIndex = i
-                    root.startCurrent()
-                }
-                onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
-                onFullscreenLyricsRequested: root.openFullscreenLyrics()
-            }
+
         }
 
-        // The playback bar and the phone tab bar live in their own dock on
-        // top of everything (bottomDock, below): the artist page fills the
-        // whole window and the pill floats over it, covering the content.
-        Item {
-            id: bottomSpacer
-            Layout.fillWidth: true
-            Layout.preferredHeight: bottomDock.implicitHeight
-        }
     }
+
+        // Floating overlays live in their own non-layout item so anchors
+        // are legal: the ColumnLayout manages only this wrapper.
+    Item {
+            anchors.fill: parent
+            z: 64
+                // Overlay panel: floats above the pages instead of taking a
+                // column in the layout, so opening the queue never shrinks or
+                // shifts the content behind it.
+                RightPanel {
+                    id: rightPanel
+                    islandRadius: Theme.radiusCard(Sys.interfaceStyle)
+                    bottomInset: Theme.playerBarH + Theme.s3
+                    anchors.right: parent.right
+                    anchors.rightMargin: Theme.panelMargin
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
+                    // Stop above the floating pill so it never covers the
+                    // last row of the queue.
+                    anchors.bottomMargin: Theme.playerBarH + Theme.s5
+                    anchors.topMargin: Theme.panelMargin
+                    width: root.panelOpen ? Math.min(root.width * 0.55, 520) : 0
+                    Behavior on width { NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+                    visible: root.panelOpen || width > 1
+                    z: 65
+                    opacity: root.panelOpen ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 190 } }
+                    enabled: root.panelOpen
+                    clip: true
+                    appActive: root.appActive
+                    tab: root.panelTab
+                    onTabRequested: (t) => {
+                        root.panelTab = t
+                        root.cfgSet("panelTab", String(t))
+                    }
+                    queueModel: queue
+                    queueIndex: root.queueIndex
+                    open: root.panelOpen
+                    playing: player.playing
+                    onCloseRequested: root.panelOpen = false
+                    onTrackActivated: (i) => {
+                        root.queueIndex = i
+                        root.startCurrent()
+                    }
+                    onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                    onFullscreenLyricsRequested: root.openFullscreenLyrics()
+                    onReshuffleRequested: root.reshuffleQueueFromPanel()
+                }
+            // Dim the pages behind the floating panel: opening the queue makes
+            // the rest of the interface recede instead of showing a half-empty
+            // page next to the panel.
+            Rectangle {
+                // Leave the side menu and the outer border alone: only the
+                // page area dims, and only slightly, so the menu stays legible.
+                anchors.fill: parent
+                // Only the side rail stays clear; the dim covers the whole
+                // app, not a smaller square inside it.
+                anchors.leftMargin: root.isPhone ? 0 : sidebar.railWidth
+                color: "black"
+                opacity: root.panelOpen ? 0.20 : 0
+                visible: opacity > 0.01
+                z: 64
+                Behavior on opacity { NumberAnimation { duration: 190 } }
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.panelOpen = false
+                }
+            }
+
+        }
 
     // ---- dock: side rail ------------------------------------------------
     // Its own layer above the pages (and above the artist page), exactly
@@ -3690,6 +4631,7 @@ Window {
             // The rail is an island: it ends with air above the window
             // edge, like the playback pill.
             page: root.activeNavId()
+            mainPageOrder: root.orderedPages()
             trackTitle: root.currentTitle
             trackArtist: root.currentArtist
             trackThumb: root.currentThumb
@@ -3756,16 +4698,23 @@ Window {
         anchors.leftMargin: Theme.panelMargin
         anchors.rightMargin: Theme.panelMargin
         anchors.bottomMargin: Theme.panelMargin + Theme.safeBottom(Sys.safeBottom)
-        spacing: Theme.panelGap
+        spacing: Theme.spacing(root.compactUi, Theme.panelGap)
 
     PlayerBar {
         id: playBar
         // Floating on the phone: it only appears when there is
         // really something playing or resolving; the desktop keeps
         // the always-standing dock.
-        visible: !root.isPhone || player.playing || player.loading
-                 || root.currentVideoId !== ""
+        // In the desktop cinema the lyrics own the whole window: the dock
+        // would be painted over (and the last lines ran across it).
+        visible: (!root.isPhone && !root.fsLyricsOpen)
+                 || (root.isPhone && (player.playing || player.loading
+                                      || root.currentVideoId !== ""))
         Layout.fillWidth: true
+        // Lotus gives the dock more air: the layout reserves a taller slot.
+        // Classic keeps the existing token height.
+        implicitHeight: Theme.lotusBarHeight(Sys.interfaceStyle, Theme.playerBarH)
+        Layout.preferredHeight: implicitHeight
         // The pill floats above the tab bar with a bit of air between the
         // two (phone only: on the desktop there is no tab bar under it).
         Layout.bottomMargin: root.isPhone ? Theme.s3 : 0
@@ -3773,12 +4722,15 @@ Window {
         loading: player.loading
         position: player.position
         duration: player.duration
-        title: root.currentTitle
-        artist: root.currentArtist
+        audioInfo: player.audioInfo
+        title: root.displayTitle(root.currentTitle, root.currentArtist)
+        artist: root.displayArtist(root.currentTitle, root.currentArtist)
         currentThumb: root.currentThumb
+        coverSizeMode: Sys.interfaceStyle === "lotus" ? 2 : root.coverSizeMode
         volume: player.volume
         shuffle: root.shuffle
         repeatMode: root.repeatMode
+        sleepRemaining: root.sleepRemaining
         onToggle: root.togglePlay()
         onNextRequested: root.next()
         onPrevRequested: root.prev()
@@ -3792,12 +4744,15 @@ Window {
         onCinemaRequested: root.openFullscreenLyrics()
         onSeekRequested: (secs) => player.seek(secs)
         onVolumeWanted: (v) => player.setVolume(v)
+        onMuteRequested: root.toggleMute()
+        onVolumeWheel: (d) => root.nudgeVolume(d)
         videoId: root.currentVideoId
         liked: root.currentLiked
         // Highlight of the queue button while the panel shows the queue.
         queueOpen: root.panelOpen && root.panelTab === 0
         canInteract: catalog.loginState === "ok"
         onLikeRequested: root.toggleLike()
+        onLikeDoubleClicked: root.toggleLike()
         onAddToPlaylistRequested: root.openPlaylistPicker(root.currentVideoId)
         onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
         onArtistRequested: (name) => root.openArtistByName(name)
@@ -3813,6 +4768,7 @@ Window {
         visible: root.isPhone
         Layout.fillWidth: true
         page: root.activeNavId()
+        mainPageOrder: root.orderedPages()
         onNavigate: (p) => {
             if (p === "downloads") {
                 libPage.libraryTab = 4
@@ -4003,9 +4959,10 @@ Window {
     FullscreenLyrics {
         id: fsLyrics
         open: root.fsLyricsOpen
+        fontDelta: Math.round(root.lyricsFontSize)
         appActive: root.appActive
-        title: root.currentTitle
-        artist: root.currentArtist
+        title: root.displayTitle(root.currentTitle, root.currentArtist)
+        artist: root.displayArtist(root.currentTitle, root.currentArtist)
         thumb: root.currentThumb
         videoId: root.currentVideoId
         playing: player.playing
@@ -4028,6 +4985,7 @@ Window {
         // sheet (see `cinemaQueue`), with no tabs and the cinema colours.
         onQueueRequested: root.fsQueueOpen = !root.fsQueueOpen
         onTrackMenuRequested: (x, y) => root.showTrackMenu(root.nowPlayingTrack(), x, y)
+        onLyricsMenuRequested: (x, y) => root.showLyricsMenu(x, y)
         onArtistRequested: (name) => {
             root.closeFullscreenLyrics()
             root.openArtistByName(name)
@@ -4102,24 +5060,25 @@ Window {
             anchors.rightMargin: Theme.s4
             anchors.topMargin: Theme.s4
             anchors.bottomMargin: Theme.s3
-            spacing: Theme.s3
+            spacing: Theme.spacing(root.compactUi, Theme.s3)
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.s2
+                spacing: Theme.spacing(root.compactUi, Theme.s2)
 
                 Text {
                     Layout.fillWidth: true
                     text: qsTr("COLA")
                     color: Theme.tDim(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tXs
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                     font.letterSpacing: 1.4
                     font.weight: Font.DemiBold
                 }
                 Text {
-                    text: qsTr("%1 pistas").arg(queue.count)
+                    id: cqSummary
+                    text: cqView.queueSummary
                     color: Theme.tFaint(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tXs
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                 }
                 // Close the sheet (the cinema stays behind).
                 Rectangle {
@@ -4153,9 +5112,11 @@ Window {
             }
 
             QueueView {
+                id: cqView
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 tracks: queue
+                compact: root.compactUi
                 currentIndex: root.queueIndex
                 barsAnimate: root.fsQueueOpen && player.playing
                 onTrackActivated: (i) => {
@@ -4163,6 +5124,8 @@ Window {
                     root.startCurrent()
                 }
                 onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
+                onTrackMoved: (from, to) => root.moveQueueItem(from, to)
+                onReshuffleRequested: root.reshuffleQueueFromPanel()
             }
         }
     }
@@ -4174,7 +5137,9 @@ Window {
         z: 68
         visible: root.playlistPickerOpen
         opacity: root.playlistPickerOpen ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        }
 
         Rectangle {
             anchors.fill: parent
@@ -4193,17 +5158,21 @@ Window {
             antialiasing: true
             color: Sys.surface
             border.width: 0
+            scale: Theme.touch ? 1 : (root.playlistPickerOpen ? 1 : 0.96)
+            Behavior on scale {
+                NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+            }
 
             ColumnLayout {
                 id: pickerCol
                 anchors.fill: parent
                 anchors.margins: Theme.s4
-                spacing: Theme.s3
+                spacing: Theme.spacing(root.compactUi, Theme.s3)
 
                 Text {
                     text: qsTr("Añadir a lista")
                     color: Sys.text
-                    font.pixelSize: Theme.tLg
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tLg)
                     font.bold: true
                 }
 
@@ -4220,7 +5189,7 @@ Window {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
-                        spacing: Theme.s2
+                        spacing: Theme.spacing(root.compactUi, Theme.s2)
                         Glyph {
                             width: 15; height: 15; kind: "plus"
                             color: Theme.accentOn(Sys.accent, Sys.bg)
@@ -4229,7 +5198,7 @@ Window {
                             Layout.fillWidth: true
                             text: qsTr("Nueva lista")
                             color: newPick.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
-                            font.pixelSize: Theme.tBase
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                             font.bold: true
                         }
                     }
@@ -4245,7 +5214,7 @@ Window {
 
                     ColumnLayout {
                         width: parent.width
-                        spacing: Theme.s1
+                        spacing: Theme.spacing(root.compactUi, Theme.s1)
 
                         Repeater {
                             id: pickerRepeater
@@ -4265,7 +5234,7 @@ Window {
                                     anchors.fill: parent
                                     anchors.leftMargin: Theme.s3
                                     anchors.rightMargin: Theme.s3
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     Glyph {
                                         width: 15; height: 15; kind: "list"
                                         color: pickHover.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
@@ -4274,7 +5243,7 @@ Window {
                                         Layout.fillWidth: true
                                         text: modelData.name || qsTr("Sin nombre")
                                         color: pickHover.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
-                                        font.pixelSize: Theme.tBase
+                                        font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                                         elide: Text.ElideRight
                                         maximumLineCount: 1
                                     }
@@ -4285,7 +5254,7 @@ Window {
                             visible: catalog.ytmLibrary.length === 0
                             text: qsTr("No hay listas en tu cuenta de YouTube Music")
                             color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tMd
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                         }
                     }
                 }
@@ -4312,7 +5281,7 @@ Window {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
-                        spacing: Theme.s2
+                        spacing: Theme.spacing(root.compactUi, Theme.s2)
                         Glyph {
                             width: 15; height: 15; kind: "x"
                             color: pickHover2.hovered ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
@@ -4321,7 +5290,7 @@ Window {
                             Layout.fillWidth: true
                             text: qsTr("Quitar de la lista actual")
                             color: pickHover2.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tBase
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                         }
                     }
                 }
@@ -4364,11 +5333,10 @@ Window {
             id: whatsNewCard
             anchors.centerIn: parent
             width: Math.min(420, root.width - 2 * (Theme.panelMargin + Theme.s3))
-            // The card is sized from the text, and the text is laid out at
-            // the width of the card: the binding goes one way only, which is
-            // what keeps the layout from collapsing to zero.
-            height: Math.min(whatsNewBody.implicitHeight + 170,
-                             root.height - 2 * (Theme.safeBottom(Sys.safeTop) + Theme.s5))
+            // Fixed height with a real scroll: sizing the card from the
+            // text created a circle (text width -> card width -> height)
+            // and the release notes were cut off after two bullets.
+            height: root.height * 0.8
             radius: Theme.rLg
             antialiasing: true
             color: Theme.sAlt(Sys.bg, Sys.text)
@@ -4383,17 +5351,17 @@ Window {
                 id: whatsNewCol
                 anchors.fill: parent
                 anchors.margins: Theme.s4
-                spacing: Theme.s3
+                spacing: Theme.spacing(root.compactUi, Theme.s3)
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.s1
+                    spacing: Theme.spacing(root.compactUi, Theme.s1)
 
                     Text {
                         Layout.fillWidth: true
                         text: qsTr("Novedades de la %1").arg(root.whatsNewVersion)
                         color: Sys.text
-                        font.pixelSize: Theme.tLg
+                        font.pixelSize: Theme.font(root.compactUi, Theme.tLg)
                         font.bold: true
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
@@ -4401,7 +5369,7 @@ Window {
                         Layout.fillWidth: true
                         text: qsTr("Esto es lo que cambia al actualizar")
                         color: Theme.tDim(Sys.bg, Sys.text)
-                        font.pixelSize: Theme.tSm
+                        font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     }
                 }
@@ -4419,7 +5387,7 @@ Window {
                         width: whatsNewScroll.width
                         text: root.whatsNewText
                         color: Sys.text
-                        font.pixelSize: Theme.tBase
+                        font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                         lineHeight: 1.3
                         wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                         // The body comes straight from the GitHub release:
@@ -4447,7 +5415,7 @@ Window {
                         anchors.centerIn: parent
                         text: qsTr("Entendido")
                         color: Theme.onAccent(Sys.accent)
-                        font.pixelSize: Theme.tBase
+                        font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                         font.bold: true
                     }
                 }
@@ -4463,6 +5431,18 @@ Window {
         at: Qt.point(root.ctxX, root.ctxY)
         open: root.ctxOpen
         onClosed: root.ctxOpen = false
+        // Entrada/salida suave del menu. El island already anima su
+        // propia opacidad; aqui se anima el conjunto con la misma curva
+        // y se desactiva la escala en touch (como el resto de la app).
+        opacity: root.ctxOpen ? 1 : 0
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        }
+        scale: (root.ctxOpen || Theme.touch) ? 1 : 0.96
+        Behavior on scale {
+            enabled: !Theme.touch
+            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        }
     }
 
     // ---- list editor (create / edit) -------------------------------
@@ -4507,19 +5487,19 @@ Window {
                 id: confirmCol
                 anchors.fill: parent
                 anchors.margins: Theme.s5
-                spacing: Theme.s4
+                spacing: Theme.spacing(root.compactUi, Theme.s4)
 
                 Text {
                     Layout.fillWidth: true
                     text: root.confirmText
                     color: Sys.text
-                    font.pixelSize: Theme.tBase
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                     wrapMode: Text.WordWrap
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Theme.s2
+                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                     Item { Layout.fillWidth: true }
 
                     Rectangle {
@@ -4535,7 +5515,7 @@ Window {
                             anchors.centerIn: parent
                             text: qsTr("Cancelar")
                             color: Sys.text
-                            font.pixelSize: Theme.tMd
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                         }
                         HoverHandler { id: cCancelHov; cursorShape: Qt.PointingHandCursor }
                         TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.confirmOpen = false } }
@@ -4556,7 +5536,7 @@ Window {
                             text: root.confirmLabel
                             color: root.confirmDanger ? Theme.onAccent(Sys.accent)
                                                      : Theme.onAccent(Sys.accent)
-                            font.pixelSize: Theme.tMd
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                             font.bold: true
                         }
                         HoverHandler { id: cOkHov; cursorShape: Qt.PointingHandCursor }
@@ -4607,7 +5587,7 @@ Window {
             width: Math.min(root.width - 90, 560)
             text: root.toastText
             color: Sys.text
-            font.pixelSize: Theme.tMd
+            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
             horizontalAlignment: Text.AlignHCenter
             maximumLineCount: 3
@@ -4654,7 +5634,7 @@ Window {
             anchors.centerIn: parent
             text: qsTr("Pulsa otra vez para salir")
             color: Sys.text
-            font.pixelSize: Theme.tMd
+            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
             font.weight: Font.Medium
         }
     }
@@ -4678,16 +5658,31 @@ Window {
 
         // Active section sub-view. "" means the index with every section.
         property string activeSection: ""
-        readonly property var sectionModels: [
+        // Clave de config del atajo que espera una tecla, o "" si ninguno.
+        property string capturing: ""
+        readonly property var allSectionModels: [
+            { id: "personalizar", t: qsTr("Personalizar ajustes") },
             { id: "cuentas", t: qsTr("Cuentas") },
             { id: "idioma", t: qsTr("Idioma") },
             { id: "apariencia", t: qsTr("Apariencia") },
             { id: "reproduccion", t: qsTr("Reproducción") },
+            { id: "atajos", t: qsTr("Atajos") },
             { id: "letras", t: qsTr("Letras") },
             { id: "discord", t: qsTr("Discord") },
             { id: "descargas", t: qsTr("Descargas") }
         ]
+        // hiddenSections is filled in Component.onCompleted, so guard it:
+        // this binding is evaluated before that on first construction.
+        property var hiddenSnapshot: (root.hiddenSections || [])
+        property var sectionModels: {
+            const hidden = hiddenSnapshot || []
+            return allSectionModels.filter(function(s) {
+                return hidden.indexOf(s.id) < 0
+            })
+        }
         function sectionShown(id) {
+            if (root.isSectionHidden(id))
+                return false
             return activeSection === "" || activeSection === id
         }
         function sectionTitle(id) {
@@ -4701,11 +5696,38 @@ Window {
             if (!visible) {
                 activeSection = ""
                 if (settingsScroll) settingsScroll.contentY = 0
+            } else {
+                root.refreshCachedCount()
             }
         }
 
         // Blocks the click towards the shell while Settings is open.
         MouseArea { anchors.fill: parent }
+
+        // Captures the next key press while a shortcut button waits.
+        Item {
+            id: keyCapture
+            objectName: "shortcutKeyCapture"
+            focus: settingsOverlay.capturing !== ""
+            Keys.onPressed: {
+                if (settingsOverlay.capturing === "")
+                    return
+                event.accepted = true
+                if (event.key === Qt.Key_Escape) {
+                    settingsOverlay.capturing = ""
+                    return
+                }
+                const seq = root.sequenceFromKeyEvent(event)
+                if (seq !== "") {
+                    root.setShortcut(settingsOverlay.capturing, seq)
+                    settingsOverlay.capturing = ""
+                }
+            }
+        }
+        onCapturingChanged: {
+            if (settingsOverlay.capturing !== "")
+                keyCapture.forceActiveFocus()
+        }
 
         // ---- reusable panel components -------------------------
         // Section card: discreet title + surface with a 1 px border.
@@ -4715,24 +5737,27 @@ Window {
             property string sectionId: ""
             default property alias content: body.data
             Layout.fillWidth: true
-            spacing: Theme.s3
+            spacing: Theme.spacing(root.compactUi, Theme.s3)
 
             Text {
                 Layout.fillWidth: true
                 text: sec.title.toUpperCase()
                 color: Theme.tSub(Sys.bg, Sys.text)
-                font.pixelSize: Theme.tMd
+                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                 font.weight: Font.DemiBold
                 font.letterSpacing: 1.0
             }
             Rectangle {
                 Layout.fillWidth: true
                 implicitHeight: body.implicitHeight + Theme.s4 * 2
-                radius: Theme.rLg
+                radius: Theme.radiusCard(Sys.interfaceStyle)
                 antialiasing: true
                 // A shade lighter than the island, so the card reads as a
-                // card on top of it (like the rest of the app).
-                color: Theme.sAlt(Sys.bg, Sys.text)
+                // card on top of it (like the rest of the app). Lotus keeps
+                // the same hierarchy but tints it towards violet.
+                color: Sys.interfaceStyle === "lotus"
+                       ? Theme.accentSoft(Sys.interfaceStyle, Sys.accent, Sys.bg)
+                       : Theme.sAlt(Sys.bg, Sys.text)
                 // The same faint edge as the islands: the hierarchy is
                 // marked by the air, not by a hard line.
                 border.width: 1
@@ -4742,7 +5767,7 @@ Window {
                     id: body
                     anchors.fill: parent
                     anchors.margins: Theme.s4
-                    spacing: Theme.s4
+                    spacing: Theme.spacing(root.compactUi, Theme.s4)
                 }
             }
         }
@@ -4757,17 +5782,17 @@ Window {
             // Rows grow with their description: on a phone a fixed height
             // cut the second line and the whole panel looked misaligned.
             Layout.minimumHeight: Theme.rowH
-            spacing: Theme.s4
+            spacing: Theme.spacing(root.compactUi, Theme.s4)
 
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignVCenter
-                spacing: Theme.s1
+                spacing: Theme.spacing(root.compactUi, Theme.s1)
                 Text {
                     Layout.fillWidth: true
                     text: row.label
                     color: Sys.text
-                    font.pixelSize: Theme.tMd
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -4776,7 +5801,7 @@ Window {
                     visible: row.desc !== ""
                     text: row.desc
                     color: Theme.tDim(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tSm
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
                 }
@@ -4784,7 +5809,7 @@ Window {
             RowLayout {
                 id: slot
                 Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-                spacing: Theme.s2
+                spacing: Theme.spacing(root.compactUi, Theme.s2)
             }
         }
 
@@ -4796,16 +5821,16 @@ Window {
             property string desc: ""
             default property alias content: inner.data
             Layout.fillWidth: true
-            spacing: Theme.s3
+            spacing: Theme.spacing(root.compactUi, Theme.s3)
 
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: Theme.s1
+                spacing: Theme.spacing(root.compactUi, Theme.s1)
                 Text {
                     Layout.fillWidth: true
                     text: blk.label
                     color: Sys.text
-                    font.pixelSize: Theme.tMd
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -4814,7 +5839,7 @@ Window {
                     visible: blk.desc !== ""
                     text: blk.desc
                     color: Theme.tDim(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tSm
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                     wrapMode: Text.WordWrap
                     maximumLineCount: 2
                 }
@@ -4822,7 +5847,28 @@ Window {
             RowLayout {
                 id: inner
                 Layout.fillWidth: true
-                spacing: Theme.s2
+                spacing: Theme.spacing(root.compactUi, Theme.s2)
+            }
+        }
+
+        // Fila de atajo: botón que espera una tecla y botón de restaurar.
+        component ShortcutRow: SettingRow {
+            id: srow
+            property string configKey: ""
+            desc: qsTr("Por defecto: %1").arg(root.shortcutDefault(srow.configKey))
+            GhostButton {
+                text: settingsOverlay.capturing === srow.configKey
+                      ? qsTr("Pulsa una tecla…")
+                      : root.shortcutValue(srow.configKey)
+                onClicked: {
+                    settingsOverlay.capturing = settingsOverlay.capturing === srow.configKey
+                                                ? "" : srow.configKey
+                }
+            }
+            GhostButton {
+                text: qsTr("Restaurar")
+                enabled: root.shortcutValue(srow.configKey) !== root.shortcutDefault(srow.configKey)
+                onClicked: root.setShortcut(srow.configKey, root.shortcutDefault(srow.configKey))
             }
         }
 
@@ -4853,6 +5899,7 @@ Window {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
+                    root.tapPop(tg, 1.14)
                     if (typeof sfx !== "undefined") sfx.play("toggle")
                     tg.toggled()
                 }
@@ -4869,8 +5916,10 @@ Window {
             height: Theme.pillH
             radius: Theme.rPill
             antialiasing: true
+            scale: 1.0
             color: ch.selected ? Sys.accentDim
                                : (chHover.containsMouse ? Theme.hover(Sys.surface) : "transparent")
+            Behavior on scale { NumberAnimation { duration: Theme.animMs(Theme.touch ? 0 : Theme.fastMs); easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Text {
@@ -4879,7 +5928,7 @@ Window {
                 text: ch.text
                 color: ch.selected ? Sys.accent
                                    : (chHover.containsMouse ? Sys.text : Theme.tDim(Sys.bg, Sys.text))
-                font.pixelSize: Theme.tSm
+                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                 font.weight: ch.selected ? Font.DemiBold : Font.Normal
                 elide: Text.ElideRight
             }
@@ -4888,7 +5937,12 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                onEntered: if (!Theme.touch) ch.scale = 1.05
+                onExited: ch.scale = 1.0
+                onPressed: ch.scale = 0.96
+                onReleased: ch.scale = chHover.containsMouse && !Theme.touch ? 1.05 : 1.0
                 onClicked: {
+                    root.tapPop(ch, 1.14)
                     if (typeof sfx !== "undefined") sfx.play("toggle")
                     ch.picked()
                 }
@@ -4902,13 +5956,13 @@ Window {
             property string placeholder: ""
             property bool password: false
             property alias text: input.text
-            spacing: Theme.s1
+            spacing: Theme.spacing(root.compactUi, Theme.s1)
 
             Text {
                 visible: fld.label !== ""
                 text: fld.label
                 color: Theme.tDim(Sys.bg, Sys.text)
-                font.pixelSize: Theme.tXs
+                font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
             }
             Rectangle {
                 Layout.fillWidth: true
@@ -4927,7 +5981,7 @@ Window {
                     anchors.rightMargin: Theme.s3
                     verticalAlignment: Text.AlignVCenter
                     color: Sys.text
-                    font.pixelSize: Theme.tMd
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                     clip: true
                     echoMode: fld.password ? TextInput.Password : TextInput.Normal
                 }
@@ -4938,7 +5992,7 @@ Window {
                     verticalAlignment: Text.AlignVCenter
                     text: fld.placeholder
                     color: Theme.tDim(Sys.bg, Sys.text)
-                    font.pixelSize: Theme.tSm
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                 }
             }
         }
@@ -4953,8 +6007,8 @@ Window {
             radius: Theme.rPill
             antialiasing: true
             color: pbHover.containsMouse ? Theme.active(Sys.accent) : Sys.accent
-            scale: pbHover.pressed ? 0.97 : 1
-            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+            scale: 1.0
+            Behavior on scale { NumberAnimation { duration: Theme.animMs(Theme.touch ? 0 : Theme.fastMs); easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Text {
@@ -4962,7 +6016,7 @@ Window {
                 anchors.centerIn: parent
                 text: pb.text
                 color: Theme.onAccent(Sys.accent)
-                font.pixelSize: Theme.tMd
+                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                 font.weight: Font.DemiBold
             }
             MouseArea {
@@ -4970,7 +6024,12 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                onEntered: if (!Theme.touch) pb.scale = 1.05
+                onExited: pb.scale = 1.0
+                onPressed: pb.scale = 0.96
+                onReleased: pb.scale = pbHover.containsMouse && !Theme.touch ? 1.05 : 1.0
                 onClicked: {
+                    root.tapPop(pb, 1.12)
                     if (typeof sfx !== "undefined") sfx.play("tap")
                     pb.clicked()
                 }
@@ -4988,9 +6047,11 @@ Window {
             height: 34
             radius: Theme.rPill
             antialiasing: true
+            scale: 1.0
             color: gbHover.containsMouse
                    ? (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.hover(Theme.sAlt(Sys.bg, Sys.text)))
                    : (gb.danger ? Theme.alpha(Sys.danger, 0.12) : Theme.sAlt(Sys.bg, Sys.text))
+            Behavior on scale { NumberAnimation { duration: Theme.animMs(Theme.touch ? 0 : Theme.fastMs); easing.type: Easing.OutCubic } }
             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
             Text {
@@ -5000,7 +6061,7 @@ Window {
                 color: gb.danger
                        ? Sys.danger
                        : (gbHover.containsMouse ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text)
-                font.pixelSize: Theme.tMd
+                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                 font.weight: Font.DemiBold
             }
             MouseArea {
@@ -5008,7 +6069,12 @@ Window {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
+                onEntered: if (!Theme.touch) gb.scale = 1.05
+                onExited: gb.scale = 1.0
+                onPressed: gb.scale = 0.96
+                onReleased: gb.scale = gbHover.containsMouse && !Theme.touch ? 1.05 : 1.0
                 onClicked: {
+                    root.tapPop(gb, 1.12)
                     if (typeof sfx !== "undefined") sfx.play("tap")
                     gb.clicked()
                 }
@@ -5032,7 +6098,7 @@ Window {
                 anchors.centerIn: parent
                 text: sb.ok ? sb.okText : sb.offText
                 color: sb.ok ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.danger
-                font.pixelSize: Theme.tXs
+                font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                 font.weight: Font.DemiBold
             }
         }
@@ -5050,6 +6116,10 @@ Window {
         // Open a dedicated sub-view for one section. An empty id returns to
         // the index, where every section is shown again.
         function openSettingsSection(id) {
+            // Un enlace externo (p. ej. importar desde Biblioteca) debe poder
+            // abrir una sección oculta: la mostramos de nuevo.
+            if (root.isSectionHidden(id))
+                root.toggleSectionHidden(id)
             activeSection = id
             settingsScroll.contentY = 0
         }
@@ -5065,6 +6135,19 @@ Window {
             // through and looked like a ghost behind "Ajustes".
             color: Sys.surface
             clipContent: true
+            scale: Theme.touch ? 1 : (settingsOverlay.opacity < 1 ? 0.96 : 1)
+            Behavior on scale {
+                NumberAnimation { duration: Theme.animMs(Theme.fastMs); easing.type: Easing.OutCubic }
+            }
+            // Leve subida del contenido al abrir Ajustes (opacity ya anima
+            // el overlay). En touch se salta el desplazamiento.
+            transform: Translate {
+                y: settingsOverlay.opacity < 1 && !Theme.touch
+                   ? (1 - settingsOverlay.opacity) * Theme.s4 : 0
+                Behavior on y {
+                    NumberAnimation { duration: Theme.animMs(Theme.medMs); easing.type: Easing.OutCubic }
+                }
+            }
         }
 
         ColumnLayout {
@@ -5075,12 +6158,12 @@ Window {
             anchors.rightMargin: Theme.panelMargin + Theme.s4
             anchors.topMargin: Theme.panelMargin + Theme.s3
             anchors.bottomMargin: Theme.panelMargin + Theme.s3
-            spacing: Theme.s3
+            spacing: Theme.spacing(root.compactUi, Theme.s3)
 
             // ---- header -----------------------------------------------
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.s3
+                spacing: Theme.spacing(root.compactUi, Theme.s3)
 
                 Rectangle { // back to the settings index
                     visible: settingsOverlay.activeSection !== ""
@@ -5105,7 +6188,7 @@ Window {
                         onClicked: {
                             if (typeof sfx !== "undefined") sfx.play("tap")
                             settingsOverlay.activeSection = ""
-                            settingsOverlay.settingsScroll.contentY = 0
+                            settingsScroll.contentY = 0
                         }
                     }
                 }
@@ -5115,7 +6198,7 @@ Window {
                           ? qsTr("Ajustes")
                           : settingsOverlay.sectionTitle(settingsOverlay.activeSection)
                     color: Sys.text
-                    font.pixelSize: Theme.tXl
+                    font.pixelSize: Theme.font(root.compactUi, Theme.tXl)
                     font.weight: Font.DemiBold
                     elide: Text.ElideRight
                 }
@@ -5164,7 +6247,7 @@ Window {
 
                 Row {
                     id: settingsQuickRow
-                    spacing: Theme.s2
+                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                     Repeater {
                         model: settingsOverlay.sectionModels
                         Chip {
@@ -5193,7 +6276,65 @@ Window {
                     // overflows on small windows.
                     width: Math.min(settingsScroll.width, 820)
                     x: Math.max(0, (settingsScroll.width - width) / 2)
-                    spacing: Theme.s5
+                    spacing: Theme.spacing(root.compactUi, Theme.s5)
+
+                    // ======================================================
+                    // PERSONALIZAR AJUSTES (nunca ocultable)
+                    // ======================================================
+                    SettingSection {
+                        sectionId: "personalizar"
+                        visible: settingsOverlay.sectionShown("personalizar")
+                        title: qsTr("Personalizar ajustes")
+
+                        SettingBlock {
+                            label: qsTr("Secciones visibles")
+                            desc: qsTr("Activa solo las secciones que quieras ver en Ajustes")
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                Repeater {
+                                    model: settingsOverlay.allSectionModels.filter(function(s) {
+                                        return s.id !== "personalizar"
+                                    })
+                                    SettingRow {
+                                        label: modelData.t
+                                        Toggle {
+                                            checked: !root.isSectionHidden(modelData.id)
+                                            onToggled: root.toggleSectionHidden(modelData.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ======================================================
+                    // ATAJOS
+                    // ======================================================
+                    SettingSection {
+                        sectionId: "atajos"
+                        visible: settingsOverlay.sectionShown("atajos")
+                        title: qsTr("Atajos")
+
+                        ShortcutRow {
+                            configKey: "shortcutLyrics"
+                            label: qsTr("Alternar letra")
+                        }
+                        ShortcutRow {
+                            configKey: "shortcutQueue"
+                            label: qsTr("Cola")
+                        }
+                        ShortcutRow {
+                            configKey: "shortcutFullscreen"
+                            label: qsTr("Pantalla completa")
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Pulsa el botón y luego una tecla. Escape cancela.")
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                            wrapMode: Text.WordWrap
+                        }
+                    }
 
                     // ======================================================
                     // ACCOUNTS
@@ -5202,6 +6343,19 @@ Window {
                         sectionId: "cuentas"
                         visible: settingsOverlay.sectionShown("cuentas")
                         title: qsTr("Cuentas")
+
+                        SettingRow {
+                            label: qsTr("Estado de las cuentas")
+                            Text {
+                                Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                                text: qsTr("YouTube Music: %1 · SoundCloud: %2")
+                                      .arg(root.ytmState() === "ok" ? qsTr("conectada") : qsTr("sin sesión"))
+                                      .arg(root.sourceState("soundcloud") === "ok" ? qsTr("conectada") : qsTr("sin sesión"))
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                elide: Text.ElideRight
+                            }
+                        }
 
                         Repeater {
                             model: sources.list
@@ -5212,15 +6366,15 @@ Window {
                                 // Air between the accounts instead of a
                                 // dividing line.
                                 Layout.topMargin: index > 0 ? Theme.s5 : 0
-                                spacing: Theme.s3
+                                spacing: Theme.spacing(root.compactUi, Theme.s3)
 
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     Text {
                                         text: modelData.name
                                         color: Sys.text
-                                        font.pixelSize: Theme.tMd
+                                        font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                                         font.weight: Font.DemiBold
                                     }
                                     StatusBadge {
@@ -5235,13 +6389,13 @@ Window {
                                     visible: modelData.id === "ytm"
                                     text: qsTr("Inicia sesión con Google y sincroniza tus «Me gusta».")
                                     color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                     elide: Text.ElideRight
                                 }
 
                                 RowLayout { // session signed in
                                     Layout.fillWidth: true
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     visible: modelData.id === "ytm" && root.ytmState() === "ok"
                                     StatusBadge { ok: true; okText: qsTr("Sesión iniciada") }
                                     GhostButton {
@@ -5274,12 +6428,12 @@ Window {
 
                                 ColumnLayout { // waiting for the sign in
                                     Layout.fillWidth: true
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     visible: modelData.id === "ytm" && root.ytmState() === "waiting"
 
                                     RowLayout {
                                         Layout.fillWidth: true
-                                        spacing: Theme.s3
+                                        spacing: Theme.spacing(root.compactUi, Theme.s3)
                                         Item { // spinning indicator (only with the panel open)
                                             width: 18
                                             height: 18
@@ -5306,7 +6460,7 @@ Window {
                                             Layout.fillWidth: true
                                             text: qsTr("Esperando a que inicies sesión en la ventana de Google…")
                                             color: Sys.text
-                                            font.pixelSize: Theme.tMd
+                                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                                             elide: Text.ElideRight
                                         }
                                         GhostButton {
@@ -5322,14 +6476,14 @@ Window {
 
                                 ColumnLayout { // error
                                     Layout.fillWidth: true
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     visible: modelData.id === "ytm" && root.ytmState() === "error"
 
                                     Text {
                                         Layout.fillWidth: true
                                         text: root.ytmError()
                                         color: Sys.danger
-                                        font.pixelSize: Theme.tSm
+                                        font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                         wrapMode: Text.WordWrap
                                     }
                                     PrimaryButton {
@@ -5347,10 +6501,108 @@ Window {
                                     visible: modelData.id === "soundcloud"
                                     text: qsTr("Acceso público, sin necesidad de cuenta.")
                                     color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                     elide: Text.ElideRight
                                 }
 
+                            }
+                        }
+                    }
+
+                    // LAST.FM SCROBBLING
+                    // ======================================================
+                    SettingSection {
+                        sectionId: "cuentas"
+                        title: qsTr("Last.fm")
+                        visible: settingsOverlay.sectionShown("cuentas")
+
+                        ColumnLayout {
+                            id: lastfmPane
+                            Layout.fillWidth: true
+                            spacing: Theme.spacing(root.compactUi, Theme.s3)
+                            property string status: ""
+
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Las canciones se envían a Last.fm cuando terminen o se cambie de pista.")
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                wrapMode: Text.WordWrap
+                            }
+
+                            Field {
+                                id: lfmUser
+                                Layout.fillWidth: true
+                                label: qsTr("Usuario")
+                                placeholder: "username"
+                                Component.onCompleted: text = lastfm.username
+                            }
+                            Field {
+                                id: lfmKey
+                                Layout.fillWidth: true
+                                label: qsTr("API key")
+                                Component.onCompleted: text = lastfm.apiKey
+                            }
+                            Field {
+                                id: lfmSecret
+                                Layout.fillWidth: true
+                                label: qsTr("Secret")
+                                password: true
+                                Component.onCompleted: text = lastfm.secret
+                            }
+                            Field {
+                                id: lfmPass
+                                Layout.fillWidth: true
+                                label: qsTr("Contraseña")
+                                password: true
+                            }
+
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
+                                PrimaryButton {
+                                    text: qsTr("Conectar")
+                                    enabled: lfmUser.text.length > 0 && lfmKey.text.length > 0
+                                             && lfmSecret.text.length > 0 && lfmPass.text.length > 0
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        lastfm.authenticate(lfmUser.text, lfmPass.text,
+                                                            lfmKey.text, lfmSecret.text)
+                                        lfmPass.text = ""
+                                    }
+                                }
+                                Item { Layout.fillWidth: true }
+                                Text {
+                                    text: lastfm.authenticated ? qsTr("Conectado") : qsTr("Sin conectar")
+                                    color: lastfm.authenticated ? Sys.accent : Theme.tDim(Sys.bg, Sys.text)
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                }
+                            }
+
+                            SettingRow {
+                                label: qsTr("Scrobble activado")
+                                desc: qsTr("Envía las pistas reproducidas a Last.fm")
+                                Toggle {
+                                    checked: lastfm.enabled
+                                    onToggled: {
+                                        if (typeof sfx !== "undefined") sfx.play("toggle")
+                                        lastfm.enabled = !lastfm.enabled
+                                        root.toast(qsTr("Guardado en la configuración"))
+                                    }
+                                }
+                            }
+
+                            Text {
+                                Layout.fillWidth: true
+                                visible: lastfmPane.status.length > 0
+                                text: lastfmPane.status
+                                color: Sys.text
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                wrapMode: Text.WordWrap
+                            }
+                            Connections {
+                                target: lastfm
+                                function onStatus(msg) { lastfmPane.status = msg }
                             }
                         }
                     }
@@ -5365,7 +6617,7 @@ Window {
                         ColumnLayout {
                             id: spotifyImportPane
                             Layout.fillWidth: true
-                            spacing: Theme.s3
+                            spacing: Theme.spacing(root.compactUi, Theme.s3)
                             property string importStatus: ""
                             property bool importBusy: false
 
@@ -5373,12 +6625,12 @@ Window {
                                 Layout.fillWidth: true
                                 text: qsTr("Pega un enlace público de playlist de Spotify y se creará la lista equivalente en YouTube Music.")
                                 color: Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                 wrapMode: Text.WordWrap
                             }
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Field {
                                     id: spotifyImportUrl
                                     Layout.fillWidth: true
@@ -5406,7 +6658,7 @@ Window {
                                 visible: spotifyImportPane.importStatus !== ""
                                 text: spotifyImportPane.importStatus
                                 color: Sys.text
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                 wrapMode: Text.WordWrap
                             }
                             Connections {
@@ -5431,7 +6683,7 @@ Window {
                         ColumnLayout {
                             id: spotifyLikedPane
                             Layout.fillWidth: true
-                            spacing: Theme.s3
+                            spacing: Theme.spacing(root.compactUi, Theme.s3)
                             property string importStatus: ""
                             property bool importBusy: false
 
@@ -5441,7 +6693,7 @@ Window {
                                       + "\n" + qsTr("2) Descomprime el ZIP y busca LikedSongs1.json.")
                                       + "\n" + qsTr("3) Elige ese archivo aquí para marcar cada canción como Me gusta en YouTube Music.")
                                 color: Theme.tDim(Sys.bg, Sys.text)
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                 wrapMode: Text.WordWrap
                             }
                             PrimaryButton {
@@ -5457,7 +6709,7 @@ Window {
                                 visible: spotifyLikedPane.importStatus !== ""
                                 text: spotifyLikedPane.importStatus
                                 color: Sys.text
-                                font.pixelSize: Theme.tSm
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                 wrapMode: Text.WordWrap
                             }
                             FileDialog {
@@ -5518,7 +6770,7 @@ Window {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: root.languageLabel(lang.language)
                                     color: Sys.text
-                                    font.pixelSize: Theme.tMd
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                                     font.weight: Font.DemiBold
                                     elide: Text.ElideRight
                                 }
@@ -5567,6 +6819,100 @@ Window {
                         sectionId: "apariencia"
                         visible: settingsOverlay.sectionShown("apariencia")
 
+                        SettingBlock {
+                            label: qsTr("Interfaz")
+                            desc: qsTr("«Lotus» usa el loto como motivo, tarjetas más redondeadas y acentos violetas")
+                            Repeater {
+                                model: [
+                                    { style: "classic", label: qsTr("Clásica") },
+                                    { style: "lotus", label: qsTr("Lotus") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: Sys.interfaceStyle === modelData.style
+                                    onPicked: {
+                                        Sys.setInterfaceStyle(modelData.style)
+                                        root.cfgSet("interfaceStyle", modelData.style)
+                                        root.toast(qsTr("Guardado en la configuración"))
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Orden de las paginas")
+                            desc: qsTr("Pon primero tu pagina favorita en la barra de navegacion")
+                            Repeater {
+                                model: root.orderedPages()
+                                delegate: RowLayout {
+                                    required property var modelData
+                                    required property int index
+                                    Layout.fillWidth: true
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData === "home" ? qsTr("Inicio")
+                                            : (modelData === "search" ? qsTr("Buscar") : qsTr("Biblioteca"))
+                                        color: Sys.text
+                                        font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
+                                        elide: Text.ElideRight
+                                    }
+                                    GhostButton {
+                                        enabled: index > 0
+                                        width: 34
+                                        onClicked: root.movePage(modelData, -1)
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            width: 16; height: 16
+                                            kind: "arrow-up"
+                                            color: Sys.text
+                                            opacity: parent.enabled ? 1 : 0.3
+                                        }
+                                    }
+                                    GhostButton {
+                                        enabled: index < root.orderedPages().length - 1
+                                        width: 34
+                                        onClicked: root.movePage(modelData, 1)
+                                        Glyph {
+                                            anchors.centerIn: parent
+                                            width: 16; height: 16
+                                            kind: "arrow-down"
+                                            color: Sys.text
+                                            opacity: parent.enabled ? 1 : 0.3
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Tema Lotus")
+                            desc: qsTr("Color de acento del estilo Lotus")
+                            visible: Sys.interfaceStyle === "lotus"
+                            Repeater {
+                                model: [
+                                    { key: "violet", label: qsTr("Violeta") },
+                                    { key: "rose", label: qsTr("Rosa") },
+                                    { key: "gold", label: qsTr("Dorado") },
+                                    { key: "blue", label: qsTr("Azul") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: Sys.lotusAccent === modelData.key
+                                    onPicked: {
+                                        Sys.setLotusAccent(modelData.key)
+                                        root.cfgSet("lotusAccent", modelData.key)
+                                        root.toast(qsTr("Guardado en la configuración"))
+                                    }
+                                }
+                            }
+                        }
+
                         SettingRow {
                             label: qsTr("Seguir el tema del sistema")
                             desc: qsTr("Usa la paleta del escritorio (iNiR/matugen)")
@@ -5575,6 +6921,19 @@ Window {
                                 onToggled: {
                                     root.followSys = !root.followSys
                                     root.cfgSet("followSystem", root.followSys ? "true" : "false")
+                                    root.toast(qsTr("Guardado en la configuración"))
+                                }
+                            }
+                        }
+
+                        SettingRow {
+                            label: qsTr("Interfaz compacta")
+                            desc: qsTr("Reduce espaciados y tamaño de fuente un 10% para mostrar más contenido")
+                            Toggle {
+                                checked: root.compactUi
+                                onToggled: {
+                                    root.compactUi = !root.compactUi
+                                    root.cfgSet("compactUi", root.compactUi ? "true" : "false")
                                     root.toast(qsTr("Guardado en la configuración"))
                                 }
                             }
@@ -5620,7 +6979,7 @@ Window {
                             label: qsTr("Color de acento")
                             desc: qsTr("Hexadecimal, por ejemplo #e3bae5")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Field {
                                     id: accentField
                                     Layout.preferredWidth: 150
@@ -5637,8 +6996,77 @@ Window {
                                             return
                                         }
                                         root.cfgSet("accent", v.charAt(0) === "#" ? v : "#" + v)
+                                        Sys.reload()
+                                        root.toast(qsTr("Color aplicado"))
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Tamaño de la portada")
+                            desc: qsTr("Tamaño de la carátula en la barra del reproductor")
+                            Repeater {
+                                model: [
+                                    { mode: 0, label: qsTr("Pequeña") },
+                                    { mode: 1, label: qsTr("Normal") },
+                                    { mode: 2, label: qsTr("Grande") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: root.coverSizeMode === modelData.mode
+                                    onPicked: {
+                                        root.coverSizeMode = modelData.mode
+                                        root.cfgSet("coverSizeMode", modelData.mode)
                                         root.toast(qsTr("Guardado en la configuración"))
                                     }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Vista de Inicio")
+                            desc: qsTr("Forma de mostrar las listas en la página de Inicio")
+                            Repeater {
+                                model: [
+                                    { mode: 0, label: qsTr("Cuadrícula") },
+                                    { mode: 1, label: qsTr("Lista") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: root.homeViewMode === modelData.mode
+                                    onPicked: {
+                                        root.homeViewMode = modelData.mode
+                                        root.cfgSet("homeViewMode", modelData.mode)
+                                        root.toast(qsTr("Guardado en la configuración"))
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Copia de los ajustes")
+                            desc: qsTr("Guarda todas tus preferencias en un archivo y restáuralas en otro equipo")
+                            GhostButton {
+                                text: qsTr("Exportar ajustes")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const p = (downloads.folder || "")
+                                              + "/lotus-tune-ajustes.json"
+                                    root.toast(appcfg.exportSettingsFile(p)
+                                               ? qsTr("Ajustes exportados a %1").arg(p)
+                                               : qsTr("No se pudo exportar los ajustes"))
+                                }
+                            }
+                            GhostButton {
+                                text: qsTr("Importar ajustes")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    settingsDialog.open()
                                 }
                             }
                         }
@@ -5695,6 +7123,30 @@ Window {
                             }
                         }
 
+                        SettingBlock {
+                            label: qsTr("Perfil de reproducción")
+                            desc: qsTr("Ecualización: normal, graves, voces o rock. En móvil solo ajusta el volumen")
+                            Repeater {
+                                model: [
+                                    { id: "normal", label: qsTr("Normal") },
+                                    { id: "bass", label: qsTr("Graves") },
+                                    { id: "vocal", label: qsTr("Voces") },
+                                    { id: "rock", label: qsTr("Rock") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: player.audioProfile === modelData.id
+                                    onPicked: {
+                                        player.setAudioProfile(modelData.id)
+                                        root.cfgSet("audioProfile", modelData.id)
+                                        root.toast(qsTr("Perfil: %1").arg(modelData.label))
+                                    }
+                                }
+                            }
+                        }
+
                         // When the queue runs out, YouTube Music plays
                         // the "next song" (a radio seeded with the last
                         // one).
@@ -5715,6 +7167,30 @@ Window {
                             }
                         }
 
+                        SettingBlock {
+                            label: qsTr("Al terminar la cola")
+                            desc: qsTr("Qué hacer cuando se acaba la última canción")
+                            Repeater {
+                                model: [
+                                    { mode: 0, label: qsTr("Parar") },
+                                    { mode: 1, label: qsTr("Repetir cola") },
+                                    { mode: 2, label: qsTr("Seguir con radio") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: root.queueEndMode === modelData.mode
+                                    onPicked: {
+                                        root.queueEndMode = modelData.mode
+                                        root.cfgSet("queueEndMode",
+                                                    String(modelData.mode))
+                                        root.toast(qsTr("Guardado en la configuración"))
+                                    }
+                                }
+                            }
+                        }
+
                         // Startup: restore the last queue and track (paused)
                         // or always start on Inicio with nothing loaded.
                         SettingRow {
@@ -5726,6 +7202,27 @@ Window {
                                     root.resumeOnOpen = !root.resumeOnOpen
                                     root.cfgSet("resumeOnOpen",
                                                 root.resumeOnOpen)
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Apagar la música automáticamente")
+                            desc: qsTr("Pausa la reproducción al terminar el tiempo")
+                            Repeater {
+                                model: [
+                                    { min: 0, label: qsTr("Desactivado") },
+                                    { min: 15, label: qsTr("15 min") },
+                                    { min: 30, label: qsTr("30 min") },
+                                    { min: 45, label: qsTr("45 min") },
+                                    { min: 60, label: qsTr("60 min") }
+                                ]
+                                delegate: Chip {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    text: modelData.label
+                                    selected: root.sleepTimerMinutes === modelData.min
+                                    onPicked: root.setSleepTimer(modelData.min)
                                 }
                             }
                         }
@@ -5752,6 +7249,95 @@ Window {
                                     else {
                                         root.lyricsKey = ""
                                         root.fetchLyrics()
+                                    }
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: qsTr("Letras guardadas: %1").arg(root.cachedCount)
+                            desc: qsTr("Letras en la caché del dispositivo")
+                            GhostButton {
+                                text: qsTr("Borrar todas")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const n = typeof lyrics.clearAllCachedLyrics === "function"
+                                              ? lyrics.clearAllCachedLyrics() : 0
+                                    root.refreshCachedCount()
+                                    root.toast(n > 0
+                                        ? qsTr("Letras borradas (%1)").arg(n)
+                                        : qsTr("No hay letras guardadas"))
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: qsTr("Saltar canciones sin letra")
+                            desc: qsTr("Al terminar, pasa a la siguiente que tenga letra")
+                            Toggle {
+                                checked: root.skipNoLyrics
+                                onToggled: {
+                                    root.skipNoLyrics = !root.skipNoLyrics
+                                    root.cfgSet("skipNoLyrics", root.skipNoLyrics)
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: qsTr("Solo letras guardadas (sin red)")
+                            desc: qsTr("Usa solo la letra guardada; no consulta ningún servicio en línea")
+                            Toggle {
+                                checked: root.offlineOnly
+                                onToggled: {
+                                    root.offlineOnly = !root.offlineOnly
+                                    root.cfgSet("offlineOnly", root.offlineOnly)
+                                    lyrics.setOfflineOnly(root.offlineOnly)
+                                    root.lyricsKey = ""
+                                    root.fetchLyrics()
+                                }
+                            }
+                        }
+                        SettingBlock {
+                            label: qsTr("Tamaño de letra")
+                            desc: qsTr("Tamaño de las líneas en el modo cine; " + root.lyricsSizeText())
+                            RowLayout {
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
+                                Repeater {
+                                    model: [ { d: -2, t: qsTr("−2") },
+                                             { d: -1, t: qsTr("−1") },
+                                             { d: 0, t: qsTr("Automático") },
+                                             { d: 1, t: qsTr("+1") },
+                                             { d: 2, t: qsTr("+2") } ]
+                                    Chip {
+                                        text: modelData.t
+                                        selected: Math.round(root.lyricsFontSize) === modelData.d
+                                        onPicked: {
+                                            root.lyricsFontSize = modelData.d
+                                            root.cfgSet("lyricsFontSize", modelData.d)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        SettingRow {
+                            label: qsTr("Archivo de letra")
+                            desc: qsTr("Guarda la letra actual en LRC o carga una desde un archivo")
+                            RowLayout {
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
+                                GhostButton {
+                                    text: qsTr("Importar LRC")
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        lyricsDialog.open()
+                                    }
+                                }
+                                GhostButton {
+                                    text: qsTr("Exportar LRC")
+                                    onClicked: {
+                                        if (typeof sfx !== "undefined") sfx.play("tap")
+                                        const name = String(root.currentArtist || "") + " - "
+                                                   + String(root.currentTitle || "") + ".lrc"
+                                        const p = (downloads.folder || "") + "/" + name.replace(/[\\/:*?"<>|]/g, "_")
+                                        root.toast(lyrics.exportLyrics(p)
+                                                   ? qsTr("Letra guardada")
+                                                   : qsTr("No se pudo guardar la letra"))
                                     }
                                 }
                             }
@@ -5801,13 +7387,13 @@ Window {
                             label: qsTr("Compensación de tiempo")
                             desc: qsTr("Adelanta (+) o retrasa (−) la letra respecto al audio")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Text {
                                     text: (root.lyricsOffset > 0 ? "+" : "")
                                           + root.lyricsOffset.toFixed(1) + " s"
                                     color: Math.abs(root.lyricsOffset) > 0.001
                                            ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                     font.weight: Font.DemiBold
                                 }
                                 GhostButton {
@@ -5855,7 +7441,7 @@ Window {
                             desc: downloads.storageSummary
                                   + " · " + downloads.folder
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 GhostButton {
                                     text: qsTr("Abrir")
                                     onClicked: {
@@ -5898,7 +7484,7 @@ Window {
                             label: qsTr("Límite del caché")
                             desc: qsTr("Al pasarse, se eliminan las pistas que hace más tiempo que no suenan")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Repeater {
                                     model: [ { mb: 512, t: qsTr("512 MB") },
                                              { mb: 1024, t: qsTr("1 GB") },
@@ -5918,7 +7504,7 @@ Window {
                             Text {
                                 text: Theme.size(audiocache.bytes + downloads.bytes)
                                 color: Sys.text
-                                font.pixelSize: Theme.tMd
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                                 font.weight: Font.DemiBold
                             }
                         }
@@ -5937,12 +7523,12 @@ Window {
                             label: qsTr("Discord Rich Presence")
                             desc: qsTr("Muestra lo que suena en tu perfil")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Text {
                                     text: discord.connected ? qsTr("Conectado")
                                           : (root.discordEnabled ? qsTr("Sin conexión") : "Desactivado")
                                     color: discord.connected ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tXs
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                                     font.weight: Font.DemiBold
                                 }
                                 Toggle {
@@ -5974,7 +7560,7 @@ Window {
                             label: qsTr("Calidad de las descargas")
                             desc: qsTr("Compacta es la misma grabación en la mitad de espacio; las demás guardan más bitrate")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Repeater {
                                     model: [ { id: "max", t: qsTr("Máxima") },
                                              { id: "alta", t: qsTr("Alta") },
@@ -5997,7 +7583,7 @@ Window {
                             label: qsTr("Velocidad máxima")
                             desc: qsTr("Límite para las descargas; 0 las deja ir a máxima velocidad")
                             RowLayout {
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Repeater {
                                     model: [ { v: 0, t: qsTr("Sin límite") },
                                              { v: 500, t: "500 KB/s" },
@@ -6034,7 +7620,7 @@ Window {
                                     verticalAlignment: Text.AlignVCenter
                                     text: downloads.folder
                                     color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                     elide: Text.ElideMiddle
                                 }
                             }
@@ -6055,18 +7641,18 @@ Window {
                             // phone and it came out unreadable.
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: Theme.s2
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Text {
                                     Layout.fillWidth: true
                                     text: updates.available
                                           ? qsTr("Hay una versión nueva: %1").arg(updates.latestVersion)
                                           : qsTr("Versión actual: %1").arg(updates.currentVersion)
                                     color: updates.available ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tSm
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
                                     wrapMode: Text.WordWrap
                                 }
                                 RowLayout {
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     GhostButton {
                                         text: qsTr("Buscar actualizaciones")
                                         onClicked: {
@@ -6091,7 +7677,7 @@ Window {
                                 // Its own line: three buttons in one row do
                                 // not fit the width of a phone.
                                 RowLayout {
-                                    spacing: Theme.s2
+                                    spacing: Theme.spacing(root.compactUi, Theme.s2)
                                     GhostButton {
                                         // For a phone that cannot be looked at
                                         // by hand: the person copies this and
@@ -6151,6 +7737,50 @@ Window {
                                     libraryDialog.open()
                                 }
                             }
+                            GhostButton {
+                                text: qsTr("Exportar historial (CSV)")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const p = (downloads.folder || "")
+                                              + "/lotus-tune-historial.csv"
+                                    root.toast(catalog.exportRecentCsv(p)
+                                               ? qsTr("Historial exportado a %1").arg(p)
+                                               : qsTr("No se pudo exportar el historial"))
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Cola de reproducción")
+                            desc: qsTr("Guarda el orden actual de la cola y recupéralo en otro equipo.")
+                            GhostButton {
+                                text: qsTr("Exportar cola")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    const list = root.toTrackList(queue).map(t => ({
+                                        title: t.title, artist: t.artist, url: t.url,
+                                        duration: t.duration
+                                    }))
+                                    const obj = {
+                                        app: "lotus-tune",
+                                        savedAt: new Date().toISOString(),
+                                        index: root.queueIndex,
+                                        tracks: list
+                                    }
+                                    const p = (downloads.folder || "")
+                                              + "/lotus-tune-cola.json"
+                                    root.toast(appcfg.exportQueueFile(p, JSON.stringify(obj))
+                                               ? qsTr("Cola exportada a %1").arg(p)
+                                               : qsTr("No se pudo exportar la cola"))
+                                }
+                            }
+                            GhostButton {
+                                text: qsTr("Importar cola")
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    queueDialog.open()
+                                }
+                            }
                         }
                     }
                 }
@@ -6190,7 +7820,9 @@ Window {
         visible: root.launcherOpen
         color: Qt.rgba(0, 0, 0, 0.45)
         opacity: root.launcherOpen ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
+        Behavior on opacity {
+            NumberAnimation { duration: Theme.animMs(Theme.fastMs); easing.type: Easing.OutCubic }
+        }
 
         MouseArea { // click outside closes
             anchors.fill: parent
@@ -6209,8 +7841,8 @@ Window {
             antialiasing: true
             color: Sys.surface
             border.width: 0
-            scale: root.launcherOpen ? 1 : 0.97
-            Behavior on scale { NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic } }
+            scale: Theme.touch ? 1 : (root.launcherOpen ? 1 : 0.96)
+            Behavior on scale { NumberAnimation { duration: Theme.animMs(Theme.fastMs); easing.type: Easing.OutCubic } }
 
             // The wheel that is left over (over the field) stays in the
             // panel: it does not drag the list below or the window.
@@ -6220,7 +7852,7 @@ Window {
                 id: launcherCol
                 anchors.fill: parent
                 anchors.margins: Theme.s2
-                spacing: Theme.s2
+                spacing: Theme.spacing(root.compactUi, Theme.s2)
 
                 Rectangle { // search bar
                     Layout.fillWidth: true
@@ -6236,7 +7868,7 @@ Window {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
                         anchors.rightMargin: Theme.s3
-                        spacing: Theme.s2
+                        spacing: Theme.spacing(root.compactUi, Theme.s2)
                         Glyph {
                             width: 16
                             height: 16
@@ -6248,7 +7880,7 @@ Window {
                             Layout.fillWidth: true
                             verticalAlignment: Text.AlignVCenter
                             color: Sys.text
-                            font.pixelSize: Theme.tBase
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
                             clip: true
                             text: ""
                             onTextChanged: {
@@ -6273,7 +7905,7 @@ Window {
                         Text {
                             text: qsTr("Intro busca · Esc")
                             color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tXs
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                             font.bold: true
                             opacity: 0.6
                         }
@@ -6291,7 +7923,7 @@ Window {
                     ColumnLayout {
                         id: rowsCol
                         width: launcherFlick.width
-                        spacing: Theme.s1
+                        spacing: Theme.spacing(root.compactUi, Theme.s1)
 
                         Text {
                             Layout.fillWidth: true
@@ -6300,7 +7932,7 @@ Window {
                                      && !root.launcherSearching
                             text: qsTr("Sin resultados")
                             color: Theme.tDim(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tMd
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                             horizontalAlignment: Text.AlignHCenter
                         }
 
@@ -6320,7 +7952,7 @@ Window {
                                     anchors.leftMargin: Theme.s2
                                     text: modelData.t
                                     color: Theme.tDim(Sys.bg, Sys.text)
-                                    font.pixelSize: Theme.tXs
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                                     font.letterSpacing: 1.4
                                 }
 
@@ -6336,7 +7968,7 @@ Window {
                                         anchors.fill: parent
                                         anchors.leftMargin: Theme.s2
                                         anchors.rightMargin: Theme.s2
-                                        spacing: Theme.s2
+                                        spacing: Theme.spacing(root.compactUi, Theme.s2)
 
                                         Glyph {
                                             width: 15
@@ -6353,7 +7985,7 @@ Window {
                                                 Layout.fillWidth: true
                                                 text: lrow.modelData.t
                                                 color: Sys.text
-                                                font.pixelSize: Theme.tMd
+                                                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                                                 font.bold: lrow.modelData.kind === "source" && !lrow.modelData.locked
                                                 elide: Text.ElideRight
                                             }
@@ -6362,7 +7994,7 @@ Window {
                                                 visible: (lrow.modelData.s || "").length > 0
                                                 text: lrow.modelData.h ? "" : (lrow.modelData.s || "")
                                                 color: Theme.tDim(Sys.bg, Sys.text)
-                                                font.pixelSize: Theme.tXs
+                                                font.pixelSize: Theme.font(root.compactUi, Theme.tXs)
                                                 elide: Text.ElideRight
                                             }
                                         }
@@ -6463,7 +8095,7 @@ Window {
             id: splashContent
             anchors.centerIn: parent
             transformOrigin: Item.Center
-            spacing: Theme.s4
+            spacing: Theme.spacing(root.compactUi, Theme.s4)
 
             LotusMark {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -6476,7 +8108,7 @@ Window {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: qsTr("Lotus Tune")
                 color: Sys.text
-                font.pixelSize: Theme.tXl
+                font.pixelSize: Theme.font(root.compactUi, Theme.tXl)
                 font.weight: Font.DemiBold
                 font.letterSpacing: 2.5
             }

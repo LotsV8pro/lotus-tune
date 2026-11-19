@@ -132,7 +132,9 @@ Item {
             height: card.coverSize
             // The picture grows a little on hover (the rest of the card
             // stays put). The scaling carries its own corner radius.
-            scale: card.hovered ? 1.045 : 1
+            // Zoom only with a real pointer: `hovered` is forced true on
+            // touch, so gate it here to keep the phone card still.
+            scale: (!Theme.touch && card.hovered) ? 1.04 : 1
             Behavior on scale {
                 NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
             }
@@ -155,6 +157,9 @@ Item {
                 anchors.fill: parent
                 source: card.thumb
                 radiusSpec: card.round ? "circle" : Theme.rXl
+                // Cover fades in once its image is loaded.
+                opacity: coverArt.ready ? 1 : 0
+                Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
             }
 
             // Fallback icon when there is no artwork.
@@ -207,10 +212,12 @@ Item {
                 anchors.rightMargin: Theme.s2
                 anchors.bottom: parent.bottom
                 anchors.bottomMargin: Theme.s2
+                // Fade out fast and never shrink to 0.8: the small ghost
+                // left behind on hover-out looked like a second button.
                 opacity: (card.hovered || Theme.touch) ? 1 : 0
                 scale: card.hovered ? (playHit.pressed ? 0.92
-                                        : (playHit.containsMouse ? 1.06 : 1)) : 0.8
-                Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+                                        : (playHit.containsMouse ? 1.06 : 1)) : 1
+                Behavior on opacity { NumberAnimation { duration: 80; easing.type: Easing.OutCubic } }
                 Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
                 Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
@@ -242,17 +249,21 @@ Item {
             topPadding: Theme.s1
             spacing: 1
 
-            Text {
+            Item {
                 width: parent.width
                 height: card.titleLineH * 2
-                text: card.title
-                color: Sys.text
-                font.pixelSize: Theme.tBase
-                font.weight: Font.DemiBold
-                wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                verticalAlignment: Text.AlignTop
+                Text {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: card.title
+                    color: Sys.text
+                    font.pixelSize: Theme.tBase
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
             }
             Text {
                 width: parent.width

@@ -31,6 +31,13 @@ Item {
     // Re-runs a search from the history: Main opens Search and runs the
     // query.
     signal searchRequested(string query)
+    // Menu button of a compact row: Main shows the shared context menu.
+    signal itemMenuRequested(var item, real x, real y)
+
+    // 0 = horizontal card rails, 1 = compact rows. Main persists it.
+    property int viewMode: 0
+    // Interfaz compacta global: espaciados un 10% menores.
+    property bool compact: false
 
     // Fixed height of each card rail (cover 172 + text 54).
     // Card size adapts to the device: on a narrow screen the radio /
@@ -54,7 +61,8 @@ Item {
     // repo (full screen without long pagination; the arrows only
     // show if there is more than one page).
     readonly property int picksPerPage: 6
-    readonly property int picksCols: 3
+    // Main sets 4 on wide screens in the Lotus interface; classic stays 3.
+    property int picksCols: 3
     readonly property int picksRows: 2
 
     // Recent loose songs (catalog.recent, newest first). They
@@ -110,9 +118,21 @@ Item {
     // shortcuts is cached and only changes if the content changes, so the
     // loading thumbnails are not restarted on every library signal.
     property var picksCache: []
+    // Cheap content check: compare a signature of ids/titles instead of
+    // serialising whole arrays on every library signal.
+    function sameCards(a, b) {
+        if (a.length !== b.length)
+            return false
+        for (let i = 0; i < a.length; i++) {
+            if (a[i].title !== b[i].title || a[i].url !== b[i].url
+                    || a[i].thumb !== b[i].thumb)
+                return false
+        }
+        return true
+    }
     function refreshPicks() {
         const cur = page.quickPicks()
-        if (JSON.stringify(cur) !== JSON.stringify(page.picksCache))
+        if (!page.sameCards(cur, page.picksCache))
             page.picksCache = cur
     }
 
@@ -127,14 +147,12 @@ Item {
     function openQuickPick(item, play) {
         if (!item)
             return
-        console.log("[HomePage] openQuickPick called with item.kind:", item.kind || "");
         if (item.kind === "liked") {
             if (!page.ytmOk) {
                 page.openSettingsRequested()
                 return
             }
             page.openListRequested(!!play)
-            console.log("[HomePage] Calling catalog.openUrl for liked music");
             catalog.openUrl("https://music.youtube.com/playlist?list=LM",
                             qsTr("Música que me gusta"))
             return
@@ -155,7 +173,6 @@ Item {
         }
         if (item.url) {
             page.openListRequested(!!play)
-            console.log("[HomePage] Calling catalog.openUrl for playlist:", item.title || "", item.url || "");
             catalog.openUrl(item.url, item.title)
         }
     }
@@ -297,8 +314,19 @@ Item {
                        artist: artist })
         }
         const rec = catalog.recent
-        for (var j = 0; j < rec.length && out.length < 10; j++) {
-            const t = rec[j]
+        // Order by how often each artist appears in the history, so the
+        // radios shown are the ones actually listened to the most.
+        const counts = {}
+        for (var n = 0; n < rec.length; n++) {
+            const an = rec[n].artist || ""
+            if (an)
+                counts[an] = (counts[an] || 0) + 1
+        }
+        const ranked = rec.slice().sort(function (a, b) {
+            return (counts[b.artist || ""] || 0) - (counts[a.artist || ""] || 0)
+        })
+        for (var j = 0; j < ranked.length && out.length < 10; j++) {
+            const t = ranked[j]
             const artist = t.artist || ""
             if (!artist || seen[artist])
                 continue
@@ -357,6 +385,46 @@ Item {
         return false
     }
 
+    // One row model for the compact view, built from the same arrays the
+    // card rails use: quick picks, recommendations and YouTube radios.
+    function buildListItems() {
+        const out = []
+        for (const p of page.picksCache)
+            out.push({ src: "quick", item: p, title: p.title || "",
+                       sub: p.sub || "", thumb: p.thumb || "", icon: p.icon || "disc",
+                       a: page.coverA(p.title), b: page.coverB(p.title) })
+        for (const r of page.recCardsCache)
+            out.push({ src: "rec", item: r, title: r.title || "",
+                       sub: r.sub || "",
+                       thumb: r.thumb || (r.trackId
+                              ? "https://i.ytimg.com/vi/" + r.trackId + "/hq2.jpg" : ""),
+                       icon: r.icon || "radio",
+                       a: r.kind === "liked" ? Sys.accentDim : page.coverA(r.title),
+                       b: page.coverB(r.title) })
+        for (const m of page.moodRadios)
+            out.push({ src: "mood", item: m, title: m.t, sub: m.s,
+                       thumb: "", icon: m.icon || "radio",
+                       a: page.moodA(m.t), b: page.moodB(m.t) })
+        return out
+    }
+    readonly property var listItems: page.buildListItems()
+
+    // Opens or plays a compact row through the same paths as the cards.
+    function openListItem(row, play) {
+        if (!row)
+            return
+        if (row.src === "rec") {
+            page.openRec(row.item, play)
+            return
+        }
+        if (row.src === "mood") {
+            page.openListRequested(!!play)
+            catalog.openUrl("ytsearch15:" + row.item.q, row.item.t)
+            return
+        }
+        page.openQuickPick(row.item, play)
+    }
+
     // ---- background prefetch of the "For you" radios ---------------------
     // Bringing the list of a radio costs ~1.4 s FIXED of network (two trips
     // to YouTube Music; it does not matter whether you ask for 8 or 25
@@ -380,7 +448,7 @@ Item {
     property var recCardsCache: []
     function refreshRecCards() {
         const cur = page.recCards()
-        if (JSON.stringify(cur) !== JSON.stringify(page.recCardsCache))
+        if (!page.sameCards(cur, page.recCardsCache))
             page.recCardsCache = cur
     }
 
@@ -525,9 +593,10 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.s3
 
-                    // Greeting + date: two lines on the phone (the date
-                    // was being cut), one line on the desktop.
+                    // Greeting + date: hidden, the page starts with the
+                    // search box and the cards.
                     ColumnLayout {
+                        visible: false
                         Layout.fillWidth: true
                         spacing: 1
 
@@ -683,6 +752,11 @@ Item {
                         antialiasing: true
                         width: Math.min(histTxt.implicitWidth + Theme.pillHPad * 2, 260)
                         color: histChipMa.containsMouse ? Sys.accentDim : Theme.sAlt(Sys.bg, Sys.text)
+                        scale: !Theme.touch && histChipMa.pressed ? 0.96
+                               : (!Theme.touch && histChipMa.containsMouse ? 1.04 : 1)
+                        Behavior on scale {
+                            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+                        }
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                         RowLayout {
@@ -722,6 +796,11 @@ Item {
                     radius: Theme.rPill
                     antialiasing: true
                     color: clearHistMa.containsMouse ? Sys.accentDim : "transparent"
+                    scale: !Theme.touch && clearHistMa.pressed ? 0.96
+                           : (!Theme.touch && clearHistMa.containsMouse ? 1.04 : 1)
+                    Behavior on scale {
+                        NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+                    }
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                     Text {
@@ -758,7 +837,7 @@ Item {
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
-                visible: page.picksTotal > 0
+                visible: page.viewMode === 0 && page.picksTotal > 0
 
                 // Without a title: the greeting already presides over the
                 // page (like in the reference
@@ -779,6 +858,11 @@ Item {
                         color: prevMa.containsMouse && page.picksPage > 0
                                ? Sys.accentDim : "transparent"
                         opacity: page.picksPage > 0 ? 1 : 0.35
+                        scale: !Theme.touch && prevMa.pressed ? 0.96
+                               : (!Theme.touch && prevMa.containsMouse ? 1.04 : 1)
+                        Behavior on scale {
+                            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+                        }
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         Glyph {
                             anchors.centerIn: parent
@@ -803,6 +887,11 @@ Item {
                         color: nextMa.containsMouse && page.picksPage < page.picksPages - 1
                                ? Sys.accentDim : "transparent"
                         opacity: page.picksPage < page.picksPages - 1 ? 1 : 0.4
+                        scale: !Theme.touch && nextMa.pressed ? 0.96
+                               : (!Theme.touch && nextMa.containsMouse ? 1.04 : 1)
+                        Behavior on scale {
+                            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+                        }
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         Glyph {
                             anchors.centerIn: parent
@@ -828,7 +917,7 @@ Item {
                 // shortcuts into a gallery).
                 GridLayout {
                     Layout.fillWidth: true
-                    rows: Theme.touch ? 0 : page.picksRows
+                    rows: Theme.touch ? 0 : Math.ceil(page.picksPerPage / page.picksCols)
                     columns: Theme.touch ? 3 : 0
                     flow: Theme.touch ? GridLayout.LeftToRight
                                       : GridLayout.TopToBottom
@@ -855,6 +944,11 @@ Item {
                             antialiasing: true
                             color: pickMouse.containsMouse
                                    ? Theme.alpha(Sys.text, 0.11) : Theme.alpha(Sys.text, 0.055)
+                            scale: !Theme.touch && pickMouse.pressed ? 0.96
+                                   : (!Theme.touch && pickMouse.containsMouse ? 1.04 : 1)
+                            Behavior on scale {
+                                NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+                            }
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
 
                             // Phone: vertical tile (photo on top).
@@ -978,7 +1072,7 @@ Item {
                                         && pickRow.modelData.url)
                                         if (!catalog.metered)
                                             player.prefetchFront(pickRow.modelData.url)
-                                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openQuickPick(pickRow.modelData, true) }
+                                onClicked: { if (typeof sfx !== "undefined") sfx.play("tap"); page.openQuickPick(pickRow.modelData, false) }
                             }
                         }
                     }
@@ -991,7 +1085,7 @@ Item {
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
-                visible: page.recCardsCache.length > 0
+                visible: page.viewMode === 0 && page.recCardsCache.length > 0
 
                 SectionTitle {
                     Layout.fillWidth: true
@@ -1048,6 +1142,7 @@ Item {
             Island {
                 Layout.fillWidth: true
                 spacing: Theme.s3
+                visible: page.viewMode === 0
 
                 SectionTitle {
                     Layout.fillWidth: true
@@ -1086,6 +1181,171 @@ Item {
                         onPlayClicked: {
                             page.openListRequested(true)
                             catalog.openUrl("ytsearch15:" + modelData.q, modelData.t)
+                        }
+                    }
+                }
+            }
+
+            // ---- compact list view --------------------------------------
+            Island {
+                Layout.fillWidth: true
+                spacing: Theme.s3
+                visible: page.viewMode === 1 && page.listItems.length > 0
+
+                SectionTitle {
+                    Layout.fillWidth: true
+                    icon: "list"
+                    text: qsTr("Inicio")
+                }
+
+                // Not interactive: the page Flickable owns the scroll, so
+                // wheel and touch keep working over the whole page.
+                ListView {
+                    Layout.fillWidth: true
+                    implicitHeight: contentHeight
+                    model: page.listItems
+                    reuseItems: true
+                    interactive: false
+                    clip: false
+                    spacing: Theme.s2
+
+                    delegate: Rectangle {
+                        id: listRow
+                        required property var modelData
+                        width: ListView.view.width
+                        height: 64
+                        radius: Theme.rLg
+                        antialiasing: true
+                        color: rowMa.containsMouse ? Theme.sAlt(Sys.bg, Sys.text)
+                                                   : Theme.sHigh(Sys.bg, Sys.text)
+
+                        Rectangle {
+                            id: art
+                            x: Theme.s2
+                            y: (listRow.height - 48) / 2
+                            width: 48
+                            height: 48
+                            radius: Theme.rMd
+                            antialiasing: true
+                            gradient: Gradient {
+                                GradientStop { position: 0; color: listRow.modelData.a }
+                                GradientStop { position: 1; color: listRow.modelData.b }
+                            }
+                            RoundedArt {
+                                anchors.fill: parent
+                                source: listRow.modelData.thumb
+                                radiusSpec: Theme.rMd
+                                opacity: ready ? 1 : 0
+                                Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+                            }
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 22
+                                height: 22
+                                kind: listRow.modelData.icon
+                                color: Theme.alpha(Sys.text, 0.6)
+                                visible: !listRow.modelData.thumb
+                            }
+                        }
+
+                        ColumnLayout {
+                            anchors.left: art.right
+                            anchors.leftMargin: Theme.s3
+                            anchors.right: playBtn.left
+                            anchors.rightMargin: Theme.s2
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+                            Text {
+                                Layout.fillWidth: true
+                                text: listRow.modelData.title
+                                color: Sys.text
+                                font.pixelSize: Theme.tBase
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: listRow.modelData.sub
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tSm
+                                elide: Text.ElideRight
+                            }
+                        }
+
+                        MouseArea {
+                            id: rowMa
+                            anchors.fill: parent
+                            z: 1
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.openListItem(listRow.modelData, false)
+                            }
+                        }
+
+                        Rectangle {
+                            id: playBtn
+                            z: 2
+                            anchors.right: menuBtn.left
+                            anchors.rightMargin: Theme.s2
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 32
+                            height: 32
+                            radius: Theme.rPill
+                            antialiasing: true
+                            color: playMa.containsMouse ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 14
+                                height: 14
+                                kind: "play"
+                                color: Theme.accentOn(Sys.accent, Sys.bg)
+                            }
+                            MouseArea {
+                                id: playMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    page.openListItem(listRow.modelData, true)
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            id: menuBtn
+                            z: 2
+                            anchors.right: parent.right
+                            anchors.rightMargin: Theme.s2
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 32
+                            height: 32
+                            radius: Theme.rPill
+                            antialiasing: true
+                            color: menuMa.containsMouse ? Sys.accentDim : "transparent"
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 16
+                                height: 16
+                                kind: "ellipsis"
+                                color: menuMa.containsMouse
+                                       ? Theme.accentOn(Sys.accent, Sys.bg)
+                                       : Theme.tDim(Sys.bg, Sys.text)
+                            }
+                            MouseArea {
+                                id: menuMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    const p = listRow.mapToItem(page,
+                                        menuBtn.x + menuBtn.width,
+                                        menuBtn.y + menuBtn.height)
+                                    page.itemMenuRequested(listRow.modelData, p.x, p.y)
+                                }
+                            }
                         }
                     }
                 }

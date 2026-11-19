@@ -36,6 +36,7 @@ static QString videoIdOf(const QString &trackUrl);
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLocalSocket>
+#include <QSettings>
 #include <QStandardPaths>
 
 #include <algorithm>
@@ -57,6 +58,36 @@ namespace { constexpr int kMaxResolvers = 3; }
 // the 2026-11-03 test: the nodes served the audio without waiting).
 namespace { constexpr qint64 kPreannounceMs = 0; }
 
+// Cadena de filtros `af` de mpv para cada perfil. Filtros reales de mpv
+// (bass y equalizer), no un simple volumen: se comprueba con
+// `mpv --af=help` y se aplica en caliente via propiedad IPC "af".
+// "normal" no anade ningun filtro (audio sin alterar).
+namespace {
+QString audioFilterForProfile(const QString &profile)
+{
+    if (profile == QLatin1String("bass"))
+        return QStringLiteral("bass=gain=8:frequency=100,equalizer=f=250:g=3");
+    if (profile == QLatin1String("vocal"))
+        return QStringLiteral("equalizer=f=1000:g=2,equalizer=f=3000:g=4,equalizer=f=8000:g=2");
+    if (profile == QLatin1String("rock"))
+        return QStringLiteral("bass=gain=5,equalizer=f=1000:g=-2,equalizer=f=4000:g=4");
+    return QString();
+}
+
+// En Android no hay ecualizador: el perfil solo escala el volumen.
+// Factor por perfil aplicado sobre el volumen del usuario (0..150).
+double volumeFactorForProfile(const QString &profile)
+{
+    if (profile == QLatin1String("bass"))
+        return 1.05;
+    if (profile == QLatin1String("vocal"))
+        return 1.10;
+    if (profile == QLatin1String("rock"))
+        return 1.08;
+    return 1.0;
+}
+}
+
 Player::Player(QObject *parent)
     : QObject(parent)
 {
@@ -73,6 +104,18 @@ Player::Player(QObject *parent)
     m_cacheSaveTimer.setInterval(2500);
     connect(&m_cacheSaveTimer, &QTimer::timeout, this, &Player::saveStreamCache);
     loadStreamCache();
+
+    // Perfil de audio guardado. Se aplica al arrancar mpv (af) o, en
+    // Android, como multiplicador de volumen sobre QAudioOutput.
+    {
+        QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+        const QString p = s.value(QStringLiteral("audioProfile"),
+                                  QStringLiteral("normal")).toString().trimmed().toLower();
+        if (p == QLatin1String("bass") || p == QLatin1String("vocal")
+            || p == QLatin1String("rock"))
+            m_audioProfile = p;
+    }
+
 
     // Resolver pool: up to kMaxResolvers yt-dlp in parallel. Every slot
     // carries its own process and timer; resolveQueue() only starts the
@@ -272,7 +315,8 @@ void Player::startMpv()
         m_androidPlayer = new QMediaPlayer(this);
         m_androidAudio = new QAudioOutput(this);
         m_androidPlayer->setAudioOutput(m_androidAudio);
-        m_androidAudio->setVolume(m_volume / 100.0);
+        m_androidAudio->setVolume(
+            qBound(0, m_volume, 150) / 100.0 * volumeFactorForProfile(m_audioProfile));
         connect(m_androidPlayer, &QMediaPlayer::positionChanged, this,
                 [this](qint64 pos) {
                     m_position = pos / 1000.0;
@@ -461,6 +505,9 @@ void Player::startMpv()
         QStringLiteral("--audio-client-name=Lotus Tune"),
         QStringLiteral("--volume=%1").arg(m_volume),
         QStringLiteral("--gapless-audio=yes"),
+        // Perfil de ecualizacion: filtro af real de mpv (bass/equalizer).
+        // "normal" -> af vacio (sin alteracion).
+        QStringLiteral("--af=%1").arg(audioFilterForProfile(m_audioProfile)),
         QStringLiteral("--no-sub"),
         QStringLiteral("--sub-auto=no"),
         QStringLiteral("--audio-buffer=0.2"),
@@ -1271,13 +1318,45 @@ void Player::setVolume(int v)
     emit volumeChanged();
 #ifdef Q_OS_ANDROID
     if (m_androidAudio) {
-        m_androidAudio->setVolume(v / 100.0);
+        // En Android el perfil solo escala el volumen (no hay filtros).
+        m_androidAudio->setVolume(
+            qBound(0, v, 150) / 100.0 * volumeFactorForProfile(m_audioProfile));
         return;
     }
 #endif
     send({{QStringLiteral("command"),
            QJsonArray{QStringLiteral("set"), QStringLiteral("volume"),
                       QString::number(v)}}});
+}
+
+void Player::setAudioProfile(const QString &p)
+{
+    const QString k = p.trimmed().toLower();
+    const QString canonical =
+        (k == QLatin1String("bass") || k == QLatin1String("vocal")
+         || k == QLatin1String("rock"))
+            ? k
+            : QStringLiteral("normal");
+    if (canonical == m_audioProfile)
+        return;
+    m_audioProfile = canonical;
+    emit audioProfileChanged();
+
+    QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    s.setValue(QStringLiteral("audioProfile"), canonical);
+
+#ifdef Q_OS_ANDROID
+    // QMediaPlayer no expone ecualizador: solo se aplica un escalado de
+    // volumen. Es honesto: en movil el perfil cambia el volumen, no el tono.
+    if (m_androidAudio)
+        m_androidAudio->setVolume(
+            qBound(0, m_volume, 150) / 100.0 * volumeFactorForProfile(canonical));
+#else
+    // Hot change: mpv aplica el nuevo filtro af al instante via IPC.
+    send({{QStringLiteral("command"),
+           QJsonArray{QStringLiteral("set"), QStringLiteral("af"),
+                      audioFilterForProfile(canonical)}}});
+#endif
 }
 
 // Translates the chosen quality into the selector yt-dlp understands. It is
@@ -1869,6 +1948,14 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
     if (!chosen.isEmpty()) {
         // The one that actually gets downloaded: it is the first thing to
         // look at when a track sounds wrong.
+        const int chosenKbps = chosen.value(QStringLiteral("bitrate")).toInt() / 1000;
+        const QString info = chosenKbps > 0
+                ? QStringLiteral("%1 kbps").arg(chosenKbps)
+                : QStringLiteral("itag%1").arg(chosen.value(QStringLiteral("itag")).toInt());
+        if (info != m_audioInfo) {
+            m_audioInfo = info;
+            emit changed();
+        }
         qInfo() << "[player] audio elegido: itag"
                 << chosen.value(QStringLiteral("itag")).toInt()
                 << chosen.value(QStringLiteral("mimeType"))

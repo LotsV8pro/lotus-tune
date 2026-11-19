@@ -48,6 +48,9 @@ Rectangle {
         color: "transparent"
         border.width: 0
         clip: false
+        // Hover lift: short scale, disabled on touch (no hover there).
+        scale: !Theme.touch && (tileHover.hovered || tileMa.containsMouse) ? 1.04 : 1
+        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
 
         ColumnLayout {
             anchors.fill: parent
@@ -65,10 +68,14 @@ Rectangle {
                 color: Theme.sAlt(Sys.bg, Sys.text)
 
                 RoundedArt {
+                    id: coverArt
                     anchors.fill: parent
                     source: tile.thumb
                     visible: tile.thumb !== ""
                     radiusSpec: Theme.rMd
+                    // Cover fades in once its image is loaded.
+                    opacity: coverArt.ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
                 }
                 Glyph {
                     anchors.centerIn: parent

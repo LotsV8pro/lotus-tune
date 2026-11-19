@@ -36,9 +36,32 @@ Rectangle {
     z: 72
 
     property bool open: false
+    // Lyrics font size delta (px) relative to the automatic size (0).
+    property int fontDelta: 0
+    // Focus mode: only the centred lyrics over the wash. Saved in appcfg so
+    // the cinema opens the way it was left (useful on a light cover).
+    property bool focusMode: false
+    // Presentation mode: bigger centred lyrics, no buttons at all. Ideal
+    // for singing along or projecting. Saved in appcfg like focus mode.
+    property bool presentationMode: false
+    // Both modes strip the chrome; presentation also enlarges the lyrics.
+    readonly property bool chromeHidden: fl.focusMode || fl.presentationMode
     // The app is in the foreground (see RightPanel).
     property bool appActive: true
     property string title: ""
+    // Crossfade of the lyrics on a track change: dip, then let the new
+    // lines fade back in (LyricsView swaps its content in the same frame).
+    property real lyricsOpacity: 1
+    onTitleChanged: {
+        if (!fl.open)
+            return
+        lyricsFade.restart()
+    }
+    SequentialAnimation {
+        id: lyricsFade
+        NumberAnimation { target: fl; property: "lyricsOpacity"; to: 0.25; duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        NumberAnimation { target: fl; property: "lyricsOpacity"; to: 1; duration: Theme.medMs; easing.type: Easing.OutCubic }
+    }
     property string artist: ""
     property string thumb: ""
     // YouTube ID of the current track: the big artwork needs it to
@@ -88,6 +111,13 @@ Rectangle {
     // while it is open: bindings update themselves (an imperative copy
     // here would kill the binding and freeze the cover and the title).
     Behavior on opacity {
+        NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
+    }
+    // The view also grows into place. Touch skips it: no hover there, and a
+    // scaling overlay over the bar looks out of place on a phone.
+    scale: !Theme.touch && open ? 1 : (Theme.touch ? 1 : 0.98)
+    Behavior on scale {
+        enabled: !Theme.touch
         NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic }
     }
     // It comes in rising from below (where the bar was): the drag gesture
@@ -95,9 +125,6 @@ Rectangle {
     // in the compositor), not a relayout, so it runs at the screen rate
     // (120 Hz if the phone has it).
     property real revealOffset: fl.open ? 0 : fl.height * 0.14
-    Behavior on revealOffset {
-        NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
-    }
 
     // ---- drag down: close -------------------------------------------
     // The entrance gesture, backwards: the view drops with the finger and,
@@ -131,13 +158,85 @@ Rectangle {
         if (fl.open) {
             closeOut.stop()
             fl.pullDown = 0
-        } else if (!closeOut.running) {
-            fl.pullDown = 0
+            if (typeof appcfg !== "undefined") {
+                focusMode = appcfg.get("lyricsFocusMode") === "true"
+                presentationMode = appcfg.get("lyricsPresentationMode") === "true"
+            }
+            fl.forceActiveFocus()
+        } else {
+            // Always come back to the normal cinema, never straight into
+            // a mode that hid the controls and trapped the navigation.
+            presentationMode = false
+            focusMode = false
+            if (typeof appcfg !== "undefined") {
+                appcfg.set("lyricsPresentationMode", "false")
+                appcfg.set("lyricsFocusMode", "false")
+            }
+            if (!closeOut.running)
+                fl.pullDown = 0
         }
     }
 
+    function toggleFocusMode() {
+        focusMode = !focusMode
+        if (typeof appcfg !== "undefined") {
+            appcfg.set("lyricsFocusMode", focusMode ? "true" : "false")
+            appcfg.save()
+        }
+        fl.forceActiveFocus()
+    }
 
-    transform: Translate { y: fl.revealOffset + fl.pullDown }
+    function togglePresentationMode() {
+        presentationMode = !presentationMode
+        if (typeof appcfg !== "undefined") {
+            appcfg.set("lyricsPresentationMode", presentationMode ? "true" : "false")
+            appcfg.save()
+        }
+        fl.forceActiveFocus()
+    }
+
+    // Android's back key/gesture is handled here too: the cinema has the
+    // active focus while open, so the window Shortcut may not fire.
+    Keys.onBackPressed: (event) => {
+        if (!fl.open)
+            return
+        event.accepted = true
+        if (presentationMode)
+            togglePresentationMode()
+        else if (focusMode)
+            toggleFocusMode()
+        else {
+            event.accepted = false
+            closeRequested()
+        }
+    }
+
+    // Escape peels one layer: presentation -> focus -> cinema -> app.
+    // First Escape from the mic restores the cinema with its artwork and
+    // controls; a later one closes the cinema.
+    Keys.onEscapePressed: (event) => {
+        if (!fl.open)
+            return
+        if (presentationMode) {
+            event.accepted = true
+            fl.togglePresentationMode()
+        } else if (focusMode) {
+            event.accepted = true
+            fl.toggleFocusMode()
+        }
+        // In the plain cinema the event passes through to Main, which
+        // closes the view.
+    }
+
+    // The reveal rises smoothly with a translate on y; the drag (pullDown)
+    // stays immediate so the view follows the finger without lag.
+    transform: [
+        Translate {
+            y: fl.revealOffset
+            Behavior on y { NumberAnimation { duration: Theme.slowMs; easing.type: Easing.OutCubic } }
+        },
+        Translate { y: fl.pullDown }
+    ]
 
     readonly property bool isPhone: Qt.platform.os === "android"
 
@@ -200,9 +299,12 @@ Rectangle {
         fillMode: Image.Stretch
         smooth: true
         asynchronous: true
-        cache: false
+        // Cache the generated wash: on leaving presentation mode the cover
+        // reappeared slowly because this image was rebuilt from scratch.
+        // The URL carries `wash.serial`, so a new track still refreshes it.
+        cache: true
         opacity: status === Image.Ready ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
+        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
     }
     // Veil: the app background mixed with a deep blue so the cinema mode is
     // colder and crisper than the other windows.
@@ -274,6 +376,12 @@ Rectangle {
                     fl.closeRequested()
                 } else if (fl.pullDown > 0) {
                     pullBack.start()
+                } else if (fl.presentationMode) {
+                    // A tap in presentation mode peels back to the normal
+                    // cinema: artwork, controls and all.
+                    fl.togglePresentationMode()
+                } else if (fl.focusMode) {
+                    fl.toggleFocusMode()
                 }
                 sheetDrag.active = false
                 sheetDrag.translation = 0
@@ -314,8 +422,13 @@ Rectangle {
 
             CinemaLeft {
                 id: left
+                // Keep the cover alive (opacity, not visible=false): hiding
+                // it destroyed ArtImage and re-downloaded the maxres cover
+                // on every return from presentation mode.
+                visible: true
+                opacity: fl.chromeHidden ? 0 : 1
                 Layout.alignment: Qt.AlignVCenter
-                Layout.preferredWidth: content.leftW
+                Layout.preferredWidth: fl.chromeHidden ? 0 : content.leftW
 
                 ink: fl.ink
                 inkDim: fl.inkDim
@@ -349,16 +462,24 @@ Rectangle {
             // the sides when the source tags a duet.
             LyricsView {
                 id: lyric
+                opacity: fl.lyricsOpacity
+                Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 live: fl.open && content.wide
                       && (Qt.platform.os !== "android" || fl.appActive)
-                lineSize: Math.max(20, Math.min(30, Math.round(content.height / 32)))
-                activeBoost: Math.round(lineSize * 0.20)
-                maxLineWidth: 860
+                lineSize: Math.round(Math.max(20, Math.min(30, Math.round(content.height / 32)))
+                                     * (fl.presentationMode ? 1.4 : 1))
+                sizeDelta: fl.fontDelta
+                activeBoost: Math.round((lineSize + sizeDelta) * 0.20)
+                // Fit the column: a fixed 860 px ran past the right edge on
+                // narrow windows and the last words were clipped.
+                maxLineWidth: Math.min(860, content.width - content.leftW
+                                       - Theme.panelMargin * 2)
                 edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
-                leftAlign: true
-                duetSides: true
+                focusMode: fl.chromeHidden
+                leftAlign: false
+                duetSides: !fl.chromeHidden
                 onContextRequested: (x, y) => {
                     const p = mapToItem(fl, x, y)
                     fl.lyricsMenuRequested(p.x, p.y)
@@ -372,7 +493,7 @@ Rectangle {
                 // The active line is pinned at the centre of the cover
                 // (not at the centre of the window: the cover sits higher
                 // because the title and the controls go under it).
-                pinFrac: {
+                pinFrac: fl.chromeHidden ? 0.5 : (function() {
                     // `left.y` has to be part of the expression: a value
                     // read inside mapToItem() is not tracked, so the pin
                     // stayed with the fraction measured before the row was
@@ -381,7 +502,7 @@ Rectangle {
                     if (!(content.height > 0))
                         return 0.50
                     return Math.max(0.0, Math.min(1.0, center / content.height))
-                }
+                })()
                 pillTop: true
                 syncAdjustAllowed: false
                 pillShown: false
@@ -396,6 +517,8 @@ Rectangle {
 
             CinemaLeft {
                 id: leftPhone
+                visible: true
+                opacity: fl.chromeHidden ? 0 : 1
                 Layout.fillWidth: true
                 Layout.alignment: Qt.AlignHCenter
                 // Cover, title and artist only: the progress and the
@@ -431,16 +554,26 @@ Rectangle {
             }
 
             LyricsView {
+                id: lyricPhone
+                opacity: fl.lyricsOpacity
+                Behavior on opacity { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+                onContextRequested: (x, y) => {
+                    const p = mapToItem(fl, x, y)
+                    fl.lyricsMenuRequested(p.x, p.y)
+                }
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 live: fl.open && !content.wide
                       && (Qt.platform.os !== "android" || fl.appActive)
-                lineSize: Math.max(20, Math.min(28, Math.round(content.height / 34)))
-                activeBoost: Math.round(lineSize * 0.20)
+                lineSize: Math.round(Math.max(20, Math.min(28, Math.round(content.height / 34)))
+                                     * (fl.presentationMode ? 1.4 : 1))
+                sizeDelta: fl.fontDelta
+                activeBoost: Math.round((lineSize + sizeDelta) * 0.20)
                 maxLineWidth: Math.min(content.width * 0.86, 720)
                 edgeColor: Theme.alpha(fl.veilColor, fl.veilOpacity)
+                focusMode: fl.chromeHidden
                 leftAlign: false
-                duetSides: true
+                duetSides: !fl.chromeHidden
                 // Phone: the lyrics sit between the cover and the
                 // transport, in the middle of the screen. That cell is the
                 // one that decides light or dark ink.
@@ -455,6 +588,7 @@ Rectangle {
             // top, the lyrics in the middle and the controls close the
             // screen, the way the phone players lay it out.
             CinemaTransport {
+                visible: !fl.chromeHidden
                 Layout.fillWidth: true
                 ink: fl.ink
                 inkDim: fl.inkDim
@@ -483,6 +617,10 @@ Rectangle {
     // closes too (Main's goBack).
     Rectangle {
         id: closeBtn
+        // Keep a faint X in presentation mode: with the chrome hidden it
+        // was the only way out and the user got stuck with no artwork.
+        opacity: fl.presentationMode ? 0.5 : (fl.chromeHidden ? 0 : 1)
+        enabled: !fl.focusMode
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.s5
@@ -494,7 +632,7 @@ Rectangle {
         color: exitMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
                                     : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-        scale: exitMa.pressed ? 0.94 : 1
+        scale: exitMa.pressed ? 0.94 : (exitMa.containsMouse ? 1.08 : 1)
         Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
         Glyph {
             anchors.centerIn: parent
@@ -512,13 +650,103 @@ Rectangle {
             onClicked: {
                 if (typeof sfx !== "undefined")
                     sfx.play("tap")
-                fl.closeRequested()
+                // In presentation mode this faint X peels back to the
+                // cinema; once in the cinema it closes the view.
+                if (fl.presentationMode)
+                    fl.togglePresentationMode()
+                else if (fl.focusMode)
+                    fl.toggleFocusMode()
+                else
+                    fl.closeRequested()
+            }
+        }
+    }
+
+    // Edit the text of the line being sung (same editor as the panel).
+
+    Rectangle {
+        id: focusBtn
+        anchors.right: fl.chromeHidden ? parent.right : queueBtn.left
+        anchors.top: parent.top
+        anchors.rightMargin: fl.chromeHidden ? Theme.s5 : Theme.s2
+        anchors.topMargin: Theme.s4
+        width: 38
+        height: 38
+        radius: Theme.rMd
+        antialiasing: true
+        visible: fl.open && !fl.presentationMode
+        enabled: !fl.presentationMode
+        opacity: fl.chromeHidden ? 0.85 : 0.55
+        color: focusMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
+                                     : Theme.alpha(fl.ink, 0.10)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        scale: focusMa.pressed ? 0.94 : (focusMa.containsMouse ? 1.08 : 1)
+        Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+        Glyph {
+            anchors.centerIn: parent
+            width: 18
+            height: 18
+            kind: "expand"
+            color: fl.ink
+            weight: 1.8
+        }
+        MouseArea {
+            id: focusMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined")
+                    sfx.play("tap")
+                fl.toggleFocusMode()
+            }
+        }
+    }
+
+    // ---- presentation (top LEFT): enter the no-chrome, big-lyrics view ---
+    Rectangle {
+        id: presentationBtn
+        visible: fl.open && !fl.presentationMode
+        enabled: fl.open && !fl.presentationMode
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.leftMargin: Theme.s5
+        anchors.topMargin: Theme.s4
+        width: 38
+        height: 38
+        radius: Theme.rMd
+        antialiasing: true
+        opacity: 0.55
+        color: presMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
+                                    : Theme.alpha(fl.ink, 0.10)
+        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        scale: presMa.pressed ? 0.94 : (presMa.containsMouse ? 1.08 : 1)
+        Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
+        Glyph {
+            anchors.centerIn: parent
+            width: 18
+            height: 18
+            kind: "mic"
+            color: fl.ink
+            weight: 1.8
+        }
+        MouseArea {
+            id: presMa
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+                if (typeof sfx !== "undefined")
+                    sfx.play("tap")
+                fl.togglePresentationMode()
             }
         }
     }
 
     Rectangle {
         id: queueBtn
+        opacity: fl.chromeHidden ? 0 : 1
+        enabled: !fl.chromeHidden
         anchors.right: closeBtn.left
         anchors.top: parent.top
         anchors.rightMargin: Theme.s2
@@ -530,7 +758,7 @@ Rectangle {
         color: queueMa.containsMouse ? Theme.sAccentHi(Sys.bg, Sys.accent)
                                      : Theme.alpha(fl.ink, 0.10)
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
-        scale: queueMa.pressed ? 0.94 : 1
+        scale: queueMa.pressed ? 0.94 : (queueMa.containsMouse ? 1.08 : 1)
         Behavior on scale { NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic } }
         Glyph {
             anchors.centerIn: parent

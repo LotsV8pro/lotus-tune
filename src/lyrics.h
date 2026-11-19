@@ -67,6 +67,9 @@ class Lyrics : public QObject
     // up letter by letter. If it is off, the whole line lights up when it
     // is sung.
     Q_PROPERTY(bool karaoke READ karaoke WRITE setKaraoke NOTIFY changed)
+    // Index of the line being sung at the engine's current position. The
+    // inline editor uses it to prefill the text of the active line.
+    Q_PROPERTY(int activeLineIndex READ activeLineIndex NOTIFY changed)
 
 public:
     explicit Lyrics(QObject *parent = nullptr);
@@ -82,6 +85,13 @@ public:
     QString synced() const { return m_synced; }
     // The text shown on screen, one line per row, ready to copy.
     Q_INVOKABLE QString lyricsText() const;
+    // Original and translation together, one pair per block, for copying.
+    Q_INVOKABLE QString translatedText() const;
+    // Export the current lyrics as LRC (word timings when available), and
+    // load an LRC file back. Portable and readable by other players.
+    Q_INVOKABLE QString toLrc() const;
+    Q_INVOKABLE bool exportLyrics(const QString &path) const;
+    Q_INVOKABLE bool importLrc(const QString &path);
     QString error() const { return m_error; }
     QString trackKey() const { return m_trackKey; }
     int duration() const { return m_duration; }
@@ -89,6 +99,10 @@ public:
     void setOffset(double v);
     bool karaoke() const { return m_karaoke; }
     void setKaraoke(bool on);
+    int activeLineIndex() const;
+    // Replace the text of line `index`, rebuild its word stamps for the new
+    // text and persist the edited lyrics. Returns false for a bad index.
+    Q_INVOKABLE bool replaceLineText(int index, const QString &text);
     // A second engine can warm the disk cache for upcoming tracks without
     // touching the published state of the song that is playing.
     Q_INVOKABLE void setPrefetchOnly(bool on) { m_prefetchOnly = on; }
@@ -105,17 +119,45 @@ public:
     Q_INVOKABLE void fetch(const QString &artist, const QString &title,
                            double durationSeconds, const QString &videoId = QString());
     Q_INVOKABLE void clear();
+    // Drop the disk cache of one track and clear the on-screen state, so
+    // a new fetch() has to look it up again.
+    Q_INVOKABLE bool clearCacheFor(const QString &artist, const QString &title);
+    // Drop every cached lyrics JSON whose trackKey starts with
+    // "<artist> - " (case-insensitive). The published files in stateDir and
+    // the on-screen state are left alone. Returns the number removed.
+    Q_INVOKABLE int clearCacheForArtist(const QString &artist);
+    // Drop cached lyrics JSONs whose videoId matches any of `urls`.
+    // Returns the number of files removed.
+    Q_INVOKABLE int clearCacheForUrls(const QStringList &urls);
+    // Number of cached lyrics JSON files, and bulk removal of all of them.
+    // The published state files live in stateDir, not in this cache dir.
+    Q_INVOKABLE int cachedLyricsCount() const;
+    Q_INVOKABLE int clearAllCachedLyrics();
+    // True when the disk cache already holds resolved lyrics for a YouTube
+    // URL (used to skip tracks without lyrics at end of file).
+    Q_INVOKABLE bool isCached(const QString &url) const;
     // Index of the active LRC line at `seconds`, -1 if it has not started
     // yet or there is none.
-    Q_INVOKABLE int lineIndexAt(double seconds);
+    Q_INVOKABLE int lineIndexAt(double seconds) const;
     // Main.qml publishes the sync adjustment here (same value as the
     // `offset` property, so there is a single source of truth). QML sees
     // it because it is Q_INVOKABLE and PUBLIC: the private ones are not
     // exposed.
     Q_INVOKABLE void setPublishedOffset(double v) { setOffset(v); }
+    // Art URL of the playing track. Main.qml sets it before fetch(), so the
+    // published state carries the new cover even while the lyrics load.
+    Q_INVOKABLE void setPublishedArt(const QString &url);
+    // Display metadata for the desktop widget (clean title / artist), kept
+    // separate from the raw values used to search the lyric sources.
+    Q_INVOKABLE void setPublishedMeta(const QString &title,
+                                      const QString &artist,
+                                      const QString &videoId);
     // Optional sources. Both are off/on from the settings; the app calls
     // these before the first search.
     Q_INVOKABLE void setLiriqoEnabled(bool on) { m_liriqoEnabled = on; }
+    // Offline mode: fetch() only reads the saved lyrics and never starts a
+    // network source. Without a cache hit it reports a specific message.
+    Q_INVOKABLE void setOfflineOnly(bool on) { m_offlineOnly = on; }
     Q_INVOKABLE void setTranslateTo(const QString &language) {
         m_translateTo = language.trimmed();
     }
@@ -255,6 +297,7 @@ private:
     // (they cover half of the song) and they spoil the karaoke.
     static void dropJunkLines(QVector<LrcLine> &lines, const QString &title,
                               const QString &artist);
+    static void collapseDuplicateLines(QVector<LrcLine> &lines);
     // Prepares the lines that are going to be shown: the instrumental
     // markers of the video are added, the long gaps are marked, the
     // stretched words are cut and the lines that are not sung are
@@ -388,6 +431,9 @@ private:
     // A line-timed source has no word stamps. Spread its [time, end] over
     // the words by character weight so the karaoke still advances.
     static void distributeWordTimes(QVector<LrcLine> &lines);
+    // Repairs corrupt word stamps loaded from disk/cache: drops bad entries,
+    // sorts by start, removes overlaps and caps the end at the line duration.
+    static void sanitizeWordStamps(QVector<LrcLine> &lines);
     // Some providers drop spaces inside lines ("esnada", "tuvoz"). When the
     // clean text of the track is known, rebuild each line from it: matching
     // by letters-without-spaces is exact and language independent.
@@ -454,6 +500,8 @@ private:
     QString m_trackKey;
     QString m_artist;
     QString m_title;
+    QString m_publishedArt;
+    QString m_publishedTitle, m_publishedArtist, m_publishedVideoId;
     // (title, artist) pairs tried by the search sources, in order.
     // Candidate 0 keeps the cleaned title and the original artist. A video
     // title that repeats the artist before " - " ("MK - 17 (Lyric Video)")
@@ -464,6 +512,15 @@ private:
         QString title;
         QString artist;
     };
+    // Variants of (title, artist) tried by the search sources, in order.
+    // Extracted so the tests can check them without launching the cascade.
+    static QVector<SearchCandidate> buildSearchCandidates(const QString &artist,
+                                                          const QString &title);
+    // Drops signs that most catalogues do not index ("Nosebleed!" -> "Nosebleed").
+    static QString queryText(const QString &s);
+    // Test hook: bare title without the "Artist - " prefix or video suffixes.
+    static QString cleanTitleForSearch(const QString &title,
+                                        const QString &artist = QString());
     QVector<SearchCandidate> m_searchCandidates;
     const SearchCandidate &searchCandidate(int i) const {
         return m_searchCandidates.at(i >= 0 && i < m_searchCandidates.size()
@@ -490,6 +547,7 @@ private:
     bool m_mxmTried = false;
     bool m_mxmTokenRetried = false;   // one fresh token per fetch, no loop
     bool m_liriqoEnabled = true;
+    bool m_offlineOnly = false;
     bool m_translated = false;
     bool m_prefetchOnly = false;
     bool m_partialTranslation = false;

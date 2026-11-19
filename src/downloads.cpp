@@ -269,6 +269,39 @@ void Downloads::setFolder(const QString &dir)
     refreshLocal();
 }
 
+bool Downloads::renameDownload(const QString &oldPath, const QString &newName)
+{
+    // canonicalFilePath resolves symlinks: a link inside the downloads
+    // folder pointing outside must not be accepted as a valid source.
+    const QString root = QFileInfo(m_folder).canonicalFilePath();
+    const QString src = QFileInfo(oldPath).canonicalFilePath();
+    // The source has to live under the downloads folder: cleanPath + the
+    // separator boundary stops ".." from escaping into an arbitrary file.
+    if (root.isEmpty() || src.isEmpty() || src == root
+        || !src.startsWith(root + QLatin1Char('/')))
+        return false;
+    const QFileInfo fi(src);
+    if (!fi.isFile())
+        return false;
+
+    const QString name = newName.trimmed();
+    if (name.isEmpty() || name.contains(QLatin1Char('/'))
+        || name.contains(QLatin1Char('\\')))
+        return false;
+
+    const QString ext = fi.suffix();
+    const QString finalName = ext.isEmpty() ? name : name + QLatin1Char('.') + ext;
+    const QString dst = QDir::cleanPath(fi.absolutePath() + QLatin1Char('/')
+                                        + finalName);
+    if (dst == src || QFileInfo::exists(dst))
+        return false;
+
+    if (!QFile::rename(src, dst))
+        return false;
+    refreshLocal();
+    return true;
+}
+
 // The player resolves the direct audio URL on Android (there is no
 // yt-dlp): its answers arrive by signal and are matched by video id.
 void Downloads::setPlayer(Player *player)
@@ -1845,6 +1878,12 @@ QVariantMap Downloads::makeLocalTrack(const QString &path,
     t.insert(QStringLiteral("url"),
              QUrl::fromLocalFile(fi.absoluteFilePath()).toString());
     t.insert(QStringLiteral("source"), QStringLiteral("local"));
+    // Format and size of the file, shown as subtitle of downloaded rows
+    // ("OPUS · 8,2 MB"). The scan already has the QFileInfo, no extra I/O.
+    const QString ext = fi.suffix().toUpper();
+    t.insert(QStringLiteral("qualityText"),
+             ext.isEmpty() ? humanBytes(fi.size())
+                           : ext + QStringLiteral(" · ") + humanBytes(fi.size()));
     // When the file arrived (its modification time): "play all" on the
     // Downloads page plays them in this order (or the reverse).
     t.insert(QStringLiteral("addedAt"),

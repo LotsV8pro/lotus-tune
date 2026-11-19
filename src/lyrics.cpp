@@ -109,6 +109,42 @@ static QString norm(const QString &s)
         .remove(junk);
 }
 
+// Two sources can contribute the same phrase at the same instant (the
+// adlib merge in pickWorded, a cache line kept beside its timed copy).
+// Merge those copies: keep the richer one, drop the other. A real repeat
+// seconds later is a different line and stays.
+void Lyrics::collapseDuplicateLines(QVector<LrcLine> &lines)
+{
+    std::stable_sort(lines.begin(), lines.end(),
+                     [](const LrcLine &a, const LrcLine &b) {
+                         return a.time < b.time;
+                     });
+    QVector<LrcLine> out;
+    for (const LrcLine &l : lines) {
+        if (!l.instrumental) {
+            const QString key = norm(l.text);
+            if (!key.isEmpty()) {
+                bool merged = false;
+                for (LrcLine &o : out) {
+                    if (o.instrumental || qAbs(o.time - l.time) > 1.5
+                        || norm(o.text) != key)
+                        continue;
+                    if (l.words.size() > o.words.size()
+                        || (!l.translation.isEmpty() && o.translation.isEmpty())) {
+                        o = l;   // the copy with karaoke or translation wins
+                    }
+                    merged = true;
+                    break;
+                }
+                if (merged)
+                    continue;
+            }
+        }
+        out.append(l);
+    }
+    lines = std::move(out);
+}
+
 // Removes the little tails in parentheses or brackets: "Not Ready to Die
 // (From "Call of the Dead")" -> "Not Ready to Die". The Sonora cache
 // stores the bare title, so it has to be stripped to compare it.
@@ -176,13 +212,29 @@ static QString cleanSearchTitle(const QString &title, const QString &artist)
                                           Qt::CaseInsensitive))
         t = t.mid(artist.size() + 3).trimmed();
     // The noise at the end of a video title, in any combination.
+    // First the bracketed suffixes: "(Official Video)", "[Lyric Video]", ...
     static const QRegularExpression tail(
         QStringLiteral("\\s*[\\[(](?:official|oficial|video|vídeo|visualizer|"
-                       "visualiser|audio|lyric|letra|mv|m/v|hd|hq|4k|"
-                       "remaster(?:ed)?|en vivo|live)[^)\\]]*[)\\]]\\s*$"),
+                       "visualiser|audio|lyric|letra|lyrics|letras|mv|m/v|"
+                       "hd|hq|4k|remaster(?:ed)?|en vivo|live)"
+                       "[^)\\]]*[)\\]]\\s*$"),
         QRegularExpression::CaseInsensitiveOption);
     for (;;) {
         const QRegularExpressionMatch m = tail.match(t);
+        if (!m.hasMatch())
+            break;
+        t.remove(m.capturedStart(), m.capturedLength());
+    }
+    // Then the bare (unbracketed) suffixes: "Title Official Music Video",
+    // "Title Lyric Video", "Title HD", "Title en vivo", ...
+    static const QRegularExpression bare(
+        QStringLiteral("\\s+(?:official\\s+)?(?:music\\s+)?"
+                       "(?:video|vídeo|visualizer|visualiser|audio|"
+                       "lyric\\s+video|letra|lyrics?|letras|mv|m/v|"
+                       "hd|hq|4k|oficial|official|en vivo|live)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (;;) {
+        const QRegularExpressionMatch m = bare.match(t);
         if (!m.hasMatch())
             break;
         t.remove(m.capturedStart(), m.capturedLength());
@@ -191,15 +243,68 @@ static QString cleanSearchTitle(const QString &title, const QString &artist)
     return t.isEmpty() ? title.trimmed() : t;
 }
 
+QString Lyrics::cleanTitleForSearch(const QString &title, const QString &artist)
+{
+    return cleanSearchTitle(title, artist);
+}
+
 // Titles such as "Nosebleed!" reach the providers with the exclamation mark.
 // Most catalogues index the bare name; keep letters, digits, spaces, apostrophes
 // and dashes only. normMatch does this for comparisons, but the queries were
 // still sending the raw title.
-static QString queryText(const QString &s)
+QString Lyrics::queryText(const QString &s)
 {
     QString t = s;
     t.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N} '\\-]+")));
     return t.simplified();
+}
+
+// Search variants for a track, in the order the sources try them. Besides
+// the clean title, a video title can fail in LRCLIB because of a trailing
+// parenthetical, a "Artist - Title" prefix or noise words such as "official".
+// Every variant is de-duplicated by (title, artist).
+QVector<Lyrics::SearchCandidate> Lyrics::buildSearchCandidates(
+    const QString &artist, const QString &title)
+{
+    const QString clean = cleanSearchTitle(title, artist);
+    const QString base = clean.isEmpty() ? title.trimmed() : clean;
+    QVector<SearchCandidate> out;
+    const auto add = [&out](const QString &t, const QString &a) {
+        const QString title = t.trimmed();
+        const QString artist = a.trimmed();
+        if (title.isEmpty())
+            return;
+        for (const SearchCandidate &c : out) {
+            if (c.title == title && c.artist == artist)
+                return;
+        }
+        out.append({title, artist});
+    };
+
+    add(base, artist);
+    // Without the trailing "(Live)", "[Official Video]"... part.
+    const QString noParen = stripParenthetical(base);
+    add(noParen, artist);
+    // Guion partido: antes/despues de " - ".
+    const int dash = noParen.indexOf(QStringLiteral(" - "));
+    if (dash > 0) {
+        const QString head = noParen.left(dash).trimmed();
+        const QString tail = noParen.mid(dash + 3).trimmed();
+        if (!head.isEmpty() && !tail.isEmpty()) {
+            add(tail, head);
+            add(head, artist.isEmpty() ? QString() : artist);
+        }
+    }
+    // Sin palabras de ruido tipo "official", "video", "lyrics", "audio".
+    static const QRegularExpression noise(
+        QStringLiteral("\\b(official|oficial|video|vídeo|visualizer|visualiser|"
+                       "audio|lyrics?|letras?|mv|m/v|hd|hq|4k|en vivo|live)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QString noNoise = QString(base).remove(noise).simplified();
+    add(noNoise, artist);
+    const QString noNoiseParen = QString(stripParenthetical(base)).remove(noise).simplified();
+    add(noNoiseParen, artist);
+    return out;
 }
 
 // Cache of answers, one file per artist/title. The hash keeps the file
@@ -232,16 +337,7 @@ void Lyrics::fetch(const QString &artist, const QString &title,
     // with the part after the dash as title and the part before it as artist
     // ("MK - 17 (Lyric Video)" -> ("17", "MK")): the word-timing catalogues
     // index the song that way, not under the messy video title.
-    m_searchCandidates.clear();
-    const QString clean = cleanSearchTitle(t, a);
-    m_searchCandidates.append({clean.isEmpty() ? t : clean, a});
-    const int dash = clean.indexOf(QStringLiteral(" - "));
-    if (dash > 0) {
-        const QString head = clean.left(dash).trimmed();
-        const QString tail = clean.mid(dash + 3).trimmed();
-        if (!head.isEmpty() && !tail.isEmpty())
-            m_searchCandidates.append({tail, head});
-    }
+    m_searchCandidates = buildSearchCandidates(a, t);
     m_ytmCandidate = 0;
     m_duration = qMax(0, qRound(durationSeconds));
     m_videoId = videoId.trimmed();
@@ -299,7 +395,15 @@ void Lyrics::fetch(const QString &artist, const QString &title,
                              .arg(m_prefetchOnly ? QStringLiteral(" (precarga)")
                                                  : QString());
 
-    if (loadFromDiskCache()) {
+    const bool cacheHit = loadFromDiskCache();
+    if (m_offlineOnly) {
+        // Only the saved lyrics. Never start a network source. The cache
+        // hit already published its lines (or the "no lyrics" message).
+        if (!cacheHit)
+            fail(QStringLiteral("Sin letra disponible (sin conexión)"));
+        return;
+    }
+    if (cacheHit) {
         if (m_upgradable) {
             // Keep the cache on screen, but ask the word-level sources to
             // upgrade it to karaoke. The best aligned one replaces these
@@ -393,7 +497,38 @@ void Lyrics::distributeWordTimes(QVector<LrcLine> &lines)
 {
     for (int i = 0; i < lines.size(); ++i) {
         LrcLine &l = lines[i];
-        if (l.instrumental || !l.words.isEmpty() || l.text.trimmed().isEmpty())
+        if (l.instrumental) {
+            // The three dots of a stretch have their own sweep. Without an
+            // end, the view falls back to 0.6 s and the front jumps instead
+            // of walking. Give the marker a real span up to the next line,
+            // plus one stamp per dot so the sweep is evenly paced.
+            if (!(l.end > l.time)) {
+                double end = 0.0;
+                for (int j = i + 1; j < lines.size(); ++j) {
+                    if (lines.at(j).time > l.time) {
+                        end = lines.at(j).time;
+                        break;
+                    }
+                }
+                if (!(end > l.time))
+                    end = l.time + 3.0;
+                l.end = qMin(end, l.time + 8.0);
+            }
+            if (l.words.isEmpty()) {
+                QVariantList dots;
+                const double step = (l.end - l.time) / 3.0;
+                for (int k = 0; k < 3; ++k) {
+                    QVariantMap w;
+                    w.insert(QStringLiteral("t"), l.time + k * step);
+                    w.insert(QStringLiteral("e"), l.time + (k + 1) * step);
+                    w.insert(QStringLiteral("text"), QStringLiteral("♪"));
+                    dots.append(w);
+                }
+                l.words = dots;
+            }
+            continue;
+        }
+        if (!l.words.isEmpty() || l.text.trimmed().isEmpty())
             continue;
         const QStringList words = l.text.split(
             QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
@@ -436,6 +571,69 @@ void Lyrics::distributeWordTimes(QVector<LrcLine> &lines)
     }
 }
 
+// Some caches carry corrupt word stamps: inverted ranges, overlaps, a stray
+// word count. Repair them before the karaoke front is computed, otherwise the
+// front freezes or jumps. A line left with a single stamp loses it so
+// distributeWordTimes can spread the words again.
+void Lyrics::sanitizeWordStamps(QVector<LrcLine> &lines)
+{
+    for (int i = 0; i < lines.size(); ++i) {
+        LrcLine &l = lines[i];
+        if (l.words.isEmpty())
+            continue;
+        const int last = l.words.size() - 1;
+        QVariantList clean;
+        for (int k = 0; k <= last; ++k) {
+            const QVariantMap w = l.words.at(k).toMap();
+            const QString text = w.value(QStringLiteral("text")).toString();
+            const double t = w.value(QStringLiteral("t")).toDouble();
+            double e = w.value(QStringLiteral("e")).toDouble();
+            if (text.trimmed().isEmpty() || t < 0.0)
+                continue;
+            if (e <= t) {
+                if (k != last)
+                    continue;
+                e = t + 0.2;
+            }
+            QVariantMap out = w;
+            out.insert(QStringLiteral("t"), t);
+            out.insert(QStringLiteral("e"), e);
+            clean.append(out);
+        }
+        std::sort(clean.begin(), clean.end(),
+                  [](const QVariant &a, const QVariant &b) {
+                      return a.toMap().value(QStringLiteral("t")).toDouble()
+                          < b.toMap().value(QStringLiteral("t")).toDouble();
+                  });
+        double limit = l.end;
+        if (!(limit > l.time)) {
+            limit = 0.0;
+            for (int j = i + 1; j < lines.size(); ++j) {
+                if (lines.at(j).time > l.time) {
+                    limit = lines.at(j).time;
+                    break;
+                }
+            }
+            if (!(limit > l.time))
+                limit = l.time + 8.0;
+        }
+        for (int k = 0; k < clean.size(); ++k) {
+            QVariantMap w = clean.at(k).toMap();
+            const double t = w.value(QStringLiteral("t")).toDouble();
+            double e = w.value(QStringLiteral("e")).toDouble();
+            e = qMin(e, limit);
+            if (k + 1 < clean.size())
+                e = qMin(e, clean.at(k + 1).toMap()
+                                .value(QStringLiteral("t")).toDouble());
+            if (e <= t)
+                e = t + 0.001;
+            w.insert(QStringLiteral("e"), e);
+            clean[k] = w;
+        }
+        l.words = (clean.size() == 1) ? QVariantList() : clean;
+    }
+}
+
 bool Lyrics::loadFromDiskCache()
 {
     QFile f(lyricCachePath(m_artist, m_title));
@@ -455,7 +653,8 @@ bool Lyrics::loadFromDiskCache()
         if (QDateTime::currentSecsSinceEpoch() - saved > 7 * 86400)
             return false;
         qInfo() << "[lyrics] sin letra guardada: se salta la busqueda";
-        fail(QStringLiteral("Sin letra disponible"));
+        fail(m_offlineOnly ? QStringLiteral("Sin letra disponible (sin conexión)")
+                           : QStringLiteral("Sin letra disponible"));
         return true;
     }
 
@@ -529,13 +728,15 @@ bool Lyrics::loadFromDiskCache()
     markNoteStretches(m_lines);
     markChorus(m_lines);
     joinSplitWords(m_lines, m_plain);
+    sanitizeWordStamps(m_lines);
     distributeWordTimes(m_lines);
     computeWordMeta(m_lines);
     qInfo().noquote() << QString("[lyrics] cache en disco: %1 lineas")
                              .arg(lines.size());
     if (!m_prefetchOnly) {
         publishLines();
-        startTranslate();
+        if (!m_offlineOnly)
+            startTranslate();
         emit changed();
     }
     // A line-level cache hit stays upgradable: a late word-level source may
@@ -550,6 +751,11 @@ void Lyrics::saveToDiskCache(bool found)
     o.insert(QStringLiteral("v"), 1);
     o.insert(QStringLiteral("duration"), m_duration);
     o.insert(QStringLiteral("saved"), QDateTime::currentSecsSinceEpoch());
+    o.insert(QStringLiteral("trackKey"), m_trackKey);
+    // videoId is stored so a queued track can be checked for cached lyrics
+    // before it starts (skipNoLyrics), using only its YouTube URL.
+    if (!m_videoId.isEmpty())
+        o.insert(QStringLiteral("videoId"), m_videoId);
     // Keep the clean text as the reference that proves these lines belong
     // to this track. A cache without it is dropped on the next load.
     if (!m_plain.trimmed().isEmpty())
@@ -586,6 +792,134 @@ void Lyrics::saveToDiskCache(bool found)
         f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
         f.commit();
     }
+}
+
+// Extracts the videoId from a YouTube URL (watch?v=, youtu.be/ or
+// youtube.com/shorts/). Empty when the URL does not carry one.
+static QString videoIdFromUrl(const QString &url)
+{
+    const QString u = url.trimmed();
+    const QRegularExpression rx(
+        QStringLiteral("(?:v=|youtu\\.be/|/shorts/|/embed/)([\\w-]{11})"));
+    const QRegularExpressionMatch m = rx.match(u);
+    return m.hasMatch() ? m.captured(1) : QString();
+}
+
+// True when the disk cache already holds resolved lyrics for this track.
+// Used by Main.qml when skipping tracks without lyrics at end of file: a
+// cached entry means the next track will show lyrics right away, so it is
+// a valid skip target. Old entries without a videoId are ignored.
+bool Lyrics::isCached(const QString &url) const
+{
+    const QString vid = videoIdFromUrl(url);
+    if (vid.isEmpty())
+        return false;
+    const QString dir = AppPaths::cacheDir() + QStringLiteral("/lyrics");
+    const QStringList files = QDir(dir).entryList(
+        { QStringLiteral("*.json") }, QDir::Files);
+    for (const QString &name : files) {
+        QFile f(dir + QLatin1Char('/') + name);
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+        if (o.value(QStringLiteral("v")).toInt() != 1)
+            continue;
+        if (o.value(QStringLiteral("videoId")).toString() != vid)
+            continue;
+        if (o.value(QStringLiteral("lines")).isNull())
+            continue;   // "no lyrics" is not a usable skip target
+        return true;
+    }
+    return false;
+}
+
+// Cache folder shared by the count and the bulk clear. Only the hashed
+// <sha>.json entries live here; the published lyrics.json and
+// lyrics-runtime.json go to stateDir and are never touched.
+static QString lyricsCacheDir()
+{
+    return AppPaths::cacheDir() + QStringLiteral("/lyrics");
+}
+
+int Lyrics::cachedLyricsCount() const
+{
+    return QDir(lyricsCacheDir()).entryList(
+        { QStringLiteral("*.json") }, QDir::Files).size();
+}
+
+int Lyrics::clearAllCachedLyrics()
+{
+    const QString dir = lyricsCacheDir();
+    const QStringList files = QDir(dir).entryList(
+        { QStringLiteral("*.json") }, QDir::Files);
+    int removed = 0;
+    for (const QString &name : files) {
+        if (QFile::remove(dir + QLatin1Char('/') + name))
+            ++removed;
+    }
+    return removed;
+}
+
+int Lyrics::clearCacheForUrls(const QStringList &urls)
+{
+    QStringList ids;
+    for (const QString &url : urls) {
+        const QString vid = videoIdFromUrl(url);
+        if (!vid.isEmpty() && !ids.contains(vid))
+            ids.append(vid);
+    }
+    if (ids.isEmpty())
+        return 0;
+    const QString dir = lyricsCacheDir();
+    const QStringList files = QDir(dir).entryList(
+        { QStringLiteral("*.json") }, QDir::Files);
+    int removed = 0;
+    for (const QString &name : files) {
+        const QString path = dir + QLatin1Char('/') + name;
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        if (!ids.contains(o.value(QStringLiteral("videoId")).toString()))
+            continue;
+        if (QFile::remove(path))
+            ++removed;
+    }
+    if (removed > 0) {
+        ++m_gen;
+        emit changed();
+    }
+    return removed;
+}
+
+int Lyrics::clearCacheForArtist(const QString &artist)
+{
+    const QString prefix = artist.trimmed() + QStringLiteral(" - ");
+    if (prefix.trimmed().isEmpty() || artist.trimmed().isEmpty())
+        return 0;
+    const QString dir = lyricsCacheDir();
+    const QStringList files = QDir(dir).entryList(
+        { QStringLiteral("*.json") }, QDir::Files);
+    int removed = 0;
+    for (const QString &name : files) {
+        const QString path = dir + QLatin1Char('/') + name;
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        const QJsonObject o = QJsonDocument::fromJson(f.readAll()).object();
+        f.close();
+        const QString key = o.value(QStringLiteral("trackKey")).toString();
+        // Old entries without a key cannot be matched to an artist: the file
+        // name is a hash of "artist|title" and is not reversible.
+        if (key.isEmpty())
+            continue;
+        if (key.startsWith(prefix, Qt::CaseInsensitive)) {
+            if (QFile::remove(path))
+                ++removed;
+        }
+    }
+    return removed;
 }
 
 // ---------------------------------------------------------------------------
@@ -2024,6 +2358,29 @@ int Lyrics::scoreLrcRecord(const QJsonObject &obj) const
 // ---- result ------------------------------------------------------------
 void Lyrics::applyPayload(const QJsonObject &obj)
 {
+    // LRCLIB flags a track with no vocals: keep a single instrumental line
+    // and stop the cascade instead of asking every other source in vain.
+    if (obj.value(QStringLiteral("instrumental")).toBool()) {
+        LrcLine l;
+        l.time = 0.0;
+        l.end = m_duration;
+        l.text = QStringLiteral("♪ ♪ ♪");
+        l.instrumental = true;
+        m_lines.clear();
+        m_lines.append(l);
+        m_candidates.clear();
+        m_refLines = m_lines;
+        m_hasSynced = true;
+        m_hasLyrics = true;
+        m_worded = false;
+        m_loading = false;
+        m_syncSource = obj.value(QStringLiteral("source")).toString().trimmed();
+        if (m_syncSource.isEmpty())
+            m_syncSource = QStringLiteral("lrclib");
+        publishLines();
+        emit changed();
+        return;
+    }
     const QString file = obj.value(QStringLiteral("lyricsfile")).toString();
     QVector<LrcLine> worded = parseLyricsfile(file);
     if (worded.size() >= 2) {
@@ -2304,6 +2661,7 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
     // in the parser of each source. The musical timings keep the note
     // that is held.
     dropJunkLines(lines, m_title, m_artist);
+    collapseDuplicateLines(lines);
 }
 
 // Picks the word level source that fits the song best and shows it. The
@@ -2537,6 +2895,7 @@ bool Lyrics::adoptWorded(QVector<LrcLine> lines, const QString &source,
     // with a line-level reference: otherwise the text never matches and a
     // valid karaoke source is thrown away as "another version".
     joinSplitWords(lines, m_plain);
+    sanitizeWordStamps(lines);
     WordedCandidate candidate;
     candidate.lines = std::move(lines);
     candidate.source = source;
@@ -2985,7 +3344,8 @@ void Lyrics::schedulePublish()
 }
 
 static bool shouldJoinFragments(const QString &a, const QString &b,
-                                const QSet<QString> &dict)
+                                const QSet<QString> &dict,
+                                const QSet<QString> &dictPairs = {})
 {
     static const QSet<QString> keep = {
         QStringLiteral("a"), QStringLiteral("an"), QStringLiteral("and"),
@@ -3042,6 +3402,11 @@ static bool shouldJoinFragments(const QString &a, const QString &b,
             return false;
     if (dict.contains(x.toLower() + y.toLower()))
         return true;
+    // Both words exist side by side in the clean text: they are two words,
+    // not fragments of one. Otherwise "us cry" is glued back to "uscry"
+    // right after restoreSpacesFromPlain split it.
+    if (dictPairs.contains(x.toLower() + QLatin1Char(' ') + y.toLower()))
+        return false;
     // "for get", "per son" and "be come" are split words, not phrases.
     // Some tails are ordinary words on their own ("get"), so they need an
     // explicit exception here; a prefix before them is still a split word.
@@ -3073,6 +3438,20 @@ static QString lettersOnly(const QString &s)
     QString n = s.normalized(QString::NormalizationForm_KD);
     n.remove(QRegularExpression(QStringLiteral("\\p{M}+")));
     n.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")));
+    return n.toLower();
+}
+
+// Comparison key that keeps apostrophes. Without them "bedoin'" and
+// "be doin'" look identical, and "let'em" cannot be told apart from the
+// clean "let 'em". Curly apostrophes fold into straight ones first.
+static QString lettersWithApostrophes(const QString &s)
+{
+    QString n = s.normalized(QString::NormalizationForm_KD);
+    n.remove(QRegularExpression(QStringLiteral("\\p{M}+")));
+    n.replace(QStringLiteral("\u2019"), QStringLiteral("'"));
+    // Keep punctuation: a provider that drops a space after a comma
+    // ("pretty,baby") must still match the clean "pretty, baby".
+    n.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}',.!?;-]+")));
     return n.toLower();
 }
 
@@ -3108,29 +3487,54 @@ void Lyrics::restoreSpacesFromPlain(QVector<LrcLine> &lines,
     for (LrcLine &l : lines) {
         if (l.instrumental || l.text.trimmed().isEmpty())
             continue;
-        const QString key = lettersOnly(l.text);
+        const QString key = lettersWithApostrophes(l.text);
         if (key.isEmpty())
             continue;
-        // The closest clean line wins. An exact match is best; otherwise a
-        // small edit distance (a provider that split a word in three)
-        // still identifies the line unambiguously.
+        // The closest clean line wins. Apostrophes take part in the key so
+        // "bedoin'" is not mistaken for a different line. Two wrong letters
+        // ("pret tylittle" vs "pretty little") are still tolerated.
         QString fixed;
+        QString bestKey;
         double best = 0.0;
+        int bestDist = 0;
         for (const QString &row : clean) {
-            const QString ck = lettersOnly(row);
-            const int dist = editDistance(key, ck);
+            const QString ck = lettersWithApostrophes(row);
+            // A provider can append a parenthetical not present in the
+            // clean line ("... smile (you're so ...)"). Match the clean
+            // line against the start of the sung text in that case.
+            const int dist = (key.size() > ck.size())
+                                 ? editDistance(key.left(ck.size()), ck)
+                                 : editDistance(key, ck);
+            if (dist > 2)
+                continue;
             const double sim = 1.0 - double(dist) / qMax(key.size(), ck.size());
             if (sim > best) {
                 best = sim;
+                bestDist = dist;
+                bestKey = ck;
                 fixed = row;
             }
         }
-        if (best < 0.85 || fixed == l.text)
+        if (best < 0.85 || bestDist > 2 || fixed == l.text)
             continue;
+        // If the provider appended words the plain line does not have,
+        // keep that tail and replace only the matching prefix.
+        QString repaired = fixed;
+        const QStringList cleanWords = fixed.split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        const QStringList sungWords = l.text.split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (key.size() > bestKey.size() + 3
+            && sungWords.size() > cleanWords.size()) {
+            QStringList out = cleanWords;
+            for (int i = cleanWords.size(); i < sungWords.size(); ++i)
+                out.append(sungWords.at(i));
+            repaired = out.join(QLatin1Char(' '));
+        }
         // Rebuild the word stamps from the clean words, keeping the times.
         // A provider that dropped spaces often also dropped them inside a
         // word, so the counts usually match.
-        const QStringList words = fixed.split(
+        const QStringList words = repaired.split(
             QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         if (words.size() == l.words.size()) {
             for (int i = 0; i < words.size(); ++i) {
@@ -3138,8 +3542,40 @@ void Lyrics::restoreSpacesFromPlain(QVector<LrcLine> &lines,
                 w.insert(QStringLiteral("text"), words.at(i));
                 l.words[i] = w;
             }
+        } else if (words.size() > l.words.size() && !l.words.isEmpty()) {
+            // A provider glued the last words into one stamp ("Let ",
+            // "uscry"). Split that stamp and share its duration by
+            // character count so karaoke still highlights every word.
+            const int extra = words.size() - l.words.size();
+            QVariantList rebuilt;
+            for (int i = 0; i + 1 < l.words.size(); ++i) {
+                QVariantMap w = l.words.at(i).toMap();
+                w.insert(QStringLiteral("text"), words.at(i));
+                rebuilt.append(w);
+            }
+            QVariantMap last = l.words.last().toMap();
+            const double t = last.value(QStringLiteral("t")).toDouble();
+            const double e = last.value(QStringLiteral("e")).toDouble();
+            const int base = l.words.size() - 1;
+            int total = 0;
+            for (int k = 0; k <= extra; ++k)
+                total += words.at(base + k).size();
+            int used = 0;
+            for (int k = 0; k <= extra; ++k) {
+                QVariantMap part = last;
+                part.insert(QStringLiteral("text"), words.at(base + k));
+                const int len = words.at(base + k).size();
+                part.insert(QStringLiteral("t"),
+                            t + (e - t) * double(used) / total);
+                used += len;
+                part.insert(QStringLiteral("e"),
+                            t + (e - t) * double(used) / total);
+                part.insert(QStringLiteral("held"), k == extra);
+                rebuilt.append(part);
+            }
+            l.words = rebuilt;
         }
-        l.text = fixed;
+        l.text = repaired;
     }
 }
 
@@ -3157,18 +3593,45 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
                                          Qt::SkipEmptyParts))
         if (w.size() >= 2)
             dict.insert(w.toLower());
+    // Adjacent words of the clean text: a generic length rule must not
+    // glue them back together after the space restore.
+    QSet<QString> dictPairs;
+    const QStringList plainWords = plain.split(
+        QRegularExpression(QStringLiteral("[^\\p{L}']+")), Qt::SkipEmptyParts);
+    for (int i = 0; i + 1 < plainWords.size(); ++i)
+        dictPairs.insert(plainWords.at(i).toLower() + QLatin1Char(' ')
+                         + plainWords.at(i + 1).toLower());
 
     static const QRegularExpression split(
         QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
     // A few words arrive glued ("waittoo", "neverwin"). They are split
     // in both the line text and the word stamps, so karaoke and text agree.
-    static const QHash<QString, QString> glued = {
+    // A vector, not a hash: the order in which these replacements run is
+    // deterministic (a QHash iterates in a random order per process).
+    // Longer / more specific rules come first.
+    const QVector<QPair<QString, QString>> glued = {
         {QStringLiteral("waittoo"), QStringLiteral("wait too")},
         {QStringLiteral("neverwin"), QStringLiteral("never win")},
         {QStringLiteral("alot"), QStringLiteral("a lot")},
         {QStringLiteral("nonetoo"), QStringLiteral("none too")},
         {QStringLiteral("glowdon"), QStringLiteral("glow don")},
         {QStringLiteral("inpharao"), QStringLiteral("in pharaoh")},
+        {QStringLiteral("intime"), QStringLiteral("in time")},
+        {QStringLiteral("forfar"), QStringLiteral("for far")},
+        {QStringLiteral("intoo"), QStringLiteral("into")},
+        {QStringLiteral("esnada"), QStringLiteral("es nada")},
+        // Apostrophised tokens seen in provider synced text. The plain
+        // line is not always available for them, so they live here too.
+        {QStringLiteral("bedoin'"), QStringLiteral("be doin'")},
+        {QStringLiteral("let'em"), QStringLiteral("let 'em")},
+        {QStringLiteral("watch'em"), QStringLiteral("watch 'em")},
+        {QStringLiteral("di'a"), QStringLiteral("di a")},
+        {QStringLiteral("tylittle"), QStringLiteral("ty little")},
+        {QStringLiteral("ty,ba"), QStringLiteral("ty, ba")},
+        {QStringLiteral("pret ty"), QStringLiteral("pretty")},
+        {QStringLiteral("ba by"), QStringLiteral("baby")},
+        {QStringLiteral("pretty,ba by"), QStringLiteral("pretty, baby")},
+        {QStringLiteral("di a monds"), QStringLiteral("diamonds")},
     };
     // Two words that are one word in English. The provider splits them;
     // a generic length rule would also glue real phrases ("one thing").
@@ -3194,13 +3657,22 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
         }
         return out;
     };
-    const auto unglue = [](const QString &s) {
+    // A provider that glued "for far" must not get it glued back by the
+    // generic fragment joins below.
+    const auto isKnownGlue = [&glued](const QString &a, const QString &b) {
+        const QString pair = (a.trimmed() + b.trimmed()).toLower();
+        for (const auto &rule : glued)
+            if (rule.first == pair)
+                return true;
+        return false;
+    };
+    const auto unglue = [&glued](const QString &s) {
         QString out = s;
-        for (auto it = glued.cbegin(); it != glued.cend(); ++it) {
+        for (const auto &rule : glued) {
             out.replace(QRegularExpression(QStringLiteral("(?i)(?<![A-Za-z])")
-                                           + it.key()
+                                           + rule.first
                                            + QStringLiteral("(?![A-Za-z])")),
-                        it.value());
+                        rule.second);
         }
         return out;
     };
@@ -3228,7 +3700,9 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
             bool changed = false;
             while (it.hasNext()) {
                 const QRegularExpressionMatch m = it.next();
-                if (!shouldJoinFragments(m.captured(2), m.captured(3), dict))
+                if (isKnownGlue(m.captured(2), m.captured(3)))
+                    continue;
+                if (!shouldJoinFragments(m.captured(2), m.captured(3), dict, dictPairs))
                     continue;
                 text.replace(m.capturedStart(), m.capturedLength(),
                              m.captured(1) + QLatin1Char(' ')
@@ -3244,7 +3718,9 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
             bool changed = false;
             while (it.hasNext()) {
                 const QRegularExpressionMatch m = it.next();
-                if (!shouldJoinFragments(m.captured(1), m.captured(2), dict))
+                if (isKnownGlue(m.captured(1), m.captured(2)))
+                    continue;
+                if (!shouldJoinFragments(m.captured(1), m.captured(2), dict, dictPairs))
                     continue;
                 text.replace(m.capturedStart(), m.capturedLength(),
                              m.captured(1) + m.captured(2));
@@ -3302,9 +3778,10 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
                     break;
                 }
             }
-            if (wordContraction.match(b.trimmed()).hasMatch()
-                || b.trimmed() == QLatin1String("h's") || isCompound
-                || shouldJoinFragments(a, b, dict)) {
+            if (!isKnownGlue(a, b)
+                && (wordContraction.match(b.trimmed()).hasMatch()
+                    || b.trimmed() == QLatin1String("h's") || isCompound
+                    || shouldJoinFragments(a, b, dict, dictPairs))) {
                 wa.insert(QStringLiteral("text"),
                           a.trimmed() + b.trimmed()
                           + (b.endsWith(QLatin1Char(' '))
@@ -3328,11 +3805,11 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
                 if (i + 1 < l.words.size())
                     rebuilt += QLatin1Char(' ');
             }
-            QString a = text, b = rebuilt;
+            QString a = unglue(text);
+            const QString b = unglue(rebuilt);
             a.remove(QLatin1Char(' '));
-            b.remove(QLatin1Char(' '));
             if (!rebuilt.trimmed().isEmpty() && a == b)
-                l.text = rebuilt.trimmed();
+                l.text = unglue(rebuilt).trimmed();
         }
     }
 }
@@ -3354,6 +3831,7 @@ void Lyrics::publishFinal()
     markChorus(m_lines);
     joinSplitWords(m_lines, m_plain);
     computeWordMeta(m_lines);
+    collapseDuplicateLines(m_lines);
     if (m_publishFailed)
         saveToDiskCache(/*found=*/false);
     else if (!m_lines.isEmpty())
@@ -3429,6 +3907,99 @@ QString Lyrics::lyricsText() const
             out.append(t);
     }
     return out.join(QLatin1Char('\n'));
+}
+
+QString Lyrics::translatedText() const
+{
+    QStringList out;
+    for (const LrcLine &l : m_lines) {
+        if (l.instrumental)
+            continue;
+        const QString text = l.text.trimmed();
+        if (text.isEmpty() || text == QStringLiteral("♪"))
+            continue;
+        out.append(text);
+        const QString tr = l.translation.trimmed();
+        if (!tr.isEmpty())
+            out.append(tr);
+    }
+    return out.join(QLatin1Char('\n'));
+}
+
+static QString lrcStamp(double secs, bool word)
+{
+    const int cs = qMax(0, qRound(secs * 100.0));
+    const int mm = cs / 6000;
+    const int ss = (cs / 100) % 60;
+    const int cc = cs % 100;
+    const QString body = QStringLiteral("%1:%2.%3")
+        .arg(mm, 2, 10, QLatin1Char('0'))
+        .arg(ss, 2, 10, QLatin1Char('0'))
+        .arg(cc, 2, 10, QLatin1Char('0'));
+    return word ? (QLatin1Char('<') + body + QLatin1Char('>'))
+                : (QLatin1Char('[') + body + QLatin1Char(']'));
+}
+
+QString Lyrics::toLrc() const
+{
+    QStringList out;
+    out.append(QStringLiteral("[ar:%1]").arg(m_artist));
+    out.append(QStringLiteral("[ti:%1]").arg(m_title));
+    out.append(QStringLiteral("[length:%1]")
+                   .arg(QString::number(m_duration, 'f', 0)));
+    for (const LrcLine &l : m_lines) {
+        const QString text = l.instrumental ? QStringLiteral("♪") : l.text;
+        // Plain LRC: portable, readable by any player. Word stamps are
+        // kept out on purpose -- a re-import must not duplicate the line
+        // start or invent stamps for a source that had none.
+        out.append(lrcStamp(l.time, false) + text);
+    }
+    return out.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+bool Lyrics::exportLyrics(const QString &path) const
+{
+    if (path.isEmpty() || m_lines.isEmpty())
+        return false;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return f.write(toLrc().toUtf8()) > 0;
+}
+
+bool Lyrics::importLrc(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QString lrc = QString::fromUtf8(f.readAll());
+    f.close();
+    // Reject a random file: a real LRC has at least one [mm:ss.xx] stamp.
+    static const QRegularExpression stamp(QStringLiteral("\\[\\d{1,3}:\\d{1,2}[.:]\\d{1,3}\\]"));
+    if (!stamp.match(lrc).hasMatch())
+        return false;
+    // adoptSynced() keeps an already-worded track on screen, so a manual
+    // import would report success while showing the old lyrics. Parse and
+    // replace directly: an imported file is an explicit user choice.
+    QVector<LrcLine> parsed = parseLrc(lrc, /*filterCredits=*/true);
+    if (parsed.size() < 1)
+        return false;
+    m_lines = std::move(parsed);
+    m_refLines = m_lines;
+    m_candidates.clear();
+    m_worded = false;
+    m_hasSynced = true;
+    m_hasLyrics = true;
+    m_syncSource = QStringLiteral("lrc");
+    m_loading = false;
+    markNoteStretches(m_lines);
+    markChorus(m_lines);
+    computeWordMeta(m_lines);
+    publishLines();
+    if (!m_lines.isEmpty())
+        saveToDiskCache(/*found=*/true);
+    emit changed();
+    return true;
 }
 
 QVariantList Lyrics::lines() const
@@ -3746,7 +4317,7 @@ bool Lyrics::looksLikeCredit(const QString &line)
     return en.match(line).hasMatch();
 }
 
-int Lyrics::lineIndexAt(double seconds)
+int Lyrics::lineIndexAt(double seconds) const
 {
     if (m_lines.isEmpty() || seconds < 0)
         return -1;
@@ -3764,6 +4335,82 @@ int Lyrics::lineIndexAt(double seconds)
         }
     }
     return found;
+}
+
+int Lyrics::activeLineIndex() const
+{
+    if (m_engine && m_hasSynced)
+        return lineIndexAt(m_engine->position() + m_offset);
+    return -1;
+}
+
+bool Lyrics::replaceLineText(int index, const QString &text)
+{
+    if (index < 0 || index >= m_lines.size())
+        return false;
+    const QString clean = text.trimmed();
+    if (clean.isEmpty())
+        return false;
+
+    LrcLine &line = m_lines[index];
+    if (line.text == clean)
+        return true;
+
+    // Editing a marker (♪) must not turn an instrumental stretch into a
+    // sung line: keep the flag and skip the karaoke stamps for it.
+    const bool wasInstrumental = line.instrumental;
+    line.text = clean;
+    if (wasInstrumental) {
+        line.words.clear();
+        markChorus(m_lines);
+        publishLines();
+        emit changed();
+        return true;
+    }
+    // The word stamps belong to the old text. Throw them away and spread
+    // the line's [time, end] over the words of the new text. A one-line
+    // vector would have no neighbour to take the end from, so pass the real
+    // line context to distributeWordTimes().
+    line.words.clear();
+    line.end = 0.0;
+    QVector<LrcLine> ctx;
+    for (int i = qMax(0, index - 1); i < m_lines.size() && i <= index + 1; ++i)
+        ctx.append(m_lines[i]);
+    // ctx holds at most three consecutive lines; the edited one is at the
+    // index matching its position in m_lines.
+    int local = index - qMax(0, index - 1);
+    if (local >= 0 && local < ctx.size())
+        distributeWordTimes(ctx);
+    m_lines[index].words = ctx.at(local).words;
+    m_lines[index].end = ctx.at(local).end;
+    computeWordMeta(m_lines);
+
+    // Keep the clean reference text in step so the disk cache is not thrown
+    // away on the next load: plainMatchesLines() checks it.
+    QStringList plainLines = m_plain.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+    if (plainLines.size() == m_lines.size())
+        plainLines[index] = clean;
+    m_plain = plainLines.join(QLatin1Char('\n'));
+    m_synced = toLrc();
+
+    saveToDiskCache(true);
+    publishLines();
+    emit changed();
+    return true;
+}
+
+bool Lyrics::clearCacheFor(const QString &artist, const QString &title)
+{
+    const bool removed = QFile::remove(lyricCachePath(artist, title));
+    ++m_gen;              // any answer still in flight is now stale
+    m_loading = false;    // so a fresh fetch is not ignored as "already loading"
+    m_hasLyrics = false;
+    m_hasSynced = false;
+    m_plain.clear();
+    m_lines.clear();
+    publishLines();   // publish the empty state at once
+    emit changed();
+    return removed;
 }
 
 void Lyrics::clear()
@@ -3878,6 +4525,22 @@ void Lyrics::setKaraoke(bool on)
     emit changed();
 }
 
+void Lyrics::setPublishedMeta(const QString &title, const QString &artist,
+                             const QString &videoId)
+{
+    m_publishedTitle = title;
+    m_publishedArtist = artist;
+    m_publishedVideoId = videoId;
+}
+
+void Lyrics::setPublishedArt(const QString &url)
+{
+    if (m_publishedArt == url)
+        return;
+    m_publishedArt = url;
+    publishTrack();
+}
+
 // New track (or a fetch() retry): the widget knows right away what is
 // playing and that the lyrics are on the way, so it does not ask twice
 // for the same thing.
@@ -3896,6 +4559,7 @@ void Lyrics::publishTrack()
     obj.insert(QStringLiteral("title"), m_title);
     obj.insert(QStringLiteral("artist"), m_artist);
     obj.insert(QStringLiteral("videoId"), m_videoId);
+    obj.insert(QStringLiteral("art"), m_publishedArt);
     obj.insert(QStringLiteral("duration"), m_duration);
     obj.insert(QStringLiteral("karaoke"), m_karaoke);
     obj.insert(QStringLiteral("offset"), m_offset);
@@ -3956,6 +4620,7 @@ void Lyrics::publishLines()
     obj.insert(QStringLiteral("title"), m_title);
     obj.insert(QStringLiteral("artist"), m_artist);
     obj.insert(QStringLiteral("videoId"), m_videoId);
+    obj.insert(QStringLiteral("art"), m_publishedArt);
     obj.insert(QStringLiteral("duration"), m_duration);
     obj.insert(QStringLiteral("karaoke"), m_karaoke);
     obj.insert(QStringLiteral("offset"), m_offset);
@@ -3987,6 +4652,10 @@ void Lyrics::publishRuntime()
     QJsonObject obj;
     obj.insert(QStringLiteral("v"), 1);
     obj.insert(QStringLiteral("trackKey"), m_trackKey);
+    obj.insert(QStringLiteral("title"), m_title);
+    obj.insert(QStringLiteral("artist"), m_artist);
+    obj.insert(QStringLiteral("videoId"), m_videoId);
+    obj.insert(QStringLiteral("art"), m_publishedArt);
     obj.insert(QStringLiteral("pos"), pos);
     obj.insert(QStringLiteral("playing"), playing);
     obj.insert(QStringLiteral("offset"), m_offset);
@@ -4005,6 +4674,10 @@ void Lyrics::removePublished()
     obj.insert(QStringLiteral("v"), 1);
     obj.insert(QStringLiteral("app"), QStringLiteral("lotus-tune"));
     obj.insert(QStringLiteral("trackKey"), QString());
+    obj.insert(QStringLiteral("title"), QString());
+    obj.insert(QStringLiteral("artist"), QString());
+    obj.insert(QStringLiteral("videoId"), QString());
+    obj.insert(QStringLiteral("art"), QString());
     obj.insert(QStringLiteral("status"), QStringLiteral("none"));
     obj.insert(QStringLiteral("lines"), QJsonArray());
     obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
@@ -4013,6 +4686,10 @@ void Lyrics::removePublished()
     QJsonObject rt;
     rt.insert(QStringLiteral("v"), 1);
     rt.insert(QStringLiteral("trackKey"), QString());
+    rt.insert(QStringLiteral("title"), QString());
+    rt.insert(QStringLiteral("artist"), QString());
+    rt.insert(QStringLiteral("videoId"), QString());
+    rt.insert(QStringLiteral("art"), QString());
     rt.insert(QStringLiteral("pos"), 0.0);
     rt.insert(QStringLiteral("playing"), false);
     rt.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());

@@ -54,3 +54,6 @@ keystore.properties
 
 # Old local artefacts kept outside the repository
 /archive/
+
+# Inventario local de trabajo, no publicar
+CHANGES-LOCAL.md

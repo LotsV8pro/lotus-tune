@@ -126,10 +126,19 @@ Item {
                 maximumLineCount: 1
             }
 
-            // The heart, next to the title (as in the reference).
+            // The heart, next to the title (as in the reference). Fixed
+            // footprint so it never jumps when the like state changes.
             Item {
+                id: likeBox
                 Layout.preferredWidth: 24
                 Layout.preferredHeight: 24
+                property real pop: 1
+                scale: likeMa.pressed ? 0.9 : pop
+                SequentialAnimation {
+                    id: likePop
+                    NumberAnimation { target: likeBox; property: "pop"; to: 1.6; duration: Theme.animMs(90) }
+                    NumberAnimation { target: likeBox; property: "pop"; to: 1; duration: Theme.animMs(220); easing.type: Easing.OutBack }
+                }
                 Glyph {
                     anchors.centerIn: parent
                     width: 19; height: 19
@@ -139,10 +148,12 @@ Item {
                     Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                 }
                 MouseArea {
+                    id: likeMa
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
+                        likePop.restart()
                         if (typeof sfx !== "undefined")
                             sfx.play("like")
                         cl.likeRequested()

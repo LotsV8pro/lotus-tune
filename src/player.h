@@ -31,9 +31,15 @@ class Player : public QObject
     Q_PROPERTY(double position READ position NOTIFY positionChanged)
     Q_PROPERTY(double duration READ duration NOTIFY stateChanged)
     Q_PROPERTY(int volume READ volume NOTIFY volumeChanged)
+    // Perfil de reproduccion: "normal" | "bass" | "vocal" | "rock".
+    // En escritorio ajusta el ecualizador de mpv (filtro af); en Android,
+    // donde QMediaPlayer no expone filtros, solo modifica el volumen.
+    Q_PROPERTY(QString audioProfile READ audioProfile NOTIFY audioProfileChanged)
     Q_PROPERTY(QString engineStatus READ engineStatus NOTIFY stateChanged)
     // Chosen audio quality: "max" | "alta" | "media" | "baja".
     Q_PROPERTY(QString quality READ quality NOTIFY qualityChanged)
+    // Bitrate of the chosen audio itag, for example "131 kbps".
+    Q_PROPERTY(QString audioInfo READ audioInfo NOTIFY changed)
     // Is there (or is there loading) a file in mpv? QML needs it to know
     // whether "play" should start the track restored from the session (not
     // loaded yet) or just toggle the pause of what is already playing.
@@ -57,8 +63,10 @@ public:
     double position() const { return m_position; }
     double duration() const { return m_duration; }
     int volume() const { return m_volume; }
+    QString audioProfile() const { return m_audioProfile; }
     QString engineStatus() const { return m_status; }
     QString quality() const { return m_quality; }
+    QString audioInfo() const { return m_audioInfo; }
     // Is there (or is there loading) a file in mpv? It is needed because
     // mpv when idle reports pause=false: without this data a phantom
     // "Playing" would be published on MPRIS as soon as the app starts.
@@ -78,6 +86,8 @@ public:
     Q_INVOKABLE void stopPlayback();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void setVolume(int v);
+    // Perfil de ecualizacion. Valores: "normal" | "bass" | "vocal" | "rock".
+    Q_INVOKABLE void setAudioProfile(const QString &p);
     // Changes mpv's --ytdl-format selector on the fly (through IPC).
     Q_INVOKABLE void setQuality(const QString &q);
     // State of the home screen widget and of the notification.
@@ -128,9 +138,11 @@ public:
     static QString normalizeUrl(const QString &url);
 
 signals:
+    void changed();
     void stateChanged();
     void positionChanged();
     void volumeChanged();
+    void audioProfileChanged();
     void qualityChanged();
     // A seek applied by the engine (both the ones the app makes and the
      // ones coming through MPRIS), with the final position in seconds.
@@ -362,6 +374,7 @@ private:
     QString m_currentUrl;
     QString m_status = QStringLiteral("starting");
     QString m_quality = QStringLiteral("max");  // "max"|"alta"|"media"|"baja"
+    QString m_audioInfo;
     bool m_ready = false;
     bool m_playing = false;
     // True from the moment load() hands a file to mpv until it finishes
@@ -381,6 +394,8 @@ private:
     qint64 m_mediaDurMs = 0;   // duration read from the file (mvhd/EBML)
     double m_hintDur = 0.0;    // duration known by the interface
     int m_volume = 70;
+    // Perfil de audio elegido (ver setAudioProfile). Se guarda en QSettings.
+    QString m_audioProfile = QStringLiteral("normal");
     qint64 m_lastPosEmit = 0;
 
     // Android player watchdog: if it says it is playing but the position

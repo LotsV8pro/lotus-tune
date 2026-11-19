@@ -40,8 +40,28 @@ Item {
     signal openImportRequested()
     // Result of a Spotify playlist import, shown as a toast by Main.
     signal importNotification(string message)
+    // Open the page of an artist from the Artists grid. Main has no handler
+    // wired here, so this page resolves root.openArtistByName() itself.
+    signal artistRequested(string name)
+    function openArtistByName(name) {
+        const n = String(name || "").trim()
+        if (n === "") return
+        let o = page.parent
+        while (o) {
+            if (typeof o.openArtistByName === "function") {
+                o.openArtistByName(n)
+                return
+            }
+            o = o.parent
+        }
+    }
 
+    // Interfaz compacta global: espaciados un 10% menores.
+    property bool compact: false
     property bool showingTracks: false
+    // History view: list of `catalog.recent` opened from the
+    // "Escuchadas recientemente" card.
+    property bool historyOpen: false
     // Discography batch being queued (from Main): when several albums are
     // being prepared, Downloads shows them as ONE "Discography of X" group
     // instead of a flat list of loose album jobs.
@@ -104,11 +124,66 @@ Item {
     }
 
     function openTracks() { showingTracks = true; openDownloadFolder = "" }
-    function showPlaylists() { showingTracks = false; openDownloadFolder = "" }
+    function showPlaylists() { showingTracks = false; historyOpen = false; openDownloadFolder = "" }
+
+    // "SUENA AHORA": fila activa en las listas (biblioteca e historial).
+    // LibraryPage no ve el `root` de Main.qml: usa el reproductor global.
+    function isNowPlaying(t) {
+        if (!t) return false
+        const cur = String(player.currentUrl || "")
+        if (!cur) return false
+        if (String(t.url || "") === cur) return true
+        const cv = catalog.videoIdOf(cur)
+        const tv = catalog.videoIdOf(String(t.url || ""))
+        return cv !== "" && cv === tv
+    }
+
+    // Icono de nota en pausa; tres barras que suben y bajan al reproducir.
+    Component {
+        id: nowPlayingIndicator
+        Item {
+            width: 16
+            height: 16
+            Glyph {
+                anchors.centerIn: parent
+                width: 14; height: 14
+                kind: "music"
+                color: Theme.accentOn(Sys.accent, Sys.bg)
+                visible: !player.playing
+            }
+            Row {
+                anchors.centerIn: parent
+                spacing: 2
+                visible: player.playing
+                Repeater {
+                    model: 3
+                    delegate: Rectangle {
+                        width: 2
+                        height: 5
+                        radius: 1
+                        color: Theme.accentOn(Sys.accent, Sys.bg)
+                        SequentialAnimation on height {
+                            running: player.playing
+                            loops: Animation.Infinite
+                            PauseAnimation { duration: index * 140 }
+                            NumberAnimation { to: 14; duration: 380 }
+                            NumberAnimation { to: 5; duration: 380 }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Active tab of the library (0 Songs . 1 Artists . 2 Albums .
-    // 3 Playlists . 4 Downloaded). Purely visual state of the page.
+    // 3 Playlists . 4 Downloaded . 5 Géneros). Purely visual state of the page.
     property int libraryTab: 0
+    // Géneros: pista local seleccionada al pulsar una tarjeta. "" = ninguno.
+    property string selectedGenre: ""
+    // Al pulsar un género se abre la vista de pistas locales filtrada.
+    property bool genreTracksOpen: false
+    // El modelo local no trae campo `genre`: se avisa y se muestran todas.
+    property bool genreMissingField: false
     // The Library no longer filters by source: it shows EVERYTHING together
     // (the YouTube Music library + all the saved playlists). The local
     // downloads go apart, in the "Downloaded" tab.
@@ -125,7 +200,8 @@ Item {
             const y = yl[i]
             out.push({ name: y.name || "", url: y.url || "", thumb: y.thumb || "",
                        count: y.count || 0, savedIndex: -1, source: "ytm",
-                       id: y.id || "", owned: y.owned === true })
+                       id: y.id || "", owned: y.owned === true,
+                       _date: y.updated || y.lastPlayed || y.lastUsed })
         }
         const l = catalog.playlists
         for (var j = 0; j < l.length; j++) {
@@ -134,16 +210,195 @@ Item {
             for (var k = 0; k < out.length; k++) {
                 if (s.url && out[k].url === s.url) { dup = true; break }
             }
-            if (!dup)
+            if (!dup) {
+                const plId = String(s.id || "")
                 out.push({ name: s.name || "", url: s.url || "", thumb: s.thumb || "",
-                           count: s.count || 0, savedIndex: j, source: s.source || "" })
+                           count: s.count || 0, savedIndex: j, source: s.source || "",
+                           id: plId, _date: s.updated || s.lastPlayed || s.lastUsed ||
+                                             s.last_listen || s.lastListen })
+            }
+        }
+        // Last listen first. A saved date wins; otherwise the position in
+        // `catalog.recent` acts as the date (that list is newest first).
+        // Ties keep the current order. The "recent" card stays last.
+        const recentForSort = catalog.recent || []
+        const stamp = v => {
+            if (v === undefined || v === null || v === "") return 0
+            if (typeof v === "number") return v > 1e12 ? v : v * 1000
+            const n = Number(v)
+            if (isFinite(n) && v !== true) return n > 1e12 ? n : n * 1000
+            const d = Date.parse(v)
+            return isNaN(d) ? 0 : d
+        }
+        const listId = c => {
+            const id = String(c.id || "")
+            if (id) return id
+            const m = /[?&]list=([^&#]+)/.exec(String(c.url || ""))
+            return m ? m[1] : ""
+        }
+        const when = c => {
+            const dated = stamp(c._date)
+            if (dated) return dated
+            const id = listId(c)
+            if (!id) return 0
+            for (let r = 0; r < recentForSort.length; r++) {
+                const t = recentForSort[r] || {}
+                const refs = [t.setId, t.playlistId, t.listId, t.list,
+                              t.playlistUrl, t.parentId, t.sourceList]
+                const url = String(t.url || "")
+                if (refs.some(x => String(x || "") === id) ||
+                    url.indexOf("list=" + id) >= 0)
+                    return (recentForSort.length - r) * 1000
+            }
+            return 0
+        }
+        for (let n = 0; n < out.length; n++) out[n]._order = n
+        out.sort((a, b) => {
+            const da = when(a), db = when(b)
+            if (da !== db) return db - da
+            return a._order - b._order
+        })
+        // Smart collection: recently played. `catalog.recent` carries no
+        // date, so it is already newest first; show up to 20 in that order.
+        const recent = catalog.recent || []
+        if (recent.length > 0) {
+            const first = recent[0]
+            out.push({ name: qsTr("Escuchadas recientemente"),
+                       url: "", thumb: first.thumb || "",
+                       count: Math.min(recent.length, 20),
+                       savedIndex: -1, source: "", kind: "recent" })
         }
         return out
     }
     readonly property var covers: coversFor()
 
+    // ---- Artists view -----------------------------------------------------
+    // Counts tracks per artist across saved playlists, the history and the
+    // downloaded folders. A track appearing in more than one list is counted
+    // once (same url + title), so the badge is the number of songs, not of
+    // appearances.
+    readonly property var artists: {
+        const groups = {}
+        const seen = []
+        const add = function (t) {
+            if (!t) return
+            const name = String(t.artist || "").trim()
+            if (name === "" || /^[\d.,]+\s*[kmb]?\s*(reproducciones|plays?)/i.test(name))
+                return
+            const key = String(t.url || "") + "|" + String(t.title || "")
+            if (seen.indexOf(key) >= 0) return
+            seen.push(key)
+            const k = name.toLowerCase()
+            if (!groups[k])
+                groups[k] = { name: name, count: 0, thumb: "" }
+            groups[k].count++
+            if (!groups[k].thumb && t.thumb) groups[k].thumb = String(t.thumb)
+        }
+        const pls = catalog.playlists || []
+        for (let i = 0; i < pls.length; ++i) {
+            const tr = pls[i].tracks || []
+            for (let j = 0; j < tr.length; ++j) add(tr[j])
+        }
+        const rec = catalog.recent || []
+        for (let i = 0; i < rec.length; ++i) add(rec[i])
+        const fs = page.dlFolders || []
+        const loc = page.dlLocalAll || []
+        for (let i = 0; i < fs.length; ++i) {
+            const folder = String(fs[i].folder || "")
+            for (let j = 0; j < loc.length; ++j)
+                if (folder && String(loc[j].folder || "") === folder) add(loc[j])
+        }
+        const out = []
+        for (const k in groups) {
+            const g = groups[k]
+            const art = typeof catalog.artistThumb === "function"
+                        ? catalog.artistThumb(g.name) : ""
+            if (art) g.thumb = String(art)
+            out.push(g)
+        }
+        out.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name) })
+        return out
+    }
+
+    // ---- Géneros view -----------------------------------------------------
+    // Group the LOCAL tracks (downloads) by `genre`, case-insensitive.
+    // `hasField` records whether any track carried the field, so the view can
+    // say "no había género" when it has to show the unfiltered list.
+    readonly property var genres: {
+        const groups = {}
+        const seen = []
+        const loc = page.dlLocalAll || []
+        let hasField = false
+        for (let i = 0; i < loc.length; ++i) {
+            const t = loc[i]
+            if (!t) continue
+            if (String(t.genre || "").trim() !== "") hasField = true
+            const key = String(t.url || "") + "|" + String(t.title || "")
+            if (seen.indexOf(key) >= 0) continue
+            seen.push(key)
+            const name = String(t.genre || "").trim()
+            if (name === "") continue
+            const k = name.toLowerCase()
+            if (!groups[k]) groups[k] = { name: name, count: 0, thumb: "" }
+            groups[k].count++
+            if (!groups[k].thumb && t.thumb) groups[k].thumb = String(t.thumb)
+        }
+        const out = []
+        for (const k in groups) out.push(groups[k])
+        out.sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name) })
+        page.genreHasField = hasField
+        return out
+    }
+    property bool genreHasField: true
+
+    // Open the local tracks of a genre (or the unfiltered list if no track
+    // carries the field). Those tracks are shown in the normal track view.
+    readonly property var genreTracks: {
+        if (!page.genreTracksOpen) return []
+        const all = page.dlLocalAll || []
+        if (!page.genreHasField || page.selectedGenre === "") return all.slice()
+        const want = page.selectedGenre.toLowerCase()
+        return all.filter(function (t) {
+            return String((t && t.genre) || "").trim().toLowerCase() === want
+        })
+    }
+    function openGenre(name) {
+        page.selectedGenre = String(name || "")
+        page.genreMissingField = !page.genreHasField || page.selectedGenre === ""
+        page.genreTracksOpen = true
+        page.showingTracks = true
+        page.historyOpen = false
+        page.openDownloadFolder = ""
+        page.listFilter = ""
+        if (typeof page.listSortMode !== "undefined") page.listSortMode = 0
+    }
+
     // ---- library bar: search / create list -------------------------------
     property string libFilter: ""
+    // Source filter of the covers grid: "" (all), "ytm", "soundcloud" or
+    // "download" (downloaded folders). Persisted in appcfg.
+    property string sourceFilter: ""
+
+    function cfgGet(k) {
+        if (typeof appcfg === "undefined") return ""
+        return String(appcfg.get(k) || "")
+    }
+    function cfgSet(k, v) {
+        if (typeof appcfg === "undefined") return
+        appcfg.set(k, String(v))
+        appcfg.save()
+    }
+    function setSourceFilter(s) {
+        sourceFilter = String(s || "")
+        cfgSet("librarySourceFilter", sourceFilter)
+    }
+    Component.onCompleted: {
+        const saved = page.cfgGet("librarySourceFilter")
+        if (saved === "ytm" || saved === "soundcloud" || saved === "download")
+            sourceFilter = saved
+        page.artistRequested.connect(page.openArtistByName)
+    }
+
     property bool addListOpen: false
     // Phone: the filter field takes the full width in its own row and only
     // appears when the magnifier is pressed (in the tab row it did not
@@ -152,23 +407,57 @@ Item {
 
     // Covers filtered by the "Search in the library" box (name or URL).
     // The filter is local: it asks the network for nothing.
+    // Global track search: local, no network. Searches the history (the
+    // tracks kept in memory) plus the open list. Results are shown above
+    // the covers grid when the box has two or more characters.
+    // Searches EVERY saved list plus the history through the C++ helper,
+    // so a song inside any playlist is found without opening it first.
+    readonly property var globalTrackResults: {
+        const q = String(page.libFilter || "").trim()
+        if (q.length < 2 || typeof catalog.searchLibraryTracks !== "function")
+            return []
+        return catalog.searchLibraryTracks(q)
+    }
+
+    // Downloaded folders shown as covers when the "Descargas" chip is on.
+    readonly property var downloadCovers: {
+        const out = []
+        const fs = page.dlFolders || []
+        for (let i = 0; i < fs.length; ++i) {
+            const f = fs[i]
+            out.push({ name: String(f.name || ""), url: String(f.url || ""),
+                       thumb: String(f.thumb || f.thumbFallback || ""),
+                       count: Number(f.count || 0), folder: String(f.folder || ""),
+                       kind: "download", source: "download" })
+        }
+        return out
+    }
+
     readonly property var filteredCovers: {
-        const src = page.covers
+        const f = page.sourceFilter
+        const src = f === "download" ? page.downloadCovers : page.covers
         const q = String(page.libFilter || "").trim().toLowerCase()
-        if (q === "")
-            return src
         const out = []
         for (let i = 0; i < (src ? src.length : 0); ++i) {
             const c = src[i]
-            const hay = (String(c.name || "") + " " + String(c.url || "")).toLowerCase()
-            if (hay.indexOf(q) >= 0)
-                out.push(c)
+            // "Escuchadas recientemente" has no source: only "Todo" shows it.
+            if (f === "ytm" && c.source !== "ytm") continue
+            if (f === "soundcloud" && c.source !== "soundcloud") continue
+            if (q !== "") {
+                const hay = (String(c.name || "") + " " + String(c.url || "")).toLowerCase()
+                if (hay.indexOf(q) < 0) continue
+            }
+            out.push(c)
         }
         return out
     }
 
     function openCover(c) {
         if (!c) return
+        if (c.kind === "download") {
+            page.openDownloadPlaylist(c.folder || "")
+            return
+        }
         if (c.savedIndex !== undefined && c.savedIndex >= 0)
             catalog.openPlaylist(c.savedIndex)
         else
@@ -354,6 +643,10 @@ Item {
     function gridTileW(w) {
         return Math.max(1, gridCellW(w) - coverGap)
     }
+    // Height of the downloaded-lists grid (one row of cells).
+    function dlListsGridHeight(w) {
+        return gridTileW(w) + 56
+    }
 
     // ---- downloads (the `downloads` backend; it may not exist yet) -------
     readonly property var dlJobs: (typeof downloads !== "undefined") ? downloads.jobs : []
@@ -421,6 +714,11 @@ Item {
             .arg(fmtStorageBytes(downloads.usedBytes))
             .arg(fmtStorageBytes(downloads.freeBytes))
     }
+    // Human-readable size of one downloaded folder (its audio files).
+    function dlFolderSize(folder) {
+        if (typeof downloads === "undefined" || !folder) return ""
+        return fmtStorageBytes(downloads.listSize(folder))
+    }
     // Portion of the bar taken by the downloaded files (clamped 0..1).
     readonly property real storageRatio: {
         if (typeof downloads === "undefined") return 0
@@ -486,11 +784,31 @@ Item {
         page.showingTracks = true
     }
 
+    // Orden de la vista de pistas: 0=original, 1=título, 2=artista, 3=duración.
+    property int listSortMode: 0
+
     // ---- source of the tracks view (catalogue or downloaded list) --------
     function viewTracks() {
-        return page.localPlaylistOpen ? page.openDownloadTracks : catalog.tracks
+        if (page.genreTracksOpen)
+            return page.genreTracks
+        const src = page.localPlaylistOpen ? page.openDownloadTracks : catalog.tracks
+        if (page.listSortMode === 0 || !src)
+            return src
+        const arr = src.slice()
+        const mode = page.listSortMode
+        arr.sort(function (a, b) {
+            if (mode === 3)
+                return Number(a.duration || 0) - Number(b.duration || 0)
+            const key = mode === 2 ? "artist" : "title"
+            return String(a[key] || "").localeCompare(String(b[key] || ""))
+        })
+        return arr
     }
     function viewTitle() {
+        if (page.genreTracksOpen)
+            return page.genreMissingField
+                   ? qsTr("Pistas locales (sin género)")
+                   : qsTr("Género: %1").arg(page.selectedGenre)
         return page.localPlaylistOpen
                ? (page.openDownloadInfo ? String(page.openDownloadInfo.name || "") : "")
                : String(catalog.tracksTitle || "")
@@ -501,6 +819,8 @@ Item {
                : page.currentCover()
     }
     function viewMeta() {
+        if (page.genreTracksOpen)
+            return qsTr("%n pistas locales", "", page.genreTracks.length)
         if (!page.localPlaylistOpen)
             return page.tracksMeta()
         const n = page.openDownloadTracks.length
@@ -511,7 +831,7 @@ Item {
     // Author of the list: the one of the first track (the header of the
     // reference shows it under the title, at 18 px).
     function viewArtistText() {
-        if (page.localPlaylistOpen)
+        if (page.genreTracksOpen || page.localPlaylistOpen)
             return ""
         // A radio has no author of its own: the one of its first track is not it.
         if (page.viewIsRadio)
@@ -1100,6 +1420,46 @@ Item {
             // card).
             Layout.margins: Theme.s3
 
+            // Back from the Géneros filtered track view.
+            RowLayout {
+                Layout.fillWidth: true
+                visible: page.genreTracksOpen
+                Rectangle {
+                    Layout.preferredWidth: Theme.touch ? 40 : 32
+                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: gBackMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 18; height: 18
+                        kind: "back"
+                        color: Sys.text
+                    }
+                    MouseArea {
+                        id: gBackMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            page.genreTracksOpen = false
+                            page.selectedGenre = ""
+                            page.genreMissingField = false
+                            page.showingTracks = false
+                        }
+                    }
+                }
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.genreMissingField
+                    text: qsTr("Las pistas no tenían campo `genre`: se muestran todas sin filtrar.")
+                    color: Theme.accentOn(Sys.accent, Sys.bg)
+                    font.pixelSize: Theme.tSm
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                }
+            }
+
             // ---- list header (reference: Liner) -------------------------
             // Cover 168, title 30 bold, author 18 and the data pills. Under them, the
             // row of actions: Play all + shuffle on the left; search, add, download
@@ -1431,18 +1791,21 @@ Item {
                 }
             }
             // ---- second row (phone only): search + add to queue ---
-            // They do not fit in the row above (the search box alone takes
-            // 220 dp out of the 372 usable).
-            RowLayout {
+            // A Flow wraps to a new line when the controls do not fit, so
+            // on a phone the search, sort chip and queue button never
+            // overlap each other.
+            Flow {
                 Layout.fillWidth: true
                 spacing: 8
-                visible: Theme.touch
+                // Search inside the open list. It used to be phone-only,
+                // so on the desktop there was no way to filter a list.
+                visible: true
                 // Search in the list: 220 x 32, radius 9 and a faint background.
                 Rectangle {
-                    // On the phone it takes all the width left over.
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 220
-                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    // Fixed width so the Flow can wrap it with the other
+                    // controls on a narrow phone screen.
+                    width: Theme.touch ? 200 : 220
+                    height: Theme.touch ? 40 : 32
                     radius: Theme.rPill
                     antialiasing: true
                     color: Theme.alpha(Sys.text, listSearchInput.activeFocus ? 0.14 : 0.10)
@@ -1481,11 +1844,102 @@ Item {
                     }
                 }
 
-                Item { Layout.preferredWidth: 4 }
+                // Ordenar la lista: chip pequeño con menú desplegable.
+                Rectangle {
+                    id: sortChip
+                    height: Theme.touch ? 40 : 32
+                    implicitWidth: sortRow.implicitWidth + 20
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: sortMa.containsMouse || sortPanel.visible
+                           ? Theme.alpha(Sys.text, 0.16) : Theme.alpha(Sys.text, 0.10)
+                    Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                    RowLayout {
+                        id: sortRow
+                        anchors.centerIn: parent
+                        spacing: 6
+                        Glyph {
+                            width: 14; height: 14
+                            kind: "arrow-down"
+                            color: Sys.text
+                        }
+                        Text {
+                            text: [qsTr("Original"), qsTr("Título"),
+                                   qsTr("Artista"), qsTr("Duración")][page.listSortMode]
+                            color: Sys.text
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                        }
+                    }
+                    MouseArea {
+                        id: sortMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            sortPanel.visible = !sortPanel.visible
+                        }
+                    }
+
+                    readonly property bool opened: sortPanel.visible
+                    Rectangle {
+                        id: sortPanel
+                        visible: false
+                        z: 10
+                        y: sortChip.height + 4
+                        width: Math.max(150, sortChip.width)
+                        height: sortCol.implicitHeight
+                        radius: Theme.rMd
+                        antialiasing: true
+                        color: Sys.surface
+                        border.width: 1
+                        border.color: Theme.alpha(Sys.text, 0.18)
+                        ColumnLayout {
+                            id: sortCol
+                            anchors.fill: parent
+                            spacing: 0
+                            Repeater {
+                                model: [qsTr("Original"), qsTr("Título"),
+                                        qsTr("Artista"), qsTr("Duración")]
+                                delegate: Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: 34
+                                    radius: sma.containsMouse ? Theme.rMd : 0
+                                    color: sma.containsMouse
+                                           ? Theme.hover(Sys.bg) : "transparent"
+                                    Text {
+                                        anchors.left: parent.left
+                                        anchors.leftMargin: 12
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: page.listSortMode === index ? "✓  " + modelData
+                                                                          : "     " + modelData
+                                        color: page.listSortMode === index
+                                               ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
+                                        font.pixelSize: 14
+                                    }
+                                    MouseArea {
+                                        id: sma
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            if (typeof sfx !== "undefined") sfx.play("tap")
+                                            page.listSortMode = index
+                                            sortPanel.visible = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Item { width: 4; height: 1 }
 
                 // Add to queue
                 Rectangle {
-                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    height: Theme.touch ? 40 : 32
                     implicitWidth: qlRow.implicitWidth + 44
                     radius: Theme.rPill
                     antialiasing: true
@@ -1532,7 +1986,7 @@ Item {
                 Layout.fillHeight: true
                 clip: true
                 model: page.listRows
-                reuseItems: true
+          reuseItems: true
                 cacheBuffer: 800
                 spacing: 0
                 // Room at the end so the last row comes out from under the
@@ -1595,6 +2049,9 @@ Item {
                         antialiasing: true
                         color: trowMouse.containsMouse ? Theme.hover(Sys.bg) : "transparent"
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        // Slight hover lift on desktop only.
+                        x: !Theme.touch && trowMouse.containsMouse ? 3 : 0
+                        Behavior on x { NumberAnimation { duration: Theme.fastMs } }
                     }
 
                     MouseArea {
@@ -1651,18 +2108,28 @@ Item {
 
                         // Track number (position in the list, not in the filter):
                         // as in the reference.
-                        Text {
+                        Item {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredWidth: 24
-                            // Number in two digits ("01"), as in the reference.
-                            text: {
-                                const n = (trow.modelData && trow.modelData._listIndex !== undefined)
-                                          ? (trow.modelData._listIndex + 1) : (trow.index + 1)
-                                return n < 10 ? "0" + n : String(n)
+                            Layout.preferredHeight: 16
+                            Text {
+                                anchors.centerIn: parent
+                                visible: !page.isNowPlaying(modelData)
+                                // Number in two digits ("01"), as in the reference.
+                                text: {
+                                    const n = (trow.modelData && trow.modelData._listIndex !== undefined)
+                                              ? (trow.modelData._listIndex + 1) : (trow.index + 1)
+                                    return n < 10 ? "0" + n : String(n)
+                                }
+                                color: Theme.tFaint(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tMd
+                                horizontalAlignment: Text.AlignRight
                             }
-                            color: Theme.tFaint(Sys.bg, Sys.text)
-                            font.pixelSize: Theme.tMd
-                            horizontalAlignment: Text.AlignRight
+                            Loader {
+                                anchors.centerIn: parent
+                                visible: page.isNowPlaying(modelData)
+                                sourceComponent: nowPlayingIndicator
+                            }
                         }
 
                         ColumnLayout {
@@ -1671,14 +2138,24 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 text: modelData.title || ""
-                                color: Sys.text
+                                color: page.isNowPlaying(modelData)
+                                       ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
                                 font.pixelSize: Theme.tLg
                                 elide: Text.ElideRight
                                 maximumLineCount: 1
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: modelData.artist || ""
+                                // Downloaded rows: format and size under the
+                                // title, next to the artist (no extra line).
+                                text: {
+                                    const a = String(modelData.artist || "")
+                                    const q = trow.isLocal
+                                              ? String(modelData.qualityText || "") : ""
+                                    if (!a) return q
+                                    if (!q) return a
+                                    return a + " · " + q
+                                }
                                 color: Theme.tDim(Sys.bg, Sys.text)
                                 font.pixelSize: Theme.tMd
                                 elide: Text.ElideRight
@@ -1729,6 +2206,38 @@ Item {
                             font.pixelSize: Theme.tMd
                         }
 
+                        // Rename a finished download on disk (Spotify imports
+                        // often arrive with the wrong title/artist). Inline
+                        // field, shown only for local files.
+                        Rectangle {
+                            Layout.alignment: Qt.AlignVCenter
+                            Layout.preferredWidth: 22
+                            Layout.preferredHeight: 22
+                            radius: Theme.rXl
+                            visible: trow.isLocal
+                                     && typeof downloads !== "undefined"
+                            color: renMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                            Text {
+                                anchors.centerIn: parent
+                                text: "✎"
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tLg
+                            }
+                            MouseArea {
+                                id: renMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    if (typeof sfx !== "undefined") sfx.play("tap")
+                                    renameField.text = modelData.title || ""
+                                    renameBox.visible = true
+                                    renameField.forceActiveFocus()
+                                    renameField.selectAll()
+                                }
+                            }
+                        }
+
                         // Menu of the track (⋮), with the mouse too: on a phone
                         // there is no right click.
                         Rectangle {
@@ -1759,6 +2268,61 @@ Item {
                             }
    }
                     }
+
+                    // Inline rename editor for downloaded files.
+                    Rectangle {
+                        id: renameBox
+                        anchors.fill: parent
+                        anchors.margins: Theme.s1
+                        visible: false
+                        z: 5
+                        radius: Theme.rMd
+                        color: Theme.sAlt(Sys.bg, Sys.text)
+                        border.width: 1
+                        border.color: Theme.alpha(Sys.accent, 0.55)
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: Theme.s2
+                            spacing: Theme.s2
+                            TextInput {
+                                id: renameField
+                                Layout.fillWidth: true
+                                color: Sys.text
+                                font.pixelSize: Theme.tMd
+                                selectByMouse: true
+                                onAccepted: applyRename()
+                                Keys.onEscapePressed: renameBox.visible = false
+                            }
+                            Text {
+                                text: qsTr("Aceptar")
+                                color: Theme.accentOn(Sys.accent, Sys.bg)
+                                font.pixelSize: Theme.tMd
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: applyRename()
+                                }
+                            }
+                            Text {
+                                text: qsTr("Cancelar")
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tMd
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: renameBox.visible = false
+                                }
+                            }
+                        }
+                        function applyRename() {
+                            const u = modelData.url || ""
+                            const path = u.indexOf("file://") === 0
+                                ? decodeURIComponent(u.substring(7)) : ""
+                            if (path && typeof downloads !== "undefined")
+                                downloads.renameDownload(path, renameField.text)
+                            renameBox.visible = false
+                        }
+                    }
                 }
 
             // Empty list because of the filter: say so instead of leaving it
@@ -1780,11 +2344,246 @@ Item {
             }
         }
 
+        // ---- history: recently played (`catalog.recent`) ------------------
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: page.historyOpen
+            spacing: Theme.panelGap
+            Layout.margins: Theme.s3
+
+            // Header: back, title and the two actions.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: Theme.s2
+
+                Rectangle {
+                    Layout.preferredWidth: Theme.touch ? 40 : 32
+                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: backMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
+                    Glyph {
+                        anchors.centerIn: parent
+                        width: 18; height: 18
+                        kind: "back"
+                        color: Sys.text
+                    }
+                    MouseArea {
+                        id: backMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            page.historyOpen = false
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Escuchadas recientemente")
+                    color: Sys.text
+                    font.pixelSize: Theme.tXl
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                }
+
+                // Play everything in `catalog.recent`, newest first.
+                Rectangle {
+                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    implicitWidth: playHistRow.implicitWidth + 32
+                    radius: Theme.rPill
+                    antialiasing: true
+                    readonly property color pill: Theme.alpha(Sys.text, 0.92)
+                    color: playHistMa.containsMouse ? Qt.darker(pill, 1.06) : pill
+                    scale: playHistMa.pressed ? 0.97 : 1
+                    Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                    RowLayout {
+                        id: playHistRow
+                        anchors.centerIn: parent
+                        spacing: 7
+                        Glyph { width: 16; height: 16; kind: "play"; color: Sys.bg }
+                        Text {
+                            text: qsTr("Reproducir todo")
+                            color: Sys.bg
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                        }
+                    }
+                    MouseArea {
+                        id: playHistMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("play")
+                            page.playRequested(catalog.recent, 0)
+                        }
+                    }
+                }
+
+                // Clear the history and close the view.
+                Rectangle {
+                    Layout.preferredHeight: Theme.touch ? 40 : 32
+                    implicitWidth: clearHistRow.implicitWidth + 32
+                    radius: Theme.rPill
+                    antialiasing: true
+                    color: clearHistMa.containsMouse ? Theme.alpha(Sys.text, 0.16) : "transparent"
+                    RowLayout {
+                        id: clearHistRow
+                        anchors.centerIn: parent
+                        spacing: 7
+                        Glyph {
+                            width: 16; height: 16; kind: "trash"
+                            color: clearHistMa.containsMouse ? Sys.danger : Sys.text
+                        }
+                        Text {
+                            text: qsTr("Limpiar historial")
+                            color: clearHistMa.containsMouse ? Sys.danger : Sys.text
+                            font.pixelSize: 14
+                            font.weight: Font.Medium
+                        }
+                    }
+                    MouseArea {
+                        id: clearHistMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            catalog.clearRecent()
+                            page.historyOpen = false
+                        }
+                    }
+                }
+            }
+
+            // Same rows as the normal tracks view: title, artist, duration.
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: catalog.recent || []
+          reuseItems: true
+                cacheBuffer: 800
+                boundsBehavior: Flickable.StopAtBounds
+                bottomMargin: Theme.s6
+
+                delegate: Item {
+                    id: histDelegate
+                    required property int index
+                    required property var modelData
+                    width: ListView.view.width
+                    height: Theme.rowH
+
+                    // Short fade-in when the history view opens.
+                    opacity: 1
+                    NumberAnimation {
+                        id: histFade
+                        target: histDelegate
+                        property: "opacity"
+                        from: 0
+                        to: 1
+                        duration: Theme.fastMs
+                    }
+                    Component.onCompleted: histFade.restart()
+                    Connections {
+                        target: page
+                        function onHistoryOpenChanged(open) {
+                            if (open) histFade.restart()
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.rMd
+                        antialiasing: true
+                        color: histMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
+                        Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                        // Slight hover lift on desktop only.
+                        x: !Theme.touch && histMa.containsMouse ? 3 : 0
+                        Behavior on x { NumberAnimation { duration: Theme.fastMs } }
+                    }
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.s3
+                        anchors.rightMargin: Theme.s3
+                        spacing: Theme.s2
+
+                        Item {
+                            Layout.preferredWidth: 24
+                            Layout.preferredHeight: 16
+                            Layout.alignment: Qt.AlignVCenter
+                            Loader {
+                                anchors.centerIn: parent
+                                visible: page.isNowPlaying(modelData)
+                                sourceComponent: nowPlayingIndicator
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 1
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData.title || ""
+                                color: page.isNowPlaying(modelData)
+                                       ? Theme.accentOn(Sys.accent, Sys.bg) : Sys.text
+                                font.pixelSize: Theme.tLg
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: modelData.artist || ""
+                                color: Theme.tDim(Sys.bg, Sys.text)
+                                font.pixelSize: Theme.tMd
+                                elide: Text.ElideRight
+                                maximumLineCount: 1
+                            }
+                        }
+                        LikeButton {
+                            id: histRowLike
+                            Layout.alignment: Qt.AlignVCenter
+                            interactive: catalog.loginState === "ok"
+                                         && catalog.videoIdOf(modelData.url) !== ""
+                            revealed: histMa.containsMouse
+                            liked: {
+                                const rev = catalog.likedRevision
+                                return catalog.isLiked(modelData.url)
+                            }
+                            onToggled: catalog.toggleLiked(modelData.url,
+                                                            histRowLike.liked)
+                        }
+
+                        Text {
+                            Layout.alignment: Qt.AlignVCenter
+                            text: Theme.mmss(modelData.duration)
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tMd
+                        }
+                    }
+                    MouseArea {
+                        id: histMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (typeof sfx !== "undefined") sfx.play("play")
+                            page.playRequested(catalog.recent, index)
+                        }
+                    }
+                }
+            }
+        }
+
         // ---- library: sources dropdown + covers ---------------------------
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !page.showingTracks
+            visible: !page.showingTracks && !page.historyOpen
             spacing: Theme.s3
 
             // 0) section tabs: TWO pills (Library / Downloaded).
@@ -1796,6 +2595,8 @@ Item {
 
                 readonly property var items: [
                     { t: 0, name: qsTr("Biblioteca") },
+                    { t: 1, name: qsTr("Artistas") },
+                    { t: 5, name: qsTr("Géneros") },
                     { t: 4, name: qsTr("Descargadas") }
                 ]
 
@@ -2006,6 +2807,60 @@ Item {
                         }
                     }
                 }
+            }
+
+            // ---- source filter chips (library grid only) ---------------
+            RowLayout {
+                Layout.fillWidth: true
+                visible: !page.localSelected && page.libraryTab !== 1 && page.libraryTab !== 5 && !page.showingTracks
+                spacing: Theme.s2
+                clip: true
+
+                Repeater {
+                    model: [
+                        { key: "", label: qsTr("Todo") },
+                        { key: "ytm", label: qsTr("YouTube") },
+                        { key: "soundcloud", label: qsTr("SoundCloud") },
+                        { key: "download", label: qsTr("Descargas") }
+                    ]
+                    delegate: Rectangle {
+                        id: srcChip
+                        required property var modelData
+                        readonly property bool on: page.sourceFilter === modelData.key
+                        Layout.preferredHeight: Theme.pillH
+                        implicitWidth: srcLabel.implicitWidth + Theme.pillHPad * 2
+                        radius: Theme.rPill
+                        antialiasing: true
+                        color: srcChip.on
+                               ? Sys.accentDim
+                               : (srcMa.containsMouse ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
+                                                      : Theme.sAlt(Sys.bg, Sys.text))
+                        border.width: 1
+                        border.color: srcChip.on
+                                      ? Theme.alpha(Sys.accent, 0.55)
+                                      : Theme.alpha(Sys.text, Theme.panelBorderAlpha)
+
+                        Text {
+                            id: srcLabel
+                            anchors.centerIn: parent
+                            text: srcChip.modelData.label
+                            color: srcChip.on ? Theme.accentOn(Sys.accent, Sys.bg) : Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tSm
+                            font.weight: srcChip.on ? Font.DemiBold : Font.Medium
+                        }
+                        MouseArea {
+                            id: srcMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.setSourceFilter(srcChip.modelData.key)
+                            }
+                        }
+                    }
+                }
+                Item { Layout.fillWidth: true }
             }
 
             // ---- library filter (phone only) --------------------
@@ -2318,7 +3173,7 @@ Item {
                         model: page.dlLive
                         spacing: Theme.s2
                         clip: true
-                        reuseItems: true
+                  reuseItems: true
                         cacheBuffer: 400
                         boundsBehavior: Flickable.StopAtBounds
 
@@ -2489,11 +3344,14 @@ Item {
                 spacing: Theme.s2
 
                 SectionHeader {
-                    title: page.localSelected ? qsTr("Descargadas") : qsTr("Biblioteca")
+                    title: page.localSelected ? qsTr("Descargadas")
+                           : (page.libraryTab === 5 ? qsTr("Géneros")
+                              : (page.libraryTab === 1 ? qsTr("Artistas") : qsTr("Biblioteca")))
                     badge: page.localSelected
                            ? (page.dlLocalAll.length > 0 ? qsTr("%1 pistas").arg(page.dlLocalAll.length) : "")
-                           : (page.covers.length === 0 ? ""
-                                                       : qsTr("%1 listas").arg(page.covers.length))
+                           : (page.libraryTab === 5 || page.libraryTab === 1
+                              ? "" : (page.covers.length === 0 ? ""
+                                                              : qsTr("%1 listas").arg(page.covers.length)))
                     busy: page.localSelected ? page.dlLocalBusy : catalog.libraryBusy
 
                     IconButton { // refresh
@@ -2731,10 +3589,55 @@ Item {
                     title: qsTr("SINGLES Y EPS")
                     items: page.dlSingles
                 }
-                FolderStrip {
-                    active: page.localSelected
-                    title: qsTr("LISTAS")
-                    items: page.dlLists
+                // Downloaded lists as a grid of cards. Each card shows the
+                // folder name, its track count and its size, and opens the
+                // folder's tracks when clicked.
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: page.localSelected && page.dlLists.length > 0
+                    spacing: Theme.s2
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("LISTAS") + "  " + page.dlLists.length
+                        color: Theme.tDim(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tXs
+                        font.weight: Font.DemiBold
+                        font.letterSpacing: 0.4
+                        elide: Text.ElideRight
+                        maximumLineCount: 1
+                    }
+                    GridView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: page.dlListsGridHeight(width)
+                        model: page.dlLists
+                        clip: true
+                        interactive: false
+                        boundsBehavior: Flickable.StopAtBounds
+                        cellWidth: page.gridCellW(width)
+                        cellHeight: page.gridTileW(width) + 56
+
+                        delegate: CoverTile {
+                            required property int index
+                            required property var modelData
+                            width: GridView.view.cellWidth - page.coverGap
+                            height: GridView.view.cellHeight
+
+                            title: modelData.name || ""
+                            subtitle: {
+                                const n = modelData.count || 0
+                                const sz = page.dlFolderSize(modelData.folder)
+                                if (n > 0 && sz) return qsTr("%1 pistas · %2").arg(n).arg(sz)
+                                if (n > 0) return qsTr("%1 pistas").arg(n)
+                                return sz
+                            }
+                            thumb: modelData.thumb || ""
+
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.downloadOpenRequested(String(modelData.folder || ""))
+                            }
+                        }
+                    }
                 }
 
                 // If there is nothing downloaded yet, say it.
@@ -2776,21 +3679,179 @@ Item {
                     }
                 }
 
+                // ---- Global track results -----------------------------------
+                ListView {
+                    id: globalResults
+                    reuseItems: true
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: !page.localSelected && page.libraryTab !== 1 && page.libraryTab !== 5 && page.globalTrackResults.length > 0
+                    clip: true
+                    spacing: Theme.s1
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: page.globalTrackResults
+                    header: Item {
+                        width: globalResults.width
+                        height: 28
+                        Text {
+                            anchors.left: parent.left
+                            anchors.leftMargin: Theme.s3
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: qsTr("Canciones encontradas")
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.tSm
+                        }
+                    }
+                    delegate: Item {
+                        required property var modelData
+                        required property int index
+                        width: globalResults.width
+                        height: Theme.rowCompact
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: Theme.s3
+                            anchors.rightMargin: Theme.s3
+                            spacing: Theme.s2
+                            RoundedArt {
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 32
+                                source: modelData.thumb
+                                radiusSpec: Theme.rMd
+                            }
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 0
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.title
+                                    color: Sys.text
+                                    font.pixelSize: Theme.tSm
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.artist + " · " + modelData.listName
+                                    color: Theme.tDim(Sys.bg, Sys.text)
+                                    font.pixelSize: Theme.tXs
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                page.playRequested([modelData], 0)
+                            }
+                        }
+                    }
+                }
+
+                // ---- Artists: virtualized grid ------------------------------
+                GridView {
+                    id: artistsGrid
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: page.libraryTab === 1 && !page.localSelected
+                    clip: true
+                    model: page.artists
+              reuseItems: true
+                    cacheBuffer: 800
+                    boundsBehavior: Flickable.StopAtBounds
+                    flow: GridView.FlowLeftToRight
+                    cellWidth: page.gridCellW(width)
+                    cellHeight: page.gridTileW(width) + 56
+
+                    delegate: CoverTile {
+                        required property int index
+                        required property var modelData
+                        width: GridView.view.cellWidth - page.coverGap
+                        height: GridView.view.cellHeight
+                        title: modelData.name || ""
+                        subtitle: qsTr("%1 pistas").arg(modelData.count || 0)
+                        thumb: modelData.thumb || ""
+                        onClicked: page.artistRequested(modelData.name || "")
+                        onPlayClicked: page.artistRequested(modelData.name || "")
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.libraryTab === 1 && page.artists.length === 0
+                    text: qsTr("Todavía no hay artistas en tu biblioteca.")
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tSm
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                }
+
+                // ---- Géneros: virtualized grid (same shape as Artistas) -----
+                GridView {
+                    id: genresGrid
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: page.libraryTab === 5 && !page.localSelected
+                    clip: true
+                    model: page.genres
+              reuseItems: true
+                    cacheBuffer: 800
+                    boundsBehavior: Flickable.StopAtBounds
+                    flow: GridView.FlowLeftToRight
+                    cellWidth: page.gridCellW(width)
+                    cellHeight: page.gridTileW(width) + 56
+
+                    delegate: CoverTile {
+                        required property int index
+                        required property var modelData
+                        width: GridView.view.cellWidth - page.coverGap
+                        height: GridView.view.cellHeight
+                        title: modelData.name || ""
+                        subtitle: qsTr("%1 pistas").arg(modelData.count || 0)
+                        thumb: modelData.thumb || ""
+                        onClicked: page.openGenre(modelData.name || "")
+                        onPlayClicked: page.openGenre(modelData.name || "")
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: page.libraryTab === 5 && page.genres.length === 0
+                    text: qsTr("Todavía no hay géneros en tus descargas.")
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tSm
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                }
+
                 // ---- Library: virtualized covers grid -----------------------
                 GridView {
                     id: coversGrid
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    visible: !page.localSelected && page.covers.length > 0
+                    visible: !page.localSelected && page.libraryTab !== 1 && page.libraryTab !== 5 && page.filteredCovers.length > 0
                     clip: true
                     model: page.filteredCovers
-                    reuseItems: true
+              reuseItems: true
                     cacheBuffer: 800
                     boundsBehavior: Flickable.StopAtBounds
                     flow: GridView.FlowLeftToRight
                     readonly property real tileW: page.gridTileW(width)
                     cellWidth: page.gridCellW(width)
                     cellHeight: tileW + 56
+
+                    // Fade the grid back in when the search filter changes.
+                    NumberAnimation {
+                        id: coversFade
+                        target: coversGrid
+                        property: "opacity"
+                        from: 0
+                        to: 1
+                        duration: Theme.fastMs
+                    }
+                    Connections {
+                        target: page
+                        function onLibFilterChanged() { coversFade.restart() }
+                        function onSourceFilterChanged() { coversFade.restart() }
+                    }
 
                     delegate: CoverTile {
                         required property int index
@@ -2806,19 +3867,43 @@ Item {
 
                         thumb: modelData.thumb || ""
                         removable: (modelData.savedIndex || -1) >= 0
-                        downloadable: !!modelData.url
+                              && modelData.kind !== "recent"
+                        downloadable: !!modelData.url && modelData.kind !== "recent"
                         // Tick on the cover if this list is already
                         // downloaded.
-                        downloaded: page.isDownloaded(modelData)
+                        downloaded: modelData.kind !== "download" && page.isDownloaded(modelData)
 
-                        // Click on the card -> OPEN the list.
+                        // Smart collection: play the recent tracks directly.
+                        // `catalog.recent` is newest first; cap at 20.
+                        property var recentTracks: {
+                            const r = (catalog.recent || []).slice(0, 20)
+                            return r
+                        }
+
+                        // Click on the card -> OPEN the list (recent -> history view).
                         onClicked: {
                             if (typeof sfx !== "undefined") sfx.play("tap")
+                            if (modelData.kind === "recent") {
+                                page.historyOpen = true
+                                return
+                            }
+                            if (modelData.kind === "download") {
+                                page.openDownloadPlaylist(modelData.folder || "")
+                                return
+                            }
                             page.openListRequested(false)
                             page.openCover(modelData)
                         }
                         // Click on the floating play button -> PLAY.
                         onPlayClicked: {
+                            if (modelData.kind === "recent") {
+                                page.playRequested(modelData.recentTracks, 0)
+                                return
+                            }
+                            if (modelData.kind === "download") {
+                                page.openDownloadPlaylist(modelData.folder || "")
+                                return
+                            }
                             page.openListRequested(true)
                             page.openCover(modelData)
                         }
@@ -2845,7 +3930,7 @@ Item {
                 // ---- empty states -----------------------------------------
                 Text {
                     Layout.fillWidth: true
-                    visible: !page.localSelected && page.covers.length === 0
+                    visible: !page.localSelected && page.libraryTab !== 1 && page.libraryTab !== 5 && page.filteredCovers.length === 0
                     // When the fetch failed the reason wins over the generic
                     // "empty library": "empty" and "did not arrive" look the
                     // same on screen and mean different things.
@@ -2853,7 +3938,9 @@ Item {
                           ? qsTr("Cargando tu biblioteca…")
                           : (catalog.libraryError !== ""
                              ? catalog.libraryError
-                             : qsTr("Biblioteca vacía. Inicia sesión en Ajustes o pega una URL arriba para añadir una lista."))
+                             : (page.sourceFilter !== "" || page.libFilter !== ""
+                                ? qsTr("Nada que coincida con este filtro.")
+                                : qsTr("Biblioteca vacía. Inicia sesión en Ajustes o pega una URL arriba para añadir una lista.")))
                     color: (!catalog.libraryBusy && catalog.libraryError !== "")
                            ? Theme.accentOn(Sys.accent, Sys.bg)
                            : Theme.tDim(Sys.bg, Sys.text)

@@ -39,6 +39,17 @@ var fastMs = 120
 var medMs = 180
 var slowMs = 280
 
+// Devuelve 0 cuando el sistema pide menos movimiento (Qt 6.12+ expone
+// styleHints.accessibility.motionPreference). En versiones sin esa
+// propiedad se devuelve la duración original.
+function animMs(ms) {
+    var sh = (typeof Qt !== "undefined" && Qt.styleHints) ? Qt.styleHints : null
+    var acc = sh && sh.accessibility ? sh.accessibility : null
+    if (acc && acc.motionPreference === Qt.ReducedMotion)
+        return 0
+    return ms
+}
+
 // Corner radii (px). Todo redondeado, sin esquinas vivas: la escala entera
 // went up a step so that artworks, rows, panels and islands share the same
 // soft feeling (before each one used its own radius and it looked loose).
@@ -75,6 +86,17 @@ var tLg = touch ? 16 : 15
 var tXl = touch ? 20 : 18
 var t2xl = touch ? 24 : 22
 var t3xl = touch ? 28 : 28
+
+// Interfaz compacta: reduce un 10% los espaciados para caber más contenido.
+function spacing(compact, base) {
+    return compact ? base * 0.9 : base
+}
+
+// Tamano de fuente compacto. La vista de letras no lo usa: tiene su propia
+// preferencia (lyricsFontSize).
+function font(compact, base) {
+    return compact ? Math.max(8, Math.round(base * 0.9)) : base
+}
 
 // Spacing scale (px). Prefer space over lines: hierarchy comes from air.
 var s1 = 4
@@ -319,4 +341,64 @@ function size(bytes) {
     if (mb < 1000)
         return Math.round(mb) + " MB"
     return (mb / 1024).toFixed(1).replace(".", ",") + " GB"
+}
+
+// ---- interface style tokens -------------------------------------------
+// Pure functions of the style string: no state, so `.pragma library` stays
+// valid. Every classic value below is the EXISTING token, unchanged.
+function isLotus(style) { return style === "lotus" }
+
+// Card radius: classic keeps rLg (18), Lotus opens to rXl + 8 (30).
+function radiusCard(style) { return isLotus(style) ? rXl + 8 : rLg }
+
+// Side panel width: classic keeps 360 desktop / 290 phone. Lotus opens to
+// 520 / 340 so the queue and lyrics breathe on a wider surface.
+function lotusLayout(style, w) {
+    if (!isLotus(style))
+        return "classic"
+    if (w < 700)
+        return "compact"
+    if (w <= 850)
+        return "tablet"
+    return "wide"
+}
+
+function lotusPanelWidth(style, w) {
+    if (!isLotus(style))
+        return w
+    if (lotusLayout(style, w) === "tablet")
+        return Math.min(520, w * 0.55)
+    // En el telefono el panel ocupa todo el ancho disponible: los 340 px
+    // de escritorio no caben en una pantalla estrecha y recortaban la cola.
+    return touch ? w : Math.max(w, 520)
+}
+
+// Playback bar height: classic keeps the existing token, Lotus adds 12 px
+// of air so the taller cover and the info column fit without crowding.
+// En touch no hay aire extra: la barra ya compacta 104 px.
+function lotusBarHeight(style, base) {
+    if (!isLotus(style) || touch)
+        return base
+    return base + 12
+}
+
+// Home shortcut columns: 4 in Lotus on wide screens, 3 in classic.
+// En touch 2 columnas: 4 (o 3) no caben en una pantalla estrecha.
+function homeGridCols(style, wide, base) {
+    if (touch)
+        return 2
+    return isLotus(style) && wide ? base + 1 : base
+}
+
+// Gap between islands: classic keeps the existing rhythm, Lotus adds air.
+function panelGapFor(style) {
+    return isLotus(style) ? (touch ? 10 : 16) : panelGap
+}
+
+// Soft accent for accents of main cards. Classic returns the plain accent
+// tint; Lotus pushes it towards a deeper violet (the lotus motif) while
+// keeping it a tint of the current palette accent.
+function accentSoft(style, accent, bg) {
+    var base = sAccent(bg, accent, isLotus(style) ? 0.24 : 0.155)
+    return isLotus(style) ? mix(base, "#8b5cf6", 0.22) : base
 }

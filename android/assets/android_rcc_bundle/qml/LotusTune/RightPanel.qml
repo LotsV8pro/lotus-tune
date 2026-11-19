@@ -21,6 +21,8 @@ Item {
     // plano (HOME) la letra no se interpola.
     property bool appActive: true
     property bool playing: false
+    // Corner radius of the island; Main opens it in the Lotus interface.
+    property real islandRadius: Theme.rPanel
 
     signal closeRequested()
     // The app owns the state of the tab.
@@ -29,12 +31,19 @@ Item {
     signal trackContextRequested(var track, real x, real y)
     // Ask for the fullscreen lyrics (cinema mode) from the LYRICS tab.
     signal fullscreenLyricsRequested()
+    // Ask Main to reshuffle the queue in place.
+    signal reshuffleRequested()
 
     implicitWidth: 360
+    // Space left at the bottom so the floating playback bar does not cover
+    // the last row of the queue / lyrics.
+    property real bottomInset: 0
 
     Panel {
         id: island
         anchors.fill: parent
+        anchors.bottomMargin: panel.bottomInset
+        radius: panel.islandRadius
         clipContent: true
 
         ColumnLayout {

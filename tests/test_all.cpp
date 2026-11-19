@@ -21,6 +21,9 @@
 #include "sources.h"
 #include "lyrics.h"
 #include "updates.h"
+#include "theme.h"
+#include "appconfig.h"
+#include "paths.h"
 
 class TestLotusTune : public QObject
 {
@@ -51,8 +54,11 @@ private slots:
     void testSourceManager();
     void testVideoIdOf();
     void testPlayCountArtist();
+    void testLabelChannelArtist();
     void testLikes();
     void testLyricsState();
+    void testPublishedArt();
+    void testSearchCandidatesAndQueryText();
     void testLyricsTitleLines();
     void testParseLrc();
     void testParseLyricsfile();
@@ -73,6 +79,17 @@ private slots:
     void testReferenceVersion();
     void testWrongSongDiscardedByPlain();
     void testRestoreSpacesFromPlain();
+    void testGluedShortWordsAtLineEnd();
+    void testGluedApostrophesAndTypos();
+    void testJoinGluedProviderWords();
+    void testCollapseDuplicateLines();
+    void testLrcExportImport();
+    void testInstrumentalSweep();
+    void testSanitizeWordStamps();
+    void testAccentFromSettings();
+    void testLotusAccentOnLightBg();
+    void testSettingsExportImport();
+    void testSearchLibraryTracks();
     void testUpdateHelpers();
     void testInstallerHash();
     void testAudioCachePrune();
@@ -378,6 +395,34 @@ void TestLotusTune::testPlayCountArtist()
         QString::fromUtf8("Porter\u00a0Robinson")));
 }
 
+void TestLotusTune::testLabelChannelArtist()
+{
+    // Known label/channel columns must not become the name of a home radio.
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("SUMERIAN"),
+                 QStringLiteral("Bring Me The Horizon - Can You Feel My Heart")),
+             QStringLiteral("Bring Me The Horizon"));
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("Fearless Records"),
+                 QStringLiteral("Pierce The Veil - King For A Day")),
+             QStringLiteral("Pierce The Veil"));
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("riserecords and 2 more"),
+                 QStringLiteral("The Ghost Inside - Move Myself")),
+             QStringLiteral("The Ghost Inside"));
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("Epitaph Records"),
+                 QStringLiteral("Bad Religion - American Jesus")),
+             QStringLiteral("Bad Religion"));
+    // Real artist columns and titles without the dash pattern are untouched.
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("Skrillex"), QStringLiteral("Purpose - A Key")),
+             QStringLiteral("Skrillex"));
+    QCOMPARE(Catalog::realArtistFromTitle(
+                 QStringLiteral("SUMERIAN"), QStringLiteral("No Dash Here")),
+             QStringLiteral("SUMERIAN"));
+}
+
 void TestLotusTune::testLikes()
 {
     SourceManager sources;
@@ -430,6 +475,87 @@ void TestLotusTune::testLyricsState()
     QCOMPARE(changed.count(), 1);
     QVERIFY(!lyrics.hasLyrics());
     QVERIFY(lyrics.lines().isEmpty());
+}
+
+void TestLotusTune::testPublishedArt()
+{
+    Lyrics lyrics;
+    lyrics.m_trackKey = QStringLiteral("Artist - Title");
+    lyrics.m_title = QStringLiteral("Title");
+    lyrics.m_artist = QStringLiteral("Artist");
+    lyrics.m_videoId = QStringLiteral("abc123");
+    const QString art = QStringLiteral("https://i.ytimg.com/vi/abc123/hqdefault.jpg");
+    lyrics.setPublishedArt(art);
+
+    QFile f(AppPaths::stateDir() + QStringLiteral("/lyrics.json"));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    QCOMPARE(obj.value(QStringLiteral("art")).toString(), art);
+    QCOMPARE(obj.value(QStringLiteral("title")).toString(), QStringLiteral("Title"));
+    QCOMPARE(obj.value(QStringLiteral("artist")).toString(), QStringLiteral("Artist"));
+    QCOMPARE(obj.value(QStringLiteral("videoId")).toString(), QStringLiteral("abc123"));
+
+    QFile rt(AppPaths::stateDir() + QStringLiteral("/lyrics-runtime.json"));
+    QVERIFY(rt.open(QIODevice::ReadOnly));
+    const QJsonObject runtime = QJsonDocument::fromJson(rt.readAll()).object();
+    QCOMPARE(runtime.value(QStringLiteral("art")).toString(), art);
+}
+
+void TestLotusTune::testSearchCandidatesAndQueryText()
+{
+    // Un titulo raro genera varias variantes distintas (sin parentesis,
+    // guion partido, sin palabras de ruido) y sin duplicados.
+    const QVector<Lyrics::SearchCandidate> cs =
+        Lyrics::buildSearchCandidates(QStringLiteral("MK"),
+            QStringLiteral("17 - Eternal rest in time (Official Video)"));
+    QVERIFY(cs.size() >= 3);
+    QSet<QString> seen;
+    for (const Lyrics::SearchCandidate &c : cs)
+        seen.insert(c.title + QStringLiteral("|") + c.artist);
+    QCOMPARE(seen.size(), cs.size());
+
+    bool noParen = false, split = false, noNoise = false;
+    for (const Lyrics::SearchCandidate &c : cs) {
+        if (!c.title.contains(QLatin1Char('(')))
+            noParen = true;
+        if (c.title == QStringLiteral("Eternal rest in time"))
+            split = true;
+        if (!c.title.contains(QStringLiteral("Official"), Qt::CaseInsensitive))
+            noNoise = true;
+    }
+    QVERIFY(noParen);
+    QVERIFY(split);
+    QVERIFY(noNoise);
+
+    // queryText quita signos que los catalogos no indexan.
+    QCOMPARE(Lyrics::queryText(QStringLiteral("Nosebleed!")),
+             QStringLiteral("Nosebleed"));
+    QCOMPARE(Lyrics::queryText(QStringLiteral("Let us cry / lloremos")),
+             QStringLiteral("Let us cry lloremos"));
+    QCOMPARE(Lyrics::queryText(QStringLiteral("Nose Bleed (Live)")),
+             QStringLiteral("Nose Bleed Live"));
+
+    // Sufijos de video: con artista se quita el prefijo "Artist - " y el sufijo.
+    QCOMPARE(Lyrics::cleanTitleForSearch(
+                 QStringLiteral("Spiritbox - Perfect Soul (Official Video)"),
+                 QStringLiteral("Spiritbox")),
+             QStringLiteral("Perfect Soul"));
+    QCOMPARE(Lyrics::cleanTitleForSearch(
+                 QStringLiteral("Bad Omens - Just Pretend (Official Music Video)"),
+                 QStringLiteral("Bad Omens")),
+             QStringLiteral("Just Pretend"));
+    QCOMPARE(Lyrics::cleanTitleForSearch(
+                 QStringLiteral("Poppy - New Way Out (Official Visualizer)"),
+                 QStringLiteral("Poppy")),
+             QStringLiteral("New Way Out"));
+    QCOMPARE(Lyrics::cleanTitleForSearch(
+                 QStringLiteral("Avoid - Instrumental [Lyric Video]"),
+                 QStringLiteral("Avoid")),
+             QStringLiteral("Instrumental"));
+    QCOMPARE(Lyrics::cleanTitleForSearch(
+                 QStringLiteral("MK - 17 Official Audio"),
+                 QStringLiteral("MK")),
+             QStringLiteral("17"));
 }
 
 void TestLotusTune::testLyricsTitleLines()
@@ -870,6 +996,337 @@ void TestLotusTune::testRestoreSpacesFromPlain()
     QVector<Lyrics::LrcLine> other{line(QStringLiteral("otra cosa distinta"))};
     Lyrics::restoreSpacesFromPlain(other, plain);
     QCOMPARE(other.at(0).text, QStringLiteral("otra cosa distinta"));
+}
+
+// A provider glued short words at the end of a line ("Let uscry"). The
+// clean text must not be glued back by the generic fragment rule, and the
+// single glued word stamp must be split to keep karaoke in sync.
+void TestLotusTune::testGluedShortWordsAtLineEnd()
+{
+    auto line = [](const QString &text, const QStringList &words) {
+        Lyrics::LrcLine l;
+        l.time = 1.0;
+        l.text = text;
+        l.end = 4.0;
+        for (int i = 0; i < words.size(); ++i) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), 1.0 + i * 1.0);
+            w.insert(QStringLiteral("e"), 2.0 + i * 1.0);
+            w.insert(QStringLiteral("text"), words.at(i));
+            l.words.append(w);
+        }
+        return l;
+    };
+    const QString plain = QStringLiteral(
+        "Let us cry\n"
+        "Eternal rest in time\n"
+        "I've been gone for far too long\n"
+        "La noche de colores\n"
+        "They have tampered with the locks\n");
+    QVector<Lyrics::LrcLine> lines{
+        line(QStringLiteral("Let uscry"),
+             {QStringLiteral("Let "), QStringLiteral("uscry")}),
+        line(QStringLiteral("Eternal rest intime"),
+             {QStringLiteral("Eternal "), QStringLiteral("rest "),
+              QStringLiteral("intime")}),
+        line(QStringLiteral("I've been gone forfar too long"),
+             {QStringLiteral("I've "), QStringLiteral("been "),
+              QStringLiteral("gone "), QStringLiteral("forfar "),
+              QStringLiteral("too "), QStringLiteral("long")}),
+        line(QStringLiteral("Lanoche decolores"),
+             {QStringLiteral("Lanoche "), QStringLiteral("decolores")}),
+        line(QStringLiteral("They have tampered with the locks"),
+             {QStringLiteral("They "), QStringLiteral("have "),
+              QStringLiteral("tampered "), QStringLiteral("with "),
+              QStringLiteral("the "), QStringLiteral("locks")}),
+    };
+    Lyrics::joinSplitWords(lines, plain);
+    QCOMPARE(lines.at(0).text, QStringLiteral("Let us cry"));
+    QCOMPARE(lines.at(1).text, QStringLiteral("Eternal rest in time"));
+    QCOMPARE(lines.at(2).text, QStringLiteral("I've been gone for far too long"));
+    QCOMPARE(lines.at(3).text, QStringLiteral("La noche de colores"));
+    QCOMPARE(lines.at(4).text, QStringLiteral("They have tampered with the locks"));
+    QCOMPARE(lines.at(0).words.size(), 3);
+    QCOMPARE(lines.at(0).words.at(0).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("Let"));
+    QCOMPARE(lines.at(0).words.at(2).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("cry"));
+    QCOMPARE(lines.at(0).words.at(1).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("us"));
+}
+
+// Providers glue a few common word pairs ("Eternal rest intime"). The fix
+// must reach both the line text and the word stamps, or karaoke still
+// highlights the glued token as one word.
+void TestLotusTune::testJoinGluedProviderWords()
+{
+    auto makeLine = [](const QString &text, const QStringList &words) {
+        Lyrics::LrcLine l;
+        l.time = 1.0;
+        l.text = text;
+        l.end = 4.0;
+        for (int i = 0; i < words.size(); ++i) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), 1.0 + i * 0.5);
+            w.insert(QStringLiteral("e"), 1.5 + i * 0.5);
+            w.insert(QStringLiteral("text"), words.at(i));
+            l.words.append(w);
+        }
+        return l;
+    };
+    QVector<Lyrics::LrcLine> lines{
+        makeLine(QStringLiteral("Eternal rest intime"),
+                 {QStringLiteral("Eternal"), QStringLiteral("rest"),
+                  QStringLiteral("intime")}),
+        makeLine(QStringLiteral("I've been gone forfar too long"),
+                 {QStringLiteral("I've"), QStringLiteral("gone"),
+                  QStringLiteral("forfar"), QStringLiteral("too"),
+                  QStringLiteral("long")}),
+        makeLine(QStringLiteral("Verte ya no esnada"),
+                 {QStringLiteral("Verte"), QStringLiteral("esnada")}),
+    };
+    Lyrics::joinSplitWords(lines, QString());
+    QCOMPARE(lines.at(0).text, QStringLiteral("Eternal rest in time"));
+    QCOMPARE(lines.at(1).text, QStringLiteral("I've been gone for far too long"));
+    QCOMPARE(lines.at(2).text, QStringLiteral("Verte ya no es nada"));
+    QCOMPARE(lines.at(0).words.at(2).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("in time"));
+    QCOMPARE(lines.at(1).words.at(2).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("for far"));
+    QCOMPARE(lines.at(2).words.at(1).toMap().value(QStringLiteral("text")).toString(),
+             QStringLiteral("es nada"));
+}
+
+// Apostrophised tokens and words split with a wrong letter. The plain line
+// restores the spaces, and the glued table handles the case where the plain
+// line for that exact sentence is missing.
+void TestLotusTune::testGluedApostrophesAndTypos()
+{
+    auto line = [](const QString &text, const QStringList &words) {
+        Lyrics::LrcLine l;
+        l.time = 1.0;
+        l.text = text;
+        l.end = 4.0;
+        for (int i = 0; i < words.size(); ++i) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), 1.0 + i * 0.5);
+            w.insert(QStringLiteral("e"), 1.5 + i * 0.5);
+            w.insert(QStringLiteral("text"), words.at(i));
+            l.words.append(w);
+        }
+        return l;
+    };
+    const QString plain = QStringLiteral(
+        "And a pretty little smile\n"
+        "You're so pretty, baby\n"
+        "Let 'em breathe, watch 'em burn in the fire\n");
+    QVector<Lyrics::LrcLine> lines{
+        line(QStringLiteral("And a pret tylittle smile (you're so pret ty,ba by)"),
+             {QStringLiteral("And"), QStringLiteral(" a"), QStringLiteral(" pret"),
+              QStringLiteral("tylittle"), QStringLiteral(" smile"),
+              QStringLiteral(" (you're"), QStringLiteral(" so"),
+              QStringLiteral(" pret"), QStringLiteral("ty,ba"),
+              QStringLiteral(" by)")}),
+        line(QStringLiteral("Let'em breathe watch'em burn in the fire"),
+             {QStringLiteral("Let'em"), QStringLiteral(" breathe"),
+              QStringLiteral("watch'em"), QStringLiteral(" burn"),
+              QStringLiteral(" in"), QStringLiteral(" the"),
+              QStringLiteral(" fire")}),
+    };
+    Lyrics::joinSplitWords(lines, plain);
+    QCOMPARE(lines.at(0).text,
+             QStringLiteral("And a pretty little smile (you're so pretty, baby)"));
+    QCOMPARE(lines.at(1).text,
+             QStringLiteral("Let 'em breathe, watch 'em burn in the fire"));
+    // Neither pair gets glued back by the generic fragment joins.
+    const QString w0 = lines.at(1).words.at(0).toMap()
+                           .value(QStringLiteral("text")).toString();
+    const QString w1 = lines.at(1).words.at(2).toMap()
+                           .value(QStringLiteral("text")).toString();
+    QVERIFY(!w0.contains(QLatin1String("Let'em")));
+    QVERIFY(!w1.contains(QLatin1String("watch'em")));
+
+    // No plain line at all: the glued table is the only source.
+    QVector<Lyrics::LrcLine> fallback{
+        line(QStringLiteral("You'll bedoin' that soon, 'cause di a monds are forever"),
+             {QStringLiteral("You'll"), QStringLiteral("bedoin'"),
+              QStringLiteral(" that"), QStringLiteral(" soon,"),
+              QStringLiteral(" 'cause"), QStringLiteral(" di"),
+              QStringLiteral(" a"), QStringLiteral(" monds"),
+              QStringLiteral(" are"), QStringLiteral("forever")}),
+    };
+    Lyrics::joinSplitWords(fallback, QString());
+    QCOMPARE(fallback.at(0).text,
+             QStringLiteral("You'll be doin' that soon, 'cause diamonds are forever"));
+}
+
+// Instrumental stretches get a real end and three evenly spaced dots,
+// so the artificial sweep walks through them instead of jumping.
+void TestLotusTune::testInstrumentalSweep()
+{
+    QVector<Lyrics::LrcLine> lines;
+    Lyrics::LrcLine a; a.time = 10.0; a.text = QStringLiteral("♪ ♪ ♪"); a.instrumental = true;
+    Lyrics::LrcLine b; b.time = 18.0; b.text = QStringLiteral("sung line");
+    lines << a << b;
+    Lyrics::distributeWordTimes(lines);
+    QCOMPARE(lines.at(0).end, 18.0);
+    QCOMPARE(lines.at(0).words.size(), 3);
+    QCOMPARE(lines.at(0).words.at(0).toMap().value(QStringLiteral("t")).toDouble(), 10.0);
+    QCOMPARE(lines.at(0).words.at(2).toMap().value(QStringLiteral("e")).toDouble(), 18.0);
+    QVERIFY(lines.at(0).instrumental);
+}
+
+// Corrupt cached stamps (inverted, overlapping, out of order) must become a
+// clean monotonic sequence with a real end on the last word.
+void TestLotusTune::testSanitizeWordStamps()
+{
+    QVector<Lyrics::LrcLine> lines;
+    Lyrics::LrcLine l;
+    l.time = 10.0;
+    l.end = 14.0;
+    l.text = QStringLiteral("one two three four");
+    auto add = [&l](double t, double e, const QString &text) {
+        QVariantMap w;
+        w.insert(QStringLiteral("t"), t);
+        w.insert(QStringLiteral("e"), e);
+        w.insert(QStringLiteral("text"), text);
+        l.words.append(w);
+    };
+    add(12.0, 11.0, QStringLiteral("bad"));   // inverted, dropped
+    add(10.0, 13.0, QStringLiteral("one"));   // overlaps the next one
+    add(11.0, 10.5, QStringLiteral("two"));   // inverted, dropped
+    add(11.5, 12.0, QStringLiteral("three"));
+    add(12.5, 99.0, QStringLiteral("four"));  // goes past end, last = end
+    lines << l;
+
+    Lyrics::sanitizeWordStamps(lines);
+    const QVariantList ws = lines.at(0).words;
+    QCOMPARE(ws.size(), 3);
+    const QVariantMap a = ws.at(0).toMap();
+    const QVariantMap b = ws.at(1).toMap();
+    const QVariantMap c = ws.at(2).toMap();
+    const double at = a.value(QStringLiteral("t")).toDouble();
+    const double ae = a.value(QStringLiteral("e")).toDouble();
+    const double bt = b.value(QStringLiteral("t")).toDouble();
+    const double be = b.value(QStringLiteral("e")).toDouble();
+    const double ct = c.value(QStringLiteral("t")).toDouble();
+    const double ce = c.value(QStringLiteral("e")).toDouble();
+    QVERIFY(at < ae && ae <= bt);
+    QVERIFY(bt < be && be <= ct);
+    QVERIFY(ct < ce);                          // last end > start
+    QVERIFY(ce <= lines.at(0).end);
+}
+
+// A song inside ANY saved list is found without opening that list.
+void TestLotusTune::testSearchLibraryTracks()
+{
+    QVariantList tracks;
+    QVariantMap t;
+    t.insert(QStringLiteral("title"), QStringLiteral("Nosebleed!"));
+    t.insert(QStringLiteral("artist"), QStringLiteral("Vana"));
+    t.insert(QStringLiteral("url"), QStringLiteral("https://youtu.be/abc"));
+    tracks.append(t);
+    QVariantMap pl;
+    pl.insert(QStringLiteral("name"), QStringLiteral("Favoritas"));
+    pl.insert(QStringLiteral("tracks"), tracks);
+    QVariantList pls; pls.append(pl);
+
+    QCOMPARE(Catalog::searchInLists(pls, QVariantList(), QStringLiteral("nose")).size(), 1);
+    QCOMPARE(Catalog::searchInLists(pls, QVariantList(), QStringLiteral("zzz")).size(), 0);
+    // A one-character query is ignored (too many results).
+    QCOMPARE(Catalog::searchInLists(pls, QVariantList(), QStringLiteral("n")).size(), 0);
+}
+
+// Lyrics can be saved as LRC and read back, keeping the word stamps.
+void TestLotusTune::testLrcExportImport()
+{
+    const QString src = QStringLiteral(
+        "[ar:Test]\n[ti:Song]\n"
+        "[00:01.00]<00:01.00>Hello <00:01.50>world\n"
+        "[00:03.00]Second line\n");
+    const QString path = m_homeDir->path() + QStringLiteral("/test.lrc");
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(src.toUtf8());
+    f.close();
+
+    Lyrics lyrics;
+    lyrics.m_title = QStringLiteral("Song");
+    lyrics.m_artist = QStringLiteral("Test");
+    lyrics.m_duration = 200;
+    QVERIFY(lyrics.importLrc(path));
+    QCOMPARE(lyrics.m_lines.size(), 2);
+    const QString lrc = lyrics.toLrc();
+    QVERIFY(lrc.contains(QStringLiteral("[ar:Test]")));
+    QVERIFY(lrc.contains(QStringLiteral("<00:01.00>Hello")));
+    QVERIFY(lrc.contains(QStringLiteral("[00:01.00]<00:01.00>Hello")));
+    QVERIFY(lrc.contains(QStringLiteral("[00:03.00]Second line")));
+
+    // A track flagged instrumental produces a single marker line and
+    // does not keep other candidates from being searched away.
+    QJsonObject inst;
+    inst.insert(QStringLiteral("instrumental"), true);
+    Lyrics only;
+    only.m_duration = 120;
+    only.applyPayload(inst);
+    QCOMPARE(only.m_lines.size(), 1);
+    QVERIFY(only.m_lines.at(0).instrumental);
+    QVERIFY(only.m_hasLyrics);
+
+    // Copying includes the translation under each original line.
+    Lyrics withTr;
+    Lyrics::LrcLine a; a.text = "Hello"; a.translation = "Hola";
+    Lyrics::LrcLine b; b.text = "Bye";
+    withTr.m_lines = {a, b};
+    QCOMPARE(withTr.translatedText(), QStringLiteral("Hello\nHola\nBye"));
+}
+
+// The accent typed in Settings must actually reach the palette: it is
+// written through QSettings, while the theme used to read only config.ini.
+void TestLotusTune::testAccentFromSettings()
+{
+    // QSettings caches its path, and this suite repoints HOME to a temp
+    // dir, so write the .conf the theme actually reads.
+    const QString conf = QDir::homePath() + "/.config/lotus-tune/lotus-tune.conf";
+    QVERIFY(QDir().mkpath(QFileInfo(conf).absolutePath()));
+    QFile f(conf);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    f.write("[General]\naccent=#123456\n");
+    f.close();
+    AppTheme theme;   // the constructor reloads the palette
+    QCOMPARE(theme.accent().name(QColor::HexRgb), QStringLiteral("#123456"));
+}
+
+// On a light system background the Lotus accent darkens to stay readable.
+void TestLotusTune::testLotusAccentOnLightBg()
+{
+    const QString dir = QDir::homePath()
+        + "/.local/state/quickshell/user/generated";
+    QVERIFY(QDir().mkpath(dir));
+    QFile pal(dir + "/app-palette.json");
+    QVERIFY(pal.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    pal.write("{\"app_window_bg\":\"#f5f5f7\",\"app_accent\":\"#aaaaaa\"}");
+    pal.close();
+
+    // A manual accent from an earlier test would win: remove it.
+    QFile::remove(QDir::homePath() + "/.config/lotus-tune/lotus-tune.conf");
+
+    AppTheme theme;
+    theme.setInterfaceStyle(QStringLiteral("lotus"));
+    theme.reload();
+    QCOMPARE(theme.accent().name(QColor::HexRgb), QStringLiteral("#6d28d9"));
+}
+
+// All settings round-trip through one JSON document.
+void TestLotusTune::testSettingsExportImport()
+{
+    AppConfig a;
+    a.set(QStringLiteral("lyricsEnabled"), QStringLiteral("false"));
+    const QString json = a.exportAll();
+    QVERIFY(json.contains(QStringLiteral("lyricsEnabled")));
+    AppConfig b;
+    QVERIFY(b.importAll(json));
+    QCOMPARE(b.get(QStringLiteral("lyricsEnabled")), QStringLiteral("false"));
 }
 
 // The TTML of Apple Music: one <p> per line (with the voice that sings
@@ -1421,6 +1878,38 @@ void TestLotusTune::testFriendlyNetError()
     // Lo que no se reconoce se deja tal cual (mejor eso que un mensaje falso).
     const QString other = QStringLiteral("algo raro del motor");
     QCOMPARE(LotusText::friendlyNetError(other), other);
+}
+
+// El mismo frase de dos fuentes se colapsa; un estribillo repetido
+// segundos despues se conserva.
+void TestLotusTune::testCollapseDuplicateLines()
+{
+    QVector<Lyrics::LrcLine> lines;
+    auto add = [&lines](double t, const QString &text, int words,
+                        const QString &tr = QString()) {
+        Lyrics::LrcLine l;
+        l.time = t;
+        l.text = text;
+        l.translation = tr;
+        for (int i = 0; i < words; ++i) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), t + i * 0.2);
+            w.insert(QStringLiteral("e"), t + i * 0.2 + 0.2);
+            w.insert(QStringLiteral("text"), QStringLiteral("w%1").arg(i));
+            l.words.append(w);
+        }
+        lines.append(l);
+    };
+    add(10.0, QStringLiteral("Eternal rest in time"), 2,
+        QStringLiteral("Descanso eterno en el tiempo"));
+    add(10.1, QStringLiteral("Eternal rest in time"), 0);
+    add(20.0, QStringLiteral("Eternal rest in time"), 2);
+    Lyrics::collapseDuplicateLines(lines);
+    QCOMPARE(lines.size(), 2);
+    QCOMPARE(lines.at(0).time, 10.0);
+    QCOMPARE(lines.at(0).translation,
+             QStringLiteral("Descanso eterno en el tiempo"));
+    QCOMPARE(lines.at(1).time, 20.0);
 }
 
 QTEST_MAIN(TestLotusTune)

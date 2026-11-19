@@ -24,9 +24,20 @@ Item {
 
     // Base size of a lyrics line. NowPlaying raises it for the big view.
     property int lineSize: 16
+    // User size delta (px) added to `lineSize` (Ajustes > Letras). 0 = auto.
+    property int sizeDelta: 0
+    readonly property int effLineSize: lineSize + sizeDelta
     // Size bump of the ACTIVE line: it is the one "singing", so it is
     // drawn bigger (desktop karaoke, haku_widgets `lyr-cur` style).
-    property int activeBoost: 7
+    // On a light artwork wash the size bump has to be larger for the
+    // karaoke front to stay legible; on a dark one 7 is enough.
+    property int activeBoost: {
+        if (typeof wash === "undefined" || !wash.valid)
+            return 7
+        const c = wash.average
+        const lum = (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b)
+        return lum > 0.45 ? 11 : 7
+    }
     // Max width of the reading column: in fullscreen the right panel is
     // huge and a 2000 px line is impossible to read.
     property real maxLineWidth: 820
@@ -40,6 +51,10 @@ Item {
     // duet tags nothing changes (everything stays centred, or left
     // aligned when `leftAlign` is set).
     property bool duetSides: false
+    // Focus mode (cinema): only the lyrics, centred over the whole view.
+    // No artwork column, no transport, no reading offset to one side.
+    property bool focusMode: false
+    readonly property bool alignLeft: leftAlign && !focusMode
     // Sync pill: top centre (cinema mode) and visible while the controls
     // are around (`pillShown`). By default: bottom right, on hover.
     property bool pillTop: false
@@ -113,7 +128,7 @@ Item {
     // checks whether any line is tagged `secondary` (second voice), so the
     // side split is not invented on single-singer songs.
     readonly property bool duet: {
-        if (!duetSides)
+        if (!duetSides || focusMode)
             return false
         for (let i = 0; i < lines.length; ++i) {
             if (lines[i] && lines[i].secondary === true)
@@ -130,12 +145,14 @@ Item {
     // line timings light the whole phrase when it starts.
     // ---- geometry of the reading column --------------------------------
     readonly property real sidePad: 24
-    readonly property real colW: Math.max(140, Math.min(width - (leftAlign ? sidePad : sidePad * 2), maxLineWidth))
+    readonly property real colW: focusMode
+        ? Math.max(140, width - sidePad * 2)
+        : Math.max(140, Math.min(width - (alignLeft ? sidePad : sidePad * 2), maxLineWidth))
     // The lines that are not being sung are a bit smaller: the sounding
     // one is the one that has to stand out (they read as a frame around it,
     // not as more lyrics at the same level).
     property real dimScale: 0.86
-    readonly property int lineGap: Math.max(6, Math.round(lineSize * 0.62))
+    readonly property int lineGap: Math.max(6, Math.round(effLineSize * 0.62))
     // Half height: that way the first and the last line can be centred
     // too.
     readonly property int edgePad: Math.max(56, Math.floor(height / 2))
@@ -740,7 +757,8 @@ Item {
         // 60 fps: the front is interpolated between the engine's reports,
         // and at 30 fps the fill visibly stepped on a 165 Hz screen. It
         // only runs while a synced song plays.
-        interval: 16
+        // 40 fps on touch (cheaper karaoke on Android), 60 fps on desktop.
+        interval: Theme.touch ? 24 : 16
         repeat: true
         running: lv.live && lv.showSynced && !!lv.ply && lv.ply.playing
         onTriggered: {
@@ -895,11 +913,11 @@ Item {
         textFormat: TextEdit.PlainText
         textMargin: 0
         wrapMode: TextEdit.Wrap
-        font.pixelSize: lv.lineSize + lv.activeBoost
+        font.pixelSize: lv.effLineSize + lv.activeBoost
         font.weight: Font.DemiBold
         horizontalAlignment: lv.duet
                              ? (rightAligned ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                             : (lv.leftAlign ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
+                             : (lv.alignLeft ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
     }
 
     // ---- loading ------------------------------------------------------
@@ -973,7 +991,9 @@ Item {
         Column {
             id: lyricCol
             width: lv.colW
-            x: lv.leftAlign ? lv.sidePad : Math.max(0, (syncedFlick.width - width) / 2)
+            x: lv.focusMode ? Math.max(0, (syncedFlick.width - width) / 2)
+                            : (lv.alignLeft ? lv.sidePad
+                                            : Math.max(0, (syncedFlick.width - width) / 2))
             topPadding: lv.pinTop
             bottomPadding: lv.pinBottom
             spacing: lv.lineGap
@@ -1042,8 +1062,8 @@ Item {
                     readonly property real padR: lv.duet && rrow.sec ? 6 : 0
                     readonly property real textW: Math.max(1, rrow.width - padL - padR)
                     readonly property int rowPx: focused
-                        ? lv.lineSize + lv.activeBoost
-                        : Math.round(lv.lineSize * lv.dimScale
+                        ? lv.effLineSize + lv.activeBoost
+                        : Math.round(lv.effLineSize * lv.dimScale
                                      * (rrow.chorusRow ? 1.08 : 1))
                     // Row pitch of the TextEdit: the halo Text has to use
                     // the same one or it drifts from the line it outlines.
@@ -1118,7 +1138,7 @@ Item {
                         wrapMode: Text.WordWrap
                         text: rrow.modelData.text || ""
                         textFormat: Text.PlainText
-                        font.pixelSize: lv.lineSize + lv.activeBoost
+                        font.pixelSize: lv.effLineSize + lv.activeBoost
                         font.weight: Font.DemiBold
                         lineHeight: 1.32
                     }
@@ -1142,7 +1162,7 @@ Item {
                         lineHeight: rrow.editPitch
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
-                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                                             : (lv.alignLeft ? Text.AlignLeft : Text.AlignHCenter)
                     }
 
                     // The line as it waits: dimmed until it is sung.
@@ -1168,9 +1188,12 @@ Item {
                                      ? Font.DemiBold : Font.Normal
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
-                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                                             : (lv.alignLeft ? Text.AlignLeft : Text.AlignHCenter)
                         lineHeight: 1.32
                         Behavior on color { ColorAnimation { duration: Theme.medMs } }
+                        Behavior on font.pixelSize {
+                            NumberAnimation { duration: Theme.medMs; easing.type: Easing.OutCubic }
+                        }
                     }
 
                     Text {
@@ -1179,6 +1202,8 @@ Item {
                         // sung: it fades with the line once it has passed.
                         visible: rrow.hasTr && !rrow.instrumental
                                  && Math.abs(index - lv.focusedIndex) <= 1
+                        opacity: rrow.hasTr ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: Theme.medMs } }
                         x: rrow.padL
                         width: rrow.textW
                         y: (rrow.karaokeRow ? editBase.contentHeight
@@ -1189,10 +1214,10 @@ Item {
                         // reading aid, not another accent element.
                         color: lv.inkDim
                         wrapMode: Text.WordWrap
-                        font.pixelSize: Math.max(11, Math.round(lv.lineSize * 0.56))
+                        font.pixelSize: Math.max(11, Math.round(lv.effLineSize * 0.56))
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? Text.AlignRight : Text.AlignLeft)
-                                             : (lv.leftAlign ? Text.AlignLeft : Text.AlignHCenter)
+                                             : (lv.alignLeft ? Text.AlignLeft : Text.AlignHCenter)
                     }
 
                     // Instrumental stretch: three dots that light one by
@@ -1206,13 +1231,13 @@ Item {
                         x: rrow.padL + (lv.duet
                                         ? (rrow.sec
                                            ? Math.max(0, rrow.textW - width) : 0)
-                                        : (lv.leftAlign
+                                        : (lv.alignLeft
                                            ? 0
                                            : Math.max(0, (rrow.textW - width) / 2)))
                         y: Math.round((rrow.height - height) / 2)
                         spacing: Math.round(noteRow.dotSize * 0.8)
 
-                        readonly property real dotSize: Math.max(6, Math.round(lv.lineSize * 0.42))
+                        readonly property real dotSize: Math.max(6, Math.round(lv.effLineSize * 0.42))
                         // How much of the stretch has gone by (0..1).
                         readonly property real p: Theme.clamp(
                             (lv.karaokePos - rrow.instrStart) / rrow.instrSpan, 0, 1)
@@ -1267,7 +1292,7 @@ Item {
                         font.weight: Font.DemiBold
                         horizontalAlignment: lv.duet
                                              ? (rrow.sec ? TextEdit.AlignRight : TextEdit.AlignLeft)
-                                             : (lv.leftAlign ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
+                                             : (lv.alignLeft ? TextEdit.AlignLeft : TextEdit.AlignHCenter)
                     }
 
                     Item {
@@ -1440,7 +1465,7 @@ Item {
             y: 36
             text: lv.plainText
             color: lv.ink
-            font.pixelSize: Math.max(15, lv.lineSize - 1)
+            font.pixelSize: Math.max(15, lv.effLineSize - 1)
             lineHeight: 1.55
             horizontalAlignment: Text.AlignLeft
             wrapMode: Text.WrapAtWordBoundaryOrAnywhere

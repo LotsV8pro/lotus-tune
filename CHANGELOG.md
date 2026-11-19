@@ -3,6 +3,36 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## Próxima versión (sin publicar)
+
+### Interfaz
+
+- Nueva apariencia Lotus, seleccionable en Ajustes. La clásica sigue siendo la que viene por defecto.
+- Temas de color, modo compacto, vistas de Inicio y orden de las páginas de navegación.
+- Animaciones en botones, tarjetas, letra y menús, con respeto al movimiento reducido del sistema.
+- Barra del reproductor rediseñada, panel lateral flotante y cola con resumen y mezcla.
+- Atajos configurables y botones de control nuevos en la barra y en la pantalla de letras.
+
+### Letras
+
+- Más correcciones de palabras pegadas y de letras duplicadas.
+- Instrumentales con barrido, traducción al copiar y exportación e importación en LRC.
+- Más fuentes encontradas al buscar letras y edición de la línea activa.
+
+### Reproducción y datos
+
+- Temporizador de sueño, scrobble a Last.fm y archivo `now-playing.json` para barras de escritorio.
+- Perfiles de audio en escritorio, opciones al terminar la cola y saltar canciones sin letra.
+- Exportación e importación de ajustes, historial y cola; borrado de cachés por canción, artista y lista.
+- Búsqueda global, ordenación de listas, filtros por fuente y vistas de artistas y géneros.
+
+### Correcciones
+
+- El artista y el título se muestran limpios en la barra, el widget y la pantalla de letras.
+- La pantalla de letras sale del modo presentación con Escape, con el gesto de atrás o tocando el fondo.
+- En el teléfono, los controles de una lista dejan de superponerse y el botón de cola vuelve a funcionar.
+- Rendimiento y fluidez mejorados en listas largas y en Android.
+
 ## 2.1.7 (2026-11-18)
 
 ### Letras

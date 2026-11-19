@@ -16,6 +16,8 @@ Item {
     id: side
 
     property string page: "home"
+    // Orden elegido por el usuario para Inicio/Buscar/Biblioteca.
+    property var mainPageOrder: ["home", "search", "library"]
     property string trackTitle: ""
     property string trackArtist: ""
     property string trackThumb: ""
@@ -57,12 +59,20 @@ Item {
             side.navigate(id)
     }
 
-    // Arriba: las tres secciones principales.
-    readonly property var topItems: [
-        { id: "home",    label: qsTr("Inicio"),     icon: "home" },
-        { id: "search",  label: qsTr("Buscar"),     icon: "search" },
-        { id: "library", label: qsTr("Biblioteca"), icon: "library" }
-    ]
+    readonly property var allTopItems: ({
+        home:    { id: "home",    label: qsTr("Inicio"),     icon: "home" },
+        search:  { id: "search",  label: qsTr("Buscar"),     icon: "search" },
+        library: { id: "library", label: qsTr("Biblioteca"), icon: "library" }
+    })
+
+    // Arriba: las tres secciones principales, en el orden elegido.
+    readonly property var topItems: {
+        const out = []
+        side.mainPageOrder.forEach(function (id) {
+            if (side.allTopItems[id]) out.push(side.allTopItems[id])
+        })
+        return out
+    }
     // Abajo: lo demas y Ajustes, en ultimo lugar (como la referencia).
     readonly property var bottomItems: [
         { id: "liked",     label: qsTr("Me gusta"),  icon: "heart" },

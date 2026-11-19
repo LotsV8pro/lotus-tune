@@ -145,3 +145,28 @@ widget.
   "ts": 1794382470433
 }
 ```
+
+## Carrying lyrics between devices
+
+Settings → Lyrics can export the current lyrics as an `.lrc` file and import
+one back. The export keeps the line times (and enhanced-LRC word stamps when
+the source had them), so a corrected track can be moved to another device or
+kept as a backup. A line marked instrumental is written as `♪ ♪ ♪`.
+
+Import rejects any file without a `[mm:ss.xx]` stamp, so picking a random text
+file does not wipe the current lyrics. An imported LRC replaces the worded
+copy that was in the cache and keeps the track's file path.
+
+When a provider reports that a whole track is instrumental, the app publishes
+a single instrumental line and stops searching the other sources: there is no
+text to find, and asking five catalogues for it only delays the next track.
+The published source is the one that reported it, not always `lrclib`.
+
+## Duplicate lines
+
+Two sources can contribute the same phrase at the same instant: an adlib merge
+or a cached line kept beside its timed copy. Before publishing, the app sorts
+the lines by time and collapses copies that share text within 1.5 seconds,
+keeping the one with word timings or a translation. A real repeat seconds later
+is a different line and stays.
+

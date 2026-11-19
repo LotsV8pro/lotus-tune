@@ -9,8 +9,18 @@ Canvas {
     property color petalColor: "#e9c7e0"
     property bool active: false
     property real baseScale: 1.0
+    // The Lotus interface draws the same five petals with a thicker stroke
+    // and a soft halo. Classic keeps the original flat, hairline-free mark.
+    readonly property bool lotusStyle: typeof Sys !== "undefined"
+                                       && Sys.interfaceStyle === "lotus"
+
+    Connections {
+        target: typeof Sys !== "undefined" ? Sys : null
+        function onPaletteChanged() { mark.requestPaint() }
+    }
 
     onPetalColorChanged: requestPaint()
+    onLotusStyleChanged: requestPaint()
     onWidthChanged: requestPaint()
     onHeightChanged: requestPaint()
     Component.onCompleted: {
@@ -72,6 +82,19 @@ Canvas {
         const s = Math.min(width, height) / 24
         const angles = [-70, -35, 0, 35, 70]
 
+        if (lotusStyle) {
+            // Soft violet halo behind the petals: no image files, no shader.
+            const halo = ctx.createRadialGradient(cx, cy - 5 * s, 0,
+                                                  cx, cy - 5 * s, 13 * s)
+            const C = Qt.rgba(0.55, 0.36, 0.89, 1)
+            halo.addColorStop(0, Qt.rgba(C.r, C.g, C.b, 0.30))
+            halo.addColorStop(1, Qt.rgba(C.r, C.g, C.b, 0))
+            ctx.fillStyle = halo
+            ctx.beginPath()
+            ctx.arc(cx, cy - 5 * s, 13 * s, 0, Math.PI * 2)
+            ctx.fill()
+        }
+
         for (let i = 0; i < angles.length; i++) {
             ctx.save()
             ctx.translate(cx, cy)
@@ -84,6 +107,14 @@ Canvas {
             ctx.bezierCurveTo(-5.4, -4, -4.3, -10.5, 0, -13)
             ctx.bezierCurveTo(4.3, -10.5, 5.4, -4, 0, 0)
             ctx.fill()
+            if (lotusStyle) {
+                // Thicker contour: the petals stay the same shape, only the
+                // outline gains weight so the mark reads at small sizes.
+                ctx.lineWidth = 1.6
+                ctx.strokeStyle = Qt.rgba(0.42, 0.22, 0.66, 0.85)
+                ctx.globalAlpha = 1
+                ctx.stroke()
+            }
             ctx.restore()
         }
     }

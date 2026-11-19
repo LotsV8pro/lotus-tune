@@ -12,6 +12,10 @@ La biblioteca guarda listas, descargas y reproducciones recientes. La barra de B
 
 La interfaz sale en español, inglés, francés, alemán y portugués. MPRIS funciona en escritorio. Discord Rich Presence funciona en escritorio; en Android figura como próximamente.
 
+## Funciones
+
+Temporizador de sueño, scrobble a Last.fm y exportación o importación de letras LRC. Puedes exportar la biblioteca, el historial y los ajustes, y elegir la fuente de letras por defecto. El buscador filtra la cola sin perder el orden original. El archivo `now-playing.json` publica la canción actual para barras de escritorio y OBS.
+
 ## Ejecutar
 
 Linux necesita Qt 6, Qt Quick, Qt Multimedia, mpv, yt-dlp y Python 3.

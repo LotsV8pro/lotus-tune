@@ -4,6 +4,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFileInfo>
 #include <QSettings>
 #include <QStandardPaths>
@@ -219,4 +221,87 @@ void AppConfig::saveLogin(const QString &sourceId, const QString &v1,
         set(QStringLiteral("cookiesFromBrowser"), v1);
     }
     save();
+}
+
+QString AppConfig::exportAll() const
+{
+    QJsonObject o;
+    for (auto it = m_values.constBegin(); it != m_values.constEnd(); ++it)
+        o.insert(it.key(), QJsonValue::fromVariant(it.value()));
+    return QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Indented));
+}
+
+bool AppConfig::importAll(const QString &json)
+{
+    const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+    if (!doc.isObject())
+        return false;
+    const QJsonObject o = doc.object();
+    for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
+        const QString key = it.key();
+        if (isThemeKey(key)) {
+            m_dirtyTheme.insert(key, it.value().toVariant());
+        } else {
+            m_dirtyApp.insert(key, it.value().toVariant());
+        }
+        m_values.insert(key, it.value().toVariant());
+    }
+    save();
+    return true;
+}
+
+bool AppConfig::exportSettingsFile(const QString &path) const
+{
+    if (path.isEmpty())
+        return false;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return f.write(exportAll().toUtf8()) > 0;
+}
+
+bool AppConfig::importSettingsFile(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    if (f.size() > 1024 * 1024)   // settings are a few KB at most
+        return false;
+    const QByteArray data = f.readAll();
+    f.close();
+    return importAll(QString::fromUtf8(data));
+}
+
+bool AppConfig::exportQueueFile(const QString &path, const QString &json) const
+{
+    const QByteArray data = json.toUtf8();
+    if (path.isEmpty() || data.isEmpty() || data.size() > 1024 * 1024)
+        return false;
+    if (!QDir().mkpath(QFileInfo(path).absolutePath()))
+        return false;
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return f.write(data) > 0;
+}
+
+QString AppConfig::readQueueFile(const QString &path) const
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly))
+        return QString();
+    if (f.size() > 1024 * 1024)   // a queue is a few KB at most
+        return QString();
+    return QString::fromUtf8(f.readAll());
+}
+
+bool AppConfig::writeNowPlaying(const QString &json) const
+{
+    const QString dir = AppPaths::stateDir();
+    if (!QDir().mkpath(dir))
+        return false;
+    QFile f(dir + QStringLiteral("/now-playing.json"));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return f.write(json.toUtf8()) > 0;
 }

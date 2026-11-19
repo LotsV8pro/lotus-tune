@@ -186,6 +186,9 @@ Item {
                     anchors.fill: parent
                     source: page.artistThumb
                     radiusSpec: Theme.rLg
+                    // Fade de entrada de la portada al abrir/cargar.
+                    opacity: artImg.ready ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.slowMs } }
                 }
                 Glyph {
                     anchors.centerIn: parent
@@ -584,6 +587,9 @@ Item {
                                    ? Theme.hover(Theme.sAlt(Sys.bg, Sys.text))
                                    : "transparent"
                             Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+                            // Escala al hover (solo escritorio, sin shaders).
+                            scale: (!Theme.touch && srowMa.containsMouse) ? 1.02 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
 
                             MouseArea {
                                 id: srowMa
@@ -688,24 +694,32 @@ Item {
                         width: parent.width
                         height: page.railH
                         orientation: ListView.Horizontal
+                        reuseItems: true
+                        cacheBuffer: 400
                         spacing: Theme.s3
                         clip: true
                         model: page.albums
                         boundsBehavior: Flickable.StopAtBounds
 
-                        delegate: CoverCard {
+                        delegate: Item {
                             required property var modelData
                             width: page.cardW
                             height: page.railH
-                            name: String(modelData.title || "")
-                            subtitle: String(modelData.subtitle || "")
-                            thumb: String(modelData.thumb || "")
-                            glyph: "disc"
-                            showActions: true
-                            downloaded: page.isDownloaded(modelData)
-                            onClicked: page.albumOpenRequested(modelData)
-                            onPlayClicked: page.albumPlayRequested(modelData)
-                            onDownloadClicked: page.albumDownloadRequested(modelData)
+                            scale: (!Theme.touch && artCard.hovered) ? 1.04 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                            CoverCard {
+                                id: artCard
+                                anchors.fill: parent
+                                name: String(modelData.title || "")
+                                subtitle: String(modelData.subtitle || "")
+                                thumb: String(modelData.thumb || "")
+                                glyph: "disc"
+                                showActions: true
+                                downloaded: page.isDownloaded(modelData)
+                                onClicked: page.albumOpenRequested(modelData)
+                                onPlayClicked: page.albumPlayRequested(modelData)
+                                onDownloadClicked: page.albumDownloadRequested(modelData)
+                            }
                         }
                     }
                 }
@@ -731,24 +745,32 @@ Item {
                         width: parent.width
                         height: page.railH
                         orientation: ListView.Horizontal
+                        reuseItems: true
+                        cacheBuffer: 400
                         spacing: Theme.s3
                         clip: true
                         model: page.singles
                         boundsBehavior: Flickable.StopAtBounds
 
-                        delegate: CoverCard {
+                        delegate: Item {
                             required property var modelData
                             width: page.cardW
                             height: page.railH
-                            name: String(modelData.title || "")
-                            subtitle: String(modelData.subtitle || "")
-                            thumb: String(modelData.thumb || "")
-                            glyph: "disc"
-                            showActions: true
-                            downloaded: page.isDownloaded(modelData)
-                            onClicked: page.albumOpenRequested(modelData)
-                            onPlayClicked: page.albumPlayRequested(modelData)
-                            onDownloadClicked: page.albumDownloadRequested(modelData)
+                            scale: (!Theme.touch && artCard.hovered) ? 1.04 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                            CoverCard {
+                                id: artCard
+                                anchors.fill: parent
+                                name: String(modelData.title || "")
+                                subtitle: String(modelData.subtitle || "")
+                                thumb: String(modelData.thumb || "")
+                                glyph: "disc"
+                                showActions: true
+                                downloaded: page.isDownloaded(modelData)
+                                onClicked: page.albumOpenRequested(modelData)
+                                onPlayClicked: page.albumPlayRequested(modelData)
+                                onDownloadClicked: page.albumDownloadRequested(modelData)
+                            }
                         }
                     }
                 }
@@ -774,25 +796,33 @@ Item {
                         width: parent.width
                         height: page.railH
                         orientation: ListView.Horizontal
+                        reuseItems: true
+                        cacheBuffer: 400
                         spacing: Theme.s3
                         clip: true
                         model: page.radioModel
                         boundsBehavior: Flickable.StopAtBounds
 
-                        delegate: CoverCard {
+                        delegate: Item {
                             required property var modelData
                             width: page.cardW
                             height: page.railH
-                            name: String(modelData.title || "")
-                            subtitle: String(modelData.subtitle || "")
-                            thumb: String(modelData.thumb || "")
-                            glyph: modelData.radio === true ? "radio" : "list"
-                            onClicked: {
-                                if (modelData.radio === true)
-                                    page.radioRequested()
-                                else
-                                    page.listRequested(String(modelData.id || ""),
-                                                       String(modelData.title || ""))
+                            scale: (!Theme.touch && artCard.hovered) ? 1.04 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                            CoverCard {
+                                id: artCard
+                                anchors.fill: parent
+                                name: String(modelData.title || "")
+                                subtitle: String(modelData.subtitle || "")
+                                thumb: String(modelData.thumb || "")
+                                glyph: modelData.radio === true ? "radio" : "list"
+                                onClicked: {
+                                    if (modelData.radio === true)
+                                        page.radioRequested()
+                                    else
+                                        page.listRequested(String(modelData.id || ""),
+                                                           String(modelData.title || ""))
+                                }
                             }
                         }
                     }
@@ -819,19 +849,27 @@ Item {
                         width: parent.width
                         height: page.railH
                         orientation: ListView.Horizontal
+                        reuseItems: true
+                        cacheBuffer: 400
                         spacing: Theme.s3
                         clip: true
                         model: page.similar
                         boundsBehavior: Flickable.StopAtBounds
 
-                        delegate: CoverCard {
+                        delegate: Item {
                             required property var modelData
                             width: page.cardW
                             height: page.railH
-                            name: String(modelData.name || "")
-                            subtitle: String(modelData.subtitle || "")
-                            thumb: String(modelData.thumb || "")
-                            onClicked: page.similarRequested(modelData)
+                            scale: (!Theme.touch && artCard.hovered) ? 1.04 : 1
+                            Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                            CoverCard {
+                                id: artCard
+                                anchors.fill: parent
+                                name: String(modelData.name || "")
+                                subtitle: String(modelData.subtitle || "")
+                                thumb: String(modelData.thumb || "")
+                                onClicked: page.similarRequested(modelData)
+                            }
                         }
                     }
                 }

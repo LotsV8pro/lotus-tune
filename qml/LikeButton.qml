@@ -52,6 +52,7 @@ Item {
     }
 
     Glyph {
+        id: heart
         anchors.centerIn: parent
         width: 16
         height: 16
@@ -60,6 +61,24 @@ Item {
         color: btn.liked ? Theme.accentOn(Sys.accent, Sys.bg)
                          : (btn.hovered ? Sys.text : Theme.tDim(Sys.bg, Sys.text))
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
+        scale: 1.0
+        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+        rotation: ma.pressed ? (btn.liked ? 8 : -8) : 0
+        Behavior on rotation {
+            NumberAnimation { duration: Theme.fastMs; easing.type: Easing.OutCubic }
+        }
+        // A short pop when a track becomes liked: the state change is
+        // obvious without relying on the colour alone.
+        SequentialAnimation {
+            running: false
+            id: likePop
+            NumberAnimation { target: heart; property: "scale"; to: 1.35; duration: 110; easing.type: Easing.OutCubic }
+            NumberAnimation { target: heart; property: "scale"; to: 1.0; duration: 200; easing.type: Easing.OutBack }
+        }
+        Connections {
+            target: btn
+            function onLikedChanged() { if (btn.liked) likePop.restart() }
+        }
     }
 
     // MouseArea (not a TapHandler) so the press is taken here and the row

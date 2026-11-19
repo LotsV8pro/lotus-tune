@@ -2,6 +2,7 @@
 #include "paths.h"
 #include "sources.h"
 
+#include <algorithm>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -47,6 +48,16 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
     , m_sources(sources)
 {
     loadLibrary();
+
+    // Tracks the person never wants to hear again (persisted).
+    {
+        QSettings settings;
+        const QStringList list = settings.value(QStringLiteral("blockedTracks"))
+                                     .toStringList();
+        for (const QString &s : list)
+            if (!s.isEmpty())
+                m_blocked.insert(s);
+    }
 
     // Mobile data or not: the QML asks before pre-downloading audio. On the
     // phone every prefetch is a whole file, so a covered connection means
@@ -1783,6 +1794,16 @@ QString Catalog::diagnostics() const
                                              : QStringLiteral(" · ") + m_libraryError);
     if (!m_error.isEmpty())
         out << QStringLiteral("last error: %1").arg(m_error);
+
+    // Support: how many lyric caches are available and whether the public
+    // now-playing file is being written. No cookie values are ever printed.
+    const QString cacheDir = AppPaths::cacheDir() + QStringLiteral("/lyrics");
+    const int lyricCaches = QDir(cacheDir, QStringLiteral("*.json")).count();
+    out << QStringLiteral("lyrics: %1 cached").arg(lyricCaches);
+    out << QStringLiteral("now-playing: %1")
+               .arg(QFile::exists(AppPaths::stateDir()
+                                  + QStringLiteral("/now-playing.json"))
+                        ? QStringLiteral("ok") : QStringLiteral("none"));
     return out.join(QLatin1Char('\n'));
 }
 
@@ -2040,6 +2061,33 @@ bool Catalog::isLiked(const QString &videoId) const
 {
     const QString id = videoIdOf(videoId);
     return !id.isEmpty() && m_likedIds.contains(id);
+}
+
+bool Catalog::isBlocked(const QString &url) const
+{
+    const QString s = url.trimmed();
+    if (s.isEmpty())
+        return false;
+    const QString id = videoIdOf(s);
+    return m_blocked.contains(id.isEmpty() ? s : id);
+}
+
+void Catalog::setBlocked(const QString &url, bool blocked)
+{
+    const QString s = url.trimmed();
+    if (s.isEmpty())
+        return;
+    const QString id = videoIdOf(s);
+    const QString key = id.isEmpty() ? s : id;
+    if (blocked)
+        m_blocked.insert(key);
+    else
+        m_blocked.remove(key);
+    QSettings settings;
+    settings.setValue(QStringLiteral("blockedTracks"),
+                      QStringList(m_blocked.cbegin(), m_blocked.cend()));
+    settings.sync();
+    emit likedChanged();
 }
 
 QString Catalog::videoIdOf(const QString &urlOrId) const
@@ -2781,7 +2829,13 @@ static QString artistWithoutKindPrefix(QString a)
     const QRegularExpressionMatch m = re.match(a);
     if (m.hasMatch())
         a = a.mid(m.capturedLength());
-    return a.trimmed();
+    // YouTube Music artist columns often read "Isirecords and 2 more":
+    // the "and N more" suffix is a UI hint, not part of the artist name.
+    static const QRegularExpression moreRe(
+        QStringLiteral("[,]?\\s+(?:and|y)\\s+\\d+\\s+(?:more|m[aá]s)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    a = a.remove(moreRe).trimmed();
+    return a;
 }
 
 // Video id of a watch url ("...?v=ID" or youtu.be/ID): the search entries
@@ -2823,6 +2877,49 @@ bool Catalog::looksLikePlayCount(const QString &a)
                        "visualizaciones|vistas|views)\\s*$"),
         QRegularExpression::CaseInsensitiveOption);
     return re.match(plainSpaces(a)).hasMatch();
+}
+
+// YT Music often puts the upload channel (a label or a "topic" channel) in
+// the channel/uploader column instead of the performer. When that name is a
+// known label, a title shaped "Artista - Título" carries the real artist and
+// is what the home radio cards must use.
+QString Catalog::realArtistFromTitle(const QString &artist, const QString &title)
+{
+    static const QStringList labels{
+        QStringLiteral("sumerian"), QStringLiteral("sumerian records"),
+        QStringLiteral("fearless records"), QStringLiteral("riserecords"),
+        QStringLiteral("rise records"), QStringLiteral("epitaph records"),
+        QStringLiteral("epitaph"), QStringLiteral("warner records"),
+        QStringLiteral("warner music"), QStringLiteral("atlantic records"),
+        QStringLiteral("interscope records"), QStringLiteral("capitol records"),
+        QStringLiteral("columbia records"), QStringLiteral("rca records"),
+        QStringLiteral("universal music"), QStringLiteral("sony music"),
+        QStringLiteral("top Dawg entertainment"), QStringLiteral("topdawg entertainment"),
+        QStringLiteral("def jam records"), QStringLiteral("budget alien"),
+        QStringLiteral("spinning")
+    };
+    QString a = plainSpaces(artist).trimmed();
+    // "riserecords and 2 more" is a UI hint: strip it before matching the
+    // label (the same cleanup normalize() does via artistWithoutKindPrefix).
+    static const QRegularExpression moreRe(
+        QStringLiteral("[,]?\\s+(?:and|y)\\s+\\d+\\s+(?:more|m[aá]s)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    a = a.remove(moreRe).trimmed();
+    const QString key = a.toLower();
+    const bool known = labels.contains(key)
+        || key.contains(QStringLiteral("-topic"))
+        || key.endsWith(QStringLiteral(" records"))
+        || key.endsWith(QStringLiteral(" recordings"))
+        || key.endsWith(QStringLiteral(" music"));
+    if (!known)
+        return artist;
+
+    const QString t = plainSpaces(title).trimmed();
+    const int dash = t.indexOf(QLatin1String(" - "));
+    if (dash <= 0)
+        return artist;
+    const QString real = t.left(dash).trimmed();
+    return real.isEmpty() ? artist : real;
 }
 
 QVariantMap Catalog::normalize(const QVariantMap &e) const
@@ -2879,6 +2976,10 @@ QVariantMap Catalog::normalize(const QVariantMap &e) const
     }
     if (title.isEmpty())
         return {};
+
+    // A label/channel in the artist column is not the performer: for home
+    // radios recover the artist from a "Artista - Título" title.
+    artist = realArtistFromTitle(artist, title);
 
     if (artist.isEmpty()) {
         // SoundCloud permalink stubs without uploader: owner is the first
@@ -3062,6 +3163,149 @@ bool Catalog::exportLibrary(const QString &path)
         return false;
     saveLibrary();
     return QFile::copy(stateFile(), path);
+}
+
+// The home deck orders its radios by how many plays of that artist are saved
+// on the phone (the listening history). Each artist keeps the track of their
+// most recent play; only the order changes, never the cards themselves.
+QVariantList Catalog::homeRadios() const
+{
+    struct Artist {
+        QString name;
+        int plays = 0;
+        QVariantMap track;
+    };
+    QHash<QString, int> byName;
+    QList<Artist> artists;
+    for (const QVariant &v : m_recent) {
+        const QVariantMap t = v.toMap();
+        QString name = t.value(QStringLiteral("artist")).toString().trimmed();
+        if (name.isEmpty() || looksLikePlayCount(name))
+            continue;
+        const QString key = faceKey(name);
+        int pos = byName.value(key, -1);
+        if (pos < 0) {
+            pos = artists.size();
+            byName.insert(key, pos);
+            artists.append(Artist{name, 0, t});
+        }
+        Artist &a = artists[pos];
+        ++a.plays;
+        // m_recent is newest first: the first track seen stays the seed.
+    }
+
+    std::stable_sort(artists.begin(), artists.end(),
+                     [](const Artist &x, const Artist &y) {
+                         if (x.plays != y.plays)
+                             return x.plays > y.plays;
+                         return x.name.compare(y.name, Qt::CaseInsensitive) < 0;
+                     });
+
+    QVariantList out;
+    QSet<QString> seen;
+    const auto addRadio = [&](const QVariantMap &t, const QString &artist,
+                              const QString &sub) {
+        const QString key = faceKey(artist);
+        if (artist.isEmpty() || seen.contains(key))
+            return;
+        seen.insert(key);
+        QVariantMap r;
+        r.insert(QStringLiteral("kind"), QStringLiteral("radio"));
+        r.insert(QStringLiteral("title"), tr("Radio de %1").arg(artist));
+        r.insert(QStringLiteral("sub"), sub);
+        r.insert(QStringLiteral("icon"), QStringLiteral("radio"));
+        r.insert(QStringLiteral("trackId"), videoIdOf(t.value(QStringLiteral("url")).toString()));
+        r.insert(QStringLiteral("artist"), artist);
+        const QString face = artistThumb(artist);
+        r.insert(QStringLiteral("thumb"),
+                 face.isEmpty() ? t.value(QStringLiteral("thumb")).toString() : face);
+        out.append(r);
+    };
+
+    for (const Artist &a : artists)
+        addRadio(a.track, a.name, a.track.value(QStringLiteral("title")).toString());
+    for (const QVariant &v : m_likedTracks) {
+        if (out.size() >= 10)
+            break;
+        const QVariantMap t = v.toMap();
+        addRadio(t, t.value(QStringLiteral("artist")).toString().trimmed(),
+                 t.value(QStringLiteral("title")).toString());
+    }
+    return out;
+}
+
+QVariantList Catalog::searchLibraryTracks(const QString &query) const
+{
+    return searchInLists(m_playlists, m_recent, query);
+}
+
+QVariantList Catalog::searchInLists(const QVariantList &playlists,
+                                    const QVariantList &recent,
+                                    const QString &query)
+{
+    const QString q = query.trimmed().toLower();
+    QVariantList out;
+    if (q.size() < 2)
+        return out;
+    QSet<QString> seen;
+    const auto add = [&](const QVariantList &src, const QString &listName) {
+        for (const QVariant &v : src) {
+            const QVariantMap m = v.toMap();
+            const QString title = m.value(QStringLiteral("title")).toString();
+            const QString artist = m.value(QStringLiteral("artist")).toString();
+            const QString url = m.value(QStringLiteral("url")).toString();
+            const QString hay = title + QLatin1Char(' ') + artist;
+            if (!hay.toLower().contains(q))
+                continue;
+            const QString key = url + QLatin1Char('|') + title;
+            if (key.isEmpty() || seen.contains(key))
+                continue;
+            seen.insert(key);
+            QVariantMap r;
+            r.insert(QStringLiteral("title"), title);
+            r.insert(QStringLiteral("artist"), artist);
+            r.insert(QStringLiteral("thumb"), m.value(QStringLiteral("thumb")).toString());
+            r.insert(QStringLiteral("url"), url);
+            r.insert(QStringLiteral("listName"), listName);
+            out.append(r);
+            if (out.size() >= 30)
+                return;
+        }
+    };
+    add(recent, QStringLiteral("Historial"));
+    for (const QVariant &v : playlists) {
+        const QVariantMap pl = v.toMap();
+        add(pl.value(QStringLiteral("tracks")).toList(),
+            pl.value(QStringLiteral("name")).toString());
+        if (out.size() >= 30)
+            break;
+    }
+    return out;
+}
+
+bool Catalog::exportRecentCsv(const QString &path)
+{
+    if (path.isEmpty())
+        return false;
+    QStringList rows;
+    rows.append(QStringLiteral("artist,title,url"));
+    const auto csv = [](const QString &s) {
+        QString v = s;
+        v.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        return QLatin1Char('"') + v + QLatin1Char('"');
+    };
+    for (const QVariant &v : m_recent) {
+        const QVariantMap m = v.toMap();
+        rows.append(csv(m.value(QStringLiteral("artist")).toString())
+                    + QLatin1Char(',')
+                    + csv(m.value(QStringLiteral("title")).toString())
+                    + QLatin1Char(',')
+                    + csv(m.value(QStringLiteral("url")).toString()));
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    return f.write((rows.join(QLatin1Char('\n')) + QLatin1Char('\n')).toUtf8()) > 0;
 }
 
 bool Catalog::importLibrary(const QString &path)

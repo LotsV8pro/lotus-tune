@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QScreen>
+#include <QSettings>
 #include <QStandardPaths>
 #include <QTextStream>
 #include <QTimer>
@@ -62,6 +63,24 @@ static int androidInsetPx(const char *method)
 
 AppTheme::AppTheme(QObject *parent) : QObject(parent)
 {
+    // The visual interface is an app setting, not a palette override: it
+    // lives in the same QSettings store AppConfig uses and defaults to
+    // "classic" so existing installs keep the interface they had.
+    {
+        QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+        m_interfaceStyle = s.value(QStringLiteral("interfaceStyle"),
+                                   QStringLiteral("classic")).toString();
+        if (m_interfaceStyle != QStringLiteral("lotus"))
+            m_interfaceStyle = QStringLiteral("classic");
+
+        m_lotusAccent = s.value(QStringLiteral("lotusAccent"),
+                                QStringLiteral("violet")).toString();
+        if (m_lotusAccent != QStringLiteral("rose")
+            && m_lotusAccent != QStringLiteral("gold")
+            && m_lotusAccent != QStringLiteral("blue"))
+            m_lotusAccent = QStringLiteral("violet");
+    }
+
     m_watchFiles = {
         QDir::homePath() + "/.local/state/quickshell/user/generated/app-palette.json",
         QDir::homePath() + "/.local/state/quickshell/user/generated/colors.json",
@@ -124,6 +143,38 @@ void AppTheme::refreshInsets()
     m_safeBottom = bottom;
     qInfo() << "[theme] system bars:" << m_safeTop << "/" << m_safeBottom << "dp";
     emit insetsChanged();
+}
+
+void AppTheme::setInterfaceStyle(const QString &style)
+{
+    const QString next = (style == QStringLiteral("lotus"))
+                             ? QStringLiteral("lotus")
+                             : QStringLiteral("classic");
+    if (m_interfaceStyle == next)
+        return;
+    m_interfaceStyle = next;
+    QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    s.setValue(QStringLiteral("interfaceStyle"), next);
+    s.sync();
+    // Recompute the palette: the Lotus style uses a violet accent, so the
+    // whole interface (not just a few cards) has to be repainted.
+    reload();
+}
+
+void AppTheme::setLotusAccent(const QString &accent)
+{
+    const QString next = (accent == QStringLiteral("rose")
+                          || accent == QStringLiteral("gold")
+                          || accent == QStringLiteral("blue"))
+                             ? accent
+                             : QStringLiteral("violet");
+    if (m_lotusAccent == next)
+        return;
+    m_lotusAccent = next;
+    QSettings s(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+    s.setValue(QStringLiteral("lotusAccent"), next);
+    s.sync();
+    reload();
 }
 
 void AppTheme::scheduleReload()
@@ -225,24 +276,76 @@ void AppTheme::loadOverrides()
     m_over.clear();
     m_followSystem = true;
 
+    // config.ini: explicit overrides (the desktop shell writes here).
     QFile f(AppPaths::configFile());
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-        return;
-
-    QTextStream in(&f);
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        if (line.isEmpty() || line.startsWith('#') || line.startsWith(';'))
-            continue;
-        const int eq = line.indexOf('=');
-        if (eq <= 0)
-            continue;
-        const QString key = line.left(eq).trimmed().toLower();
-        const QString val = line.mid(eq + 1).trimmed();
-        m_over.insert(key, val);
+    if (f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream in(&f);
+        while (!in.atEnd()) {
+            const QString line = in.readLine().trimmed();
+            if (line.isEmpty() || line.startsWith('#') || line.startsWith(';'))
+                continue;
+            const int eq = line.indexOf('=');
+            if (eq <= 0)
+                continue;
+            const QString key = line.left(eq).trimmed().toLower();
+            const QString val = line.mid(eq + 1).trimmed();
+            m_over.insert(key, val);
+        }
+        f.close();
     }
-    m_followSystem = m_over.value("followsystem", "true").toString()
-                         .compare(QLatin1String("false"), Qt::CaseInsensitive) != 0;
+
+    // The Settings UI writes the accent through AppConfig (lotus-tune.conf),
+    // not config.ini. Read it too, so "Apply" really changes the palette.
+    QFile ui(AppPaths::configDir() + QStringLiteral("/lotus-tune.conf"));
+    if (ui.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QTextStream ts(&ui);
+        while (!ts.atEnd()) {
+            const QString line = ts.readLine().trimmed();
+            const int eq = line.indexOf(QLatin1Char('='));
+            if (eq <= 0)
+                continue;
+            if (line.left(eq).trimmed().compare(QLatin1String("accent"),
+                                                Qt::CaseInsensitive) == 0) {
+                const QString accent = line.mid(eq + 1).trimmed();
+                if (QColor(accent).isValid())
+                    m_over.insert(QStringLiteral("accent"), accent);
+                break;
+            }
+        }
+        ui.close();
+    }
+
+    // The Lotus interface has its own accent theme. An explicit accent in
+    // Settings still wins, so the user can override it. On a light system
+    // background the accent must be darker to stay readable.
+    if (m_interfaceStyle == QStringLiteral("lotus")
+        && !m_over.contains(QStringLiteral("accent"))) {
+        const QString sysBg = pick(m_sys,
+                                   { QStringLiteral("app_window_bg"),
+                                     QStringLiteral("app_background"),
+                                     QStringLiteral("background") },
+                                   QString());
+        const bool light = QColor(sysBg).isValid()
+                           && QColor(sysBg).lightness() > 128;
+        QString dark, bright;
+        if (m_lotusAccent == QStringLiteral("rose")) {
+            dark = QStringLiteral("#be185d");
+            bright = QStringLiteral("#f472b6");
+        } else if (m_lotusAccent == QStringLiteral("gold")) {
+            dark = QStringLiteral("#b45309");
+            bright = QStringLiteral("#fbbf24");
+        } else if (m_lotusAccent == QStringLiteral("blue")) {
+            dark = QStringLiteral("#1d4ed8");
+            bright = QStringLiteral("#60a5fa");
+        } else {
+            dark = QStringLiteral("#6d28d9");
+            bright = QStringLiteral("#9d7bff");
+        }
+        m_over.insert(QStringLiteral("accent"), light ? dark : bright);
+    }
+
+    m_followSystem = m_over.value(QStringLiteral("followsystem"), QStringLiteral("true"))
+                         .toString().compare(QLatin1String("false"), Qt::CaseInsensitive) != 0;
 }
 
 void AppTheme::reload()
@@ -287,7 +390,8 @@ void AppTheme::reload()
     m_accentDim = m_accent;
     m_accentDim.setAlpha(0x55);
 
-    qInfo("[theme] palette loaded: source=%s accent=%s bg=%s followingSystem=%d",
+    qInfo("[theme] style=%s palette loaded: source=%s accent=%s bg=%s followingSystem=%d",
+          qPrintable(m_interfaceStyle),
           qPrintable(m_source), qPrintable(m_accent.name(QColor::HexRgb)),
           qPrintable(m_bg.name(QColor::HexRgb)), m_followSystem ? 1 : 0);
 

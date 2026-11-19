@@ -9,6 +9,7 @@
 #include "downloads.h"
 #include "sfx.h"
 #include "lyrics.h"
+#include "lastfm.h"
 #ifndef Q_OS_ANDROID
 #include "mpris.h"
 #endif
@@ -729,6 +730,11 @@ int main(int argc, char *argv[])
     // The engine feeds the lyrics state published for the inir widgets
     // (clock position and play/pause). See Lyrics::setEngine.
     lyrics.setEngine(&player);
+
+    // Last.fm scrobbling (API 2.0). Session key and credentials live in
+    // QSettings; nothing is hardcoded here.
+    LastFm lastfm;
+    engine.rootContext()->setContextProperty(QStringLiteral("lastfm"), &lastfm);
 
     // Discord Rich Presence. On a phone there is no local socket for it:
     // a do-nothing object with the same API is exposed instead.

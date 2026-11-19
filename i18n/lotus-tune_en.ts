@@ -4593,4 +4593,279 @@
         <translation>There is no published version yet for %1</translation>
     </message>
 </context>
+<context>
+    <name>LotusTuneNew</name>
+    <message>
+        <source>15 min</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>30 min</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>45 min</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>60 min</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>API key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Abrir en YouTube Music</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aceptar</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ajustes (*.json)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ajustes exportados a %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ajustes importados; reinicia la app</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Al terminar, pasa a la siguiente que tenga letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Apagar la música automáticamente</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Archivo de letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biblioteca de LotusTune (*.json)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biblioteca exportada a %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biblioteca importada</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Buscar en la cola</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Canciones encontradas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color aplicado</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Contraseña</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copia de los ajustes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copiar letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copiar letra y traducción</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Desactivado</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicar en la cola</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Envía las pistas reproducidas a Last.fm</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Escuchadas recientemente</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exportar LRC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exportar ajustes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exportar historial (CSV)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exportar la biblioteca</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guarda la letra actual en LRC o carga una desde un archivo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guarda todas tus preferencias en un archivo y restáuralas en otro equipo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Guardar letra (LRC)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Historial</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Historial exportado a %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar LRC</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar ajustes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar la biblioteca</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar la biblioteca de Lotus Tune</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar los ajustes de Lotus Tune</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importar una letra (LRC)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Las canciones se envían a Last.fm cuando terminen o se cambie de pista.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Last.fm</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Letra LRC (*.lrc)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Letra copiada</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Letra guardada</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Letra importada</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Letra y traducción copiadas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Límite para las descargas; 0 las deja ir a máxima velocidad</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mover abajo en la cola</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mover arriba en la cola</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo exportar el historial</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo exportar la biblioteca</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo exportar los ajustes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo guardar la letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo importar la biblioteca</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo importar la letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No se pudo importar los ajustes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pausa la reproducción al terminar el tiempo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saltar canciones sin letra</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scrobble activado</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Secret</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Temporizador terminado</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Todos los archivos (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tus listas e historial. Guárdalos antes de cambiar de equipo o de reinstalar la app.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Usuario</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Velocidad máxima</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
 </TS>

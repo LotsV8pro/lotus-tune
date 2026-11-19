@@ -30,13 +30,38 @@ Rectangle {
     property bool loading: false
     property real position: 0
     property real duration: 0
+    property bool showRemaining: false
+    // Bitrate of the chosen itag (for example "131 kbps"). Empty = unknown.
+    property string audioInfo: ""
     property string title: ""
     property string artist: ""
+    // Fades the track info on a song change instead of swapping text dry.
+    property real infoOpacity: 1
+    SequentialAnimation {
+        id: infoFade
+        NumberAnimation {
+            target: bar; property: "infoOpacity"
+            to: 0.25; duration: Theme.fastMs
+            easing.type: Easing.OutCubic
+        }
+        NumberAnimation {
+            target: bar; property: "infoOpacity"
+            to: 1; duration: Theme.fastMs * 2
+            easing.type: Easing.OutCubic
+        }
+    }
+    onVideoIdChanged: if (videoId !== "") infoFade.restart()
     property string currentThumb: ""
+    // Cover size in the bar: 0 small (28 px), 1 normal (40), 2 large (56).
+    property int coverSizeMode: 1
+    readonly property int coverSize: coverSizeMode === 0 ? 28
+                                    : (coverSizeMode === 2 ? 40 : 36)
     property int volume: 70
     property bool shuffle: false
     // 0 = no repeat, 1 = repeat the list, 2 = repeat the track.
     property int repeatMode: 0
+    // Seconds left on the sleep timer; 0 = off (no indicator shown).
+    property int sleepRemaining: 0
     // videoId of the current track + its "liked" state (YouTube Music).
     property string videoId: ""
     // Is the right panel currently showing the QUEUE? (highlights the
@@ -59,7 +84,12 @@ Rectangle {
     signal cinemaRequested()
     signal seekRequested(real seconds)
     signal volumeWanted(int value)
+    signal muteRequested()
+    // Wheel over the bar: ±5 per notch, desktop only.
+    signal volumeWheel(int delta)
     signal likeRequested()
+    // Double click on the cover: mark/unmark "Me gusta" of the current track.
+    signal likeDoubleClicked()
     signal addToPlaylistRequested()
     // Context menu of the track (right click on the left hand info) and
     // go to the artist (click on their name).
@@ -67,15 +97,19 @@ Rectangle {
     signal artistRequested(string name)
 
     // A line like "Skrillex, Naisha y BEAM" is three artists, not one.
-    // Each name gets its own chip so it can open its own page.
-    function artistNames() {
-        const s = String(bar.artist || "").trim()
-        if (s === "")
+    // Each name gets its own chip so it can open its own page. Cached so
+    // the split/filter only runs when the artist actually changes, not on
+    // every repaint of the bar.
+    property var artistChips: []
+    function splitArtists(s) {
+        const t = String(s || "").trim()
+        if (t === "")
             return []
-        const parts = s.split(/,|&|\s+y\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+|\s+con\s+/i)
-        return parts.map(function (p) { return p.trim() })
-                    .filter(function (p) { return p.length > 0 })
+        return t.split(/,|&|\s+y\s+|\s+feat\.?\s+|\s+ft\.?\s+|\s+featuring\s+|\s+con\s+/i)
+                .map(function (p) { return p.trim() })
+                .filter(function (p) { return p.length > 0 })
     }
+    onArtistChanged: bar.artistChips = bar.splitArtists(bar.artist)
 
     property bool scrubbing: false
     property real scrubPos: 0
@@ -121,7 +155,7 @@ Rectangle {
     // Horizontal follow while swiping to the next/previous track.
     property real dragX: 0
 
-    // Island height: the bar measures exactly what its surface does.
+    // Island height plus the queue strip when it is shown.
     implicitHeight: Theme.playerBarH
     color: "transparent"
 
@@ -129,7 +163,7 @@ Rectangle {
     // full-width band. On the desktop it keeps air on both sides; on the
     // phone it lines up with the tab bar (same width, same corner) and
     // floats a step above it, so the two read as one stack.
-    readonly property int pillW: compact ? width : Math.min(width, 720)
+    readonly property int pillW: compact ? width : Math.min(width, 560)
 
     // The bar FOLLOWS the finger when pulled up: the gesture is visible, not
     // just guessed. No Behavior while dragging (it would lag behind the
@@ -157,6 +191,13 @@ Rectangle {
     readonly property color _fill: Theme.accentOn(Sys.accent, Sys.surface)
     readonly property color _ink: Theme.onAccent(Sys.accent)
 
+    // Lotus progress fill: accent to a lighter tint, painted on the track.
+    Gradient {
+        id: lotusFill
+        GradientStop { position: 0.0; color: Sys.accent }
+        GradientStop { position: 1.0; color: Theme.mix(Sys.accent, "#ffffff", 0.45) }
+    }
+
     // ---- reusable icon button ---------------------------------------
     // Icon of the bar, in the same language as the sidebar of the reference
     // (Liner): no box and no background circle, a bare icon; the inactive one
@@ -169,6 +210,11 @@ Rectangle {
         property int diameter: bar.compact ? 40 : 34
         property real glyph: bar.compact ? 22 : 20
         signal tapped()
+        // Inside a RowLayout `width` is ignored: without a preferred size
+        // every button collapsed to the same spot and the queue tap hit
+        // the cinema button stacked on top of it.
+        Layout.preferredWidth: diameter
+        Layout.preferredHeight: diameter
         width: diameter
         height: diameter
         radius: diameter / 2
@@ -176,10 +222,15 @@ Rectangle {
         // An active shuffle/repeat has its own pill: opacity alone was
         // impossible to tell apart on a phone screen.
         color: bb.active ? Theme.alpha(Sys.accent, 0.20) : "transparent"
-        border.width: bb.active ? 1 : 0
-        border.color: Theme.alpha(Sys.accent, 0.45)
-        scale: bbHover.pressed ? 0.92 : 1
-        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+        // Tap pop: grow a little then settle back with a soft overshoot.
+        property real pop: 1
+        property real popTo: 1.18
+        scale: (bbHover.pressed ? 0.92 : 1) * pop
+        SequentialAnimation {
+            id: popAnim
+            NumberAnimation { target: bb; property: "pop"; to: bb.popTo; duration: Theme.animMs(90) }
+            NumberAnimation { target: bb; property: "pop"; to: 1; duration: Theme.animMs(220); easing.type: Easing.OutBack }
+        }
         HoverHandler { id: bbHover; cursorShape: Qt.PointingHandCursor }
         Glyph {
             anchors.centerIn: parent
@@ -191,7 +242,7 @@ Rectangle {
             opacity: bb.active ? 1.0 : (bbHover.hovered ? 0.95 : 0.62)
             Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
         }
-        TapHandler { onTapped: { if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
+        TapHandler { onTapped: { popAnim.restart(); if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
     }
 
     // ---- draggable zone: the WHOLE bar ------------------------------
@@ -280,9 +331,15 @@ Rectangle {
     Panel {
         id: island
         anchors.top: parent.top
-        anchors.bottom: parent.bottom
         anchors.horizontalCenter: parent.horizontalCenter
+        // Mouse wheel changes volume; disabled on touch devices.
+        WheelHandler {
+            enabled: !Theme.touch
+            acceptedDevices: PointerDevice.Mouse
+            onWheel: (event) => bar.volumeWheel(Math.sign(event.angleDelta.y) * 5)
+        }
         width: bar.pillW
+        height: Theme.playerBarH
         // Rounded card (same language as the tab bar), not a capsule.
         radius: bar.compact ? Theme.rLg : Theme.rPanel
         antialiasing: true
@@ -333,12 +390,39 @@ Rectangle {
                         width: parent.width; height: 3; radius: 1.5
                         color: bar._trackLine
                     }
-                    // Fill.
+                    // Fill. Lotus gets a soft violet gradient (accent blended
+                    // towards the light); Classic keeps the flat colour.
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.max(0, parent.width * scrubTrack.ratio)
                         height: 3; radius: 1.5
-                        color: bar._fill
+                        color: Sys.interfaceStyle === "lotus" ? "transparent" : bar._fill
+                        gradient: Sys.interfaceStyle === "lotus" ? lotusFill : null
+                        Behavior on width {
+                            enabled: !bar.scrubbing
+                            NumberAnimation {
+                                duration: Theme.fastMs
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                    }
+                    // Position dot: a 6 px point riding the filled end, Lotus only.
+                    Rectangle {
+                        x: Math.max(0, parent.width * scrubTrack.ratio - width / 2)
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 6; height: 6; radius: 3
+                        antialiasing: true
+                        visible: Sys.interfaceStyle === "lotus"
+                        color: Theme.mix(Sys.accent, "#ffffff", 0.45)
+                        scale: bar.scrubbing ? 1.5 : 1.0
+                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                        Behavior on x {
+                            enabled: !bar.scrubbing
+                            NumberAnimation {
+                                duration: Theme.fastMs
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                     }
                     // Knob: small, always visible (there is no hover on a
                     // phone) and bigger while scrubbing.
@@ -350,6 +434,9 @@ Rectangle {
                         radius: width / 2
                         antialiasing: true
                         color: bar._fill
+                        // In Lotus the violet gradient already has its own
+                        // position dot; two knobs on top looked like a smudge.
+                        visible: Sys.interfaceStyle !== "lotus"
                         opacity: bar.scrubbing ? 1 : (scrubArea.hovered ? 0.95 : 0.75)
                         scale: bar.scrubbing ? 1.25 : 1
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
@@ -438,10 +525,48 @@ Rectangle {
                 }
 
                 Text {
-                    text: Theme.mmss(bar.duration)
-                    color: Theme.tFaint(Sys.bg, Sys.text)
+                    // Chosen audio bitrate: tells apart the high-quality stream.
+                    text: bar.audioInfo
+                    visible: bar.audioInfo !== "" && !bar.compact
+                    color: Theme.tDim(Sys.bg, Sys.text)
+                    font.pixelSize: Theme.tXs
+                }
+
+                Text {
+                    // Tap to switch between total length and time left.
+                    text: bar.showRemaining
+                          ? "-" + Theme.mmss(Math.max(0, bar.duration - bar.shownPosition))
+                          : Theme.mmss(bar.duration)
+                    color: timeMouse.hovered ? Sys.text : Theme.tFaint(Sys.bg, Sys.text)
                     font.pixelSize: Theme.tXs
                     Layout.preferredWidth: 34
+                    MouseArea {
+                        id: timeMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: bar.showRemaining = !bar.showRemaining
+                    }
+                }
+
+                // Sleep timer: clock + mm:ss left, only while it is active.
+                Row {
+                    visible: bar.sleepRemaining > 0
+                    spacing: Theme.s1
+                    Layout.alignment: Qt.AlignVCenter
+                    Glyph {
+                        width: 12; height: 12
+                        anchors.verticalCenter: parent.verticalCenter
+                        kind: "clock"
+                        weight: 1.7
+                        color: bar._fill
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Theme.mmss(bar.sleepRemaining)
+                        color: Theme.tFaint(Sys.bg, Sys.text)
+                        font.pixelSize: Theme.tXs
+                    }
                 }
             }
 
@@ -467,14 +592,15 @@ Rectangle {
                     Layout.preferredWidth: 1
                     Layout.fillHeight: true
 
-                    RowLayout {
+                    Item {
                         anchors.fill: parent
-                        spacing: bar.compact ? Theme.s2 : Theme.s3
 
                         Item {
-                            Layout.alignment: Qt.AlignVCenter
-                            width: bar.compact ? 40 : 30
-                            height: bar.compact ? 40 : 30
+                            id: coverBox
+                            anchors.left: parent.left
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: bar.compact ? 40 : bar.coverSize
+                            height: bar.compact ? 40 : bar.coverSize
                             Rectangle {
                                 anchors.fill: parent
                                 radius: Theme.rSm
@@ -499,40 +625,53 @@ Rectangle {
                                 }
                             }
                             HoverHandler { cursorShape: Qt.PointingHandCursor }
-                            TapHandler {
-                                onTapped: {
+                            // Single tap opens the lyrics; double tap toggles
+                            // "Me gusta". A short timer holds the single tap
+                            // back so a double tap does not also open lyrics.
+                            Timer {
+                                id: coverTapTimer
+                                interval: 260
+                                onTriggered: {
                                     if (typeof sfx !== "undefined")
                                         sfx.play("tap")
                                     bar.lyricsRequested()
                                 }
                             }
+                            MouseArea {
+                                anchors.fill: parent
+                                acceptedButtons: Qt.LeftButton
+                                onClicked: coverTapTimer.restart()
+                                onDoubleClicked: {
+                                    coverTapTimer.stop()
+                                    bar.likeDoubleClicked()
+                                }
+                            }
                         }
 
-                        ColumnLayout {
+                        Column {
                             id: infoCol
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            spacing: 0
-                            // Title + "me gusta" side by side: the heart belongs
-                            // to the track, not to the transport group. It is a
-                            // plain anchored Item, NOT a RowLayout: binding the
-                            // title's maximum width to the column width inside a
-                            // layout made Qt rearrange recursively.
+                            // Title/artist sit to the right of the cover with
+                            // a small gap, not centred under it.
+                            anchors.left: coverBox.right
+                            anchors.leftMargin: Theme.s3
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 1
+                            width: Math.min(parent.width - coverBox.width - Theme.s3, 300)
+                            opacity: bar.infoOpacity
+                            Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
+
+                            // Line 1: title + like heart, centred as a group.
                             Item {
-                                Layout.fillWidth: true
-                                implicitHeight: Math.max(barTitle.implicitHeight,
-                                                         barHeart.visible ? barHeart.height : 0)
+                                id: titleRow
+                                width: parent.width
+                                height: Math.max(barTitle.implicitHeight,
+                                                 barHeart.visible ? barHeart.height : 0)
                                 Text {
                                     id: barTitle
+                                    // Left aligned, right next to the cover.
                                     anchors.left: parent.left
                                     anchors.verticalCenter: parent.verticalCenter
-                                    // It takes the width of its text (capped to
-                                    // what is left next to the heart), so the
-                                    // heart sits right next to the title and not
-                                    // at the far edge of the bar.
-                                    width: Math.min(implicitWidth,
-                                                    parent.width - (barHeart.visible
-                                                                    ? barHeart.width + Theme.s2 : 0))
+                                    width: Math.min(implicitWidth, parent.width - (barHeart.visible ? barHeart.width + Theme.s2 : 0))
                                     text: bar.title.length ? bar.title : qsTr("Sin nada en cola")
                                     color: bar.title.length ? Sys.text : Theme.tDim(Sys.bg, Sys.text)
                                     font.pixelSize: Theme.tMd
@@ -549,6 +688,7 @@ Rectangle {
                                     active: bar.liked
                                     diameter: bar.compact ? 30 : 22
                                     glyph: bar.compact ? 15 : 12
+                                    popTo: 1.6
                                     iconColor: bar.canInteract
                                                ? Sys.text
                                                : Theme.tFaint(Sys.bg, Sys.text)
@@ -561,23 +701,29 @@ Rectangle {
                                     }
                                 }
                             }
+
+                            // Line 2: artist chips, centred under the title.
                             Item {
-                                Layout.fillWidth: true
-                                implicitHeight: artistRow.implicitHeight
+                                id: artistRow
+                                width: parent.width
+                                height: artistInner.implicitHeight
                                 visible: !bar.loading
                                 Row {
-                                    id: artistRow
+                                    id: artistInner
                                     anchors.left: parent.left
-                                    anchors.right: parent.right
+                                    width: Math.min(implicitWidth, parent.width)
+                                    anchors.verticalCenter: parent.verticalCenter
                                     spacing: Theme.s1
                                     clip: true
                                     Repeater {
-                                        model: bar.artistNames()
+                                        model: bar.artistChips
                                         Rectangle {
                                             readonly property string artistName: modelData
                                             height: artistLabel.implicitHeight + Theme.s1
-                                            width: Math.min(artistLabel.implicitWidth + Theme.s2,
-                                                            artistRow.width)
+                                            // No circular binding on the Row's
+                                            // width: that made implicitWidth 0
+                                            // and hid the artist entirely.
+                                            width: artistLabel.implicitWidth + Theme.s2
                                             radius: height / 2
                                             antialiasing: true
                                             color: artistHover.hovered
@@ -606,12 +752,12 @@ Rectangle {
                                     }
                                 }
                             }
-                            // Waiting state: a pulsing dot + text, with the
-                            // same height as the artist line so the layout
-                            // does not move.
                             Row {
-                                Layout.fillWidth: true
+                                id: loadingRow
+                                width: parent.width
+                                height: 16
                                 visible: bar.loading
+                                anchors.horizontalCenter: parent.horizontalCenter
                                 spacing: Theme.s2
                                 Rectangle {
                                     anchors.verticalCenter: parent.verticalCenter
@@ -673,16 +819,23 @@ Rectangle {
                     }
 
                     Rectangle {
+                        id: playRect
                         width: bar.compact ? 44 : 30
                         height: bar.compact ? 44 : 30
                         radius: width / 2
                         antialiasing: true
                         color: playHover.hovered ? Qt.lighter(Sys.accent, 1.14) : Sys.accent
-                        scale: playHover.pressed ? 0.93 : 1
-                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                        property real pop: 1
+                        scale: (playHover.pressed ? 0.94 : (playHover.hovered ? 1.06 : 1)) * pop
+                        SequentialAnimation {
+                            id: playPop
+                            NumberAnimation { target: playRect; property: "pop"; to: 1.22; duration: Theme.animMs(90) }
+                            NumberAnimation { target: playRect; property: "pop"; to: 1; duration: Theme.animMs(240); easing.type: Easing.OutBack }
+                        }
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         HoverHandler { id: playHover; cursorShape: Qt.PointingHandCursor }
                         Glyph {
+                            id: playGlyph
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: bar.playing ? 0 : 1
                             width: bar.compact ? 19 : 15
@@ -690,7 +843,24 @@ Rectangle {
                             kind: bar.playing ? "pause" : "play"
                             color: bar._ink
                         }
-                        TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); bar.toggle() } }
+                        SequentialAnimation {
+                            id: glyphSwap
+                            NumberAnimation {
+                                target: playGlyph; property: "opacity"
+                                to: 0.25; duration: Theme.fastMs / 2
+                                easing.type: Easing.OutCubic
+                            }
+                            NumberAnimation {
+                                target: playGlyph; property: "opacity"
+                                to: 1; duration: Theme.fastMs
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        Connections {
+                            target: bar
+                            function onPlayingChanged() { glyphSwap.restart() }
+                        }
+                        TapHandler { onTapped: { playPop.restart(); if (typeof sfx !== "undefined") sfx.play("tap"); bar.toggle() } }
                     }
 
                     BarButton {
@@ -780,13 +950,35 @@ Rectangle {
                             // needs the room): it stays desktop-only.
                             visible: island.width >= 620 && !Theme.touch
 
-                    Glyph {
+                    Item {
                         Layout.alignment: Qt.AlignVCenter
-                        width: 18; height: 18
-                        kind: bar.volume > 0 ? "volume" : "volume-x"
-                        weight: 1.6
-                        color: Sys.text
-                        opacity: 0.62
+                        Layout.preferredWidth: 20
+                        Layout.preferredHeight: 20
+                        // Tap the speaker glyph to mute / unmute, with the
+                        // same pop feedback as the other controls.
+                        property real pop: 1
+                        scale: muteArea.pressed ? 0.9 : pop
+                        SequentialAnimation {
+                            id: mutePop
+                            NumberAnimation { target: parent; property: "pop"; to: 1.4; duration: Theme.animMs(90) }
+                            NumberAnimation { target: parent; property: "pop"; to: 1; duration: Theme.animMs(220); easing.type: Easing.OutBack }
+                        }
+                        Glyph {
+                            anchors.centerIn: parent
+                            width: 18; height: 18
+                            kind: bar.volume > 0 ? "volume" : "volume-x"
+                            weight: 1.6
+                            color: Sys.text
+                            opacity: muteArea.hovered ? 0.95 : 0.62
+                        }
+                        HoverHandler { id: muteArea; cursorShape: Qt.PointingHandCursor }
+                        TapHandler {
+                            onTapped: {
+                                mutePop.restart()
+                                if (typeof sfx !== "undefined") sfx.play("tap")
+                                bar.muteRequested()
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -878,11 +1070,22 @@ Rectangle {
                                 visible: !coverArtPhone.ready
                             }
                         }
-                        TapHandler {
-                            onTapped: {
+                        Timer {
+                            id: coverTapTimerPhone
+                            interval: 260
+                            onTriggered: {
                                 if (typeof sfx !== "undefined")
                                     sfx.play("tap")
                                 bar.lyricsRequested()
+                            }
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            acceptedButtons: Qt.LeftButton
+                            onClicked: coverTapTimerPhone.restart()
+                            onDoubleClicked: {
+                                coverTapTimerPhone.stop()
+                                bar.likeDoubleClicked()
                             }
                         }
                     }
@@ -891,6 +1094,8 @@ Rectangle {
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
                         spacing: 1
+                        opacity: bar.infoOpacity
+                        Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
 
                         Text {
                             Layout.fillWidth: true
@@ -983,17 +1188,40 @@ Rectangle {
                         radius: width / 2
                         antialiasing: true
                         color: playHoverC.hovered ? Qt.lighter(Sys.accent, 1.14) : Sys.accent
-                        scale: playHoverC.pressed ? 0.93 : 1
-                        Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                        scale: playHoverC.pressed ? 0.94 : (playHoverC.hovered ? 1.06 : 1)
+                        Behavior on scale {
+                            NumberAnimation {
+                                duration: Theme.fastMs
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                         Behavior on color { ColorAnimation { duration: Theme.fastMs } }
                         HoverHandler { id: playHoverC; cursorShape: Qt.PointingHandCursor }
                         Glyph {
+                            id: playGlyphC
                             anchors.centerIn: parent
                             anchors.horizontalCenterOffset: bar.playing ? 0 : 1
                             width: 20
                             height: 20
                             kind: bar.playing ? "pause" : "play"
                             color: bar._ink
+                        }
+                        SequentialAnimation {
+                            id: glyphSwapC
+                            NumberAnimation {
+                                target: playGlyphC; property: "opacity"
+                                to: 0.25; duration: Theme.fastMs / 2
+                                easing.type: Easing.OutCubic
+                            }
+                            NumberAnimation {
+                                target: playGlyphC; property: "opacity"
+                                to: 1; duration: Theme.fastMs
+                                easing.type: Easing.OutCubic
+                            }
+                        }
+                        Connections {
+                            target: bar
+                            function onPlayingChanged() { glyphSwapC.restart() }
                         }
                         TapHandler {
                             onTapped: {
@@ -1048,4 +1276,7 @@ Rectangle {
             }
         }
     }
+
+    // ---- upcoming queue strip -----------------------------------------
+    // A compact horizontal row of the next tracks, sitting just under the
 }
