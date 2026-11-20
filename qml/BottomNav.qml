@@ -98,7 +98,7 @@ Item {
                     Layout.fillHeight: true
                     // Five equal cells, each above the 48 dp touch floor.
                     Layout.preferredWidth: 100 * modelData.w
-                    Layout.minimumWidth: 56
+                    Layout.minimumWidth: 48
                     radius: Theme.rPill
                     antialiasing: true
                     // Active = a soft accent tint (16 %) plus the accent
@@ -169,7 +169,9 @@ Item {
                             color: navCell.on ? bar._acc : bar._label
                             opacity: 1.0
                             // The hero tab label goes one step up the scale.
-                            font.pixelSize: navCell.big ? Theme.tSm : Theme.tXs
+                            font.pixelSize: navCell.big ? Theme.tSm
+                                                        : (Theme.touch ? Math.max(9, Theme.tXs - 1)
+                                                                       : Theme.tXs)
                             font.weight: navCell.on ? Font.DemiBold : Font.Medium
                             elide: Text.ElideRight
                             maximumLineCount: 1

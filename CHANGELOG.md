@@ -34,6 +34,11 @@ cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 - Se quita el velo oscuro que cubría la cabecera y el fondo de las listas abiertas.
 - El control de volumen aparece también en ventanas estrechas de escritorio.
 - La barra de progreso avanza de forma continua en escritorio.
+- En el teléfono, la interfaz es más compacta: reproductor de una sola fila, filtros más bajos y sin botón de reproducción duplicado.
+- La barra inferior no se sale del ancho de la pantalla y las listas se muestran en tres columnas.
+- Las descargas reintentan la resolución con un cliente de YouTube distinto cuando falla el primero.
+- Los vídeos con bloqueo por edad explican que hay que confirmar la edad en YouTube, en vez de dar un error genérico.
+- La interfaz se actualiza sola al iniciar sesión, sin necesidad de reabrir la app.
 
 ### Correcciones
 

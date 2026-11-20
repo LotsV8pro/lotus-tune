@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Window
 import "theme.js" as Theme
 
 // Library: it shows EVERYTHING saved together (the YouTube Music library +
@@ -634,11 +635,10 @@ Item {
     // 6 columns of about 196 px (it was 5 of about 220).
     readonly property int coverGap: 12
     function gridCols(w) {
-        w = Math.max(1, w)
-        // Phone: 3 columns of ~120 dp. With the desktop 180 dp minimum the
-        // phone only fitted 2 slabs of 186 dp (a gallery, not a library).
-        const min = Theme.touch ? 112 : 180
-        return Math.max(1, Math.floor(w / min))
+        // Always 3 columns. Letting the width (or Theme.touch, which is not
+        // always resolved inside the imported JS) decide gave 2 or 4
+        // columns and the last card was cut off at the right edge.
+        return 3
     }
     // Exact cell width: the grid divides the width between the columns and
     // the card keeps the gap inside its own cell. It used to add the gap to
@@ -2005,7 +2005,9 @@ Item {
                 // Room at the end so the last row comes out from under the
                 // bottom edge of the card (before, it was cut and a black
                 // gradient was painted over it: that band looked dirty).
-                bottomMargin: Theme.s6
+                // Reserve room for the floating mini-player + tab bar so the
+                // last list is not hidden under the dock on the phone.
+                bottomMargin: Theme.touch ? Theme.playerBarH + 160 : Theme.s6
                 boundsBehavior: Flickable.StopAtBounds
                 // Open list: it already cooks its first tracks so the click
                 // on the header sounds right away.
@@ -2482,7 +2484,7 @@ Item {
           reuseItems: true
                 cacheBuffer: 800
                 boundsBehavior: Flickable.StopAtBounds
-                bottomMargin: Theme.s6
+                bottomMargin: Theme.touch ? Theme.playerBarH + 160 : Theme.s6
 
                 delegate: Item {
                     id: histDelegate
@@ -3186,7 +3188,10 @@ Item {
                         model: page.dlLive
                         spacing: Theme.s2
                         clip: true
-                  reuseItems: true
+                        // With reuseItems the recycled rows kept the width
+                        // of the first (pre-layout) frame and their bars
+                        // stuck out past the right edge of the phone.
+                        reuseItems: false
                         cacheBuffer: 400
                         boundsBehavior: Flickable.StopAtBounds
 
@@ -3621,13 +3626,24 @@ Item {
                     }
                     GridView {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: page.dlListsGridHeight(width)
+                        // Same fix as the main library grid: the grid width
+                        // is computed before the layout settles, so cap it to
+                        // the real window width or the tiles overflow.
+                        // The parent of this grid starts at ~51 px and grows
+                        // later, so its width is useless here. The window
+                        // width is the reliable, stable reference.
+                        readonly property real gridW: Window.width - 2 * Theme.panelMargin
+                        // Show every downloaded list: with more than three
+                        // lists the fourth was cut off with no way to reach it.
+                        Layout.preferredHeight: page.dlLists.length > 3
+                            ? page.dlListsGridHeight(gridW) * 2 + Theme.s2
+                            : page.dlListsGridHeight(gridW)
                         model: page.dlLists
                         clip: true
-                        interactive: false
+                        interactive: true
                         boundsBehavior: Flickable.StopAtBounds
-                        cellWidth: page.gridCellW(width)
-                        cellHeight: page.gridTileW(width) + 56
+                        cellWidth: page.gridCellW(gridW)
+                        cellHeight: page.gridTileW(gridW) + 56
 
                         delegate: CoverTile {
                             required property int index
@@ -3847,8 +3863,12 @@ Item {
                     cacheBuffer: 800
                     boundsBehavior: Flickable.StopAtBounds
                     flow: GridView.FlowLeftToRight
-                    readonly property real tileW: page.gridTileW(width)
-                    cellWidth: page.gridCellW(width)
+                    // The grid's own width is computed before the StackLayout
+                    // gives this page its final size, so use the parent width
+                    // (which updates with the layout) to size the cells.
+                    readonly property real gridW: Window.width - 2 * Theme.panelMargin
+                    readonly property real tileW: page.gridTileW(gridW)
+                    cellWidth: page.gridCellW(gridW)
                     cellHeight: tileW + 56
 
                     // Fade the grid back in when the search filter changes.
@@ -3884,7 +3904,7 @@ Item {
                         downloadable: !!modelData.url && modelData.kind !== "recent"
                         // Tick on the cover if this list is already
                         // downloaded.
-                        downloaded: modelData.kind !== "download" && page.isDownloaded(modelData)
+                        downloaded: page.isDownloaded(modelData)
 
                         // Smart collection: play the recent tracks directly.
                         // `catalog.recent` is newest first; cap at 20.

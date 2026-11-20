@@ -1483,6 +1483,7 @@ void Downloads::startAndroidJob(int index)
     if (!m_androidList.waitForStarted(3000)) {
         failJob(index, tr("No se pudo ejecutar el asistente de "
                                       "descargas."));
+        return;   // the process never opened: nothing to read later
     }
 }
 

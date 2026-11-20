@@ -1686,6 +1686,13 @@ const ClientProfile kClients[] = {
       "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 "
       "(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
       "Samsung", "UKS9800", "Tizen", "2.4.0", true },
+    // When the TV client answers LOGIN_REQUIRED (YouTube rotates this
+    // often) the web-music client still serves formats for the signed-in
+    // session. Same cookies, no PO token needed.
+    { "WEB_REMIX", "1.20260706.01.00", "67",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, "
+      "like Gecko) Chrome/130.0 Safari/537.36",
+      "", "", "", "", false },
 };
 constexpr int kClientCount = int(sizeof(kClients) / sizeof(kClients[0]));
 }   // namespace
@@ -1982,9 +1989,16 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
                                     .toObject()
                                     .value(QStringLiteral("status"))
                                     .toString();
+        // A download can also come back with status "OK" but an empty
+        // formats list (YouTube rotates the client silently). A boot
+        // refresh gives a fresh visitor token and a new player JS; without
+        // it the download failed with "sin formato de audio firmado" until
+        // the app was restarted.
         if (!m_retriedBoot && (pStatus == QStringLiteral("UNPLAYABLE")
                                || pStatus == QStringLiteral("ERROR")
-                               || pStatus == QStringLiteral("LOGIN_REQUIRED"))) {
+                               || pStatus == QStringLiteral("LOGIN_REQUIRED")
+                               || pStatus == QStringLiteral("OK")
+                               || pStatus.isEmpty())) {
             m_retriedBoot = true;
             m_visitor.clear();
             m_sigTs.clear();
@@ -1994,6 +2008,14 @@ void Player::onApiReply(QNetworkReply *reply, const QString &url)
             m_apiPending = url;
             qInfo() << "[player] la API rechazó la pista; renovando el boot";
             fetchBootPage(url);
+            return;
+        }
+        // An age-gated video comes back as LOGIN_REQUIRED with this reason
+        // on every client. Say so instead of the generic "no signed format":
+        // the session is fine, YouTube just wants an age-confirmed account.
+        if (pStatus == QStringLiteral("LOGIN_REQUIRED")
+            && reason.contains(QStringLiteral("confirm your age"), Qt::CaseInsensitive)) {
+            abortChain(tr("el vídeo requiere confirmar la edad en YouTube"));
             return;
         }
         qWarning() << "[player] la API no devolvió ningún formato de audio firmado:"

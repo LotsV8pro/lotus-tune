@@ -1745,6 +1745,21 @@ Window {
     }
 
     // The results of that search arrive: we keep the first songs of each
+    // A sign-in completes in the background: if a library query was already
+    // running, Catalog skipped the refresh and the lists stayed stale until
+    // the app was restarted. Retry once the UI is idle and the query is free.
+    Connections {
+        target: catalog
+        function onLoginChanged() {
+            if (String(catalog.loginState || "") !== "ok")
+                return
+            Qt.callLater(function() {
+                catalog.refreshYtmLibrary()
+                catalog.refreshLikedSet()
+            })
+        }
+    }
+
     // source (podcasts and lists are dropped) and group them by source,
     // with a header for each.
     Connections {
@@ -4392,6 +4407,14 @@ Window {
                 Panel {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
+                    // Reserve room for the tab bar, and for the mini-player
+                    // only while it is actually visible: with nothing
+                    // playing an empty black band appeared at the bottom.
+                    Layout.bottomMargin: Theme.touch
+                        ? 60 + ((player.playing || player.loading
+                                 || root.currentVideoId !== "")
+                                ? Theme.playerBarH + 36 : 0)
+                        : 0
                     clipContent: true
                     color: "transparent"
 

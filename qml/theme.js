@@ -61,7 +61,7 @@ var rXl = 22
 // Pills: capsule control (radius = height/2). Chips, toggles, tabs and
 // action/navigation buttons. Always use it with a fixed `height`.
 var rPill = 999          // "pill" radius
-var pillH = touch ? 34 : 30    // standard pill height
+var pillH = touch ? 28 : 30    // standard pill height (compact on phone)
 var pillHPad = touch ? 16 : 14 // pill horizontal padding
 
 // ---- floating surfaces -------------------------------------------
@@ -126,7 +126,7 @@ var topBarH = touch ? 52 : 52
 // Phone bar: two rows (cover/title/heart + transport). The height has to
 // fit 20 (progress) + 44 (cover/title row) + 44 (play button) + 4 (bottom
 // margin) = 112; with 104 the play button was left half cut by the island.
-var playerBarH = touch ? 104 : 64
+var playerBarH = touch ? 72 : 64
 var sidePanelMin = touch ? 252 : 300
 
 // Bottom padding for the system gesture zone. Android's

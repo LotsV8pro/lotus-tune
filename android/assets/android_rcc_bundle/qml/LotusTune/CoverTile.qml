@@ -95,8 +95,8 @@ Rectangle {
                     radius: Theme.rPill
                     antialiasing: true
                     color: tile.overPlay ? Qt.lighter(Sys.accent, 1.12) : Sys.accent
-                    opacity: tileMa.containsMouse ? 1 : 0
-                    scale: tileMa.containsMouse
+                    opacity: !Theme.touch && tileMa.containsMouse ? 1 : 0
+                    scale: !Theme.touch && tileMa.containsMouse
                            ? (tileMa.pressed && tile.overPlay ? 0.92 : 1)
                            : 0.7
                     Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
@@ -138,12 +138,16 @@ Rectangle {
     // turns false. Using that as the visibility condition made the buttons
     // disappear under the cursor (the blink) and the click landed on the
     // card instead of the button.
-    HoverHandler { id: tileHover }
+    // No hover on touch: a tap left containsMouse stuck and the control
+    // stayed highlighted with no way to clear it.
+    HoverHandler { id: tileHover; enabled: !Theme.touch }
 
     MouseArea {
         id: tileMa
         anchors.fill: card
-        hoverEnabled: true
+        // No hover state on touch: it stuck after a tap and left the play
+        // badge visible with no way to clear it.
+        hoverEnabled: !Theme.touch
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton | Qt.RightButton
 

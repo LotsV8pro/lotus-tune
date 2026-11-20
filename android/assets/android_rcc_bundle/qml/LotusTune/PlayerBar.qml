@@ -129,7 +129,13 @@ Rectangle {
     onPositionChanged: {
         if (bar.scrubbing)
             return
-        if (Math.abs(bar.position - bar._lastEnginePos) > 2.0)
+        const jump = Math.abs(bar.position - bar._lastEnginePos)
+        // A real seek or a new track: land on it at once.
+        if (jump > 2.0)
+            bar.shownPosition = bar.position
+        // On the phone FrameAnimation can stop when the screen is idle;
+        // follow the engine position directly there so the bar never freezes.
+        else if (bar.compact)
             bar.shownPosition = bar.position
         bar._lastEnginePos = bar.position
     }
@@ -171,12 +177,10 @@ Rectangle {
     // just guessed. No Behavior while dragging (it would lag behind the
     // finger); on release it goes back on its own with a short animation.
     transform: Translate { x: bar.dragX; y: -bar.pull }
-    // The sideways follow returns to rest with a short spring: it is only
-    // a confirmation that the swipe was understood.
-    Behavior on dragX {
-        enabled: !barDrag.pressed
-        NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
-    }
+    // No Behavior on dragX: with the phone's thin single-row bar the
+    // spring animation could leave the island shifted after a short swipe
+    // (the release was missed and dragX kept its last value). The finger
+    // follow is direct and the release snaps back to zero.
     NumberAnimation {
         id: pullBack
         target: bar
@@ -275,6 +279,7 @@ Rectangle {
             startX = sceneX(m)
             dragging = false
             sideways = false
+            bar.dragX = 0   // never inherit a previous swipe's offset
         }
         onPositionChanged: (m) => {
             if (!pressed)
@@ -287,7 +292,7 @@ Rectangle {
             if (!dragging && !sideways && (Math.abs(dx) > 26 || dy > 16)) {
                 // The axis that moved the most wins: a finger going up opens the
                 // cinema, one crossing the bar changes track.
-                if (Math.abs(dx) > Math.abs(dy) * 1.6)
+                if (!bar.compact && Math.abs(dx) > Math.abs(dy) * 1.6)
                     sideways = true
                 else if (dy > 16)
                     dragging = true
@@ -400,6 +405,12 @@ Rectangle {
                         height: 3; radius: 1.5
                         color: Sys.interfaceStyle === "lotus" ? "transparent" : bar._fill
                         gradient: Sys.interfaceStyle === "lotus" ? lotusFill : null
+                        // The gradient needs an animation to repaint as the
+                        // width changes; otherwise only the dot moves.
+                        Behavior on width {
+                            enabled: !bar.scrubbing
+                            NumberAnimation { duration: 120; easing.type: Easing.Linear }
+                        }
                     }
                     // Position dot: a 6 px point riding the filled end, Lotus only.
                     Rectangle {
@@ -411,6 +422,10 @@ Rectangle {
                         color: Theme.mix(Sys.accent, "#ffffff", 0.45)
                         scale: bar.scrubbing ? 1.5 : 1.0
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
+                        Behavior on x {
+                            enabled: !bar.scrubbing
+                            NumberAnimation { duration: 120; easing.type: Easing.Linear }
+                        }
                     }
                     // Knob: small, always visible (there is no hover on a
                     // phone) and bigger while scrubbing.
@@ -784,8 +799,14 @@ Rectangle {
                 // ---- transport --------------------------------------
                 RowLayout {
                     id: centerCol
+                    visible: !bar.compact
+                    opacity: bar.compact ? 0 : 1
+                    enabled: !bar.compact
+                    clip: true
                     Layout.alignment: Qt.AlignVCenter
-                    spacing: bar.compact ? Theme.s1 : Theme.s2
+                    Layout.maximumHeight: bar.compact ? 0 : Number.POSITIVE_INFINITY
+                    Layout.preferredHeight: bar.compact ? 0 : -1
+                    spacing: Theme.s2
 
                     // Shuffle / repeat travel WITH the transport: the right
                     // side is only for the queue, the cinema and the volume.
@@ -1128,15 +1149,26 @@ Rectangle {
                     }
 
                     BarButton {
-                        kind: "queue"
-                        active: bar.queueOpen
+                        kind: bar.playing ? "pause" : "play"
+                        diameter: 40
+                        glyph: 20
+                        active: bar.playing
+                        onTapped: {
+                            if (typeof sfx !== "undefined")
+                                sfx.play("tap")
+                            bar.toggle()
+                        }
+                    }
+
+                    BarButton {
+                        kind: "next"
                         diameter: 34
                         glyph: 18
                         Layout.leftMargin: Theme.s1
                         onTapped: {
                             if (typeof sfx !== "undefined")
                                 sfx.play("tap")
-                            bar.queueRequested()
+                            bar.nextRequested()
                         }
                     }
                 }
@@ -1145,8 +1177,15 @@ Rectangle {
                 // Shuffle and repeat go HERE on the phone too: they were the two controls
                 // missing from the bar and there is no other place within reach.
                 RowLayout {
+                    // Second transport row (desktop only). On the phone it
+                    // was drawn as a second play button under the pill.
+                    visible: !bar.compact
+                    opacity: bar.compact ? 0 : 1
+                    enabled: !bar.compact
+                    clip: true
+                    Layout.maximumHeight: bar.compact ? 0 : Number.POSITIVE_INFINITY
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 44
+                    Layout.preferredHeight: bar.compact ? 0 : 44
                     spacing: Theme.s3
 
                     Item { Layout.fillWidth: true }
