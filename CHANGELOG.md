@@ -3,7 +3,7 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
-## Próxima versión (sin publicar)
+## 2.1.9 (2026-11-20)
 
 ### Interfaz
 
