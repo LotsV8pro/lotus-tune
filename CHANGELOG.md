@@ -3,6 +3,17 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.2.1 (2026-11-20)
+
+### Correcciones
+
+- Las carátulas en WebP cargan en Windows, Linux y Android (se incluye el plugin de imágenes de Qt).
+- Las canciones nuevas se resuelven con yt-dlp y suenan sin depender de la caché.
+- Las descargas guardan el audio Opus/WebM directamente, sin necesitar ffmpeg.
+- Discord Rich Presence conecta en Windows mediante canalizaciones con nombre.
+- Los ajustes y el idioma se conservan al reiniciar; el diálogo de novedades sale traducido y sin texto plano.
+- El actualizador de Windows elige solo el paquete zip, y el login usa la sesión del navegador del usuario.
+
 ## 2.2.0 (2026-11-20)
 
 ### Novedades

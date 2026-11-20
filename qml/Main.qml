@@ -3947,11 +3947,26 @@ Window {
         ]
     }
 
-    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.0"
-        ? root.notes2_2_0()
-        : (root.whatsNewVersion === "2.1.9"
-            ? root.notes2_1_9()
-            : root.parseNotes(root.whatsNewSource, lang.current))
+    function notes2_2_1() {
+        return [
+            { title: qsTr("Correcciones"), items: [
+                qsTr("Las carátulas en WebP cargan en Windows, Linux y Android."),
+                qsTr("Las canciones nuevas se resuelven con yt-dlp y suenan sin depender de la caché."),
+                qsTr("Las descargas guardan el audio Opus/WebM directamente, sin necesitar ffmpeg."),
+                qsTr("Discord Rich Presence conecta en Windows mediante canalizaciones con nombre."),
+                qsTr("Los ajustes y el idioma se conservan al reiniciar; el diálogo de novedades sale traducido y sin texto plano."),
+                qsTr("El actualizador de Windows elige solo el paquete zip, y el login usa la sesión del navegador del usuario.")
+            ] }
+        ]
+    }
+
+    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.1"
+        ? root.notes2_2_1()
+        : (root.whatsNewVersion === "2.2.0"
+            ? root.notes2_2_0()
+            : (root.whatsNewVersion === "2.1.9"
+                ? root.notes2_1_9()
+                : root.parseNotes(root.whatsNewSource, lang.current)))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
