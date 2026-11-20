@@ -943,6 +943,7 @@ void Downloads::startNext()
                        "%(info.n_entries)s|%(progress._percent_str)s"),
         QStringLiteral("-o"), outTemplate,
     };
+    args << AppPaths::ytdlpJsRuntimeArgs();
 
     // If it is a loose track, avoid downloading playlists if the URL comes with &list=...
     if (!j.playlist)
@@ -2243,6 +2244,7 @@ void Downloads::startNextFolderMeta()
         QStringLiteral("--flat-playlist"),
         QStringLiteral("--dump-single-json"),
     };
+    args << AppPaths::ytdlpJsRuntimeArgs();
     const QString cookies = AppPaths::cookiesFile();
     if (QFile::exists(cookies)
         && (url.contains(QLatin1String("youtube.com"))

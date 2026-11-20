@@ -3792,93 +3792,166 @@ Window {
     // update check answers, or with no network at all).
     // GitHub writes "## Section" and "- bullet". Qt's Markdown understands
     // bold and asterisks, so translate the two before showing the notes.
-    function formatNotes(s) {
-        return String(s || "")
-            .replace(/^#{1,4}\s+(.*)$/gm, "**$1**")
-            .replace(/^[-*]\s+/gm, "• ")
-            .replace(/^\s*Descargas:[\s\S]*$/mi, "")
-            .trim()
+    function normalizeNotes(s) {
+        return String(s || "").replace(/\r\n?/g, "\n").trim()
     }
-    // Notas de la version que esta en el working tree. Mientras no haya release
-    // publicado, estan ganan a las notas de GitHub (que son de la 2.1.7).
-    // Notas en Markdown: Qt las renderiza con titulo en su linea y cada
-    // cambio en un bullet, sin convertirlas a texto plano.
-    readonly property string localNotes: [
-        "**Interfaz**",
-        "- Nueva apariencia Lotus, seleccionable en Ajustes. La clásica sigue siendo la que viene por defecto.",
-        "- Temas de color, modo compacto, vistas de Inicio y orden de las páginas de navegación.",
-        "- Animaciones en botones, tarjetas, letra y menús, con respeto al movimiento reducido.",
-        "- Barra del reproductor rediseñada, panel lateral flotante y cola con resumen y mezcla.",
-        "",
-        "**Letras**",
-        "- Más correcciones de palabras pegadas y de letras duplicadas.",
-        "- Instrumentales con barrido, traducción al copiar y exportación e importación en LRC.",
-        "- Más fuentes encontradas al buscar letras y edición de la línea activa.",
-        "",
-        "**Reproducción y datos**",
-        "- Temporizador de sueño, scrobble a Last.fm y archivo now-playing.json para barras de escritorio.",
-        "- Perfiles de audio en escritorio, opciones al terminar la cola y saltar canciones sin letra.",
-        "- Exportación e importación de ajustes, historial y cola; borrado de cachés.",
-        "",
-        "**Correcciones**",
-        "- Los botones de estilo y color de acento de Ajustes vuelven a responder.",
-        "- La cola deja de mostrar 0:00 en las pistas al reordenar la lista.",
-        "- La cabecera de las listas propias dice «Mi cuenta · YouTube Music» en vez del artista de la primera canción.",
-        "- Se quita el velo oscuro que cubría la cabecera y el fondo de las listas abiertas.",
-        "- El control de volumen aparece también en ventanas estrechas de escritorio.",
-        "- La barra de progreso avanza de forma continua en escritorio.",
-        "- El artista y el título se muestran limpios en la barra y el widget.",
-        "- La pantalla de letras sale del modo presentación con Escape, el gesto atrás o tocando el fondo.",
-        "- En el teléfono, los controles de una lista dejan de superponerse y el botón de cola funciona.",
-        "- Rendimiento y fluidez mejorados en listas largas y en Android."
-    ].join("\n")
-    readonly property string whatsNewText: root.whatsNewVersion === "2.1.8"
-        ? root.localNotes
-        : root.formatNotes(
-        (typeof updates !== "undefined"
+
+    // A release body may carry one block per language, marked with
+    // <!-- lang:es --> ... <!-- lang:en --> ... Pick the app's language,
+    // then Spanish, then the first available block.
+    function notesForLanguage(s, language) {
+        const text = root.normalizeNotes(s)
+        const parts = text.split(/(<!--\s*lang:([a-zA-Z-]+)\s*-->)/i)
+        if (parts.length < 4)
+            return text
+        const byCode = {}
+        for (let i = 1; i + 2 < parts.length; i += 3)
+            byCode[parts[i + 1].toLowerCase().split("-")[0]] = parts[i + 2].trim()
+        const code = String(language || "es").toLowerCase().split("-")[0]
+        return byCode[code] || byCode["es"] || Object.values(byCode)[0] || text
+    }
+
+    // Headings become section titles, bullets become individual changes.
+    // The dialog shows "title + change" instead of a flat wall of Markdown.
+    function parseNotes(s, language) {
+        const text = root.notesForLanguage(s, language)
+        const sections = []
+        let section = null
+        for (const raw of text.split("\n")) {
+            const line = raw.trim()
+            if (!line)
+                continue
+            if (/^Descargas:/i.test(line))
+                break
+            const heading = line.match(/^#{1,4}\s+(.*)$/)
+            if (heading) {
+                section = { title: heading[1].replace(/\*\*/g, "").trim(), items: [] }
+                sections.push(section)
+                continue
+            }
+            const item = line.replace(/^[-*]\s+/, "").replace(/^•\s+/, "").trim()
+            if (!item)
+                continue
+            if (!section) {
+                section = { title: "", items: [] }
+                sections.push(section)
+            }
+            section.items.push(item)
+        }
+        return sections
+    }
+
+    // Notes of the installed build, written once here so the dialog works
+    // offline and in the language chosen in Ajustes. Every string is qsTr():
+    // lupdate picks them up and lrelease embeds them with the other texts.
+    function notes2_1_9() {
+        return [
+            { title: qsTr("Interfaz"), items: [
+                qsTr("Nueva apariencia Lotus, seleccionable en Ajustes. La clásica sigue siendo la que viene por defecto."),
+                qsTr("Temas de color, modo compacto, vistas de Inicio y orden de las páginas de navegación."),
+                qsTr("Animaciones en botones, tarjetas, letra y menús, con respeto al movimiento reducido del sistema."),
+                qsTr("Barra del reproductor rediseñada, panel lateral flotante y cola con resumen y mezcla."),
+                qsTr("Atajos configurables y botones de control nuevos en la barra y en la pantalla de letras.")
+            ] },
+            { title: qsTr("Letras"), items: [
+                qsTr("Más correcciones de palabras pegadas y de letras duplicadas."),
+                qsTr("Instrumentales con barrido, traducción al copiar y exportación e importación en LRC."),
+                qsTr("Más fuentes encontradas al buscar letras y edición de la línea activa.")
+            ] },
+            { title: qsTr("Reproducción y datos"), items: [
+                qsTr("Temporizador de sueño, scrobble a Last.fm y archivo now-playing.json para barras de escritorio."),
+                qsTr("Perfiles de audio en escritorio, opciones al terminar la cola y saltar canciones sin letra."),
+                qsTr("Exportación e importación de ajustes, historial y cola; borrado de cachés por canción, artista y lista."),
+                qsTr("Búsqueda global, ordenación de listas, filtros por fuente y vistas de artistas y géneros.")
+            ] },
+            { title: qsTr("Correcciones"), items: [
+                qsTr("Los botones de estilo de interfaz y color de acento de Ajustes vuelven a responder."),
+                qsTr("La cola deja de mostrar 0:00 en las pistas al reordenar la lista."),
+                qsTr("La cabecera de las listas propias dice «Mi cuenta · YouTube Music» en vez del artista de la primera canción."),
+                qsTr("Se quita el velo oscuro que cubría la cabecera y el fondo de las listas abiertas."),
+                qsTr("El control de volumen aparece también en ventanas estrechas de escritorio."),
+                qsTr("La barra de progreso avanza de forma continua en escritorio."),
+                qsTr("En el teléfono, la interfaz es más compacta: reproductor de una sola fila, filtros más bajos y sin botón de reproducción duplicado."),
+                qsTr("La barra inferior no se sale del ancho de la pantalla y las listas se muestran en tres columnas."),
+                qsTr("Las descargas reintentan la resolución con un cliente de YouTube distinto cuando falla el primero."),
+                qsTr("Los vídeos con bloqueo por edad explican que hay que confirmar la edad en YouTube, en vez de dar un error genérico."),
+                qsTr("La interfaz se actualiza sola al iniciar sesión, sin necesidad de reabrir la app.")
+            ] },
+            { title: qsTr("Correcciones (build actual)"), items: [
+                qsTr("El artista y el título se muestran limpios en la barra, el widget y la pantalla de letras."),
+                qsTr("La pantalla de letras sale del modo presentación con Escape, con el gesto de atrás o tocando el fondo."),
+                qsTr("En el teléfono, los controles de una lista dejan de superponerse y el botón de cola vuelve a funcionar."),
+                qsTr("Rendimiento y fluidez mejorados en listas largas y en Android.")
+            ] }
+        ]
+    }
+
+    // Notes from GitHub for versions we did not embed here. Kept as Markdown
+    // text; parseNotes() turns it into the same title/change structure.
+    readonly property string whatsNewSource: (typeof updates !== "undefined"
             && String(updates.notes || "").trim().length > 0)
         ? updates.notes
         : (root.isPhone ? [
-        qsTr("Correcciones"),
-        qsTr("• Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde."),
-        "",
-        qsTr("Audio"),
-        qsTr("• Se ha corregido el fallo que hacía que algunas canciones empezaran con chasquidos y petardeos."),
-        "",
-        qsTr("Artistas"),
-        qsTr("• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista y cada uno se abre por separado."),
-        qsTr("• Las canciones de un artista ya no aparecen con el número de reproducciones en lugar del nombre."),
-        qsTr("• Las radios del inicio ya no llevan el número de reproducciones en el nombre."),
-        "",
-        qsTr("Sesión"),
-        qsTr("• Si la sesión de YouTube deja de ser válida, la app lo dice y ofrece volver a iniciar sesión."),
-        "",
-        qsTr("Letras"),
-        qsTr("• Las letras se guardan al buscarlas y no se vuelven a pedir cada vez."),
-        qsTr("• Ajustes > Letras tiene un catálogo más de letras por palabra y la opción de traducirlas."),
-        "",
-        qsTr("Ajustes"),
-        qsTr("• Pestañas reales por sección, con Cuentas primero."),
-        qsTr("• Se pueden importar playlists públicas de Spotify desde Cuentas o desde Biblioteca."),
-        qsTr("• El acento es el morado del logo y el idioma se elige en un desplegable.")
-    ].join("\n") : [
-        qsTr("Artistas"),
-        qsTr("• Con varios artistas en una canción, el nombre abre la lista de los encontrados y cada uno se abre por separado."),
-        qsTr("• En la página de un artista, sus canciones ya no llevan el número de reproducciones como nombre."),
-        qsTr("• Las radios del inicio ya no llevan el número de reproducciones en el nombre."),
-        qsTr("• Las letras se guardan al buscarlas y no se vuelven a pedir cada vez."),
-        qsTr("• Ajustes > Letras tiene un catálogo más de letras por palabra y la opción de traducirlas."),
-        qsTr("• Las letras se sincronizan al abrir la pantalla completa, sin esperar a la siguiente línea."),
-        qsTr("• Los sonidos de la interfaz funcionan en el teléfono, el aleatorio se ve activo y hay cinco idiomas."),
-        qsTr("• Pestañas reales en Ajustes, con Cuentas primero, e importación de playlists de Spotify desde Biblioteca."),
-        qsTr("• El acento es el morado del logo y el arranque es más ligero."),
-        "",
-        qsTr("Buscador"),
-        qsTr("• Las listas de otra gente salen en su propia fila y se abren tal cual, sin guardarlas antes."),
-        "",
-        qsTr("Windows"),
-        qsTr("• La descarga es un instalador normal, con sus accesos directos y su desinstalador, y ya no abre una ventana de consola detrás del reproductor.")
-    ].join("\n")))
+            qsTr("Correcciones"),
+            qsTr("• Las carátulas, la búsqueda y la comprobación de actualizaciones dejan de esperar para siempre si una página no responde."),
+            "",
+            qsTr("Audio"),
+            qsTr("• Se ha corregido el fallo que hacía que algunas canciones empezaran con chasquidos y petardeos."),
+            "",
+            qsTr("Artistas"),
+            qsTr("• Cuando una canción tiene varios artistas, al pulsar el nombre sale la lista y cada uno se abre por separado."),
+            qsTr("• Las canciones de un artista ya no aparecen con el número de reproducciones en lugar del nombre."),
+            qsTr("• Las radios del inicio ya no llevan el número de reproducciones en el nombre."),
+            "",
+            qsTr("Sesión"),
+            qsTr("• Si la sesión de YouTube deja de ser válida, la app lo dice y ofrece volver a iniciar sesión."),
+            "",
+            qsTr("Letras"),
+            qsTr("• Las letras se guardan al buscarlas y no se vuelven a pedir cada vez."),
+            qsTr("• Ajustes > Letras tiene un catálogo más de letras por palabra y la opción de traducirlas."),
+            "",
+            qsTr("Ajustes"),
+            qsTr("• Pestañas reales por sección, con Cuentas primero."),
+            qsTr("• Se pueden importar playlists públicas de Spotify desde Cuentas o desde Biblioteca."),
+            qsTr("• El acento es el morado del logo y el idioma se elige en un desplegable.")
+        ].join("\n") : [
+            qsTr("Artistas"),
+            qsTr("• Con varios artistas en una canción, el nombre abre la lista de los encontrados y cada uno se abre por separado."),
+            qsTr("• En la página de un artista, sus canciones ya no llevan el número de reproducciones como nombre."),
+            qsTr("• Las radios del inicio ya no llevan el número de reproducciones en el nombre."),
+            qsTr("• Las letras se guardan al buscarlas y no se vuelven a pedir cada vez."),
+            qsTr("• Ajustes > Letras tiene un catálogo más de letras por palabra y la opción de traducirlas."),
+            qsTr("• Las letras se sincronizan al abrir la pantalla completa, sin esperar a la siguiente línea."),
+            qsTr("• Los sonidos de la interfaz funcionan en el teléfono, el aleatorio se ve activo y hay cinco idiomas."),
+            qsTr("• Pestañas reales en Ajustes, con Cuentas primero, e importación de playlists de Spotify desde Biblioteca."),
+            qsTr("• El acento es el morado del logo y el arranque es más ligero."),
+            "",
+            qsTr("Buscador"),
+            qsTr("• Las listas de otra gente salen en su propia fila y se abren tal cual, sin guardarlas antes."),
+            "",
+            qsTr("Windows"),
+            qsTr("• La descarga es un instalador normal, con sus accesos directos y su desinstalador, y ya no abre una ventana de consola detrás del reproductor.")
+        ].join("\n"))
+
+    function notes2_2_0() {
+        return [
+            { title: qsTr("Novedades"), items: [
+                qsTr("«Qué hay de nuevo» muestra el título y cada cambio por separado, en el idioma de la app y también en el teléfono y en Linux."),
+                qsTr("El reproductor y el inicio de sesión funcionan en Windows sin instalar Python, yt-dlp ni un motor JavaScript aparte.")
+            ] },
+            { title: qsTr("Correcciones"), items: [
+                qsTr("La barra de progreso vuelve a rellenarse siguiendo al punto en Windows."),
+                qsTr("YouTube Music usa la sesión de tu navegador y las listas cargan con los acentos correctos en Windows."),
+                qsTr("Las notas de la versión conservan los saltos de línea y ya no salen como un párrafo plano.")
+            ] }
+        ]
+    }
+
+    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.0"
+        ? root.notes2_2_0()
+        : (root.whatsNewVersion === "2.1.9"
+            ? root.notes2_1_9()
+            : root.parseNotes(root.whatsNewSource, lang.current))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
@@ -5412,18 +5485,52 @@ Window {
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
 
-                    Text {
+                    Column {
                         id: whatsNewBody
                         width: whatsNewScroll.width
-                        text: root.whatsNewText
-                        color: Sys.text
-                        font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
-                        lineHeight: 1.3
-                        wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                        // The body comes straight from the GitHub release:
-                        // headings and bullets must keep their shape instead
-                        // of arriving as one flat paragraph.
-                        textFormat: Text.MarkdownText
+                        spacing: Theme.spacing(root.compactUi, Theme.s3)
+
+                        Repeater {
+                            model: root.whatsNewSections
+
+                            Column {
+                                width: parent.width
+                                spacing: Theme.spacing(root.compactUi, Theme.s1)
+
+                                Text {
+                                    visible: text.length > 0
+                                    width: parent.width
+                                    text: modelData.title
+                                    color: Sys.accent
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
+                                    font.bold: true
+                                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                }
+
+                                Repeater {
+                                    model: modelData.items
+
+                                    Row {
+                                        width: parent.width
+                                        spacing: Theme.s2
+
+                                        Text {
+                                            text: "•"
+                                            color: Sys.accent
+                                            font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
+                                        }
+                                        Text {
+                                            width: parent.width - parent.spacing - 10
+                                            text: modelData
+                                            color: Sys.text
+                                            font.pixelSize: Theme.font(root.compactUi, Theme.tBase)
+                                            lineHeight: 1.3
+                                            wrapMode: Text.WrapAtWordBoundaryOrAnywhere
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

@@ -530,6 +530,9 @@ void Player::startMpv()
              // It needs cookies (authenticated client).
              << QStringLiteral(
                     "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_creator;player_skip=configs");
+    // Signed-in YouTube forces SABR/PO-token challenges: the bundled JS
+    // runtime lets yt-dlp solve them (no Node/Deno needed on the user's PC).
+    args << AppPaths::ytdlpJsRuntimeRawOptions();
     m_proc.setArguments(args);
     connect(&m_proc, &QProcess::readyReadStandardError, this, [this] {
         const QByteArray err = m_proc.readAllStandardError();
@@ -1064,6 +1067,7 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
         QStringLiteral("--format"),
         ytdlFormat(),
     };
+    args << AppPaths::ytdlpJsRuntimeArgs();
     const QString cookies =
         AppPaths::cookiesFile();
     if (QFile::exists(cookies)) {

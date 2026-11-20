@@ -17,19 +17,45 @@ Subcomandos:
 """
 
 import argparse
+import webbrowser
+import base64
 import json
 import os
+import shutil
+import socket
+import struct
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 
-CONFIG = os.path.join(
-    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lotus-tune"
-)
-STATE = os.path.join(
-    os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "lotus-tune"
-)
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+# Windows has no WebKitGTK (see cmd_login_win). It also keeps the app data in
+# %APPDATA%/<org>/<app>/LotusTune (src/paths.h), not in ~/.config/lotus-tune:
+# writing the cookies to the Linux path made the login succeed on paper while
+# the app kept showing "no session".
+WIN = sys.platform == "win32"
+if WIN:
+    CONFIG = os.path.join(
+        os.environ.get("APPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Roaming")),
+        "lotus-tune", "lotus-tune", "LotusTune")
+    STATE = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Local")),
+        "lotus-tune", "lotus-tune", "LotusTune")
+else:
+    CONFIG = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lotus-tune"
+    )
+    STATE = os.path.join(
+        os.environ.get("XDG_STATE_HOME", os.path.expanduser("~/.local/state")), "lotus-tune"
+    )
 WEBKIT_DIR = os.path.join(STATE, "webkit")
 COOKIE_FILE = os.path.join(CONFIG, "cookies.txt")
 SESSION_FILE = os.path.join(CONFIG, "ytm_session.json")
@@ -257,6 +283,215 @@ def _write_cookies(cookies):
     return header, len(rows)
 
 
+# ---- Windows: use the browser session the user already has --------------
+# WebKitGTK is Linux-only and the embedded Python of the Windows build has
+# only the stdlib, so `import gi` made the helper exit before any STATUS line
+# (the app showed "Sign in did not complete"). On Windows the real session
+# already lives in the user's default browser: the bundled yt-dlp can export
+# those cookies from the existing profile, with no new window and no fresh
+# login. Only when there is no usable session do we open the sign-in URL with
+# webbrowser.open(), which uses the browser the user chose as default.
+# None of this runs on Linux: cmd_login() below keeps using WebKitGTK.
+def _yt_dlp_program():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "yt-dlp.exe")
+
+
+def _default_browser():
+    """(executable, family) of the browser Windows uses for https links."""
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
+        ) as key:
+            prog = winreg.QueryValueEx(key, "ProgId")[0]
+        with winreg.OpenKey(
+            winreg.HKEY_CLASSES_ROOT, prog + r"\shell\open\command"
+        ) as key:
+            cmd = winreg.QueryValueEx(key, "")[0]
+        exe = cmd.lstrip()
+        exe = exe[1:].split('"', 1)[0] if exe.startswith('"') else exe.split(" ", 1)[0]
+        if os.path.isfile(exe):
+            return exe, _browser_family(exe)
+    except Exception:
+        pass
+    exe = _known_browser()
+    return (exe, _browser_family(exe)) if exe else (None, None)
+
+
+def _browser_family(exe):
+    name = os.path.basename(exe).lower()
+    if any(k in name for k in ("firefox", "zen", "waterfox", "librewolf")):
+        return "gecko"
+    return "chromium"
+
+
+def _known_browser():
+    roots = [
+        os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        os.environ.get("PROGRAMFILES", r"C:\Program Files"),
+        os.environ.get("LOCALAPPDATA", ""),
+    ]
+    rels = [
+        ("Microsoft", "Edge", "Application", "msedge.exe"),
+        ("Google", "Chrome", "Application", "chrome.exe"),
+        ("Zen Browser", "zen.exe"),
+        ("Mozilla Firefox", "firefox.exe"),
+        ("BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+        ("Vivaldi", "Application", "vivaldi.exe"),
+    ]
+    for root in roots:
+        for rel in rels:
+            path = os.path.join(root, *rel)
+            if os.path.isfile(path):
+                return path
+    for name in ("msedge", "chrome", "zen", "firefox", "brave", "vivaldi"):
+        found = shutil.which(name)
+        if found:
+            return found
+    return None
+
+
+def _firefox_profile(root_name):
+    root = os.path.join(
+        os.environ.get("APPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Roaming")),
+        root_name, "Profiles")
+    if not os.path.isdir(root):
+        return None
+    profiles = [
+        os.path.join(root, d) for d in os.listdir(root)
+        if os.path.isfile(os.path.join(root, d, "cookies.sqlite"))
+    ]
+    if not profiles:
+        return None
+    return max(profiles, key=lambda p: os.path.getmtime(os.path.join(p, "cookies.sqlite")))
+
+
+def _browser_spec():
+    """The --cookies-from-browser value for the default browser."""
+    exe, family = _default_browser()
+    if not exe:
+        return None
+    name = os.path.basename(exe).lower()
+    if family == "gecko":
+        root = "zen" if "zen" in name else "Mozilla"
+        profile = _firefox_profile(root)
+        return "firefox:" + profile if profile else "firefox"
+    for key, spec in (("msedge", "edge"), ("chrome", "chrome"),
+                      ("brave", "brave"), ("vivaldi", "vivaldi")):
+        if key in name:
+            return spec
+    return "chrome"
+
+
+class _RowCookie:
+    """Adapt a Netscape cookies.txt row to the WebKit2 cookie interface."""
+
+    def __init__(self, cols):
+        self.cols = cols
+
+    def get_domain(self):
+        return self.cols[0]
+
+    def get_name(self):
+        return self.cols[5]
+
+    def get_value(self):
+        return self.cols[6]
+
+    def get_path(self):
+        return self.cols[2]
+
+    def get_secure(self):
+        return self.cols[3].upper() == "TRUE"
+
+    def get_expires(self):
+        try:
+            value = int(self.cols[4])
+        except ValueError:
+            value = -1
+
+        class _Expires:
+            def get_value(self_inner):
+                return value
+
+        return _Expires()
+
+
+def _export_browser_cookies(spec):
+    """Ask the bundled yt-dlp to dump the live browser cookies to a temp file.
+
+    http://127.0.0.1:1/ fails instantly offline: we only want the cookie
+    export, not a download or a two-minute crawl of a YouTube feed.
+    """
+    ytdlp = _yt_dlp_program()
+    if not os.path.isfile(ytdlp):
+        return None
+    tmp = os.path.join(STATE, "browser-cookies.txt")
+    os.makedirs(STATE, exist_ok=True)
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    try:
+        subprocess.run(
+            [ytdlp, "--cookies-from-browser", spec, "--cookies", tmp,
+             "--simulate", "--skip-download", "--no-warnings", "http://127.0.0.1:1/"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+    except Exception:
+        pass
+    return tmp if os.path.isfile(tmp) else None
+
+
+def _cookies_from_file(path):
+    rows = []
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not line.strip() or line.startswith("#"):
+                    continue
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) >= 7 and _domain_ok(cols[0]):
+                    rows.append(_RowCookie(cols))
+    except OSError:
+        pass
+    return rows
+
+
+def cmd_login_win(url=LOGIN_URL, timeout_min=12):
+    spec = _browser_spec()
+    if not spec:
+        out("STATUS error sin-navegador")
+        return 1
+
+    out("LOGIN_URL accounts.google.com")
+    deadline = time.time() + timeout_min * 60
+    opened = False
+    while time.time() < deadline:
+        cookies = []
+        path = _export_browser_cookies(spec)
+        if path:
+            cookies = _cookies_from_file(path)
+        if cookies:
+            header, count = _write_cookies(cookies)
+            if _usable(header):
+                out(f"STATUS ok cookies={count}")
+                return 0
+        if not opened:
+            # No session in the browser: open the sign-in page using the
+            # browser the user already has (a tab in their window), not a
+            # private profile launched from scratch.
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+            opened = True
+            out("STATUS esperando-login")
+        time.sleep(3)
+    out("STATUS error tiempo-agotado")
+    return 1
+
+
 def cmd_login(url=LOGIN_URL, timeout_min=12):
     import gi
 
@@ -376,9 +611,11 @@ def main():
 
     if args.cmd == "status":
         return cmd_status()
-    if args.cmd == "refresh":
-        return cmd_login(url=REFRESH_URL)
-    return cmd_login(url=ADD_URL if args.add_account else LOGIN_URL)
+    url = REFRESH_URL if args.cmd == "refresh" else (
+        ADD_URL if args.add_account else LOGIN_URL)
+    if WIN:
+        return cmd_login_win(url=url)
+    return cmd_login(url=url)
 
 
 if __name__ == "__main__":

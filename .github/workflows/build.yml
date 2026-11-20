@@ -107,7 +107,25 @@ jobs:
           if (!(Test-Path $exe)) { throw "no se encontro $exe" }
           # ytm_api.py y ytm_login.py los deja ya el propio CMake al lado del
           # .exe (POST_BUILD): no hay que copiarlos aqui.
-          & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw $exe
+          # --qmldir is mandatory: the app's own QML is compiled into the
+          # binary, so without it windeployqt sees no imports and ships no
+          # qml\ folder. The app then starts and dies on "module QtQuick.Window
+          # is not installed" (exactly what happened in v2.1.9).
+          & "$env:QT_PREFIX\bin\windeployqt.exe" --release --no-translations --no-opengl-sw --qmldir "$env:GITHUB_WORKSPACE\qml" $exe
+          # A release without the QML modules is unusable: fail here instead
+          # of publishing another installer that closes on launch.
+          foreach ($m in @("QtQuick\Window", "QtQuick\Layouts", "QtQuick\Dialogs", "QtCore")) {
+            if (!(Test-Path (Join-Path "build\Release\qml" $m))) {
+              throw "windeployqt no desplegó el módulo QML $m"
+            }
+          }
+
+      - name: Node portátil (yt-dlp EJS)
+        # YouTube signs streams with SABR/PO tokens: yt-dlp needs a JS runtime.
+        # A single node.exe travels with the app so the user installs nothing.
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Motor y dependencias
         # Lo que el .exe llama por nombre y la maquina del usuario puede no
@@ -131,9 +149,13 @@ jobs:
           # Python embebido: stdlib y nada mas, que es lo que usan los ayudantes.
           Invoke-WebRequest "https://www.python.org/ftp/python/${{ env.PY_EMBED_VERSION }}/python-${{ env.PY_EMBED_VERSION }}-embed-amd64.zip" -OutFile py.zip
           Expand-Archive py.zip -DestinationPath "$dst\python" -Force
+          # yt-dlp's EJS scripts need a JavaScript runtime for signed-in
+          # YouTube streams. Ship node.exe so it works on a clean machine.
+          $node = (Get-Command node -ErrorAction Stop).Source
+          Copy-Item $node "$dst\node.exe"
           # Sin la comprobacion, un asset que cambie de nombre deja un
           # instalador que arranca y no suena: mejor romper aqui.
-          foreach ($f in @("mpv.exe", "yt-dlp.exe", "python\python.exe", "ytm_api.py")) {
+          foreach ($f in @("mpv.exe", "yt-dlp.exe", "node.exe", "python\python.exe", "ytm_api.py")) {
             if (!(Test-Path (Join-Path $dst $f))) { throw "falta $f en $dst" }
           }
 

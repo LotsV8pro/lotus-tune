@@ -169,4 +169,41 @@ inline QStringList pythonArgs(const QString &program)
     return {};
 }
 
+// YouTube now signs streams with SABR/PO tokens: yt-dlp needs a JavaScript
+// runtime to solve those challenges when there is a signed-in session.
+// Windows carries a portable node.exe next to the app so it works on a
+// machine with nothing else installed. Linux keeps using the system runtime.
+#ifdef Q_OS_WIN
+inline QString ytdlpJsRuntime()
+{
+    const QString node = QDir(QCoreApplication::applicationDirPath())
+                             .filePath(QStringLiteral("node.exe"));
+    if (!QFile::exists(node))
+        return QString();
+    return QStringLiteral("node:") + node;
+}
+#endif
+
+inline QStringList ytdlpJsRuntimeArgs()
+{
+#ifdef Q_OS_WIN
+    const QString runtime = ytdlpJsRuntime();
+    if (!runtime.isEmpty())
+        return { QStringLiteral("--js-runtimes=") + runtime };
+#endif
+    return {};
+}
+
+// mpv forwards --ytdl-raw-options values to its own yt-dlp, so it needs the
+// same switch without the leading dashes.
+inline QStringList ytdlpJsRuntimeRawOptions()
+{
+#ifdef Q_OS_WIN
+    const QString runtime = ytdlpJsRuntime();
+    if (!runtime.isEmpty())
+        return { QStringLiteral("--ytdl-raw-options-append=js-runtimes=") + runtime };
+#endif
+    return {};
+}
+
 } // namespace AppPaths

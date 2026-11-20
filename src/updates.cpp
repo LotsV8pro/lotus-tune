@@ -325,7 +325,13 @@ void Updates::check()
             tag = t;
             url = link;
             page = rel.value(QStringLiteral("html_url")).toString();
-            notes = rel.value(QStringLiteral("body")).toString().simplified();
+            // simplified() collapsed every newline into a space: the Markdown
+            // arrived as one flat paragraph ("### Interfaz - ... ### Letras - ...")
+            // and Qt rendered the hashes as literal text. Keep the structure.
+            notes = rel.value(QStringLiteral("body")).toString()
+                        .replace(QStringLiteral("\r\n"), QStringLiteral("\n"))
+                        .replace(QLatin1Char('\r'), QLatin1Char('\n'))
+                        .trimmed();
             asset = artifact;
         }
         if (tag.isEmpty()) {

@@ -403,14 +403,11 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         width: Math.max(0, parent.width * scrubTrack.ratio)
                         height: 3; radius: 1.5
-                        color: Sys.interfaceStyle === "lotus" ? "transparent" : bar._fill
-                        gradient: Sys.interfaceStyle === "lotus" ? lotusFill : null
-                        // The gradient needs an animation to repaint as the
-                        // width changes; otherwise only the dot moves.
-                        Behavior on width {
-                            enabled: !bar.scrubbing
-                            NumberAnimation { duration: 120; easing.type: Easing.Linear }
-                        }
+                        // A Gradient here is not repainted when only the width
+                        // changes on Windows: the fill stayed stuck near 0 while
+                        // the dot rode the real ratio. A solid colour always
+                        // repaints, and shownPosition is already frame-smoothed.
+                        color: bar._fill
                     }
                     // Position dot: a 6 px point riding the filled end, Lotus only.
                     Rectangle {
@@ -422,10 +419,6 @@ Rectangle {
                         color: Theme.mix(Sys.accent, "#ffffff", 0.45)
                         scale: bar.scrubbing ? 1.5 : 1.0
                         Behavior on scale { NumberAnimation { duration: Theme.fastMs } }
-                        Behavior on x {
-                            enabled: !bar.scrubbing
-                            NumberAnimation { duration: 120; easing.type: Easing.Linear }
-                        }
                     }
                     // Knob: small, always visible (there is no hover on a
                     // phone) and bigger while scrubbing.

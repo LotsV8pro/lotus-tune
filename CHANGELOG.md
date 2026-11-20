@@ -3,6 +3,20 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.2.0 (2026-11-20)
+
+### Novedades
+
+- «Qué hay de nuevo» muestra el título y cada cambio por separado, en el idioma de la app, también en Android y Linux.
+- El reproductor y el inicio de sesión funcionan en Windows sin instalar Python, yt-dlp ni un motor JavaScript aparte.
+
+### Correcciones
+
+- La barra de progreso vuelve a rellenarse siguiendo al punto en Windows.
+- YouTube Music usa la sesión del navegador del usuario y las listas cargan con los acentos correctos en Windows.
+- Las notas de la versión conservan los saltos de línea y ya no salen como un párrafo plano.
+- El instalador de Windows incluye los módulos QML y el motor JavaScript que yt-dlp necesita para las canciones con sesión iniciada.
+
 ## 2.1.9 (2026-11-20)
 
 ### Interfaz

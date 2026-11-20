@@ -63,9 +63,24 @@ import unicodedata
 import urllib.error
 import urllib.request
 
-CONFIG = os.path.join(
-    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lotus-tune"
-)
+if sys.platform == "win32":
+    # QProcess reads stdout as UTF-8, but Python writes to a Windows pipe
+    # with the ANSI codepage (cp1252) unless told otherwise. Titles with
+    # accents then became invalid UTF-8 and QJsonDocument parsed nothing:
+    # the lists, the search and "liked" silently came back empty.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    # src/paths.h: the app reads its cookies from %APPDATA%/<org>/<app>/LotusTune.
+    CONFIG = os.path.join(
+        os.environ.get("APPDATA", os.path.join(os.path.expanduser("~"), "AppData", "Roaming")),
+        "lotus-tune", "lotus-tune", "LotusTune")
+else:
+    CONFIG = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "lotus-tune"
+    )
 COOKIE_FILE = os.path.join(CONFIG, "cookies.txt")
 
 API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
