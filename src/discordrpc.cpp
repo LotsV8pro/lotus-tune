@@ -205,6 +205,13 @@ QStringList DiscordRpc::socketPaths()
     for (const QString &dir : dirs)
         for (int i = 0; i < 10; ++i)
             paths << dir + QStringLiteral("/discord-ipc-%1").arg(i);
+#ifdef Q_OS_WIN
+    // On Windows Discord publishes a NAMED PIPE, not a Unix socket in /tmp.
+    // Without these entries every connect failed and the status stayed
+    // "Discord no detectado" even with the desktop app running.
+    for (int i = 0; i < 10; ++i)
+        paths << QStringLiteral("\\\\.\\pipe\\discord-ipc-%1").arg(i);
+#endif
 #ifdef Q_OS_ANDROID
     // On Android the Discord app publishes the socket in the ABSTRACT
     // namespace (there is no /tmp for the apps), so the name is the
