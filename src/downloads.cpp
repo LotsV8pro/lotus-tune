@@ -364,19 +364,15 @@ void Downloads::setSpeedLimit(int kib)
 QPair<QString, QString> Downloads::downloadFormat() const
 {
     if (m_quality == QLatin1String("max"))
-        return { QStringLiteral("bestaudio[ext=opus][abr<=192]"
-                                "/bestaudio[ext=opus]/bestaudio/best"),
+        return { QStringLiteral("bestaudio[abr<=192]/bestaudio/best"),
                  QStringLiteral("0") };
     if (m_quality == QLatin1String("alta"))
-        return { QStringLiteral("bestaudio[ext=opus][abr<=128]"
-                                "/bestaudio[ext=opus]/bestaudio/best"),
+        return { QStringLiteral("bestaudio[abr<=128]/bestaudio/best"),
                  QStringLiteral("2") };
     if (m_quality == QLatin1String("baja"))
-        return { QStringLiteral("bestaudio[ext=opus][abr<=64]"
-                                "/bestaudio[webm][abr<=64]/bestaudio/best"),
+        return { QStringLiteral("bestaudio[abr<=64]/bestaudio/best"),
                  QStringLiteral("8") };
-    return { QStringLiteral("bestaudio[ext=opus][abr<=96]"
-                            "/bestaudio[ext=opus]/bestaudio/best"),
+    return { QStringLiteral("bestaudio[abr<=96]/bestaudio/best"),
              QStringLiteral("5") };
 }
 
@@ -935,10 +931,10 @@ void Downloads::startNext()
         // re-encoding.
         QStringLiteral("-f"),
         downloadFormat().first,
-        QStringLiteral("--extract-audio"),
-        QStringLiteral("--audio-format"), QStringLiteral("opus"),
-        QStringLiteral("--audio-quality"), downloadFormat().second,
-        QStringLiteral("--embed-metadata"),
+        // YouTube's bestaudio is already Opus inside WebM: use it as-is.
+        // --extract-audio/--audio-format need external ffmpeg + ffprobe,
+        // which are not shipped, and made every Windows download fail at
+        // post-processing after the audio had been fetched.
         // Without embedded thumbnail and without `.info.json`: less weight, less
         // post-processing and without depending on mutagen.
         QStringLiteral("--no-embed-thumbnail"),

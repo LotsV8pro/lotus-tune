@@ -525,11 +525,11 @@ void Player::startMpv()
     if (QFile::exists(cookies))
         args << QStringLiteral("--ytdl-raw-options=cookies=") + cookies
              << QStringLiteral("--ytdl-raw-options-append=no-warnings=")
-             // Extraction client that avoids the 403 "no audio or video data
-             // played" YouTube returns today with the default client.
-             // It needs cookies (authenticated client).
+             // Skip the player-config download: it is not needed and slows
+             // every resolution down. web_creator was used here before, but
+             // it now only returns storyboards with a signed-in session.
              << QStringLiteral(
-                    "--ytdl-raw-options-append=extractor-args=youtube:player_client=web_creator;player_skip=configs");
+                    "--ytdl-raw-options-append=extractor-args=youtube:player_skip=configs");
     // Signed-in YouTube forces SABR/PO-token challenges: the bundled JS
     // runtime lets yt-dlp solve them (no Node/Deno needed on the user's PC).
     args << AppPaths::ytdlpJsRuntimeRawOptions();
@@ -1076,7 +1076,7 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
              // player_skip=configs avoids downloading the player's
              // configs: it trims ~0.5-1 s per resolution without
              // affecting the playback.
-             << QStringLiteral("youtube:player_client=web_creator;player_skip=configs");
+             << QStringLiteral("youtube:player_skip=configs");
     }
     // A URL starting with '-' must not be read as a yt-dlp option.
     args << QStringLiteral("--") << url;
