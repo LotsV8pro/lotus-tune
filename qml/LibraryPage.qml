@@ -427,7 +427,8 @@ Item {
         for (let i = 0; i < fs.length; ++i) {
             const f = fs[i]
             out.push({ name: String(f.name || ""), url: String(f.url || ""),
-                       thumb: String(f.thumb || f.thumbFallback || ""),
+                       thumb: String(f.thumb || ""),
+                       thumbFallback: String(f.thumbFallback || ""),
                        count: Number(f.count || 0), folder: String(f.folder || ""),
                        kind: "download", source: "download" })
         }
@@ -3660,6 +3661,7 @@ Item {
                                 return sz
                             }
                             thumb: modelData.thumb || ""
+                            thumbFallback: modelData.thumbFallback || ""
 
                             onClicked: {
                                 if (typeof sfx !== "undefined") sfx.play("tap")

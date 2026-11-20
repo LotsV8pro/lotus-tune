@@ -13,6 +13,8 @@ Rectangle {
     property string title: ""
     property string subtitle: ""
     property string thumb: ""
+    // Stable cover of a downloaded list, used when the signed thumb expires.
+    property string thumbFallback: ""
     property bool downloadable: false
     property bool removable: false
     // The list is already downloaded (it has its folder in Downloads): a
@@ -71,7 +73,8 @@ Rectangle {
                     id: coverArt
                     anchors.fill: parent
                     source: tile.thumb
-                    visible: tile.thumb !== ""
+                    sources: [tile.thumb, tile.thumbFallback]
+                    visible: tile.thumb !== "" || tile.thumbFallback !== ""
                     radiusSpec: Theme.rMd
                     // Cover fades in once its image is loaded.
                     opacity: coverArt.ready ? 1 : 0
@@ -81,7 +84,7 @@ Rectangle {
                     anchors.centerIn: parent
                     width: 30
                     height: 30
-                    visible: tile.thumb === ""
+                    visible: tile.thumb === "" && tile.thumbFallback === ""
                     kind: "music"
                     color: Theme.tDim(Sys.bg, Sys.text)
                 }

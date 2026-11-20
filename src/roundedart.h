@@ -79,6 +79,9 @@ private:
         // How many times the job has been launched (it gives up after a
         // few tries so a dead network does not loop forever).
         int attempts = 0;
+        // Retries are time-throttled: a burst of QML "ready" refreshes must
+        // not burn all the attempts in one second.
+        qint64 lastTryMs = 0;
         // A too small picture (YouTube's grey placeholder) is kept here and
         // used only if no bigger candidate answers.
         QImage fallback;

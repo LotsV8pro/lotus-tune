@@ -472,6 +472,12 @@ def cmd_login_win(url=LOGIN_URL, timeout_min=12):
         path = _export_browser_cookies(spec)
         if path:
             cookies = _cookies_from_file(path)
+            # The exported file holds the user's live cookies: never leave it
+            # lying around in the app's state directory.
+            try:
+                os.remove(path)
+            except OSError:
+                pass
         if cookies:
             header, count = _write_cookies(cookies)
             if _usable(header):

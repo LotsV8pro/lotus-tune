@@ -34,6 +34,7 @@
 #include <QQuickWindow>
 #include <QResource>
 #include <QStandardPaths>
+#include <QSettings>
 #include <QThread>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -646,11 +647,27 @@ int main(int argc, char *argv[])
     // files in the build.
     Translator lang(&engine);
     // QA: `--lang=en` forces a language for one run (the screenshots of the
-    // translated interface). It does not touch the saved choice.
+    // translated interface). It must not touch the saved choice, so restore
+    // the stored value right after Translator has written the forced one.
+    QString savedLanguage;
+    bool forcedLanguage = false;
     for (int i = 1; i < argc; ++i) {
         const QByteArray a(argv[i]);
-        if (a.startsWith("--lang="))
+        if (a.startsWith("--lang=")) {
+            if (!forcedLanguage) {
+                QSettings saved(QStringLiteral("lotus-tune"),
+                                QStringLiteral("lotus-tune"));
+                savedLanguage = saved.value(QStringLiteral("language"),
+                                            QStringLiteral("system")).toString();
+                forcedLanguage = true;
+            }
             lang.setLanguage(QString::fromUtf8(a.mid(7)));
+        }
+    }
+    if (forcedLanguage) {
+        QSettings saved(QStringLiteral("lotus-tune"), QStringLiteral("lotus-tune"));
+        saved.setValue(QStringLiteral("language"), savedLanguage);
+        saved.sync();
     }
     // QA: `--i18n-selftest` prints a few strings in the chosen language and
     // exits, to check the .qm files without opening a window.

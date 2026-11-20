@@ -2,6 +2,7 @@
 #include "wash.h"
 
 #include <QColor>
+#include <QDateTime>
 #include <QCryptographicHash>
 #include <QImage>
 #include <QNetworkAccessManager>
@@ -141,25 +142,38 @@ QString RoundedArt::urlBlurred(const QStringList &candidates, int boxW, int boxH
             // Every size (and every radius) is a different job with its own
             // image: without a limit the map grows with every resize of
             // the window.
-            while (m_jobs.size() > 64) {
-                auto oldest = m_jobs.begin();
+            while (m_jobs.size() > 128) {
+                // QHash has no insertion order: never evict a job that still
+                // has a live QNetworkReply, or its finished handler finds no
+                // job and the QML never gets "ready" (blank cover forever).
+                auto victim = m_jobs.end();
                 for (auto it = m_jobs.begin(); it != m_jobs.end(); ++it) {
-                    if (it->done && !oldest->done)
-                        oldest = it;
+                    if (it->done) { victim = it; break; }
+                    if (victim == m_jobs.end()
+                        || (!it->started && victim->started)
+                        || (it->failed && !victim->failed))
+                        victim = it;
                 }
-                m_jobs.erase(oldest);
+                if (victim == m_jobs.end())
+                    break;   // all in flight: let them finish
+                m_jobs.erase(victim);
             }
             needStart = true;
         } else {
             version = it->version;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (!it->started && !it->done) {
                 it->started = true;
+                it->lastTryMs = now;
                 needStart = true;
-            } else if (it->failed && !it->done && it->attempts < 3) {
-                // Every candidate failed last time: try again.
+            } else if (it->failed && !it->done && it->attempts < 3
+                       && now - it->lastTryMs > 15000) {
+                // Every candidate failed last time: retry, but only after a
+                // pause so a burst of ready signals cannot exhaust attempts.
                 it->failed = false;
                 it->started = true;
                 it->attempts++;
+                it->lastTryMs = now;
                 needStart = true;
             }
         }
@@ -234,9 +248,18 @@ void RoundedArt::start(const QString &key)
             break;
         }
     }
-    if (done)
-    if (done)
+    if (done) {
+        // Served from memory: starting the whole network cascade again here
+        // re-downloaded the same cover on every card recycle.
         emitReadyLater(key);
+        return;
+    }
+    {
+        QMutexLocker lock(&m_mutex);
+        auto it = m_jobs.find(key);
+        if (it != m_jobs.end())
+            it->lastTryMs = QDateTime::currentMSecsSinceEpoch();
+    }
     tryNext(key, 0);
 }
 

@@ -548,6 +548,20 @@ QString Downloads::safeSegment(const QString &text)
     checkNoUnderscores.remove(QLatin1Char('_'));
     if (checkNoUnderscores.trimmed().isEmpty())
         s = QStringLiteral("descarga");
+
+    // Windows keeps CON, NUL, COM1... as device names even with another
+    // extension: mkpath() fails with a misleading permissions error.
+    static const QStringList kReserved{
+        QStringLiteral("CON"), QStringLiteral("PRN"), QStringLiteral("AUX"),
+        QStringLiteral("NUL"), QStringLiteral("COM1"), QStringLiteral("COM2"),
+        QStringLiteral("COM3"), QStringLiteral("COM4"), QStringLiteral("COM5"),
+        QStringLiteral("COM6"), QStringLiteral("COM7"), QStringLiteral("COM8"),
+        QStringLiteral("COM9"), QStringLiteral("LPT1"), QStringLiteral("LPT2"),
+        QStringLiteral("LPT3"), QStringLiteral("LPT4"), QStringLiteral("LPT5"),
+        QStringLiteral("LPT6"), QStringLiteral("LPT7"), QStringLiteral("LPT8"),
+        QStringLiteral("LPT9")};
+    if (kReserved.contains(s.split(QLatin1Char('.')).first().trimmed().toUpper()))
+        s.prepend(QLatin1Char('_'));
     return s;
 }
 

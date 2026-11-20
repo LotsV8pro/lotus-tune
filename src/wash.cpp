@@ -321,6 +321,26 @@ QColor ColorPick::dominant(const QImage &src0)
 
 void ColorPick::pick(const QUrl &url)
 {
+    // Downloaded lists carry a file:///.../cover.jpg thumbnail. It is local,
+    // so it needs no network request: read it directly or the card never
+    // gets tinted with the colour of its own cover.
+    if (url.isLocalFile()) {
+        const QString localKey = url.toString();
+        auto cached = m_cache.constFind(localKey);
+        if (cached != m_cache.constEnd()) {
+            emit found(url, cached.value());
+            return;
+        }
+        const QImage local(url.toLocalFile());
+        if (local.isNull())
+            return;
+        const QColor c = dominant(local);
+        if (c.isValid()) {
+            m_cache.insert(localKey, c);
+            emit found(url, c);
+        }
+        return;
+    }
     const QString scheme = url.scheme();
     if (url.isEmpty() || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https")))
         return;

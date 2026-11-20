@@ -38,11 +38,11 @@ bool assetMatches(const QString &nameIn)
 #if defined(Q_OS_ANDROID)
     return name.endsWith(QLatin1String(".apk"));
 #elif defined(Q_OS_WIN)
-    if (!name.contains(QLatin1String("win")))
-        return false;
-    return name.endsWith(QLatin1String(".exe"))
-           || name.endsWith(QLatin1String(".zip"))
-           || name.endsWith(QLatin1String(".msi"));
+    // The updater always Expand-Archive's the download: only the zip can be
+    // used. Picking the setup .exe here made the update fail after the app
+    // had already scheduled its own quit.
+    return name.contains(QLatin1String("win"))
+           && name.endsWith(QLatin1String(".zip"));
 #else
     // Linux (and the other unices): never pick a Windows or an Android
     // build by mistake.

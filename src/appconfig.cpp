@@ -178,6 +178,20 @@ void AppConfig::loadAppSettings()
         if (v.isValid() && !v.isNull())
             m_values.insert(canon, v.toString());
     }
+    // The whitelist above only covers the older, fixed keys. Newer settings
+    // (shortcuts, page order, compact mode, sleep timer, ...) are written by
+    // cfgSet() with an ad-hoc lower-case key and were therefore silently
+    // ignored on the next start. Load everything else too.
+    for (const QString &k : s.allKeys()) {
+        if (isThemeKey(k))
+            continue;
+        const QString canon = canonicalAppKey(k);
+        if (m_values.contains(canon))
+            continue;
+        const QVariant v = s.value(k);
+        if (v.isValid() && !v.isNull())
+            m_values.insert(canon, v.toString());
+    }
     s.sync();
 }
 
