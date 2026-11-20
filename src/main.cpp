@@ -230,6 +230,13 @@ enum class SingleInstance { Primary, ExistingRaised };
 // window).
 static SingleInstance setupSingleInstance(QLocalServer **outServer)
 {
+#ifdef Q_OS_WIN
+    // processAlive() is disabled on Windows, but a stale named pipe from a
+    // killed instance could still answer sendRaiseToServer() and make this
+    // launch exit before its window is created ("ya hay una instancia...").
+    Q_UNUSED(outServer)
+    return SingleInstance::Primary;
+#endif
     const QString sock = appSocketPath();
     const QString pidFile = appPidPath();
 

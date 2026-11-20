@@ -252,13 +252,19 @@ bool AppConfig::importAll(const QString &json)
         return false;
     const QJsonObject o = doc.object();
     for (auto it = o.constBegin(); it != o.constEnd(); ++it) {
-        const QString key = it.key();
+        // Canonicalise the same way set() does: an exported file may use the
+        // old lowercase spelling, which was imported as a different key and
+        // then never read back by the theme/player settings.
+        const QString key = canonicalAppKey(it.key());
+        if (key.isEmpty())
+            continue;
+        const QVariant value = it.value().toVariant();
         if (isThemeKey(key)) {
-            m_dirtyTheme.insert(key, it.value().toVariant());
+            m_dirtyTheme.insert(key.toLower(), value);
         } else {
-            m_dirtyApp.insert(key, it.value().toVariant());
+            m_dirtyApp.insert(key, value);
         }
-        m_values.insert(key, it.value().toVariant());
+        m_values.insert(key, value);
     }
     save();
     return true;
