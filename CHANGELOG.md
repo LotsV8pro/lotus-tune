@@ -3,6 +3,16 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.2.2 (2026-11-21)
+
+### Rendimiento
+
+- La cola restaurada al abrir la app pre-resuelve la canción actual, así que el primer play no espera a yt-dlp.
+- `clearPrefetch()` cancela los yt-dlp en marcha de listas anteriores. Antes seguían descargando audio que nadie iba a escuchar.
+- Menos resoluciones especulativas: una al arrancar, una por cambio de canción y dos al abrir una lista. Antes eran tres, dos y cuatro.
+
+Los paquetes de Windows siguen siendo los de 2.2.1: este cambio no toca código específico de Windows.
+
 ## 2.2.1 (2026-11-20)
 
 ### Correcciones

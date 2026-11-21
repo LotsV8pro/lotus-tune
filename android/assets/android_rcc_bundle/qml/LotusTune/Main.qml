@@ -3964,13 +3964,25 @@ Window {
         ]
     }
 
-    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.1"
+    function notes2_2_2() {
+        return [
+            { title: qsTr("Rendimiento"), items: [
+                qsTr("La primera canción empieza a resolverse al abrir la app, antes de pulsar play."),
+                qsTr("Se cancelan las descargas de listas que ya no vas a escuchar."),
+                qsTr("Se resolvían hasta nueve audios por adelantado; ahora son dos como mucho.")
+            ] }
+        ]
+    }
+
+    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.2"
+        ? root.notes2_2_2()
+        : (root.whatsNewVersion === "2.2.1"
         ? root.notes2_2_1()
         : (root.whatsNewVersion === "2.2.0"
             ? root.notes2_2_0()
             : (root.whatsNewVersion === "2.1.9"
                 ? root.notes2_1_9()
-                : root.parseNotes(root.whatsNewSource, lang.current)))
+                : root.parseNotes(root.whatsNewSource, lang.current))))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
