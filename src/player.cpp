@@ -694,7 +694,18 @@ void Player::handleLine(const QByteArray &line)
             // Typical transient YouTube/yt-dlp failure (rate limit or
              // token): it retries the same track a couple of times before
              // giving it up.
-            if (m_retry < 2 && !m_currentUrl.isEmpty()) {
+            // A newer loadfile replaces the one that failed (the prefetch
+            // can queue several). Its end-file error is not a network
+            // failure of the current track: retrying it jumped to another
+            // song a moment later. Only retry when the failed stream is
+            // still the one we are playing.
+            const bool replaced = !m_loadedTrack.isEmpty() && m_loadedTrack != m_currentUrl;
+            // "loading failed" means YouTube rejected the signed URL (403).
+            // Resolving the same track again gives another rejected URL, so
+            // retrying only delays the switch to another version of it.
+            // Let the queue replace the video right away instead.
+            const bool rejectedUrl = rawErr.contains(QLatin1String("loading failed"));
+            if (!replaced && !rejectedUrl && m_retry < 2 && !m_currentUrl.isEmpty()) {
                 ++m_retry;
                 const QString url = m_currentUrl;
                 qWarning() << "[player] reintento" << m_retry << "de" << url;
@@ -889,6 +900,7 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
          // again. If the URL turns out to be expired, mpv's error
          // invalidates it.
         const QString direct = m_resolved.value(url);
+        m_loadedTrack = url;
         send({{QStringLiteral("command"),
                QJsonArray{QStringLiteral("loadfile"), direct.isEmpty() ? url : direct,
                           QStringLiteral("replace")}}});

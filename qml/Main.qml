@@ -249,6 +249,11 @@ Window {
     property int queueEndMode: 2
     // "Continue where you left off" at startup (queue + track paused).
     property bool resumeOnOpen: true
+
+    // How many tracks ahead the app pre-resolves. 1..10, set in Ajustes.
+    // 0 would leave the first song waiting for yt-dlp, so the slider starts
+    // at one. Saved as a string like the other settings.
+    property int prefetchCount: 1
     // Sleep timer: 0 = off, otherwise minutes left. Counts down only while
     // music plays; at zero it pauses and shows a toast.
     property int sleepTimerMinutes: 0
@@ -2031,6 +2036,8 @@ Window {
                 lyrics.setPublishedOffset(Math.round(lo * 4) / 4)
         }
         player.setQuality(cfgGet("audioQuality") || "max")
+        root.prefetchCount = Math.min(10, Math.max(1,
+            parseInt(cfgGet("prefetchCount"), 10) || 1))
         // The app's Client ID is already embedded in the backend; the user
         // only cares about the on/off switch.
         discord.configure(discordEnabled, "")
@@ -3314,7 +3321,7 @@ Window {
         // Ten tracks ahead on an unmetered connection makes the next
         // change instant. On metered mobile data keep it to one: each
         // prefetch is a whole 4-8 MB file.
-        prefetchAhead(queueIndex, 1)
+        prefetchAhead(queueIndex, root.prefetchCount)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "",
                             setId: t.setId || "" })
@@ -4241,7 +4248,7 @@ Window {
             // It pre-resolves the first tracks right away: when the user
             // presses one of them, the stream is already resolved and it
             // sounds instantly.
-            root.prefetchHead(tracks, 2)
+            root.prefetchHead(tracks, root.prefetchCount)
         }
         function onLibraryChanged() {
             if (root.launcherOpen)
@@ -7285,6 +7292,38 @@ Window {
                                         player.setQuality(modelData.id)
                                         root.cfgSet("audioQuality", modelData.id)
                                         root.toast(qsTr("Calidad: %1").arg(modelData.label))
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingBlock {
+                            label: qsTr("Precarga de canciones")
+                            desc: qsTr("Cuántas pistas siguientes se preparan antes de que suenen. Más valor, cambio más rápido y más datos y batería.")
+                            RowLayout {
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
+                                Chip {
+                                    text: "-"
+                                    implicitWidth: height
+                                    onPicked: {
+                                        root.prefetchCount = Math.max(1, root.prefetchCount - 1)
+                                        root.cfgSet("prefetchCount", root.prefetchCount)
+                                    }
+                                }
+                                Text {
+                                    text: root.prefetchCount
+                                    color: Sys.text
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tLg)
+                                    font.weight: Font.DemiBold
+                                    Layout.minimumWidth: 28
+                                    horizontalAlignment: Text.AlignHCenter
+                                }
+                                Chip {
+                                    text: "+"
+                                    implicitWidth: height
+                                    onPicked: {
+                                        root.prefetchCount = Math.min(10, root.prefetchCount + 1)
+                                        root.cfgSet("prefetchCount", root.prefetchCount)
                                     }
                                 }
                             }

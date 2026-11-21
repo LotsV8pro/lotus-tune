@@ -372,6 +372,9 @@ private:
      // resolving it twice and takes advantage of the hover's head start).
     QString m_pendingLoadUrl;
     QString m_currentUrl;
+    // Track whose loadfile is currently in mpv. An end-file error from an
+    // older load (replaced by a newer one) must not retry the current track.
+    QString m_loadedTrack;
     QString m_status = QStringLiteral("starting");
     QString m_quality = QStringLiteral("max");  // "max"|"alta"|"media"|"baja"
     QString m_audioInfo;
