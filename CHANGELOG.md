@@ -3,6 +3,15 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.2.3 (2026-11-21)
+
+### Cambios
+
+- La precarga se ajusta al instante desde Ajustes > Reproducción (1 a 10). Al subir se cargan las pistas nuevas; al bajar se conservan las ya preparadas.
+- Al arrancar y al cambiar de canción se precarga la cantidad elegida, no solo una.
+- Mover el control ya no bloquea la interfaz: la precarga de letras ocurre al cambiar de canción, no al tocar el ajuste.
+- Un error `loading failed` de YouTube ya no provoca dos reintentos inútiles: el cambio a otra versión ocurre de inmediato.
+
 ## 2.2.2 (2026-11-21)
 
 ### Rendimiento

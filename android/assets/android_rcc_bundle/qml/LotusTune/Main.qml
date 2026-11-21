@@ -2917,7 +2917,7 @@ Window {
                 // Warm the streams of the restored queue at startup: the
                 // first play then finds the current track already resolved
                 // instead of waiting for yt-dlp (~2.5 s) on the click.
-                root.prefetchHead(toTrackList(st.queue), 1)
+                root.prefetchHead(toTrackList(st.queue), root.prefetchCount)
             }
         }
         // Without a stored value the volume is not touched (mpv starts
@@ -3334,24 +3334,20 @@ Window {
     // It is fired when each track starts, to have the stream already
     // resolved when moving on.
     function prefetchAhead(from, n) {
-        // On mobile data every prefetch is a whole file: the next song is
-        // downloaded twice (once here, once when it really plays).
-        if (catalog.metered)
-            return
+        // The prefetch count is an explicit setting. On metered data the
+        // default is low, but if the user raises it we honour it.
         if (!n || from < 0 || from >= queue.count)
             return
+        prefetchStreamsAhead(from, n)
         for (let i = from + 1; i <= from + n && i < queue.count; i++) {
             const t = queue.get(i)
-            if (t && t.url) {
-                player.prefetch(t.url)
-                // Warm the lyrics cache too: when the track starts, the
-                // providers have already answered and the widget shows
-                // the right lines from the first second.
-                if (typeof lyricsNext !== "undefined"
-                        && t.title && Number(t.duration) > 0)
-                    lyricsNext.fetch(String(t.artist || ""), String(t.title),
-                                     Number(t.duration), videoIdOf(t.url))
-            }
+            // Warm the lyrics cache too: when the track starts, the
+            // providers have already answered and the widget shows
+            // the right lines from the first second.
+            if (t && typeof lyricsNext !== "undefined"
+                    && t.title && Number(t.duration) > 0)
+                lyricsNext.fetch(String(t.artist || ""), String(t.title),
+                                 Number(t.duration), videoIdOf(t.url))
         }
     }
 
@@ -3359,14 +3355,51 @@ Window {
     // list or search results). That way a click on any of the first rows
     // already finds the stream resolved and sounds instantly.
     function prefetchHead(list, n) {
-        if (catalog.metered)
-            return
         if (!list || !list.length)
             return
         n = n || 4
         const total = Math.min(n, list.length)
         for (let i = 0; i < total; i++) {
             const t = list[i]
+            if (t && t.url)
+                player.prefetch(t.url)
+        }
+    }
+
+    // Applies the chosen prefetch count to the queue that is playing now.
+    // Called when the setting changes and on startup. It drops the old
+    // background queue and fills it again up to the new number: lowering
+    // the value keeps what is already resolved (player.prefetch dedupes)
+    // and simply stops queuing more; raising it starts the extra ones.
+    // Several +/- taps in a row write the setting once, after the last one.
+    // QSettings::sync() on every tap is what made the chip feel sticky.
+    Timer {
+        id: prefetchSaveTimer
+        interval: 300
+        onTriggered: root.cfgSet("prefetchCount", root.prefetchCount)
+    }
+    function queuePrefetchSave() {
+        prefetchSaveTimer.restart()
+    }
+
+    function applyPrefetchCount() {
+        if (queueIndex < 0 || queueIndex >= queue.count)
+            return
+        // Only streams here. The lyrics prefetch fires network requests to
+        // four providers per track and was running on every chip tap: that
+        // was the lag, not the yt-dlp queue. Lyrics warm up on track change.
+        Qt.callLater(function () {
+            player.clearPrefetch()
+            prefetchStreamsAhead(queueIndex, root.prefetchCount)
+        })
+    }
+
+    // Stream-only version used when the setting changes.
+    function prefetchStreamsAhead(from, n) {
+        if (!n || from < 0 || from >= queue.count)
+            return
+        for (let i = from + 1; i <= from + n && i < queue.count; i++) {
+            const t = queue.get(i)
             if (t && t.url)
                 player.prefetch(t.url)
         }
@@ -7299,7 +7332,7 @@ Window {
 
                         SettingBlock {
                             label: qsTr("Precarga de canciones")
-                            desc: qsTr("Cuántas pistas siguientes se preparan antes de que suenen. Más valor, cambio más rápido y más datos y batería.")
+                            desc: qsTr("Cuántas pistas siguientes se preparan. El cambio se aplica al instante: al subir cargarás las nuevas, al bajar conservarás las que ya están listas.")
                             RowLayout {
                                 spacing: Theme.spacing(root.compactUi, Theme.s2)
                                 Chip {
@@ -7307,7 +7340,8 @@ Window {
                                     implicitWidth: height
                                     onPicked: {
                                         root.prefetchCount = Math.max(1, root.prefetchCount - 1)
-                                        root.cfgSet("prefetchCount", root.prefetchCount)
+                                        root.queuePrefetchSave()
+                                        root.applyPrefetchCount()
                                     }
                                 }
                                 Text {
@@ -7323,7 +7357,8 @@ Window {
                                     implicitWidth: height
                                     onPicked: {
                                         root.prefetchCount = Math.min(10, root.prefetchCount + 1)
-                                        root.cfgSet("prefetchCount", root.prefetchCount)
+                                        root.queuePrefetchSave()
+                                        root.applyPrefetchCount()
                                     }
                                 }
                             }
