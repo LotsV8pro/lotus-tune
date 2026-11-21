@@ -2907,6 +2907,10 @@ Window {
                 queueShuffled = shuffle && arr.length > 1
                 mpris.setShuffle(shuffle)
                 root.updateNowPlaying()
+                // Warm the streams of the restored queue at startup: the
+                // first play then finds the current track already resolved
+                // instead of waiting for yt-dlp (~2.5 s) on the click.
+                root.prefetchHead(toTrackList(st.queue), 1)
             }
         }
         // Without a stored value the volume is not touched (mpv starts
@@ -3310,7 +3314,7 @@ Window {
         // Ten tracks ahead on an unmetered connection makes the next
         // change instant. On metered mobile data keep it to one: each
         // prefetch is a whole 4-8 MB file.
-        prefetchAhead(queueIndex, catalog.metered ? 1 : 2)
+        prefetchAhead(queueIndex, 1)
         catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
                             duration: t.duration, source: t.source, thumb: t.thumb || "",
                             setId: t.setId || "" })
@@ -4225,7 +4229,7 @@ Window {
             // It pre-resolves the first tracks right away: when the user
             // presses one of them, the stream is already resolved and it
             // sounds instantly.
-            root.prefetchHead(tracks, 4)
+            root.prefetchHead(tracks, 2)
         }
         function onLibraryChanged() {
             if (root.launcherOpen)

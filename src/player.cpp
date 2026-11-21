@@ -942,10 +942,24 @@ void Player::prefetchFront(const QString &url)
 
 void Player::clearPrefetch()
 {
-    // Only the background queue: the priority one (hover/click) belongs to
-    // the user and is about to be consumed; also a load() may be waiting
-    // for it.
+    // Drop background work that belongs to an old context (another list or
+    // another position). Clearing only the queue left the yt-dlp already
+    // running downloading audios nobody will play, burning CPU and network
+    // until they finish. Hover/click jobs and a track a load() waits for are
+    // kept: those are the user's next sound.
     m_resolveQueue.clear();
+    for (ResolveJob *job : m_jobs) {
+        if (job->proc.state() == QProcess::NotRunning || job->url.isEmpty())
+            continue;
+        if (job->front || job->url == m_pendingLoadUrl)
+            continue;
+        const QString abandoned = job->url;
+        job->url.clear();
+        job->front = false;
+        job->proc.kill();   // finished() calls resolveQueue() again
+        if (!abandoned.isEmpty())
+            qInfo() << "[player] prefetch cancelado" << abandoned;
+    }
 }
 
 // Entry into the pre-resolution queues. The "front" queue (hover) has
