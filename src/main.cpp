@@ -350,8 +350,9 @@ static void ensureFrugalExecEnv(char *argv[])
     }
 
 #ifdef Q_OS_ANDROID
-    // MIUI HWUI workaround: disable HWUI to prevent pthread_mutex crashes
-    // MIUI's custom HWUI renderer conflicts with Qt's OpenGL rendering
+    // MIUI HWUI workaround: QT_ANDROID_HWUI_MODE=0 prevents a pthread_mutex
+    // crash on MIUI/Redmi devices (observed as a native abort in the Qt
+    // platform plugin about 1 s after "qt started"). Keep it enabled.
     if (qEnvironmentVariableIsEmpty("QT_ANDROID_HWUI_MODE")) {
         qputenv("QT_ANDROID_HWUI_MODE", "0");
         changed = true;
@@ -366,7 +367,14 @@ static void ensureFrugalExecEnv(char *argv[])
         qputenv("QT_ANDROID_FORCE_DARK", "0");
         changed = true;
     }
-    // Additional HWUI mode variables to completely suppress MIUI rendering threads
+    // Name the RHI backend explicitly so Qt does not guess on Android.
+    if (qEnvironmentVariableIsEmpty("QSG_RHI_BACKEND")) {
+        qputenv("QSG_RHI_BACKEND", "opengl");
+        changed = true;
+    }
+    // Additional HWUI mode variables to completely suppress MIUI rendering
+    // threads. Without these the hwuiTask1 thread aborts (SIGABRT) inside
+    // the Qt platform plugin about 1 s after "qt started" on Redmi/MIUI.
     if (qEnvironmentVariableIsEmpty("HWUI_RENDER_MODE")) {
         qputenv("HWUI_RENDER_MODE", "software");
         changed = true;
@@ -534,12 +542,14 @@ int main(int argc, char *argv[])
     // (small) and not NVIDIA's (libnvidia-glcore + libnvidia-gpucomp,
     // ~47 MB). Only when we choose software, so nobody who forces
     // QT_QUICK_BACKEND=rhi on purpose is degraded.
+#ifndef Q_OS_ANDROID
     if (true) {
         if (qEnvironmentVariableIsEmpty("__GLX_VENDOR_LIBRARY_NAME"))
             qputenv("__GLX_VENDOR_LIBRARY_NAME", "mesa");
         if (qEnvironmentVariableIsEmpty("LIBGL_ALWAYS_SOFTWARE"))
             qputenv("LIBGL_ALWAYS_SOFTWARE", "1");
     }
+#endif
 
     // Frugal Qt Quick environment (must run before QGuiApplication).
     applyPerfEnv();

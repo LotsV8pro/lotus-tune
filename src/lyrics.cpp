@@ -647,10 +647,26 @@ bool Lyrics::loadFromDiskCache()
         return false;   // another version of the song
 
     if (o.value(QStringLiteral("lines")).isNull()) {
-        // "No lyrics" is also an answer, but it goes stale.
+        // Retry "no lyrics" once. A source fix or an artist-normalisation
+        // change must get one fresh attempt before the answer is trusted;
+        // after that the marker is respected until it goes stale.
+        const int retried = o.value(QStringLiteral("retried")).toInt();
+        if (retried < 1) {
+            qInfo() << "[lyrics] cache sin letra: se reintenta una vez";
+            QJsonObject retry = o;
+            retry.insert(QStringLiteral("retried"), 1);
+            retry.insert(QStringLiteral("saved"),
+                         QDateTime::currentSecsSinceEpoch());
+            QFile rf(lyricCachePath(m_artist, m_title));
+            if (rf.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                rf.write(QJsonDocument(retry).toJson(QJsonDocument::Compact));
+            return false;
+        }
         const qint64 saved = qint64(o.value(QStringLiteral("saved"))
                                          .toDouble());
-        if (QDateTime::currentSecsSinceEpoch() - saved > 7 * 86400)
+        // A "no lyrics" answer goes stale quickly: a source fix (or a
+        // better artist match) must be retried the same day, not in a week.
+        if (QDateTime::currentSecsSinceEpoch() - saved > 12 * 3600)
             return false;
         qInfo() << "[lyrics] sin letra guardada: se salta la busqueda";
         fail(m_offlineOnly ? QStringLiteral("Sin letra disponible (sin conexión)")
@@ -716,7 +732,33 @@ bool Lyrics::loadFromDiskCache()
     }
     m_translated = singable > 0 && withTr == singable;
     m_partialTranslation = withTr > 0 && withTr < singable;
-    m_refLines = lines;
+    // A cached entry was aligned for the duration it was saved with. If
+    // the audio now comes from a different edit (the videoclip of 229 s
+    // instead of the 163 s track) its timeline no longer matches: stretch
+    // line and word stamps to the real length so the karaoke stays in sync.
+    const int savedDuration = o.value(QStringLiteral("duration")).toInt();
+    if (savedDuration > 0 && m_duration > 0
+        && qAbs(savedDuration - m_duration) > 3) {
+        const double scale = double(m_duration) / double(savedDuration);
+        for (LrcLine &l : m_lines) {
+            l.time *= scale;
+            if (l.end > 0.0)
+                l.end *= scale;
+            for (QVariant &wv : l.words) {
+                QVariantMap w = wv.toMap();
+                w.insert(QStringLiteral("t"),
+                         w.value(QStringLiteral("t")).toDouble() * scale);
+                w.insert(QStringLiteral("e"),
+                         w.value(QStringLiteral("e")).toDouble() * scale);
+                wv = w;
+            }
+        }
+        m_wordedScore.shift *= scale;
+        qInfo() << "[lyrics] caché re-alineada a la duración real:"
+                << savedDuration << "->" << m_duration << "s (x"
+                << QString::number(scale, 'f', 3) << ")";
+    }
+    m_refLines = m_lines;
     for (LrcLine &l : m_lines) {
         if (isInstrumental(norm(l.text))) {
             l.instrumental = true;
@@ -750,6 +792,10 @@ void Lyrics::saveToDiskCache(bool found)
     QJsonObject o;
     o.insert(QStringLiteral("v"), 1);
     o.insert(QStringLiteral("duration"), m_duration);
+    // The word-level shift computed against the video: without it a cached
+    // entry loses its alignment and the karaoke runs on the studio timing
+    // while the audio is a videoclip (different intro).
+    o.insert(QStringLiteral("shift"), m_wordedScore.shift);
     o.insert(QStringLiteral("saved"), QDateTime::currentSecsSinceEpoch());
     o.insert(QStringLiteral("trackKey"), m_trackKey);
     // videoId is stored so a queued track can be checked for cached lyrics
@@ -3487,7 +3533,15 @@ void Lyrics::restoreSpacesFromPlain(QVector<LrcLine> &lines,
     for (LrcLine &l : lines) {
         if (l.instrumental || l.text.trimmed().isEmpty())
             continue;
-        const QString key = lettersWithApostrophes(l.text);
+        QString key = lettersWithApostrophes(l.text);
+        // Providers often decorate stylised lines with a leading/trailing
+        // dot or dash (".iMMerse your soUL in LOVE."). Those decorations
+        // made the edit distance exceed 2 and the clean line was never
+        // matched, leaving the odd capitalisation on screen.
+        while (key.startsWith(QLatin1Char('.')) || key.startsWith(QLatin1Char('-')))
+            key.remove(0, 1);
+        while (key.endsWith(QLatin1Char('.')) || key.endsWith(QLatin1Char('-')))
+            key.chop(1);
         if (key.isEmpty())
             continue;
         // The closest clean line wins. Apostrophes take part in the key so
@@ -4775,7 +4829,11 @@ static QString cleanTrackTitle(const QString &in, const QString &artist = QStrin
 // without accents and with single spaces. The parentheses are kept.
 static QString normMatch(const QString &s)
 {
-    QString t = s.toLower();
+    QString t = s.toLower().normalized(QString::NormalizationForm_D);
+    // The comment promised "without accents" but toLower() alone left them:
+    // "Thick And Thin" vs "Thick and Thín" did not match and Musixmatch's
+    // word-level karaoke was discarded as "another song".
+    t.remove(QRegularExpression(QStringLiteral("\\p{Mn}")));
     t.remove(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}()'\\- ]")));
     return t.simplified();
 }
@@ -5554,8 +5612,30 @@ void Lyrics::onMxmRichsyncReply(QNetworkReply *reply, const QString &key)
         && (normMatch(foundTitle) == wantTitle
             || normMatch(foundTitle).startsWith(wantTitle + QLatin1Char(' '))
             || wantTitle.startsWith(normMatch(foundTitle) + QLatin1Char(' ')));
+    // "The Cold Stares y Brutus Backlash" (YTM) vs "The Cold Stares,
+    // Brutus Backlash" (Musixmatch) are the same artists: compare the word
+    // sets, ignoring the conjunction/separator used to join them. An exact
+    // string compare discarded the real karaoke as "otra canción".
+    const auto artistWords = [](const QString &a) {
+        QString t = normMatch(a);
+        for (const QString &sep : { QStringLiteral(" y "), QStringLiteral(" & "),
+                                    QStringLiteral(" , "), QStringLiteral(" / "),
+                                    QStringLiteral(" feat "), QStringLiteral(" con ") })
+            t.replace(sep, QStringLiteral(" "));
+        t.replace(QLatin1Char(','), QLatin1Char(' '));
+        t.replace(QLatin1Char('/'), QLatin1Char(' '));
+        t.replace(QLatin1Char('&'), QLatin1Char(' '));
+        // A lone "y"/"&" between names is a separator too.
+        QStringList out;
+        for (const QString &w : t.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+            if (w != QStringLiteral("y") && w != QStringLiteral("&")
+                && w != QStringLiteral("feat") && w != QStringLiteral("con"))
+                out.append(w);
+        out.sort();
+        return out;
+    };
     const bool artistOk = wantArtist.isEmpty() || foundArtist.isEmpty()
-        || normMatch(foundArtist) == wantArtist;
+        || artistWords(foundArtist) == artistWords(c.artist);
     const bool lengthOk = foundLength <= 0 || m_duration <= 0
         || qAbs(foundLength - m_duration) <= 10;
     if (!matched || !titleOk || !artistOk || !lengthOk) {

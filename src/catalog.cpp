@@ -169,35 +169,6 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
             });
     startStatusCheck();
 
-#ifdef Q_OS_ANDROID
-    // Self-test of the native helper (libytmcli.so): it launches "search"
-    // (anonymous) ~2.5 s after igniting and it is shown in logcat only:
-    // it validates exec + TLS + API without user interaction.
-    QTimer::singleShot(2500, this, []() {
-        QProcess *probe = new QProcess();
-        probe->setProcessChannelMode(QProcess::MergedChannels);
-        probe->setProgram(AppPaths::pythonProgram());
-        probe->setArguments({QStringLiteral("search"),
-                             QStringLiteral("lotus tune probe")});
-        QObject::connect(probe,
-                         QOverload<int, QProcess::ExitStatus>::of(
-                             &QProcess::finished),
-                         probe,
-                         [probe](int code, QProcess::ExitStatus st) {
-                             if (code == 0)
-                                 qInfo() << "[cli-probe] ok";
-                             else
-                                 qWarning() << "[cli-probe] FAIL exit" << code
-                                            << st
-                                            << probe->readAllStandardOutput()
-                                               .size()
-                                            << probe->readAllStandardError();
-                             probe->deleteLater();
-                         });
-        probe->start();
-    });
-#endif
-
     // "My lists": one-off query to the YT Music API with ytm_api.py. It uses
     // its own QProcess so it does not interfere with m_proc nor with the login.
     m_libraryProc.setProcessChannelMode(QProcess::SeparateChannels);
@@ -659,11 +630,39 @@ Catalog::Catalog(SourceManager *sources, QObject *parent)
                     emit interactionDone(true, tr("Lista creada"));
                     return;
                 }
+                if (mode == QLatin1String("clone")) {
+                    const QJsonDocument doc = QJsonDocument::fromJson(out);
+                    const QString id =
+                        doc.object().value(QStringLiteral("id")).toString();
+                    if (!m_plAddVideo.isEmpty() && !id.isEmpty()) {
+                        // Create the copy, then copy the tracks from the
+                        // original into it (the original is untouched).
+                        m_plMode = QStringLiteral("cloned");
+                        m_plProc.setProgram(AppPaths::pythonProgram());
+                        m_plProc.setArguments({
+                            ytmApiPath(), QStringLiteral("mergepl"),
+                            m_plAddVideo, id,
+                            QString::number(m_plCloneLimit)});
+                        m_plAddVideo.clear();
+                        m_plProc.start();
+                        return;
+                    }
+                    m_plAddVideo.clear();
+                    refreshYtmLibrary();
+                    emit interactionDone(false, tr("No se pudo copiar la lista"));
+                    return;
+                }
                 m_plAddVideo.clear();
                 if (mode == QLatin1String("createadd")) {
                     refreshYtmLibrary();
                     emit interactionDone(true,
                                          tr("Lista creada con la pista"));
+                    return;
+                }
+                if (mode == QLatin1String("cloned")) {
+                    refreshYtmLibrary();
+                    emit interactionDone(true,
+                                         tr("Lista copiada (original conservada)"));
                     return;
                 }
                 if (mode == QLatin1String("update")) {
@@ -1863,6 +1862,47 @@ void Catalog::addToPlaylist(const QString &playlistId, const QString &videoId)
                  tr("Añadido a la lista"));
 }
 
+void Catalog::addManyToPlaylist(const QString &playlistId, const QStringList &videoIds)
+{
+    const QString p = playlistId.trimmed();
+    if (p.isEmpty() || videoIds.isEmpty()) {
+        emit interactionDone(false, tr("No hay pistas para añadir"));
+        return;
+    }
+    QStringList args{ytmApiPath(), QStringLiteral("addplmany"), p};
+    args.append(videoIds);
+    runYtmAction(args, tr("Pistas añadidas en bloque"));
+}
+
+void Catalog::mergePlaylists(const QString &sourceId, const QString &targetId, int limit)
+{
+    const QString src = sourceId.trimmed();
+    const QString dst = targetId.trimmed();
+    if (src.isEmpty() || dst.isEmpty()) {
+        emit interactionDone(false, tr("Faltan listas para fusionar"));
+        return;
+    }
+    runYtmAction({ytmApiPath(), QStringLiteral("mergepl"), src, dst,
+                  QString::number(qMax(1, qMin(500, limit)))},
+                 tr("Listas fusionadas"));
+}
+
+void Catalog::clonePlaylist(const QString &sourceId, const QString &title, int limit)
+{
+    const QString src = sourceId.trimmed();
+    const QString t = title.trimmed();
+    if (src.isEmpty() || t.isEmpty()) {
+        emit interactionDone(false, tr("Faltan datos para copiar la lista"));
+        return;
+    }
+    // Create the new list first; the copied tracks are added afterwards.
+    m_plAddVideo = src;
+    m_plCloneLimit = qMax(1, qMin(500, limit));
+    m_plCloneTitle = t;
+    runPlaylistAction({ytmApiPath(), QStringLiteral("createpl"), t,
+                       QStringLiteral("0")}, QStringLiteral("clone"));
+}
+
 void Catalog::removeFromPlaylist(const QString &playlistId, const QString &videoId,
                                  const QString &setVideoId)
 {
@@ -2205,6 +2245,26 @@ void Catalog::toggleLiked(const QString &videoIdOrUrl, bool currentlyLiked)
         return;
     }
     const bool next = !currentlyLiked;
+    // Only change the local set if the vote can actually reach YouTube
+    // Music. Before, setLiked() ran first and rateTrack() then aborted
+    // silently (no session / helper busy), leaving a heart marked locally
+    // that YTM never received: the two stayed out of sync indefinitely.
+    if (!ytmLoggedIn()) {
+        emit interactionDone(false,
+                             tr("Inicia sesión en Ajustes para "
+                                                "interactuar con YouTube Music"));
+        return;
+    }
+    if (m_ytmProc.state() != QProcess::NotRunning) {
+        emit interactionDone(false, tr("Hay una acción en curso"));
+        return;
+    }
+    if (!ytmHelperReady()) {
+        emit interactionDone(false,
+                             tr("No se encontró el asistente de "
+                                                "YouTube Music"));
+        return;
+    }
     setLiked(id, next);
     rateTrack(id, next ? QStringLiteral("LIKE") : QStringLiteral("INDIFFERENT"));
 }

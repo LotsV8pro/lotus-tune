@@ -1619,6 +1619,41 @@ def cmd_addpl(playlist_id, video_id):
     return 0
 
 
+def cmd_addplmany(playlist_id, video_ids):
+    """Añade muchas pistas en una sola petición (hasta 100 por lote)."""
+    ids = [v.strip() for v in video_ids if v.strip()][:500]
+    if not playlist_id or not ids:
+        print("uso: addplmany <playlistId> <videoId>...", file=sys.stderr)
+        return 2
+    added = 0
+    for start in range(0, len(ids), 100):
+        batch = ids[start:start + 100]
+        actions = [{"action": "ACTION_ADD_VIDEO", "addedVideoId": v}
+                   for v in batch]
+        post_json("browse/edit_playlist",
+                  {"playlistId": playlist_id, "actions": actions})
+        added += len(batch)
+    json.dump({"status": "ok", "added": added}, sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+def cmd_mergepl(source_id, target_id, limit=500):
+    """Copia hasta `limit` pistas de una playlist a otra, sin borrar la original."""
+    if not source_id or not target_id:
+        print("uso: mergepl <sourceId> <targetId> [limit]", file=sys.stderr)
+        return 2
+    src = playlist(source_id)
+    entries = src.get("entries", [])[:int(limit)]
+    ids = [str(e.get("id", "")).split("|")[0] for e in entries]
+    ids = [v for v in ids if v]
+    if not ids:
+        json.dump({"status": "ok", "added": 0}, sys.stdout)
+        sys.stdout.write("\n")
+        return 0
+    return cmd_addplmany(target_id, ids)
+
+
 def cmd_rmpl(playlist_id, video_id, set_video_id):
     resp = remove_playlist_item(playlist_id, video_id, set_video_id)
     json.dump({"status": resp.get("status", "ok")}, sys.stdout)
@@ -1857,7 +1892,8 @@ def main():
         print(
             "uso: ytm_api.py library | search <q> | playlist <id> | "
             "playlistinfo <id> | "
-            "rate <v> <r> | addpl <p> <v> | rmpl <p> <v> <s> | "
+            "rate <v> <r> | addpl <p> <v> | addplmany <p> <v>... | "
+            "mergepl <src> <dst> [limite] | rmpl <p> <v> <s> | "
             "createpl <title> [priv] | importpl <spotify-url-or-id> [title] | "
             "importliked <archivo-json> [limite] | "
             "renamepl <id> <title> | "
@@ -1923,6 +1959,15 @@ def main():
             if len(args) < 3:
                 raise YtmError("uso: addpl <playlistId> <videoId>")
             return cmd_addpl(args[1], args[2])
+        if cmd == "addplmany":
+            if len(args) < 3:
+                raise YtmError("uso: addplmany <playlistId> <videoId>...")
+            return cmd_addplmany(args[1], args[2:])
+        if cmd == "mergepl":
+            if len(args) < 3:
+                raise YtmError("uso: mergepl <sourceId> <targetId> [limite]")
+            return cmd_mergepl(args[1], args[2],
+                               args[3] if len(args) > 3 else 500)
         if cmd == "rmpl":
             if len(args) < 4:
                 raise YtmError("uso: rmpl <playlistId> <videoId> <setVideoId>")

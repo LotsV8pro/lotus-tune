@@ -3,18 +3,54 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
-## 2.2.3 (2026-11-21)
+## 2.3.0 (2026-11-23)
 
-### Cambios
+Desde la v2.2.1 publicada en GitHub. Las versiones 2.2.2 y 2.2.3 no llegaron a publicarse; sus cambios se incluyen aqui.
 
-- La precarga se ajusta al instante desde Ajustes > Reproducción (1 a 10). Al subir se cargan las pistas nuevas; al bajar se conservan las ya preparadas.
-- Al arrancar y al cambiar de canción se precarga la cantidad elegida, no solo una.
-- Mover el control ya no bloquea la interfaz: la precarga de letras ocurre al cambiar de canción, no al tocar el ajuste.
-- Un error `loading failed` de YouTube ya no provoca dos reintentos inútiles: el cambio a otra versión ocurre de inmediato.
+### Novedades
 
-## 2.2.2 (2026-11-21)
+- Operaciones en bloque con listas: copiar una lista completa (hasta 200 pistas) conservando la original, fusionar una lista en otra y añadir muchas pistas de una vez.
+- El menu de cada lista tiene las nuevas opciones; el selector de destino se reutiliza para elegir la lista objetivo.
+- Un solo comando al asistente de YouTube Music por operacion (lotes de 100), en lugar de una peticion por pista.
+- Ninguna de estas operaciones borra la lista de origen; origen y destino no pueden ser la misma lista.
+- Recomendaciones de canciones parecidas al final de cada lista: 15 por tanda, botón para cargar la siguiente, reproducción individual y botón «Añadir todas».
+- El selector de «Fusionar en…» muestra también las listas guardadas en la biblioteca cuando las de YouTube Music no están cargadas.
 
 ### Rendimiento
+
+- El cambio de canción se agrupa en una sola carga: al saltar varias veces seguidas sólo se resuelve y se busca letra para la pista final. Antes cada canción intermedia lanzaba resoluciones y peticiones a cuatro proveedores de letras.
+- El fondo animado (el difuminado de la carátula) se calcula ahora en un hilo de trabajo. Medido en el teléfono: de 89 ms por fotograma con picos de 151 ms a 15-17 ms estables.
+- El cambio de canción suena en cuanto se resuelve el stream: el audio arranca directamente mientras la copia local se descarga en segundo plano para la siguiente vez.
+- El gesto de deslizar en la barra funciona por fin en el teléfono. Antes estaba desactivado por una condición invertida. Retorno inmediato a su sitio, sin animación que retenga la barra en el borde.
+- Los botones de la barra responden al dedo con el mismo feedback visual que al ratón.
+- Se ha eliminado una prueba automática que lanzaba un proceso de búsqueda al arrancar y retrasaba la interfaz unos tres segundos.
+- La precarga de letras ya no se hace por adelantado: lanzaba dieciséis peticiones de red en cada cambio y hacía que se eligiera una versión con menos líneas.
+- La precarga de streams sigue siendo configurable de 1 a 10 desde Ajustes > Reproducción. Al subir se cargan las nuevas; al bajar se conservan las que ya están listas.
+
+### Correcciones
+
+- Se reproduce una canción aunque venga de un videoclip con otro título: las respuestas tardías de otros vídeos ya no sustituyen al audio elegido.
+- Una URL rechazada por YouTube (`loading failed`) se reintenta una vez con una resolución nueva antes de pasar a la siguiente pista.
+- Las letras de un mismo tema dejaron de acumular candidatos de varias fuentes, lo que recortaba versos. La canción con la letra más completa vuelve a mostrarse entera.
+- El texto con capitalización extraña de algunos proveedores (`.iMMerse`, `soUL`) se corrige usando la letra limpia como referencia.
+- Montones de palabras pegadas y casos de espacios perdidos se reconstruyen antes de mostrar la letra.
+- La letra se alinea de nuevo con la duración real del audio: un videoclip de 229 segundos ya no usa los tiempos de la canción de 163 segundos.
+- El desplazamiento calculado se guarda en la caché y se reutiliza en sesiones posteriores.
+- Las canciones marcadas como «sin letra» se reintentan una vez antes de darse por perdidas, y el marcador caduca a las doce horas.
+- Los favoritos sólo se marcan localmente cuando el voto puede enviarse a YouTube Music. Antes el corazón quedaba puesto y el voto nunca salía.
+- La barra de progreso y la letra dejan de avanzar cuando todavía no hay audio; cuando éste entra no retroceden.
+- El texto del artista con varios nombres se compara por palabras: «The Cold Stares y Brutus Backlash» y «The Cold Stares, Brutus Backlash» son el mismo artista.
+- Los acentos se normalizan al comparar títulos, lo que devuelve el karaoke de Musixmatch que antes se descartaba.
+- La duración que se pasa al buscador de letras es la de la canción de la cola cuando el motor todavía arrastra la anterior.
+- El error `ReferenceError: artistList is not defined` en la búsqueda de artistas, corregido.
+
+### Interfaz
+
+- Cerrar el modo cine con la cola abierta ya no deja una superficie invisible que captura todos los toques.
+- El aviso «Cargando la lista…» desaparece al cambiar de página o de lista.
+- La sección de atajos de teclado y los textos que mencionaban «Ctrl+», «Escape» o «Windows» no se muestran en el teléfono.
+- Se puede volver a ver «Qué hay de nuevo» desde Ajustes > Personalizar ajustes.
+- La aceleración por hardware de Android se ha ajustado para evitar un cierre inesperado del proceso gráfico en algunos dispositivos.
 
 - La cola restaurada al abrir la app pre-resuelve la canción actual, así que el primer play no espera a yt-dlp.
 - `clearPrefetch()` cancela los yt-dlp en marcha de listas anteriores. Antes seguían descargando audio que nadie iba a escuchar.

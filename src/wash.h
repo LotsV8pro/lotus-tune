@@ -53,6 +53,10 @@ public:
 signals:
     void changed();
 
+private slots:
+    // Runs on the GUI thread: the worker only computes the image.
+    void applyBlurred(const QImage &blurred, const QUrl &url);
+
 private:
     QNetworkAccessManager *m_net;
     QImage m_image;

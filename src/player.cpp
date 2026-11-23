@@ -165,7 +165,10 @@ Player::Player(QObject *parent)
 #ifdef Q_OS_ANDROID
     m_chainTimer = new QTimer(this);
     m_chainTimer->setSingleShot(true);
-    m_chainTimer->setInterval(35000);   // a normal chain takes ~2 s
+    // A chain normally takes ~2 s, but a client can spend 20 s in
+    // transferTimeout and there are three of them. 35 s aborted the chain
+    // before the last client could answer. 75 s covers the full retry.
+    m_chainTimer->setInterval(75000);
     connect(m_chainTimer, &QTimer::timeout, this,
             [this]() { abortChain(QStringLiteral("timeout")); });
 #endif
@@ -244,6 +247,19 @@ void Player::loadStreamCache()
             if (secs > 0.0)
                 m_trackDur.insert(it.key(), secs);
         }
+        // Fourth field (optional): a local audio file already fetched for
+        // this track. Persisting it matters because a stream URL bound to
+        // the old egress is useless after a network change, but the local
+        // file still plays. Without this the app re-downloaded it on every
+        // restart.
+#ifdef Q_OS_ANDROID
+        if (a.size() >= 4) {
+            const QString local = a.at(3).toString();
+            if (!local.isEmpty() && QFileInfo(local).isFile()
+                && QFileInfo(local).size() > 4096)
+                m_audioLocal.insert(it.key(), local);
+        }
+#endif
         if (direct.isEmpty() || now - ts > kStreamCacheTtlSec)
             continue;
         m_resolved.insert(it.key(), direct);
@@ -270,9 +286,32 @@ void Player::saveStreamCache()
     if (items.size() > 300)
         items = items.mid(0, 300);
     QJsonObject o;
-    for (const auto &p : items)
-        o.insert(p.first, QJsonArray{m_resolved.value(p.first), double(p.second),
-                                    m_trackDur.value(p.first, 0.0)});
+    for (const auto &p : items) {
+        QJsonArray entry{m_resolved.value(p.first), double(p.second),
+                         m_trackDur.value(p.first, 0.0)};
+#ifdef Q_OS_ANDROID
+        const QString local = m_audioLocal.value(p.first);
+        entry.append(local.isEmpty() ? QJsonValue(QJsonValue::Null)
+                                     : QJsonValue(local));
+#endif
+        o.insert(p.first, entry);
+    }
+#ifdef Q_OS_ANDROID
+    // A local file may outlive an expired stream URL: keep its entry with
+    // the file: marker so loadStreamCache still sees it and plays it.
+    for (auto it = m_audioLocal.constBegin(); it != m_audioLocal.constEnd(); ++it) {
+        if (o.contains(it.key()))
+            continue;
+        if (!QFileInfo(it.value()).isFile())
+            continue;
+        QJsonArray entry;
+        entry.append(QStringLiteral("file:"));
+        entry.append(double(now));
+        entry.append(m_trackDur.value(it.key(), 0.0));
+        entry.append(it.value());
+        o.insert(it.key(), entry);
+    }
+#endif
     QDir().mkpath(QFileInfo(m_cacheFile).absolutePath());
     QFile f(m_cacheFile);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
@@ -701,13 +740,18 @@ void Player::handleLine(const QByteArray &line)
             // still the one we are playing.
             const bool replaced = !m_loadedTrack.isEmpty() && m_loadedTrack != m_currentUrl;
             // "loading failed" means YouTube rejected the signed URL (403).
-            // Resolving the same track again gives another rejected URL, so
-            // retrying only delays the switch to another version of it.
-            // Let the queue replace the video right away instead.
+            // Give it ONE fresh resolution (dropping the cached url): a new
+            // signature sometimes works. After that, let the queue move on.
             const bool rejectedUrl = rawErr.contains(QLatin1String("loading failed"));
-            if (!replaced && !rejectedUrl && m_retry < 2 && !m_currentUrl.isEmpty()) {
+            const int retryLimit = rejectedUrl ? 1 : 2;
+            if (!replaced && m_retry < retryLimit && !m_currentUrl.isEmpty()) {
                 ++m_retry;
                 const QString url = m_currentUrl;
+                if (rejectedUrl && m_resolved.remove(url)) {
+                    m_resolvedAt.remove(url);
+                    m_cacheDirty = true;
+                    m_cacheSaveTimer.start();
+                }
                 qWarning() << "[player] reintento" << m_retry << "de" << url;
                 QTimer::singleShot(900 * m_retry, this, [this, url] {
                     if (m_currentUrl == url)
@@ -837,6 +881,17 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
     // On a phone there is no mpv and no yt-dlp: the stream is asked to
     // YouTube Music's API and played by Qt.
     if (m_androidPlayer) {
+        // If we already have the new track cached the swap is instant, so
+        // do nothing. Otherwise stop the old audio now: keeping it playing
+        // while the new one resolves made skipping back feel like the
+        // previous song was erased mid-phrase and then a long silence.
+        const QString newLocal = m_audioLocal.value(url);
+        const bool instant = (!newLocal.isEmpty() && QFileInfo(newLocal).isFile()
+                              && QFileInfo(newLocal).size() > 4096)
+                             || m_resolved.contains(url);
+        if (!instant && !m_currentUrl.isEmpty() && m_currentUrl != url
+            && m_androidPlayer->playbackState() != QMediaPlayer::StoppedState)
+            m_androidPlayer->stop();
         m_pendingLoadUrl.clear();
         m_position = 0;
         m_duration = m_hintDur > 0.0 ? m_hintDur : 0.0;
@@ -850,15 +905,19 @@ void Player::loadImpl(const QString &rawUrl, bool allowResolve)
         emit positionChanged();
         emit stateChanged();
         if (network) {
+            // A downloaded local file plays without any network at all.
+            // Check it before m_resolved: on a network change the signed
+            // urls are dropped but the file is still valid, and requiring
+            // m_resolved here left the current track stuck on "Cargando".
+            const QString localPath = m_audioLocal.value(url);
+            if (!localPath.isEmpty() && QFileInfo(localPath).isFile()
+                && QFileInfo(localPath).size() > 4096) {
+                androidPlayLocalFile(localPath);
+                return;
+            }
             // Cached from an earlier prefetch: it sounds instantly.
             if (m_resolved.contains(url)) {
                 const QString direct = m_resolved.value(url);
-                const QString localPath = m_audioLocal.value(url);
-                if (!localPath.isEmpty() && QFileInfo(localPath).isFile()
-                    && QFileInfo(localPath).size() > 4096) {
-                    androidPlayLocalFile(localPath);
-                    return;
-                }
                 if (direct.startsWith(QStringLiteral("file:"))) {
                     // Stale cache entry of an old build: a deleted local
                     // file is resolved again from scratch.
@@ -1119,6 +1178,15 @@ void Player::startResolve(ResolveJob *job, const QString &url, bool front)
     }
     m_chainJob = job;
     beginChain(url);
+    // beginChain() may refuse the url if another chain resolved it while
+    // this job waited: nobody would call onResolveFinished and the job
+    // would be stuck forever, blocking resolveQueue() for this url.
+    if (m_apTrack.isEmpty() && m_chainJob == job) {
+        m_chainJob = nullptr;
+        job->url.clear();
+        job->timer.stop();
+        onResolveFinished(job, 1);
+    }
     return;
 #endif
     job->proc.setProgram(QStringLiteral("yt-dlp"));
@@ -1207,7 +1275,15 @@ void Player::onResolveFinished(ResolveJob *job, int code)
     job->url.clear();
     job->front = false;
     if (code == 0) {
+#ifdef Q_OS_ANDROID
+        // On Android the chain never starts job->proc (startResolve returns
+        // early): finishStream() calls this with code 0 over a QProcess that
+        // has no open channel. Reading it prints "device not open" and the
+        // stream url is already handled there, so skip the read.
+        const QByteArray out;
+#else
         const QByteArray out = job->proc.readAllStandardOutput().trimmed();
+#endif
         const QList<QByteArray> lines = out.split('\n');
         for (const QByteArray &l : lines) {
             const QString s = QString::fromUtf8(l).trimmed();
@@ -1478,22 +1554,22 @@ QString Player::sessionCookie() const
 // "...watch?v=ID&...", "...youtu.be/ID", "ID".
 static QString videoIdOf(const QString &trackUrl)
 {
-    QString id = trackUrl;
-    const int v = id.lastIndexOf(QLatin1Char('='));
-    if (v >= 0)
-        id = id.mid(v + 1);
-    for (const char stop : {'&', '#', ' '}) {
-        const int at = id.indexOf(QChar::fromLatin1(stop));
-        if (at >= 0)
-            id = id.left(at);
+    // Read the v= query item properly: lastIndexOf('=') picked up '=' from
+    // later parameters (sig, etc.) and returned a wrong id, so Player and
+    // Downloads disagreed and download signals were lost.
+    const QUrl u(trackUrl);
+    if (u.host().contains(QLatin1String("youtu.be"))) {
+        const QString p = u.path().mid(1);
+        if (p.size() >= 11)
+            return p.left(11);
     }
-    // A non-parameter form (youtu.be/ID) has no '=': the tail is the id.
-    if (id.size() < 11 || id.startsWith(QLatin1String("/watch"))) {
-        const QString tail = trackUrl.mid(trackUrl.lastIndexOf(QLatin1Char('/')) + 1);
-        const int at = tail.indexOf(QLatin1Char('?'));
-        return (at >= 0 && tail.size() - at - 1 >= 11) ? tail.mid(at + 2) : tail;
-    }
-    return id;
+    const QString v = QUrlQuery(u).queryItemValue(QStringLiteral("v"));
+    if (v.size() == 11)
+        return v;
+    const QString tail = u.path().section(QLatin1Char('/'), -1);
+    if (tail.size() == 11 && !tail.contains(QLatin1Char('.')))
+        return tail;
+    return QString();
 }
 
 // Real duration of the downloaded audio, read from the file itself.
@@ -1580,7 +1656,12 @@ void Player::beginChain(const QString &url, bool forDownload)
         return;
     }
     if (!m_apTrack.isEmpty()) {
-        m_apWanted = url;
+        // Keep every request: overwriting a single QString lost the earlier
+        // ones and the track never resolved until the 35 s timeout.
+        m_apWanted.removeAll(url);
+        m_apWanted.prepend(url);
+        while (m_apWanted.size() > 24)
+            m_apWanted.removeLast();
         qInfo() << "[player] resolucion en espera (cadena ocupada):" << url;
         return;
     }
@@ -1611,8 +1692,7 @@ void Player::endChain()
     m_apN.clear();
     m_dlChainUrl.clear();
     if (!m_apWanted.isEmpty()) {
-        const QString next = m_apWanted;
-        m_apWanted.clear();
+        const QString next = m_apWanted.takeFirst();
         QTimer::singleShot(0, this, [this, next]() { beginChain(next); });
     } else if (!m_dlQueue.isEmpty()) {
         // Nobody from the player is using it: the downloads' turn.
@@ -1731,8 +1811,11 @@ void Player::resolveWithApi(const QString &url)
 {
     // The 11-character id of the video (the watch URL or the permalink).
     const QString id = videoIdOf(url);
-    if (id.size() < 11)
+    if (id.size() < 11) {
+        qWarning() << "[player] id de video invalido, liberando cadena:" << url;
+        abortChain(QStringLiteral("id invalido"));
         return;
+    }
 
     // The first client that is going to answer needs, at least, the
     // visitor id scraped from the watch page and the player build (the
@@ -2120,7 +2203,6 @@ void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
         qWarning() << "[player] la página watch no llegó:" << reply->errorString();
         abortChain(QStringLiteral("pagina watch"));
         return;
-        return;
     }
     const QString page = QString::fromUtf8(raw);
     // The anonymous visitor id travels in the page's ytcfg: the TV player
@@ -2157,8 +2239,9 @@ void Player::onWatchPageReply(QNetworkReply *reply, const QString &trackUrl)
         const QRegularExpressionMatch m2 = re2.match(page);
         if (!m2.hasMatch()) {
             qWarning() << "[player] el id del player JS no está en la página";
-            m_loading = false;
-            emit stateChanged();
+            // Release the single-lane chain: otherwise m_apTrack stays set
+            // and the next track waits 35 s for the watchdog.
+            abortChain(QStringLiteral("sin id player js"));
             return;
         }
         m_playerJsId = m2.captured(1);
@@ -2211,8 +2294,9 @@ void Player::onPlayerJsReply(QNetworkReply *reply, const QUrl &jsUrl,
     const QByteArray raw = reply->readAll();
     if (reply->error() != QNetworkReply::NoError || raw.isEmpty()) {
         qWarning() << "[player] el player JS no llegó:" << reply->errorString();
-        m_loading = false;
-        emit stateChanged();
+        // Free the single-lane chain: without endChain() m_apTrack stays
+        // set and every later resolve is refused until the 35 s timeout.
+        abortChain(QStringLiteral("player js"));
         return;
     }
     m_playerJsText = QString::fromUtf8(raw);
@@ -2247,8 +2331,9 @@ void Player::solveJsWithPlayerJs(const QString &trackUrl)
     // challenge only exists in the signatureCipher formats. A chain with
     // neither is a plain mistake and has nothing to solve.
     if (m_apN.isEmpty() && m_apSig.isEmpty()) {
-        qWarning() << "[player] solve con retos vacíos; ignorado (s:"
+        qWarning() << "[player] solve con retos vacíos; liberando cadena (s:"
                    << m_apSig.size() << "| n:" << m_apN.size() << ")";
+        abortChain(QStringLiteral("retos vacios"));
         return;
     }
     // A solve is already in flight: the poll serves it; do not hijack
@@ -2494,9 +2579,14 @@ void Player::finishStream(const QString &finalUrl)
     // already cached, startAudioFetch plays it right away and its
     // m_loading=false was overwritten by this line (the bar stayed at
     // "Loading..." forever even though the song was playing).
-    if (!job)
+    // Never play an answer for a DIFFERENT video than the one selected:
+    // the queue can hold both the 230 s videoclip and the 163 s YTM track,
+    // and a late resolution of the other one replaced the audio while the
+    // title/carátula still showed the chosen track.
+    const bool playThis = !job && playbackWants;
+    if (playThis)
         m_loading = true;
-    startAudioFetch(doneTrack, finalUrl, /*playNow=*/!job);
+    startAudioFetch(doneTrack, finalUrl, /*playNow=*/playThis);
     endChain();
     if (job) {
         // Prefetch job: the queue machinery takes it from here (it fills
@@ -2656,18 +2746,41 @@ void Player::startAudioFetch(const QString &track, const QString &streamUrl,
             m_androidPlayer->setSource(QUrl(streamUrl));
             m_androidPlayer->play();
         }
+        // No download is started on this path, so audioFetchDone() never
+        // runs: clear the loading state here or the bar says "Cargando"
+        // forever while the song sounds.
+        if (playNow && cur) {
+            m_loading = false;
+            emit stateChanged();
+        }
         return;
     }
-    // A local copy already fetched for this exact track: instant play.
+    // Start the stream NOW while the local copy is downloaded in the
+    // background. Waiting for the whole file (up to ~2 s here) made the UI
+    // show the new title while the old audio kept playing: it felt stuck.
+    // The downloaded file still replaces the source when it is ready, so
+    // playback becomes network-independent afterwards.
     const QString path = AppPaths::cacheDir() + QStringLiteral("/audio_")
                          + videoIdOf(track) + QStringLiteral(".bin");
+    const bool curNow = !m_currentUrl.isEmpty()
+                        && videoIdOf(track) == videoIdOf(m_currentUrl);
+    if (playNow && curNow && m_androidPlayer) {
+        m_streamStartedFor = track;
+        m_androidPlayer->setSource(QUrl(streamUrl));
+        m_androidPlayer->play();
+        m_loading = false;
+        emit stateChanged();
+    }
     const QFileInfo fi(path);
     if (fi.isFile() && fi.size() > 4096) {
         audioFetchDone(track, path, true);
         return;
     }
-    if (!m_fetching.isEmpty() && videoIdOf(m_fetching) == videoIdOf(track))
-        return;                       // already downloading
+    if (!m_fetching.isEmpty() && videoIdOf(m_fetching) == videoIdOf(track)) {
+        // The same track is already being fetched: its audioFetchDone()
+        // will clear the flag, so nothing else is needed here.
+        return;
+    }
     m_audioPlay.insert(track, playNow);
     const bool wanted = !m_currentUrl.isEmpty()
                         && videoIdOf(track) == videoIdOf(m_currentUrl);
@@ -2771,6 +2884,10 @@ void Player::waitForStreamAndFetch(const QString &track, int attempt)
 // prefetch).
 void Player::audioFetchDone(const QString &track, const QString &path, bool ok)
 {
+    // A background prefetch finishing at the same moment the user changes
+    // track must not start audio for the wrong song. Honour the flag the
+    // fetch was started with; a plain cache fill just stores the file.
+    const bool playNow = m_audioPlay.take(track);
     m_audioPlay.remove(track);
     m_fetching.clear();
     // Starts the next download in the queue (outside this stack).
@@ -2782,7 +2899,7 @@ void Player::audioFetchDone(const QString &track, const QString &path, bool ok)
                            && !track.isEmpty()
                            && videoIdOf(track) == videoIdOf(m_currentUrl);
     if (!ok) {
-        if (isCurrent && m_androidPlayer) {
+        if (playNow && isCurrent && m_androidPlayer) {
             // No local copy: the direct url (bound to this egress).
             const QString direct = m_resolved.value(track);
             if (direct.startsWith(QLatin1String("http"))) {
@@ -2797,7 +2914,22 @@ void Player::audioFetchDone(const QString &track, const QString &path, bool ok)
     m_audioLocal.insert(track, path);
     m_cacheDirty = true;
     m_cacheSaveTimer.start();
-    if (isCurrent && m_androidPlayer) {
+    // The file may have arrived from a prefetch (playNow=false) that
+    // happens to be the track now playing. It still has to clear the
+    // "Cargando" state; otherwise the bar hangs forever while the song
+    // sounds through the resolve path.
+    if (!playNow && isCurrent) {
+        m_loading = false;
+        emit stateChanged();
+    }
+    const bool alreadyStreaming = (m_streamStartedFor == track);
+    m_streamStartedFor.clear();
+    if (alreadyStreaming) {
+        // Already sounding from the direct stream: swapping to the local
+        // file now would restart the song a second or two in. The file is
+        // cached for the NEXT play, which will then be offline-ready.
+        qInfo() << "[player] copia local guardada para la proxima reproduccion:" << path;
+    } else if (playNow && isCurrent && m_androidPlayer) {
         qInfo() << "[player] reproduciendo fichero local:" << path;
         androidPlayLocalFile(path);
     }

@@ -257,6 +257,7 @@ private:
     void setBackgroundPlayback(bool on);
     QHash<QString, QString> m_audioLocal;           // track -> local file
     QHash<QString, bool> m_audioPlay;               // track -> play on done
+    QString m_streamStartedFor;                     // track already playing from stream
     QHash<QString, int> m_audioTries;               // track -> retries
     // One download at a time: the carrier nodes share an IP (CGNAT) and
     // several simultaneous downloads start answering 403.
@@ -285,7 +286,7 @@ private:
     // the new request clobbered the state of the chain in flight and the
     // solver answered "busy" -> everything was abandoned and the track
     // did not play.
-    QString m_apWanted;
+    QStringList m_apWanted;
     // Starts the chain for `url` (one at a time; if another one is in
     // flight, it is noted in m_apWanted). `forDownload` marks the chain as
     // requested by the downloads panel (nothing is played).

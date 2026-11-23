@@ -287,7 +287,7 @@ Item {
             page.artistBusy = false
             page.artistResults = artists || []
             if (page.artistMode)
-                artistList.positionViewAtBeginning()
+                results.positionViewAtBeginning()
         }
         function onPlaylistsReady(playlists) {
             page.playlistResults = playlists || []

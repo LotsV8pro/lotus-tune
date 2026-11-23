@@ -41,7 +41,7 @@ static const char *kAppKeys[] = {
     // update was already announced and the one whose notes were already read.
     // Without them in this list they are saved but never read back, and both
     // notices came back on every start.
-    "updateNotified", "whatsNewSeen",
+    "updateNotified", "whatsNewSeen", "whatsNewForVersion",
 };
 
 static bool isThemeKey(const QString &key)

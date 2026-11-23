@@ -416,14 +416,18 @@ Window {
     property string editorTitle: ""
     property bool editorPrivate: false
     property string editorVideoId: ""
+    property string editorCloneFrom: ""
+    property int editorCloneLimit: 200
 
-    function openCreatePlaylist(videoId) {
+    function openCreatePlaylist(videoId, cloneFrom, cloneLimit) {
         root.editorCreate = true
         root.editorId = ""
         root.editorInfoId = ""
         root.editorTitle = ""
         root.editorPrivate = false
         root.editorVideoId = String(videoId || "")
+        root.editorCloneFrom = String(cloneFrom || "")
+        root.editorCloneLimit = cloneLimit || 200
         root.playlistPickerOpen = false
         root.ctxOpen = false
         root.editorOpen = true
@@ -446,9 +450,12 @@ Window {
     function submitPlaylistEditor(data) {
         if (!data)
             return
-        if (data.create)
-            catalog.createPlaylist(data.title, data.isPrivate, data.videoId || "")
-        else
+        if (data.create) {
+            if (root.editorCloneFrom)
+                catalog.clonePlaylist(root.editorCloneFrom, data.title, root.editorCloneLimit)
+            else
+                catalog.createPlaylist(data.title, data.isPrivate, data.videoId || "")
+        } else
             catalog.updatePlaylist(data.id, data.title, data.isPrivate)
     }
 
@@ -846,6 +853,24 @@ Window {
         if (owned)
             out.push({ label: qsTr("Editar lista…"), icon: "pencil",
                        action: function() { root.openEditPlaylist(c.id, c.name) } })
+        if (owned) {
+            const sid = root.listIdOf(url)
+            out.push({ separator: true })
+            out.push({ label: qsTr("Copiar lista (200 pistas)…"), icon: "plus",
+                       action: function() { root.openBulkPicker("clone", sid, [], 200) } })
+            out.push({ label: qsTr("Fusionar en otra lista…"), icon: "list",
+                       action: function() { root.openBulkPicker("merge", sid, [], 200) } })
+            out.push({ label: qsTr("Añadir 200 pistas a…"), icon: "plus",
+                       action: function() {
+                           const ids = []
+                           const ts = catalog.tracks
+                           for (let i = 0; i < ts.length && ids.length < 200; i++) {
+                               const v = root.videoIdOf(String(ts[i].url || ""))
+                               if (v) ids.push(v)
+                           }
+                           root.openBulkPicker("many", "", ids, 200)
+                       } })
+        }
         if (owned)
             out.push({ label: qsTr("Eliminar lista"), icon: "trash", danger: true,
                        action: function() { root.confirmDeletePlaylist(c.id, c.name) } })
@@ -1129,6 +1154,16 @@ Window {
     // Navigates to `p` storing the current page in the stack (force: store
     // even if it is the same page, e.g. Library -> tracks view).
     function pushPage(p, force) {
+        // A list request that is still in flight shows a "Cargando la
+        // lista..." toast. Navigating away used to leave that toast (and
+        // the loading flag) hanging over the player on another page.
+        if (listLoading) {
+            listLoading = false
+            pendingPlay = false
+            toastText = ""
+            toastAction = null
+            toastTimer.stop()
+        }
         if (p !== page || force) {
             let s = navStack.concat([curState()])
             if (s.length > 12)
@@ -1204,7 +1239,7 @@ Window {
         }
         if (root.whatsNewOpen) { root.closeWhatsNew(); return }
         if (root.ctxOpen) { root.ctxOpen = false; return }
-        if (root.fsLyricsOpen) { root.fsLyricsOpen = false; return }
+        if (root.fsLyricsOpen) { root.closeFullscreenLyrics(); return }
         if (root.confirmOpen) { root.confirmOpen = false; return }
         if (root.editorOpen) { root.editorOpen = false; return }
         if (root.playlistPickerOpen) { root.playlistPickerOpen = false; return }
@@ -2036,7 +2071,10 @@ Window {
                 lyrics.setPublishedOffset(Math.round(lo * 4) / 4)
         }
         player.setQuality(cfgGet("audioQuality") || "max")
-        root.prefetchCount = Math.min(10, Math.max(1,
+        // On a phone the resolver is a single-lane WebView chain: a high
+        // count queues nine resolves behind one and stalls the UI, which is
+        // worse on mobile data. Cap the restored value to a sane default.
+        root.prefetchCount = Math.min(isPhone ? 4 : 10, Math.max(1,
             parseInt(cfgGet("prefetchCount"), 10) || 1))
         // The app's Client ID is already embedded in the backend; the user
         // only cares about the on/off switch.
@@ -2051,7 +2089,7 @@ Window {
         // waits a moment so it does not fight with the window opening (on a
         // phone the panel landed while the surface was still being created).
         if (root.whatsNewVersion.length > 0
-                && cfgGet("whatsNewSeen") !== root.whatsNewVersion)
+                && cfgGet("whatsNewForVersion") !== root.whatsNewVersion)
             Qt.callLater(function() { root.whatsNewOpen = true })
     }
 
@@ -2112,6 +2150,12 @@ Window {
     property string currentSetId: ""
     // List picker for "add to list".
     property bool playlistPickerOpen: false
+    // Bulk mode: the picker can add many tracks, merge two lists or clone
+    // one. `pickerMode` is "", "many", "merge" or "clone".
+    property string pickerMode: ""
+    property string pickerSourceId: ""
+    property var pickerVideoIds: []
+    property int pickerLimit: 200
     // Target track of the picker (+ button of a row or of the bottom bar).
     property string pickerVideoId: ""
     property bool shuffle: false
@@ -2917,7 +2961,7 @@ Window {
                 // Warm the streams of the restored queue at startup: the
                 // first play then finds the current track already resolved
                 // instead of waiting for yt-dlp (~2.5 s) on the click.
-                root.prefetchHead(toTrackList(st.queue), root.prefetchCount)
+                root.prefetchHead(toTrackList(st.queue), root.isPhone ? 4 : root.prefetchCount)
             }
         }
         // Without a stored value the volume is not touched (mpv starts
@@ -3096,9 +3140,18 @@ Window {
     function fetchLyrics() {
         if (!root.lyricsEnabled || !root.currentTitle)
             return
-        const dur = player.duration
+        let dur = player.duration
+        // During fast skips the engine still reports the PREVIOUS track's
+        // length while currentTitle is already the new one: asking the
+        // providers with that length fetched lyrics for the wrong version
+        // (and the wrong song). Use the queue's duration until they agree.
+        const row = queueIndex >= 0 && queueIndex < queue.count
+                    ? queue.get(queueIndex) : null
+        const wantDur = row ? Number(row.duration || 0) : 0
         if (dur <= 0)
-            return
+            dur = wantDur
+        else if (wantDur > 0 && Math.abs(dur - wantDur) > 3)
+            dur = wantDur
         // Which track the lyrics in memory belong to. If they are not
         // from THIS one, the lyrics on screen (and the ones the desktop
         // widget reads) are from the PREVIOUS song: the new ones have to be
@@ -3269,6 +3322,47 @@ Window {
     // track really plays, so it cannot loop forever on a full-blocked queue.
     property int _blockedSkips: 0
 
+    // Skipping several tracks quickly must resolve ONLY the last one:
+    // Qt.callLater runs at the next event, before the next tap arrives, so
+    // every intermediate song still fetched lyrics + audio and the UI felt
+    // sluggish. A short debounce collapses the burst into one load.
+    property string _loadUrl: ""
+    Timer {
+        id: loadDebounce
+        interval: 180
+        onTriggered: root.commitLoad()
+    }
+    function commitLoad() {
+        const url = root._loadUrl
+        if (!url)
+            return
+        const item = root.findQueueItem(url)
+        if (item)
+            root.applyTrack(item)
+    }
+    function findQueueItem(url) {
+        for (let i = 0; i < queue.count; i++) {
+            const q = queue.get(i)
+            if (q && q.url === url)
+                return q
+        }
+        return null
+    }
+    function applyTrack(t) {
+        if (root.lyricsEnabled && root.currentTitle) {
+            lyrics.fetch(root.currentArtist, root.currentTitle,
+                         Number(t.duration || 0), root.currentVideoId)
+        }
+        player.clearPrefetch()
+        player.hintDuration = Number(t.duration || 0)
+        player.load(t.url)
+        prefetchAhead(queueIndex, root.prefetchCount)
+        catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
+                            duration: t.duration, source: t.source, thumb: t.thumb || "",
+                            setId: t.setId || "" })
+        root.updateNowPlaying()
+        root.saveSession()
+    }
     function startCurrent() {
         if (queueIndex < 0 || queueIndex >= queue.count)
             return
@@ -3298,35 +3392,13 @@ Window {
                             ? catalog.isLiked(root.currentVideoId)
                             : t.liked === true
         root.lyricsKey = ""
-        if (root.lyricsEnabled && root.currentTitle) {
-            // First immediate attempt. The duration of the queue entry is
-            // passed when it is known: the providers choose the version
-            // of the song (studio, acoustic, live) by its length, and
-            // without it the studio timings were used for an acoustic
-            // video and the lyrics ran ahead.
-            // If this attempt finds no lyrics, fetchLyrics() retries with
-            // the real duration as soon as mpv reports it (without
-            // having to pause and resume).
-            lyrics.fetch(root.currentArtist, root.currentTitle,
-                         Number(t.duration || 0), root.currentVideoId)
-        }
-        player.hintDuration = Number(t.duration || 0)
-        player.load(t.url)
-        // Pre-resolves the stream of the next tracks in the background so
-        // the song change is instant (Sonora style). Whatever was left
-        // pending from a previous context (another list or another
-        // position) is dropped first, so it does not block the ones that
-        // are going to play.
-        player.clearPrefetch()
-        // Ten tracks ahead on an unmetered connection makes the next
-        // change instant. On metered mobile data keep it to one: each
-        // prefetch is a whole 4-8 MB file.
-        prefetchAhead(queueIndex, root.prefetchCount)
-        catalog.addRecent({ title: t.title, artist: t.artist, url: t.url,
-                            duration: t.duration, source: t.source, thumb: t.thumb || "",
-                            setId: t.setId || "" })
-        root.updateNowPlaying()
-        root.saveSession()
+        // Everything visible (title/artwork above) is already updated in
+        // this frame. The heavy part is debounced: skipping fast changes
+        // queueIndex several times and only the LAST track must be loaded.
+        // One common path serves the bar buttons, the swipe, the cinema
+        // controls, the shortcuts and the widget.
+        root._loadUrl = t.url
+        loadDebounce.restart()
     }
 
     // Pre-resolves up to `n` tracks from `from` in the queue (in series,
@@ -3339,6 +3411,12 @@ Window {
         if (!n || from < 0 || from >= queue.count)
             return
         prefetchStreamsAhead(from, n)
+        // The lyrics providers (4 per track) are fetched on the UI thread:
+        // warming the upcoming songs fired 16 network requests on every
+        // change. Worse, several candidates of the SAME song accumulated
+        // and pickWorded() chose the one with fewer lines, dropping
+        // verses. The current track fetches its own lyrics once.
+        return
         for (let i = from + 1; i <= from + n && i < queue.count; i++) {
             const t = queue.get(i)
             // Warm the lyrics cache too: when the track starts, the
@@ -4014,7 +4092,87 @@ Window {
         ]
     }
 
-    readonly property var whatsNewSections: root.whatsNewVersion === "2.2.2"
+    function notes2_2_3() {
+        return [
+            { title: qsTr("Rendimiento"), items: [
+                qsTr("El cambio de canción se agrupa en una sola carga: al saltar varias veces seguidas sólo se resuelve y se busca letra para la pista final."),
+                qsTr("El fondo animado (el difuminado de la carátula) se calcula ahora en un hilo de trabajo: de 89 ms por fotograma a 15-17 ms estables."),
+                qsTr("El cambio de canción suena en cuanto se resuelve el stream: el audio arranca directamente mientras la copia local se descarga en segundo plano."),
+                qsTr("El gesto de deslizar en la barra funciona por fin en el teléfono, con retorno inmediato a su sitio."),
+                qsTr("Los botones de la barra responden al dedo con el mismo feedback visual que al ratón."),
+                qsTr("Se eliminó una prueba automática que retrasaba el arranque unos tres segundos."),
+                qsTr("La precarga de letras ya no se hace por adelantado: lanzaba dieciséis peticiones de red en cada cambio."),
+                qsTr("La precarga de streams se ajusta al instante de 1 a 10 desde Ajustes > Reproducción.")
+            ] },
+            { title: qsTr("Correcciones"), items: [
+                qsTr("Se reproduce una canción aunque venga de un videoclip con otro título: las respuestas tardías ya no sustituyen al audio elegido."),
+                qsTr("Una URL rechazada por YouTube (loading failed) se reintenta una vez con resolución nueva antes de pasar de canción."),
+                qsTr("Las letras dejaron de acumular candidatos de varias fuentes que recortaban versos."),
+                qsTr("Se corrige la capitalización extraña de proveedores (.iMMerse, soUL) usando la letra limpia."),
+                qsTr("Se reconstruyen palabras pegadas y espacios perdidos antes de mostrar la letra."),
+                qsTr("La letra se alinea con la duración real del audio: un videoclip de 229 s ya no usa tiempos de 163 s."),
+                qsTr("El desfase calculado se guarda en caché y se reutiliza en sesiones posteriores."),
+                qsTr("Las canciones sin letra se reintentan una vez y el marcador caduca a las doce horas."),
+                qsTr("Los favoritos sólo se marcan si el voto puede enviarse a YouTube Music."),
+                qsTr("La barra y la letra dejan de avanzar cuando todavía no hay audio, y no retroceden después."),
+                qsTr("Artistas con «y» o «,» se comparan por palabras; los acentos se normalizan."),
+                qsTr("La duración pasada al buscador de letras es la de la cola cuando el motor arrastra la anterior."),
+                qsTr("Corregido el error ReferenceError: artistList is not defined en la búsqueda.")
+            ] },
+            { title: qsTr("Interfaz"), items: [
+                qsTr("Cerrar el modo cine con la cola abierta ya no deja la pantalla bloqueada."),
+                qsTr("El aviso «Cargando la lista…» desaparece al cambiar de página."),
+                qsTr("Los atajos de teclado y los textos con «Ctrl+», «Escape» o «Windows» no se muestran en el teléfono."),
+                qsTr("Se puede volver a ver «Qué hay de nuevo» desde Ajustes > Personalizar ajustes."),
+                qsTr("Ajustada la aceleración por hardware en Android para evitar cierres del proceso gráfico en Redmi/MIUI.")
+            ] }
+        ]
+    }
+
+    function notes2_3_0() {
+        return [
+            { title: qsTr("Novedades"), items: [
+                qsTr("Operaciones en bloque con listas: copiar una lista completa conservando la original, fusionar listas y añadir muchas pistas a la vez."),
+                qsTr("Hasta 200 pistas por operación, enviadas en lotes de 100 en una sola llamada al asistente."),
+                qsTr("La precarga se ajusta al instante desde Ajustes > Reproducción (1 a 10)."),
+                qsTr("Se puede volver a ver «Qué hay de nuevo» desde Ajustes > Personalizar ajustes.")
+            ] },
+            { title: qsTr("Rendimiento"), items: [
+                qsTr("El cambio de canción se agrupa en una sola carga: al saltar rápido sólo se carga la pista final."),
+                qsTr("El fondo difuminado se calcula en otro hilo: de 89 ms por fotograma a 15-17 ms."),
+                qsTr("El audio arranca en cuanto se resuelve el stream, sin esperar a la copia local."),
+                qsTr("El deslizamiento en la barra funciona en el móvil, con retorno inmediato."),
+                qsTr('Los botones de la barra responden al dedo con el mismo feedback que al ratón.'),
+                qsTr("Se eliminó una prueba automática que retrasaba el arranque tres segundos."),
+                qsTr("La precarga de letras ya no lanza dieciséis peticiones de red en cada cambio."),
+                qsTr("clearPrefetch() cancela las descargas de listas que ya no vas a escuchar.")
+            ] },
+            { title: qsTr("Correcciones"), items: [
+                qsTr("Se reproduce una canción aunque venga de un videoclip con otro título."),
+                qsTr("Una URL rechazada por YouTube se reintenta una vez con resolución nueva."),
+                qsTr("Las letras dejaron de acumular fuentes que recortaban versos."),
+                qsTr("Se corrige la capitalización rara (.iMMerse, soUL) y las palabras pegadas."),
+                qsTr("La letra se alinea con la duración real del audio y guarda el desfase en caché."),
+                qsTr("Las canciones sin letra se reintentan una vez y el marcador caduca en 12 horas."),
+                qsTr("Los favoritos sólo se marcan si el voto llega a YouTube Music."),
+                qsTr("La barra y la letra no avanzan cuando todavía no hay audio."),
+                qsTr("Los artistas con «y» o «,» se comparan por palabras y se normalizan los acentos."),
+                qsTr("Corregido el error ReferenceError: artistList is not defined en la búsqueda.")
+            ] },
+            { title: qsTr("Interfaz"), items: [
+                qsTr("Cerrar el modo cine con la cola abierta ya no deja la pantalla bloqueada."),
+                qsTr("El aviso «Cargando la lista…» desaparece al cambiar de página."),
+                qsTr("Los atajos de teclado y los textos de Windows no se muestran en el teléfono."),
+                qsTr("Ajustada la aceleración por hardware en Android para evitar cierres en Redmi/MIUI.")
+            ] }
+        ]
+    }
+
+    readonly property var whatsNewSections: root.whatsNewVersion === "2.3.0"
+        ? root.notes2_3_0()
+        : (root.whatsNewVersion === "2.2.3"
+        ? root.notes2_2_3()
+        : (root.whatsNewVersion === "2.2.2"
         ? root.notes2_2_2()
         : (root.whatsNewVersion === "2.2.1"
         ? root.notes2_2_1()
@@ -4022,7 +4180,7 @@ Window {
             ? root.notes2_2_0()
             : (root.whatsNewVersion === "2.1.9"
                 ? root.notes2_1_9()
-                : root.parseNotes(root.whatsNewSource, lang.current))))
+                : root.parseNotes(root.whatsNewSource, lang.current))))))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
@@ -4030,8 +4188,8 @@ Window {
         root.whatsNewOpen = false
         // Remembered per version: the notes come back with the next update,
         // and never again for this one.
-        if (cfgGet("whatsNewSeen") !== root.whatsNewVersion)
-            cfgSet("whatsNewSeen", root.whatsNewVersion)
+        if (cfgGet("whatsNewForVersion") !== root.whatsNewVersion)
+            cfgSet("whatsNewForVersion", root.whatsNewVersion)
     }
 
     // ---- toast -----------------------------------------------------------
@@ -4072,8 +4230,39 @@ Window {
     // Opens the list picker for a specific track (+ button of a row or
     // of the bottom bar). Without an argument it uses the current track.
     function openPlaylistPicker(videoId) {
+        root.pickerMode = ""
+        root.pickerVideoIds = []
         root.pickerVideoId = videoId || root.currentVideoId
         root.playlistPickerOpen = true
+    }
+
+    // Bulk: add many video ids to one list, merge a whole list into another
+    // or clone a list (original kept). All go through the catalog helpers.
+    function openBulkPicker(mode, sourceId, videoIds, limit) {
+        root.pickerMode = mode
+        root.pickerSourceId = sourceId || ""
+        root.pickerVideoIds = videoIds || []
+        root.pickerLimit = limit || 200
+        root.pickerVideoId = ""
+        root.playlistPickerOpen = true
+    }
+
+    function bulkPick(playlistId) {
+        const id = root.listIdOf(playlistId)
+        const mode = root.pickerMode
+        root.playlistPickerOpen = false
+        if (mode === "merge") {
+            if (id === root.pickerSourceId) {
+                root.toast(qsTr("La lista de origen y destino son la misma"))
+                return
+            }
+            catalog.mergePlaylists(root.pickerSourceId, id, root.pickerLimit)
+        } else if (mode === "many") {
+            catalog.addManyToPlaylist(id, root.pickerVideoIds)
+        } else {
+            catalog.addToPlaylist(id, root.pickerVideoId)
+        }
+        root.pickerMode = ""
     }
 
     function addCurrentToPlaylist(playlistId) {
@@ -5147,7 +5336,7 @@ Window {
         liked: root.currentLiked
         volume: player.volume
         onVolumeWanted: (v) => player.setVolume(v)
-        onCloseRequested: root.fsLyricsOpen = false
+        onCloseRequested: root.closeFullscreenLyrics()
         onToggleRequested: root.togglePlay()
         onNextRequested: root.next()
         onPrevRequested: root.prev()
@@ -5208,7 +5397,10 @@ Window {
             y: -cinemaQueue.y
             width: cinemaQueue.parent.width
             height: cinemaQueue.parent.height
-            visible: root.fsQueueOpen
+            // Without fsLyricsOpen the slide is 0 and this MouseArea is
+            // invisible but still grabs every tap: closing cinema with the
+            // queue open left the whole UI dead.
+            visible: root.fsLyricsOpen && root.fsQueueOpen
             onClicked: root.fsQueueOpen = false
             Rectangle {
                 anchors.fill: parent
@@ -5344,7 +5536,9 @@ Window {
                 spacing: Theme.spacing(root.compactUi, Theme.s3)
 
                 Text {
-                    text: qsTr("Añadir a lista")
+                    text: root.pickerMode === "merge" ? qsTr("Fusionar en…")
+                          : (root.pickerMode === "many" ? qsTr("Añadir %1 pistas a…").arg(root.pickerVideoIds.length)
+                                                       : qsTr("Añadir a lista"))
                     color: Sys.text
                     font.pixelSize: Theme.font(root.compactUi, Theme.tLg)
                     font.bold: true
@@ -5358,7 +5552,19 @@ Window {
                     antialiasing: true
                     color: newPick.hovered ? Theme.hover(Sys.bg) : "transparent"
                     HoverHandler { id: newPick; cursorShape: Qt.PointingHandCursor }
-                    TapHandler { onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.openCreatePlaylist(root.pickerVideoId) } }
+                    TapHandler {
+                        onTapped: {
+                            if (typeof sfx !== "undefined") sfx.play("tap")
+                            if (root.pickerMode === "clone" || root.pickerMode === "merge") {
+                                const src = root.pickerSourceId
+                                root.playlistPickerOpen = false
+                                root.pickerMode = ""
+                                root.openCreatePlaylist("", src, root.pickerLimit)
+                            } else {
+                                root.openCreatePlaylist(root.pickerVideoId)
+                            }
+                        }
+                    }
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.s3
@@ -5381,18 +5587,33 @@ Window {
                 Flickable {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    Layout.preferredHeight: Math.min(pickerRepeater.implicitHeight, 360)
-                    contentHeight: pickerRepeater.implicitHeight
+                    Layout.preferredHeight: 300
+                    contentHeight: Math.max(300, pickerRepeater.count * 56)
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
 
                     ColumnLayout {
                         width: parent.width
+                        height: pickerRepeater.count * 56
                         spacing: Theme.spacing(root.compactUi, Theme.s1)
 
                         Repeater {
                             id: pickerRepeater
-                            model: catalog.ytmLibrary
+                            // Prefer the user's own YouTube Music lists. If
+                            // they are not loaded (no session yet), fall back
+                            // to the lists saved in the local library so the
+                            // picker is never empty.
+                            // In bulk mode always show the saved lists from
+                            // the library: they are the ones the user sees
+                            // on the Biblioteca tab. ytmLibrary can hold
+                            // stale/incomplete data with no session.
+                            // Use the same combined list the Biblioteca tab
+                            // paints (ytmLibrary + saved playlists, deduped).
+                            // Each cover carries url/name/id/owned.
+                            model: root.pickerMode !== ""
+                                   ? libPage.covers.filter(function (c) { return c.owned === true })
+                                   : ((catalog.ytmLibrary && catalog.ytmLibrary.length > 0)
+                                      ? catalog.ytmLibrary : catalog.playlists)
                             delegate: Rectangle {
                                 required property var modelData
                                 Layout.fillWidth: true
@@ -5402,7 +5623,7 @@ Window {
                                 color: pickHover.hovered ? Theme.hover(Sys.bg) : "transparent"
                                 HoverHandler { id: pickHover; cursorShape: Qt.PointingHandCursor }
                                 TapHandler {
-                                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.addCurrentToPlaylist(root.listIdOf(modelData.url)) }
+                                    onTapped: { if (typeof sfx !== "undefined") sfx.play("tap"); root.bulkPick(modelData.url) }
                                 }
                                 RowLayout {
                                     anchors.fill: parent
@@ -5425,8 +5646,10 @@ Window {
                             }
                         }
                         Text {
-                            visible: catalog.ytmLibrary.length === 0
-                            text: qsTr("No hay listas en tu cuenta de YouTube Music")
+                            visible: pickerRepeater.count === 0
+                            text: root.pickerMode !== ""
+                                  ? qsTr("Solo puedes fusionar en listas tuyas de YouTube Music. Crea una nueva o inicia sesión.")
+                                  : qsTr("No hay listas en tu cuenta de YouTube Music")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
                         }
@@ -5885,7 +6108,12 @@ Window {
         property var sectionModels: {
             const hidden = hiddenSnapshot || []
             return allSectionModels.filter(function(s) {
-                return hidden.indexOf(s.id) < 0
+                if (hidden.indexOf(s.id) >= 0)
+                    return false
+                // Keyboard shortcuts do not exist on a phone.
+                if (root.isPhone && s.id === "atajos")
+                    return false
+                return true
             })
         }
         function sectionShown(id) {
@@ -6480,9 +6708,10 @@ Window {
                     id: settingsCol
                     // Centred column with a readable width: it does not
                     // stretch edge to edge on wide screens and never
-                    // overflows on small windows.
-                    width: Math.min(settingsScroll.width, 820)
-                    x: Math.max(0, (settingsScroll.width - width) / 2)
+                    // overflows on small windows. Layout.alignment centres
+                    // it without feeding its own width back into the
+                    // Flickable (that made QQuickColumnLayout loop on polish).
+                    width: settingsScroll.width
                     spacing: Theme.spacing(root.compactUi, Theme.s5)
 
                     // ======================================================
@@ -6512,6 +6741,18 @@ Window {
                                 }
                             }
                         }
+
+                        SettingBlock {
+                            label: qsTr("Novedades")
+                            desc: qsTr("Volver a ver los cambios de esta versión")
+                            GhostButton {
+                                text: qsTr("Ver novedades de la %1").arg(root.whatsNewVersion)
+                                onClicked: {
+                                    root.settingsOpen = false
+                                    root.whatsNewOpen = true
+                                }
+                            }
+                        }
                     }
 
                     // ======================================================
@@ -6519,7 +6760,7 @@ Window {
                     // ======================================================
                     SettingSection {
                         sectionId: "atajos"
-                        visible: settingsOverlay.sectionShown("atajos")
+                        visible: !root.isPhone && settingsOverlay.sectionShown("atajos")
                         title: qsTr("Atajos")
 
                         ShortcutRow {
@@ -7356,7 +7597,7 @@ Window {
                                     text: "+"
                                     implicitWidth: height
                                     onPicked: {
-                                        root.prefetchCount = Math.min(10, root.prefetchCount + 1)
+                                        root.prefetchCount = Math.min(root.isPhone ? 4 : 10, root.prefetchCount + 1)
                                         root.queuePrefetchSave()
                                         root.applyPrefetchCount()
                                     }
@@ -7655,7 +7896,9 @@ Window {
                         }
                         SettingRow {
                             label: qsTr("Letra a pantalla completa")
-                            desc: qsTr("Modo cine de dos columnas; también con L, F o Ctrl+L")
+                            desc: root.isPhone
+                                  ? qsTr("Letra a pantalla completa con controles táctiles")
+                                  : qsTr("Modo cine de dos columnas; también con L, F o Ctrl+L")
                             GhostButton {
                                 text: qsTr("Abrir")
                                 onClicked: {
@@ -8144,6 +8387,7 @@ Window {
                             Keys.onEnterPressed: root.launcherSubmit()
                         }
                         Text {
+                            visible: !root.isPhone
                             text: qsTr("Intro busca · Esc")
                             color: Theme.tDim(Sys.bg, Sys.text)
                             font.pixelSize: Theme.font(root.compactUi, Theme.tXs)

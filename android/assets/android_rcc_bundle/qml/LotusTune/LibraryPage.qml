@@ -60,6 +60,11 @@ Item {
     // Interfaz compacta global: espaciados un 10% menores.
     property bool compact: false
     property bool showingTracks: false
+    // Song recommendations at the end of an opened list, seeded from its
+    // first track. `fetchRadio(seed, false, 25)` fills recTracks.
+    property var recTracks: []
+    property bool recLoading: false
+    property string recSeed: ""
     // History view: list of `catalog.recent` opened from the
     // "Escuchadas recientemente" card.
     property bool historyOpen: false
@@ -122,9 +127,116 @@ Item {
         function onSpotifyImportDone(ok, message, count) {
             page.importNotification(message || "")
         }
+        function onRadioReady(seed, tracks) {
+            if (seed !== page.recSeed)
+                return
+            page.recLoading = false
+            page.recTracks = (tracks || []).slice(0, page.recLimit)
+        }
+        function onTracksChanged() {
+            if (page.showingTracks && !page.localSelected && !page.viewIsRadio
+                    && catalog.tracks.length > 0)
+                page.scheduleAutoRecommendations()
+        }
+        // Auto-load a first page of 5 recommendations shortly AFTER the
+        // list has settled. Firing fetchRadio() synchronously while the
+        // list is still loading blocked the UI thread ("no responde").
     }
 
-    function openTracks() { showingTracks = true; openDownloadFolder = "" }
+    Timer {
+        id: recAutoTimer
+        interval: 1500
+        repeat: false
+        onTriggered: {
+            if (page.showingTracks && !page.localSelected && !page.viewIsRadio
+                    && page.recTracks.length === 0 && !page.recLoading)
+                page.loadRecommendations(5)
+        }
+    }
+
+    function scheduleAutoRecommendations() {
+        if (!Theme.touch)
+            recAutoTimer.restart()
+    }
+
+    property int recPage: 0
+    property int recLimit: 15
+    function loadRecommendations(limit) {
+        page.recLimit = limit || 15
+        const arr = page.viewTracks()
+        if (!arr || !arr.length) {
+            page.recTracks = []
+            return
+        }
+        // Each page is seeded from a different track of the list so the
+        // next batchRecommendations brings different songs.
+        const idx = (page.recPage * 7) % arr.length
+        const seed = arr[idx]
+        const v = root.videoIdOf(String(seed.url || ""))
+        if (!v) {
+            page.recTracks = []
+            return
+        }
+        page.recPage++
+        page.recSeed = v
+        page.recLoading = true
+        page.recTracks = []
+        // runRadio() silently refuses while the catalog is loading the
+        // list. Wait for it to finish instead of leaving the button
+        // spinning forever with no tracks.
+        if (catalog.busy) {
+            recRetryTimer.start()
+            return
+        }
+        catalog.fetchRadio(v, String(seed.title || ""))
+    }
+
+    Timer {
+        id: recRetryTimer
+        interval: 400
+        repeat: false
+        onTriggered: {
+            if (page.recSeed && catalog.busy)
+                restart()
+            else if (page.recSeed)
+                catalog.fetchRadio(page.recSeed, "")
+        }
+    }
+
+    Connections {
+        target: catalog
+        function onBusyChanged() {
+            if (page.recLoading && !catalog.busy && page.recTracks.length === 0
+                    && page.recSeed && !recRetryTimer.running)
+                catalog.fetchRadio(page.recSeed, "")
+        }
+    }
+
+    // Each tap refreshes the suggestions with a different seed.
+    function loadMoreRecommendations() { page.loadRecommendations(5) }
+
+    // Bulk: add every recommended track to the current list.
+    function addRecommendations() {
+        const ids = []
+        for (let i = 0; i < Math.min(15, page.recTracks.length); i++) {
+            const v = root.videoIdOf(String(page.recTracks[i].url || ""))
+            if (v) ids.push(v)
+        }
+        if (!ids.length || !catalog.openPlaylistId) {
+            root.toast(qsTr("No hay canciones para añadir"))
+            return
+        }
+        catalog.addManyToPlaylist(catalog.openPlaylistId, ids)
+    }
+
+    function openTracks() {
+        showingTracks = true
+        openDownloadFolder = ""
+        recTracks = []
+        recSeed = ""
+        recLoading = false
+        scheduleAutoRecommendations()
+    }
     function showPlaylists() { showingTracks = false; historyOpen = false; openDownloadFolder = "" }
 
     // "SUENA AHORA": fila activa en las listas (biblioteca e historial).
@@ -2001,15 +2113,134 @@ Item {
                 clip: true
                 model: page.listRows
           reuseItems: true
-                cacheBuffer: 800
+                // Smaller buffer: 800 px kept many full-size artwork rows
+                // alive and RSS crept up during long listening sessions.
+                cacheBuffer: 300
                 spacing: 0
                 // Room at the end so the last row comes out from under the
                 // bottom edge of the card (before, it was cut and a black
                 // gradient was painted over it: that band looked dirty).
                 // Reserve room for the floating mini-player + tab bar so the
                 // last list is not hidden under the dock on the phone.
-                bottomMargin: Theme.touch ? Theme.playerBarH + 160 : Theme.s6
+                // Leave room for the floating mini-player so the footer
+                // (recommendations) is always reachable by scrolling.
+                bottomMargin: Theme.touch ? Theme.playerBarH + 200 : Theme.playerBarH + 80
                 boundsBehavior: Flickable.StopAtBounds
+                footer: Component {
+                    ColumnLayout {
+                        width: tracksList.width
+                        spacing: Theme.spacing(root.compactUi, Theme.s3)
+                        visible: page.showingTracks && !page.localSelected && !page.viewIsRadio
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            height: 1
+                            color: Theme.line(Sys.bg, Sys.text)
+                            Layout.topMargin: Theme.s4
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: qsTr("Recomendado para ti")
+                            color: Sys.text
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
+                            font.weight: Font.DemiBold
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            visible: page.recLoading
+                            text: qsTr("Buscando canciones parecidas…")
+                            color: Theme.tDim(Sys.bg, Sys.text)
+                            font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                        }
+                        MouseArea {
+                            Layout.fillWidth: true
+                            height: Theme.pillH
+                            visible: !page.recLoading && page.recTracks.length === 0
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.rPill
+                                color: parent.containsMouse ? Theme.hover(Sys.accent) : Sys.accentDim
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: qsTr("Cargar recomendaciones")
+                                color: Theme.accentOn(Sys.accent, Sys.bg)
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                font.weight: Font.DemiBold
+                            }
+                            onClicked: page.loadRecommendations()
+                        }
+                        Repeater {
+                            model: page.recTracks.slice(0, page.recLimit)
+                            delegate: RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing(root.compactUi, Theme.s2)
+                                // Desktop hover nudge: the row slides a few
+                                // pixels right so it reads as selected.
+                                x: recRowMa.containsMouse ? 4 : 0
+                                Behavior on x { NumberAnimation { duration: Theme.fastMs } }
+                                MouseArea {
+                                    id: recRowMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    z: -1
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: modelData.title || ""
+                                    color: Sys.text
+                                    font.pixelSize: Theme.font(root.compactUi, Theme.tSm)
+                                    elide: Text.ElideRight
+                                }
+                                MouseArea {
+                                    width: 28; height: 28
+                                    Glyph {
+                                        anchors.centerIn: parent
+                                        width: 16; height: 16
+                                        kind: "play"
+                                        color: Theme.accent
+                                    }
+                                    onClicked: {
+                                        if (modelData.url)
+                                            root.playTracks([modelData], 0)
+                                    }
+                                }
+                                MouseArea {
+                                    width: 28; height: 28
+                                    Glyph {
+                                        anchors.centerIn: parent
+                                        width: 16; height: 16
+                                        kind: "plus"
+                                        color: Theme.accent
+                                    }
+                                    onClicked: {
+                                        const v = root.videoIdOf(String(modelData.url || ""))
+                                        if (v && catalog.openPlaylistId)
+                                            catalog.addToPlaylist(catalog.openPlaylistId, v)
+                                    }
+                                }
+                            }
+                        }
+                        MouseArea {
+                            Layout.fillWidth: true
+                            height: Theme.pillH
+                            visible: !page.recLoading && page.recTracks.length > 0
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.rPill
+                                color: parent.containsMouse ? Theme.hover(Sys.accent) : Sys.accent
+                            }
+                            Text {
+                                anchors.centerIn: parent
+                                text: qsTr("Cargar 5 más")
+                                color: "#ffffff"
+                                font.pixelSize: Theme.font(root.compactUi, Theme.tMd)
+                                font.weight: Font.Bold
+                            }
+                            onClicked: page.loadMoreRecommendations()
+                        }
+                    }
+                }
                 // Open list: it already cooks its first tracks so the click
                 // on the header sounds right away.
                 onCountChanged: {

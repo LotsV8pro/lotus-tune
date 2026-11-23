@@ -152,6 +152,10 @@ Item {
         // It already comes cropped to the slot with rounded corners.
         fillMode: Image.Stretch
         asynchronous: true
+        // Keep the last artwork cached: with cache:false the mini-player
+        // showed the placeholder instead of the cover when returning
+        // from the background. The RAM growth came from the ListView
+        // cacheBuffer, which is now capped separately.
         cache: true
         smooth: true
         // Fade in when the artwork finishes loading.

@@ -123,22 +123,6 @@ Rectangle {
     property real shownPosition: 0
     property real _lastEnginePos: 0
 
-    // Only a real seek or a new track jumps the line. Ordinary 240 ms
-    // notices are ignored: FrameAnimation already advanced smoothly past
-    // them, and correcting against them made the dot jump ("tick").
-    onPositionChanged: {
-        if (bar.scrubbing)
-            return
-        const jump = Math.abs(bar.position - bar._lastEnginePos)
-        // A real seek or a new track: land on it at once.
-        if (jump > 2.0)
-            bar.shownPosition = bar.position
-        // On the phone FrameAnimation can stop when the screen is idle;
-        // follow the engine position directly there so the bar never freezes.
-        else if (bar.compact)
-            bar.shownPosition = bar.position
-        bar._lastEnginePos = bar.position
-    }
     onPlayingChanged: {
         bar._lastEnginePos = bar.position
         if (!bar.playing)
@@ -151,8 +135,28 @@ Rectangle {
 
     // Advances with the real time of each rendered frame. With the `threads`
     // loop there is a frame every ~10 ms, so the line moves continuously.
+    // A que el motor no haya arrancado el audio: `playing` puede ser true
+    // mientras la posición sigue en 0 (resolviendo/descargando). Si el
+    // interpolador corriera con frameTime, la barra y la letra avanzarían
+    // sin sonido y retrocederían cuando el audio entra. Sólo se interpola
+    // entre dos informes REALES del motor.
+    property real _lastPosAtStamp: 0
+    property bool _engineMoving: false
+    onPositionChanged: {
+        if (bar.scrubbing)
+            return
+        bar._engineMoving = bar.position > bar._lastPosAtStamp + 0.01
+        bar._lastPosAtStamp = bar.position
+        const jump = Math.abs(bar.position - bar._lastEnginePos)
+        if (jump > 2.0)
+            bar.shownPosition = bar.position
+        else if (bar.compact)
+            bar.shownPosition = bar.position
+        bar._lastEnginePos = bar.position
+    }
     FrameAnimation {
         running: bar.playing && bar.duration > 0 && !bar.scrubbing
+                 && bar._engineMoving
         onTriggered: {
             bar.shownPosition = Math.min(bar.duration, bar.shownPosition + frameTime)
         }
@@ -162,6 +166,7 @@ Rectangle {
     property real pull: 0
     // Horizontal follow while swiping to the next/previous track.
     property real dragX: 0
+    property bool _swipeFired: false
 
     // Island height plus the queue strip when it is shown.
     implicitHeight: Theme.playerBarH
@@ -181,14 +186,6 @@ Rectangle {
     // spring animation could leave the island shifted after a short swipe
     // (the release was missed and dragX kept its last value). The finger
     // follow is direct and the release snaps back to zero.
-    NumberAnimation {
-        id: pullBack
-        target: bar
-        property: "pull"
-        to: 0
-        duration: 180
-        easing.type: Easing.OutCubic
-    }
 
     // Surfaces derived from the palette (see theme.js): the hover of a
     // button and the two tones of the progress line.
@@ -231,7 +228,10 @@ Rectangle {
         // Tap pop: grow a little then settle back with a soft overshoot.
         property real pop: 1
         property real popTo: 1.18
-        scale: (bbHover.pressed ? 0.92 : 1) * pop
+        // HoverHandler.pressed never fires for a finger: without this the
+        // button felt dead on the phone. TapHandler drives the same visual.
+        property bool fingerPressed: false
+        scale: (bbHover.pressed || fingerPressed ? 0.92 : 1) * pop
         SequentialAnimation {
             id: popAnim
             NumberAnimation { target: bb; property: "pop"; to: bb.popTo; duration: Theme.animMs(90) }
@@ -248,7 +248,11 @@ Rectangle {
             opacity: bb.active ? 1.0 : (bbHover.hovered ? 0.95 : 0.62)
             Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
         }
-        TapHandler { onTapped: { popAnim.restart(); if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() } }
+        TapHandler {
+            onPressedChanged: bb.fingerPressed = pressed
+            onCanceled: bb.fingerPressed = false
+            onTapped: { popAnim.restart(); if (typeof sfx !== 'undefined') sfx.play('tap'); bb.tapped() }
+        }
     }
 
     // ---- draggable zone: the WHOLE bar ------------------------------
@@ -279,6 +283,7 @@ Rectangle {
             startX = sceneX(m)
             dragging = false
             sideways = false
+            bar._swipeFired = false
             bar.dragX = 0   // never inherit a previous swipe's offset
         }
         onPositionChanged: (m) => {
@@ -289,31 +294,59 @@ Rectangle {
             // A gesture starts late on purpose: a click with a shaky pulse on a
             // button cannot end up changing track or opening the cinema (it used to
             // happen "sometimes").
-            if (!dragging && !sideways && (Math.abs(dx) > 26 || dy > 16)) {
+            if (!dragging && !sideways && (Math.abs(dx) > 16 || dy > 16)) {
                 // The axis that moved the most wins: a finger going up opens the
-                // cinema, one crossing the bar changes track.
-                if (!bar.compact && Math.abs(dx) > Math.abs(dy) * 1.6)
+                // cinema, one crossing the bar changes track. The horizontal
+                // swipe must also work on the phone (compact = true there):
+                // it used to be gated behind !compact, i.e. desktop only.
+                if (Math.abs(dx) > Math.abs(dy) * 1.2)
                     sideways = true
                 else if (dy > 16)
                     dragging = true
             }
             if (sideways) {
-                // The finger is followed a little, only as visual confirmation.
-                bar.pull = 0
-                bar.dragX = Math.max(-70, Math.min(70, dx * 0.25))
+                // Snap back the instant the swipe passes the threshold:
+                // do not wait for onReleased and do not animate. The bar
+                // must be home before the next track does any work.
+                if (Math.abs(dx) > 60) {
+                    bar.dragX = 0
+                    bar.pull = 0
+                    if (!bar._swipeFired) {
+                        bar._swipeFired = true
+                        if (dx < 0)
+                            bar.nextRequested()
+                        else
+                            bar.prevRequested()
+                    }
+                } else {
+                    // Follow the finger with a slight resistance: enough to
+                    // feel the track sliding, not so much that it fights the tap.
+                    bar.pull = 0
+                    bar.dragX = Math.max(-90, Math.min(90, dx * 0.45))
+                }
             } else if (dragging) {
                 bar.pull = Math.max(0, Math.min(240, dy))
             }
         }
         onReleased: (m) => {
             const dx = sceneX(m) - startX
-            if (sideways && Math.abs(dx) > 90) {
+            if (sideways && Math.abs(dx) > 60) {
                 if (typeof sfx !== "undefined")
                     sfx.play("tap")
-                if (dx < 0)
-                    bar.nextRequested()
-                else
-                    bar.prevRequested()
+                // The change already fired on the frame the threshold was
+                // crossed: never wait for onReleased to run it again.
+                if (!bar._swipeFired) {
+                    bar._swipeFired = true
+                    if (dx < 0)
+                        bar.nextRequested()
+                    else
+                        bar.prevRequested()
+                }
+                bar.dragX = 0
+                bar.pull = 0
+                dragging = false
+                sideways = false
+                return
             } else if (dragging && bar.pull > 70) {
                 if (typeof sfx !== "undefined")
                     sfx.play("tap")
@@ -321,16 +354,16 @@ Rectangle {
             }
             dragging = false
             sideways = false
+            // Snap back in the same frame: an animation here leaves the
+            // island stuck at the swipe edge while the next track resolves.
             bar.dragX = 0
-            if (bar.pull > 0)
-                pullBack.start()
+            bar.pull = 0
         }
         onCanceled: {
             dragging = false
             sideways = false
             bar.dragX = 0
-            if (bar.pull > 0)
-                pullBack.start()
+            bar.pull = 0
         }
     }
 
@@ -508,14 +541,12 @@ Rectangle {
                                     bar.seekRequested(posAt(mouse))
                             }
                             swiping = false
-                            if (bar.pull > 0)
-                                pullBack.start()
+                            bar.pull = 0
                         }
                         onCanceled: {
                             bar.scrubbing = false
                             swiping = false
-                            if (bar.pull > 0)
-                                pullBack.start()
+                            bar.pull = 0
                         }
                     }
                 }

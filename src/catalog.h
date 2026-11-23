@@ -192,6 +192,10 @@ public:
     // rating: "LIKE" | "DISLIKE" | "INDIFFERENT".
     Q_INVOKABLE void rateTrack(const QString &videoId, const QString &rating);
     Q_INVOKABLE void addToPlaylist(const QString &playlistId, const QString &videoId);
+    // Bulk playlist operations (one helper call for many tracks).
+    Q_INVOKABLE void addManyToPlaylist(const QString &playlistId, const QStringList &videoIds);
+    Q_INVOKABLE void mergePlaylists(const QString &sourceId, const QString &targetId, int limit);
+    Q_INVOKABLE void clonePlaylist(const QString &sourceId, const QString &title, int limit);
     Q_INVOKABLE void removeFromPlaylist(const QString &playlistId,
                                         const QString &videoId,
                                         const QString &setVideoId);
@@ -505,6 +509,8 @@ private:
     QProcess m_plProc;         // one-shot list management (create/rename/delete/info)
     QString m_plMode;          // how to interpret the output of m_plProc
     QString m_plAddVideo;      // track to add after creating a list (or "")
+    QString m_plCloneTitle;    // title of the list being cloned
+    int m_plCloneLimit = 500;  // max tracks to copy when cloning
     QString m_plSetId;         // pending setVideoId (remove from a list)
     QProcess m_likedProc;      // one-shot "liked" (LM) for the state of the rows
     QTimer m_likedTimer;       // timeout for liked fetch

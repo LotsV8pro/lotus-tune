@@ -5,6 +5,9 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QThreadPool>
+#include <QRunnable>
+#include <QMetaObject>
 
 // ---------------------------------------------------------------------------
 // Separable box over ARGB32. It is applied on a tiny canvas (<=128 px), so
@@ -199,15 +202,43 @@ void Wash::setSource(const QUrl &url)
         if (src.allGray() && src.width() <= 200 && src.height() <= 150) {
             return;
         }
-        const QImage blurred = blurPipeline(src);
-        if (blurred.isNull())
-            return;
-        m_image = blurred;
-        m_average = averageColor(blurred);
-        m_zones = zoneColors(blurred);
-        ++m_serial;
-        emit changed();
+        // The blur is the expensive part (three box passes over 480 px).
+        // Running it here blocked the GUI thread for tens of milliseconds
+        // on every track change, which made skipping songs feel stuck.
+        // Compute it on the global thread pool and publish on the GUI thread.
+        struct BlurTask : QRunnable {
+            Wash *wash;
+            QImage src;
+            QUrl url;
+            void run() override {
+                const QImage blurred = Wash::blurPipeline(src);
+                if (blurred.isNull())
+                    return;
+                QMetaObject::invokeMethod(wash, "applyBlurred",
+                                          Qt::QueuedConnection,
+                                          Q_ARG(QImage, blurred),
+                                          Q_ARG(QUrl, url));
+            }
+        };
+        auto *task = new BlurTask;
+        task->wash = this;
+        task->src = src;
+        task->url = url;
+        task->setAutoDelete(true);
+        QThreadPool::globalInstance()->start(task);
     });
+}
+
+void Wash::applyBlurred(const QImage &blurred, const QUrl &url)
+{
+    // The track changed while this one was blurring: discard the old art.
+    if (url != m_wanted)
+        return;
+    m_image = blurred;
+    m_average = averageColor(blurred);
+    m_zones = zoneColors(blurred);
+    ++m_serial;
+    emit changed();
 }
 
 // ---------------------------------------------------------------------------

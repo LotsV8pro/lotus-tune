@@ -775,6 +775,9 @@ Item {
                 lv._posAnchor = engine
                 lv._posStamp = now
             }
+            // Keep the smooth interpolation between engine reports: the
+            // karaoke front must move on every frame, not only when the
+            // engine reports (a frozen front looked worse than a tiny jump).
             var est = lv._posAnchor + (now - lv._posStamp) / 1000
             var dur = Number(lv.ply.duration || 0)
             if (dur > 0)

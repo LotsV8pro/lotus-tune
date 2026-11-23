@@ -313,6 +313,12 @@ public class AudioService extends Service
                     if (!PlayerWidget.sPlaying)
                         return;
                     LyricsWidget.tick(sApp);
+                    // Retry a failed artwork download while the song plays:
+                    // the first attempt may run with no connectivity just
+                    // after the app goes to the background.
+                    if (sArt == null && PlayerWidget.sArt != null
+                            && !PlayerWidget.sArt.isEmpty())
+                        loadArt(sApp);
                     if (sBeatHandler != null)
                         sBeatHandler.postDelayed(this, BEAT_MS);
                 }
@@ -377,11 +383,15 @@ public class AudioService extends Service
         String url = PlayerWidget.sArt == null ? "" : PlayerWidget.sArt.trim();
         if (url.equals(sArtLoaded) || sArtBusy)
             return;
-        sArtLoaded = url;
         if (url.isEmpty()) {
+            sArtLoaded = url;
             sArt = null;
             return;
         }
+        // Do NOT mark the URL as loaded yet: if this attempt fails (no
+        // network while the app is in the background, timeout...) a later
+        // refresh with the same URL must retry. Marking it here left the
+        // notification/widget without artwork for the whole song.
         sArt = null;                     // no mezclar caratulas
         sArtBusy = true;
         new Thread(new Runnable() {
@@ -404,6 +414,10 @@ public class AudioService extends Service
                     b = null;
                 }
                 sArt = b;
+                // Only cache the URL on success; a failed download is
+                // retried on the next refresh (once per second).
+                if (b != null)
+                    sArtLoaded = url;
                 sArtBusy = false;
                 final Context app = sApp;
                 if (app == null)
