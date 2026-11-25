@@ -83,6 +83,8 @@ private slots:
     void testGluedApostrophesAndTypos();
     void testJoinGluedProviderWords();
     void testCollapseDuplicateLines();
+    void testWordSyncPerSong();
+    void testLikedSongsWordSync();
     void testLrcExportImport();
     void testInstrumentalSweep();
     void testSanitizeWordStamps();
@@ -90,6 +92,7 @@ private slots:
     void testLotusAccentOnLightBg();
     void testSettingsExportImport();
     void testSearchLibraryTracks();
+    void testRecentDedupBySong();
     void testUpdateHelpers();
     void testInstallerHash();
     void testAudioCachePrune();
@@ -1237,6 +1240,26 @@ void TestLotusTune::testSearchLibraryTracks()
     QCOMPARE(Catalog::searchInLists(pls, QVariantList(), QStringLiteral("n")).size(), 0);
 }
 
+// A live version or a cover of the same song has a different video id.
+// The history must keep one entry per song, not one per upload.
+void TestLotusTune::testRecentDedupBySong()
+{
+    SourceManager sources;
+    Catalog cat(&sources);
+    auto track = [](const QString &id) {
+        QVariantMap m;
+        m.insert(QStringLiteral("title"), QStringLiteral("Unsainted"));
+        m.insert(QStringLiteral("artist"), QStringLiteral("Slipknot"));
+        m.insert(QStringLiteral("url"), QStringLiteral("https://youtu.be/") + id);
+        return m;
+    };
+    cat.addRecent(track(QStringLiteral("liveVersion")));
+    cat.addRecent(track(QStringLiteral("originalVersion")));
+    QCOMPARE(cat.recent().size(), 1);
+    QVERIFY(cat.recent().first().toMap().value(QStringLiteral("url"))
+                .toString().endsWith(QStringLiteral("originalVersion")));
+}
+
 // Lyrics can be saved as LRC and read back, keeping the word stamps.
 void TestLotusTune::testLrcExportImport()
 {
@@ -1910,6 +1933,176 @@ void TestLotusTune::testCollapseDuplicateLines()
     QCOMPARE(lines.at(0).translation,
              QStringLiteral("Descanso eterno en el tiempo"));
     QCOMPARE(lines.at(1).time, 20.0);
+}
+
+// Review the word-sync of several songs end to end: lyrics text plus the
+// word timings and the end of every line after applyPayload(). The cases
+// come from the private Windows notes: the same chorus written with a
+// lead-in by one source, a copy without word timings, and a provider end
+// taken from another take.
+void TestLotusTune::testWordSyncPerSong()
+{
+    struct Song {
+        const char *title;
+        const char *artist;
+        double duration;
+        QString yaml;
+        int expectedLines;
+        QString firstText;
+        double firstEnd;
+    };
+    const QVector<Song> songs = {
+        {"Thick And Thin", "Avenged Sevenfold", 256.0, QStringLiteral(
+            "version: '1.0'\nlines:\n"
+            "- text: Come on you kids, stand your ground\n"
+            "  start_ms: 57410\n  end_ms: 59250\n  words:\n"
+            "  - text: 'Come on '\n    start_ms: 57410\n"
+            "  - text: 'you kids, '\n    start_ms: 57800\n"
+            "  - text: 'stand your ground'\n    start_ms: 58300\n"
+            "- text: Keep it true\n"
+            "  start_ms: 86380\n  end_ms: 88640\n  words:\n"
+            "  - text: 'Keep it '\n    start_ms: 86380\n"
+            "  - text: true\n    start_ms: 87500\n"), 4,
+            QStringLiteral("Come on you kids, stand your ground"), 59.25},
+        {"Stand up and fight", "Take That", 200.0, QStringLiteral(
+            "version: '1.0'\nlines:\n"
+            "- text: Stand up and fight\n"
+            "  start_ms: 60440\n  end_ms: 65630\n  words:\n"
+            "  - text: 'Stand '\n    start_ms: 60440\n"
+            "  - text: 'up '\n    start_ms: 61800\n"
+            "  - text: 'and '\n    start_ms: 63000\n"
+            "  - text: fight\n    start_ms: 64100\n"
+            "- text: Mmm, stand up and fight\n"
+            "  start_ms: 60600\n  end_ms: 88000\n  words:\n"
+            "  - text: 'Mmm, '\n    start_ms: 60600\n"
+            "  - text: 'stand up and fight'\n    start_ms: 61000\n"
+            "- text: '\u266a \u266a \u266a'\n"
+            "  start_ms: 88000\n  end_ms: 92000\n  words: []\n"), 3,
+            QStringLiteral("Stand up and fight"), 65.63},
+        {"Lips Of Deceit", "Avenged Sevenfold", 250.0, QStringLiteral(
+            "version: '1.0'\nlines:\n"
+            "- text: The mark I breathe on you.\n"
+            "  start_ms: 89010\n  end_ms: 92360\n  words:\n"
+            "  - text: 'The '\n    start_ms: 89010\n"
+            "  - text: 'mark '\n    start_ms: 89500\n"
+            "  - text: 'I breathe '\n    start_ms: 90100\n"
+            "  - text: 'on you.'\n    start_ms: 91200\n"
+            "- text: Losing control.\n"
+            "  start_ms: 97290\n  end_ms: 99370\n  words:\n"
+            "  - text: 'Losing '\n    start_ms: 97290\n"
+            "  - text: control.\n    start_ms: 98400\n"), 4,
+            QStringLiteral("The mark I breathe on you."), 92.36},
+    };
+
+    for (const Song &song : songs) {
+        Lyrics lyrics;
+        lyrics.m_title = QString::fromUtf8(song.title);
+        lyrics.m_artist = QString::fromUtf8(song.artist);
+        lyrics.m_duration = song.duration;
+        QJsonObject obj;
+        obj.insert(QStringLiteral("trackName"), lyrics.m_title);
+        obj.insert(QStringLiteral("artistName"), lyrics.m_artist);
+        obj.insert(QStringLiteral("plainLyrics"),
+                   QStringLiteral("lyrics for review"));
+        obj.insert(QStringLiteral("lyricsfile"), song.yaml);
+        lyrics.applyPayload(obj);
+
+        qInfo().noquote() << QStringLiteral("SONG %1 - %2 / karaoke=%3 / lines=%4")
+                             .arg(lyrics.m_title, lyrics.m_artist)
+                             .arg(lyrics.m_worded)
+                             .arg(lyrics.m_lines.size());
+        QCOMPARE(lyrics.m_worded, true);
+        QVERIFY(lyrics.m_lines.size() >= song.expectedLines);
+        const Lyrics::LrcLine *sung = nullptr;
+        for (const Lyrics::LrcLine &l : lyrics.m_lines) {
+            if (!l.instrumental && !l.words.isEmpty()) { sung = &l; break; }
+        }
+        QVERIFY2(sung, "no sung line with word timings");
+        QCOMPARE(sung->text, song.firstText);
+        QVERIFY(qAbs(sung->end - song.firstEnd) < 0.2);
+
+        for (const Lyrics::LrcLine &l : lyrics.m_lines) {
+            QString words;
+            for (const QVariant &v : l.words) {
+                const QVariantMap w = v.toMap();
+                words += QStringLiteral("[%1-%2 %3]")
+                             .arg(w.value(QStringLiteral("t")).toDouble(), 0, 'f', 2)
+                             .arg(w.value(QStringLiteral("e")).toDouble(), 0, 'f', 2)
+                             .arg(w.value(QStringLiteral("text")).toString());
+            }
+            qInfo().noquote() << QStringLiteral("  %1-%2 %3 %4")
+                                 .arg(l.time, 0, 'f', 2)
+                                 .arg(l.end, 0, 'f', 2)
+                                 .arg(l.text, words);
+            for (const QVariant &v : l.words) {
+                const QVariantMap w = v.toMap();
+                const double s = w.value(QStringLiteral("t")).toDouble();
+                const double e = w.value(QStringLiteral("e")).toDouble();
+                QVERIFY2(e >= s, "word end before its start");
+                QVERIFY2(s >= l.time - 0.01 && e <= l.end + 0.2,
+                         "word outside its line");
+            }
+        }
+    }
+}
+
+// Real word-synced records from the user's liked songs (random order).
+// Each one goes through applyPayload() and lines(): every line must keep
+// its text, and every word must sit inside the line it belongs to.
+void TestLotusTune::testLikedSongsWordSync()
+{
+#include "../../../tmp/opencode/liked_songs.h"
+    int checked = 0;
+    for (const LikedSong &song : kLikedSongs) {
+        Lyrics lyrics;
+        lyrics.m_title = QString::fromUtf8(song.title);
+        lyrics.m_artist = QString::fromUtf8(song.artist);
+        lyrics.m_duration = song.duration;
+        QJsonObject obj;
+        obj.insert(QStringLiteral("trackName"), lyrics.m_title);
+        obj.insert(QStringLiteral("artistName"), lyrics.m_artist);
+        obj.insert(QStringLiteral("plainLyrics"),
+                   QString::fromUtf8(song.plain));
+        obj.insert(QStringLiteral("lyricsfile"),
+                   QString::fromUtf8(song.yaml));
+        lyrics.applyPayload(obj);
+
+        const QVariantList published = lyrics.lines();
+        QVERIFY2(!published.isEmpty(), "no lines published");
+        int words = 0;
+        double prevLineTime = -1.0;
+        for (const QVariant &v : published) {
+            const QVariantMap l = v.toMap();
+            const double start = l.value(QStringLiteral("time")).toDouble();
+            const double end = l.value(QStringLiteral("end")).toDouble();
+            QVERIFY2(end >= start, "line end before its start");
+            QVERIFY2(start >= prevLineTime - 0.05, "lines out of order");
+            prevLineTime = start;
+            const QVariantList w = l.value(QStringLiteral("words")).toList();
+            words += w.size();
+            double prevWordEnd = -1.0;
+            for (const QVariant &x : w) {
+                const QVariantMap m = x.toMap();
+                const double ws = m.value(QStringLiteral("t")).toDouble();
+                const double we = m.value(QStringLiteral("e")).toDouble();
+                QVERIFY2(we >= ws, "word end before its start");
+                if (!(ws >= start - 0.05 && we <= end + 0.25))
+                    qWarning().noquote() << "OUT" << lyrics.m_title << QStringLiteral("line %1-%2").arg(start).arg(end)
+                                          << QStringLiteral("word %1-%2 %3").arg(ws).arg(we).arg(m.value(QStringLiteral("text")).toString());
+                QVERIFY2(ws >= start - 0.05 && we <= end + 0.25,
+                         "word outside its line");
+                QVERIFY2(ws >= prevWordEnd - 0.05, "words out of order");
+                QVERIFY2(!m.value(QStringLiteral("text")).toString().isEmpty(),
+                         "word without text");
+                prevWordEnd = we;
+            }
+        }
+        ++checked;
+        qInfo().noquote() << QStringLiteral("LIKED %1/%2 lines=%3 words=%4")
+                             .arg(lyrics.m_title, lyrics.m_artist)
+                             .arg(published.size()).arg(words);
+    }
+    QCOMPARE(checked, int(sizeof(kLikedSongs) / sizeof(kLikedSongs[0])));
 }
 
 QTEST_MAIN(TestLotusTune)

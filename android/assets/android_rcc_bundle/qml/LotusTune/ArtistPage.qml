@@ -664,7 +664,10 @@ Item {
                                     Layout.alignment: Qt.AlignVCenter
                                     width: 16
                                     height: 16
-                                    visible: srowMa.containsMouse
+                                    // On touch there is no hover: keep the
+                                    // play affordance visible so rows do not
+                                    // look like plain text.
+                                    visible: srowMa.containsMouse || Theme.touch
                                     kind: "play"
                                     color: Theme.accentOn(Sys.accent, Sys.bg)
                                 }

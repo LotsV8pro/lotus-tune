@@ -3,6 +3,21 @@
 Lo que cambia en cada versión, de la más nueva a la más vieja. Los paquetes de
 cada una están en https://github.com/LotsV8pro/lotus-tune/releases.
 
+## 2.3.1 (2026-11-25)
+
+Correcciones de letras, sincronía y cola que venían trabajando en el equipo de
+Windows y que ahora llegan a las tres plataformas.
+
+- **Letras**: el fin de cada frase se toma de la última palabra con tiempo, no del principio de la siguiente; se recortan los tiempos de palabra que se pasan del final de la línea.
+- **Deduplicación**: se fusionan copias de la misma frase con sílabas de entrada («Mmm,», «Oh,»…); gana la variante con tiempos de palabra reales; ventana de fusión ampliada a 6 s con comprobación.
+- **Karaoke**: se corrigió el relleno palabra a palabra del `LyricsView` (el caret se congelaba porque el truco `void (...)` no registraba dependencias en QML).
+- **Sin karaoke inventado**: cuando la fuente no envía tiempos por palabra, la línea se ilumina completa en vez de repartir las palabras a ojo.
+- **Ajustes**: la columna ocupa todo el ancho dentro del `Flickable` y se eliminó el bucle `polish loop`.
+- **Cola**: al reproducir una canción buscada se llena con la radio de esa canción, no con los resultados de la búsqueda; se filtran covers, nightcore, slowed, directos, episodios y podcasts.
+- **Historial**: una misma canción con distinto vídeo (directo, cover, otra edición) ya no crea entradas duplicadas.
+- **Controles**: los botones de play se ven siempre en los resultados de búsqueda y en las filas de artista y biblioteca, sin depender del hover.
+- **Fin de cola**: «Seguir con radio» funciona también cuando queda una sola canción, aunque el proveedor devuelva la semilla con otro formato.
+
 ## 2.3.0 (2026-11-23)
 
 Desde la v2.2.1 publicada en GitHub. Las versiones 2.2.2 y 2.2.3 no llegaron a publicarse; sus cambios se incluyen aqui.

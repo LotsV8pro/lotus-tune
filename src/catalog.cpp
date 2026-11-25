@@ -3168,9 +3168,19 @@ void Catalog::addRecent(const QVariantMap &track)
     const QString url = track.value(QStringLiteral("url")).toString();
     if (url.isEmpty())
         return;
+    // The same song can come back as a live version, a cover or another
+    // edit with a different video id. Deduplicate by title + artist so
+    // the history keeps one entry per song, not one per upload.
+    const QString title = track.value(QStringLiteral("title")).toString().trimmed();
+    const QString artist = track.value(QStringLiteral("artist")).toString().trimmed();
     for (int i = m_recent.size() - 1; i >= 0; --i) {
-        if (m_recent.at(i).toMap().value(QStringLiteral("url")).toString() == url)
+        const QVariantMap old = m_recent.at(i).toMap();
+        if (old.value(QStringLiteral("url")).toString() == url
+            || (!title.isEmpty()
+                && old.value(QStringLiteral("title")).toString().trimmed() == title
+                && old.value(QStringLiteral("artist")).toString().trimmed() == artist)) {
             m_recent.removeAt(i);
+        }
     }
     m_recent.prepend(track);
     while (m_recent.size() > 12)

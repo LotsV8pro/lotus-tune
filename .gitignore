@@ -40,6 +40,9 @@ lotus-tune-tests_autogen/
 # Paquetes generados por tools/package-linux.sh
 /dist/
 
+# Private working notes (never publish)
+/.private-notes/
+
 # Firma de la APK (nunca al repo)
 keystore.properties
 *.jks

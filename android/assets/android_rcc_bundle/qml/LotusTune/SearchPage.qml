@@ -34,7 +34,9 @@ Item {
         height: 26
         radius: Theme.rXl
         antialiasing: true
-        opacity: Theme.touch || qa.revealed ? 1 : 0
+        // Always visible: a play affordance that only appears on hover
+        // is invisible on touch and easy to miss with a mouse.
+        opacity: 1
         Behavior on opacity { NumberAnimation { duration: Theme.fastMs } }
         color: qaMa.containsMouse ? Theme.hover(Sys.bg) : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.fastMs } }

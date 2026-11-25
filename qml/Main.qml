@@ -1618,31 +1618,11 @@ Window {
             root.playTracks(catalog.recent, row.i)
             closeLauncher()
         } else if (row.kind === "music") {
-            // Queues the pressed result and the ones after it in the SAME
-            // source, like a normal list (the group headers are not
-            // tracks).
-            const list = []
-            for (let i = 0; i < launcherMusic.length; i++) {
-                const e = launcherMusic[i]
-                if (e.h)
-                    continue
-                if (e.src && row.src && e.src !== row.src)
-                    continue
-                list.push(e)
-            }
-            let idx = 0
-            for (let i = 0; i < launcherMusic.length; i++) {
-                const e = launcherMusic[i]
-                if (e.h)
-                    continue
-                if (e.src && row.src && e.src !== row.src)
-                    continue
-                if (e.i === row.i) {
-                    idx = list.length
-                    break
-                }
-            }
-            root.playTracks(list, idx)
+            // A searched song plays on its own: fill the queue with its
+            // radio (recommendations for THAT song), not with the rest of
+            // the search results. startSongRadio asks for the radio even
+            // when autoplay is off.
+            root.startSongRadio(row)
             closeLauncher()
         }
     }
@@ -2232,6 +2212,10 @@ Window {
     // Is a YouTube Music radio/autoplay on the way for the current track?
     property bool autoplayRadioPending: false
     property string autoplayRadioSeed: ""
+    // Title/artist of the radio seed, captured when the radio is asked
+    // so the filter does not depend on whatever is playing later.
+    property string radioSeedTitle: ""
+    property string radioSeedArtist: ""
     // The queue ran out while waiting for that radio: when it arrives the
     // playback has to start with the first new track (not just add it to
     // the queue).
@@ -2266,7 +2250,7 @@ Window {
             return
         root.playTracks([t], 0)
         if (!root.autoplayEnabled)
-            root.requestManualRadio(vid)
+            root.requestManualRadio(vid, t.title, t.artist)
     }
 
     // "Radio of the artist": first their main track has to be resolved
@@ -2282,9 +2266,11 @@ Window {
     }
 
     // Request (with retry) of the radio of a seed already in the queue.
-    function requestManualRadio(vid) {
+    function requestManualRadio(vid, seedTitle, seedArtist) {
         root.manualRadioPending = true
         root.manualRadioSeed = vid
+        root.radioSeedTitle = String(seedTitle || root.currentTitle || "")
+        root.radioSeedArtist = String(seedArtist || root.currentArtist || "")
         root.manualRadioTries = 0
         manualRadioTimer.restart()
         root.tryManualRadio()
@@ -2484,6 +2470,26 @@ Window {
     property string artistNavPending: ""
     // The text that goes where the artist goes on some lists is really how
     // many times the song has been played ("19 M reproducciones").
+    // Covers, nightcore edits and fan uploads of the seed song are not
+    // the track the user asked for. Used both when a radio arrives and
+    // when a saved queue is restored at startup.
+    function isRadioJunk(title, artist, seedTitle, seedArtist) {
+        const t = String(title || "").toLowerCase()
+        // Some uploads put the view count in the artist column
+        // ("Slipknot • 6,6 M de visualizaciones"). Strip it before comparing.
+        const a = String(artist || "").split("•")[0].trim().toLowerCase()
+        if (!t && !a)
+            return false
+        const bad = /nightcore|cover|slowed|sped[ -]?up|reverb|bass boosted|not mine|karaoke|instrumental version|\(live\)|live at|performance|plays |drum|tutorial|reaction|\(fan|(?:^|\s)live(\s|$)|^episodio|episodio\b|rock feed news|favorite band album ranking/i
+        if (bad.test(t) || bad.test(a))
+            return true
+        const seed = String(seedTitle || "").toLowerCase()
+        if (seed.length >= 4 && t.indexOf(seed) >= 0 && seedArtist
+            && a !== String(seedArtist).toLowerCase())
+            return true
+        return false
+    }
+
     function looksLikePlayCount(text) {
         const t = String(text || "").trim()
         return /^[\d.,]+\s*([kmb]|mil|mill[oó]n(es)?|million)?\s*(reproducciones|reproducci[oó]n|plays?|visualizaciones|vistas|views)$/i.test(t)
@@ -2916,7 +2922,22 @@ Window {
                 }
             }
             if (st && st.queue && st.queue.length) {
-                const arr = toTrackList(st.queue)
+                let arr = toTrackList(st.queue)
+                // A saved radio can hold covers and fan uploads picked up
+                // before the filter existed. Clean it on restore too, but
+                // only when it looks like a song radio (many entries share
+                // the first track's title).
+                if (arr.length > 3) {
+                    const seedTitle = String(arr[0].title || "")
+                    const seedArtist = String(arr[0].artist || "")
+                    if (seedTitle.length >= 3) {
+                        const clean = arr.filter(t =>
+                            !root.isRadioJunk(t.title, t.artist,
+                                              seedTitle, seedArtist))
+                        if (clean.length)
+                            arr = clean
+                    }
+                }
                 originalOrder = arr
                 fillQueue(arr)
                 let idx = Number(st.index)
@@ -3306,6 +3327,8 @@ Window {
             if (vid && typeof catalog.fetchRadio === "function") {
                 root.autoplayRadioPending = true
                 root.autoplayRadioSeed = vid
+                root.radioSeedTitle = String(only.title || "")
+                root.radioSeedArtist = String(only.artist || "")
                 // Deferred: if we come from tracksReady the backend still
                 // has its operation running in this same tick; the
                 // callLater lets it finish before asking for the radio.
@@ -3577,6 +3600,9 @@ Window {
         if (vid && typeof catalog.prefetchRadio === "function") {
             root.autoplayRadioPending = true
             root.autoplayRadioSeed = vid
+            const seedRow = queue.get(queueIndex)
+            root.radioSeedTitle = String(seedRow ? seedRow.title : currentTitle || "")
+            root.radioSeedArtist = String(seedRow ? seedRow.artist : currentArtist || "")
             root.radioResumePending = true
             radioWaitTimer.restart()
             catalog.prefetchRadio(vid, currentTitle)
@@ -4484,11 +4510,20 @@ Window {
         // through the same signal and grow the same way, but without
         // resuming anything.
         function onRadioReady(seed, tracks) {
+            // Keep the seed info: the flags are cleared below and the
+            // bad-edit filter needs to know which song the radio is for.
+            const radioSeedTitle = String(root.radioSeedTitle || "")
+            const radioSeedArtist = String(root.radioSeedArtist || "")
             const isAuto = root.autoplayRadioPending
                            && seed === root.autoplayRadioSeed
             const isManual = root.manualRadioPending
                              && seed === root.manualRadioSeed
-            if (!isAuto && !isManual)
+            // The backend may answer with a normalised seed (title or a
+            // different id). A pending request has only one answer, so
+            // accept it instead of dropping the whole radio over a seed
+            // mismatch.
+            const fallback = root.autoplayRadioPending || root.manualRadioPending
+            if (!isAuto && !isManual && !fallback)
                 return
             root.autoplayRadioPending = false
             root.autoplayRadioSeed = ""
@@ -4510,9 +4545,16 @@ Window {
                 have[String(cur[i].title).toLowerCase() + "|"
                      + String(cur[i].artist).toLowerCase()] = true
             }
-            for (let j = 0; j < tracks.length; j++) {
+            // Radios often bring covers, nightcore edits and fan uploads
+            // of the seed song: drop them before they enter the queue.
+            // Keep at most 25: a 80-track radio is unusable as a queue.
+            const kept = []
+            for (let j = 0; j < tracks.length && kept.length < 25; j++) {
                 const t = tracks[j]
                 if (!t || !t.url)
+                    continue
+                if (root.isRadioJunk(t.title, t.artist,
+                                     radioSeedTitle, radioSeedArtist))
                     continue
                 const k = String(t.title || "").toLowerCase() + "|"
                           + String(t.artist || "").toLowerCase()
@@ -4520,7 +4562,14 @@ Window {
                     continue
                 have[t.url] = true
                 have[k] = true
-                queue.append(root.queueRow(t))
+                kept.push(t)
+            }
+            // If the filter removed everything, keep the raw radio rather
+            // than leaving the user with a single-song queue.
+            const add = kept.length ? kept : tracks.slice(0, 25)
+            for (let j = 0; j < add.length; j++) {
+                if (add[j] && add[j].url)
+                    queue.append(root.queueRow(add[j]))
             }
             root.saveSession()
             if (resume && queueIndex + 1 < queue.count) {
@@ -4825,7 +4874,10 @@ Window {
                             id: searchPage
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            onPlayRequested: (list, idx) => root.playTracks(list, idx)
+                            // A result is a single song: play that one and
+                            // fill the queue with its radio, not with the
+                            // rest of the search results.
+                            onPlayRequested: (list, idx) => root.startSongRadio(list[idx])
                             onTrackContextRequested: (t, x, y) => root.showTrackMenu(t, x, y)
                             onEnqueueRequested: (t) => root.enqueueTrack(t)
                             // Artists mode: the page opens fullscreen.
@@ -6706,11 +6758,12 @@ Window {
 
                 ColumnLayout {
                     id: settingsCol
-                    // Centred column with a readable width: it does not
-                    // stretch edge to edge on wide screens and never
-                    // overflows on small windows. Layout.alignment centres
-                    // it without feeding its own width back into the
-                    // Flickable (that made QQuickColumnLayout loop on polish).
+                    // An explicit width is required: inside a Flickable a
+                    // ColumnLayout has no automatic width and collapsed to
+                    // the width of its first child (a 200 px column). Set it
+                    // from the viewport; the polish loop was caused by the
+                    // OLD Flickable.contentWidth: settingsCol.width binding,
+                    // not by this one (contentWidth is back to `width`).
                     width: settingsScroll.width
                     spacing: Theme.spacing(root.compactUi, Theme.s5)
 

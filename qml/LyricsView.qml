@@ -1077,13 +1077,18 @@ Item {
                     // The singing front, as a caret inside the active
                     // line: the rows above it are sung whole and its own
                     // row up to here.
+                    // QML only tracks properties READ inside the expression.
+                    // A `void (a + b + ...)` trick does NOT register them, so
+                    // the caret was evaluated once and then frozen while
+                    // activeSung advanced: the fill stayed on the first word.
+                    readonly property int caretIndex: Math.min(Math.floor(lv.activeSung), editBase.length)
                     readonly property rect caret: {
-                        void (editBase.text + editBase.contentWidth
-                              + editBase.contentHeight + editBase.width
-                              + editBase.font.pixelSize + lv.activeSung)
-                        if (!rrow.filling)
+                        const dependOnLayout = editBase.contentWidth + editBase.contentHeight
+                                               + editBase.width + editBase.font.pixelSize
+                                               + lv.activeSung + caretIndex
+                        if (!rrow.filling || dependOnLayout < 0)
                             return Qt.rect(0, 0, 0, 0)
-                        var i = Math.min(Math.floor(lv.activeSung), editBase.length)
+                        var i = caretIndex
                         var f = lv.activeSung - i
                         var a = editBase.positionToRectangle(i)
                         if (f <= 0 || i >= editBase.length)

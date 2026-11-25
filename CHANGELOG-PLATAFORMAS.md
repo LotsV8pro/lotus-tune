@@ -1,3 +1,36 @@
+# Cambios por plataforma — 2.3.1
+
+Este archivo acompaña a `CHANGELOG.md`. La versión 2.3.1 comparte el núcleo
+(reproductor, letras, cola e interfaz) en las tres plataformas. Los cambios
+llegan desde el working tree de Windows (notas privadas no publicadas) y se
+han compilado y probado en Linux antes de emitir esta versión.
+
+## Compartido por las tres plataformas
+
+- Correcciones de letras y sincronía palabra a palabra descritas en `CHANGELOG.md`.
+- Deduplicación de frases con sílabas de entrada y elección de la variante sincronizada.
+- Fin de línea desde la última palabra; words recortados al final de la línea.
+- Sin words estimados: la línea se ilumina completa cuando no hay tiempos reales.
+- Radio de la canción buscada con filtro de covers, nightcore, slowed y episodios.
+- Historial sin duplicados por vídeo distinto de la misma canción.
+- Botones de play visibles sin hover en búsqueda, biblioteca y artista.
+- «Seguir con radio» con una sola pista en la cola.
+
+## Windows
+
+- Los cambios del working tree local `%LOCALAPPDATA%\Temp\lotus-tune-src` se han integrado en el repositorio y se entregan en el instalador y el zip de esta versión.
+- Sin cambios específicos de Windows en esta tanda: todo son ramas compartidas, sin `#ifdef Q_OS_WIN` nuevos.
+
+## Android
+
+- Los cinco QML modificados se han copiado también a `android/assets/android_rcc_bundle/qml/LotusTune/` para que el APK lleve los mismos cambios que escritorio.
+
+## Linux
+
+- Binario instalado reconstruido y verificado con la nueva versión.
+
+---
+
 # Cambios por plataforma — 2.2.3
 
 Este archivo acompaña a `CHANGELOG.md`. La versión 2.2.3 comparte el núcleo

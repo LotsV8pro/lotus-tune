@@ -113,6 +113,25 @@ static QString norm(const QString &s)
 // adlib merge in pickWorded, a cache line kept beside its timed copy).
 // Merge those copies: keep the richer one, drop the other. A real repeat
 // seconds later is a different line and stays.
+// One source may also write an adlib into the same line ("Mmm, stand up and
+// fight" vs "stand up and fight"). Compare with the little lead-in syllables
+// stripped ("mmm", "oh", "yeah"...) so those copies collapse too.
+static QString stripLeadIn(QString s)
+{
+    s = s.trimmed();
+    static const QRegularExpression lead(
+        QStringLiteral("^(?:mmm+|mm+|oh+|ooh+|ah+|yeah+|hey+|ha+|wo+|"
+                       "la+|na+|mmm,|oh,|yeah,|hey,)\\s*[-–—:]?\\s*"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (int i = 0; i < 3; ++i) {
+        const QString before = s;
+        s.remove(lead);
+        if (s == before)
+            break;
+    }
+    return s.trimmed();
+}
+
 void Lyrics::collapseDuplicateLines(QVector<LrcLine> &lines)
 {
     std::stable_sort(lines.begin(), lines.end(),
@@ -123,16 +142,61 @@ void Lyrics::collapseDuplicateLines(QVector<LrcLine> &lines)
     for (const LrcLine &l : lines) {
         if (!l.instrumental) {
             const QString key = norm(l.text);
+            const QString leadKey = norm(stripLeadIn(l.text));
             if (!key.isEmpty()) {
                 bool merged = false;
-                for (LrcLine &o : out) {
-                    if (o.instrumental || qAbs(o.time - l.time) > 1.5
-                        || norm(o.text) != key)
+                // Sources often place the same chorus phrase a couple of
+                // seconds apart (one marks the start of the singing, the
+                // other the start of the words). A 1.5 s window let both
+                // copies through and the viewer showed the phrase twice.
+                // Compare against the recent lines too: a real repeat
+                // seconds later is a different line and must stay.
+                const int from = qMax(0, out.size() - 8);
+                for (int i = out.size() - 1; i >= from; --i) {
+                    LrcLine &o = out[i];
+                    const QString otherKey = norm(o.text);
+                    const QString otherLead = norm(stripLeadIn(o.text));
+                    const bool same = otherKey == key
+                        || (!leadKey.isEmpty() && otherLead == leadKey);
+                    if (o.instrumental || !same)
                         continue;
-                    if (l.words.size() > o.words.size()
-                        || (!l.translation.isEmpty() && o.translation.isEmpty())) {
-                        o = l;   // the copy with karaoke or translation wins
-                    }
+                    const double gap = qAbs(o.time - l.time);
+                    if (gap > 6.0)
+                        break;
+                    // The earlier a repeated chorus is, the less likely it
+                    // is the same occurrence: allow a wider window only for
+                    // lines produced in the same burst.
+                    if (gap > 1.5 && (i < out.size() - 1 || gap > 3.0))
+                        continue;
+                    // Keep the variant that is really SYNCED to the audio.
+                    // A line with word timings follows the voice; one with
+                    // only phrase timings does not, so it jumped halfway
+                    // through. Two sources may write the same phrase with a
+                    // small lead-in difference ("Mmm, stand up and fight"
+                    // vs "stand up and fight"): the word-timed one wins,
+                    // even if the other text looks fuller.
+                    auto timed = [](const LrcLine &x) {
+                        int n = 0;
+                        for (const QVariant &w : x.words) {
+                            const QVariantMap m = w.toMap();
+                            if (m.value(QStringLiteral("e")).toDouble() > 0)
+                                ++n;
+                        }
+                        return n;
+                    };
+                    const int timedL = timed(l);
+                    const int timedO = timed(o);
+                    bool take = false;
+                    if (timedL != timedO)
+                        take = timedL > timedO;
+                    else if (l.words.size() != o.words.size())
+                        take = l.words.size() > o.words.size();
+                    else if (!l.translation.isEmpty() != !o.translation.isEmpty())
+                        take = !l.translation.isEmpty();
+                    else if (key != otherKey)
+                        take = l.text.size() > o.text.size();
+                    if (take)
+                        o = l;
                     merged = true;
                     break;
                 }
@@ -528,53 +592,17 @@ void Lyrics::distributeWordTimes(QVector<LrcLine> &lines)
             }
             continue;
         }
-        if (!l.words.isEmpty() || l.text.trimmed().isEmpty())
-            continue;
-        const QStringList words = l.text.split(
-            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
-        if (words.size() < 2)
-            continue;
-        // End of the phrase: its own end when known, otherwise the next
-        // line starts. A lone last line gets a short, bounded duration.
-        double end = l.end;
-        if (!(end > l.time)) {
-            for (int j = i + 1; j < lines.size(); ++j) {
-                if (lines.at(j).time > l.time) {
-                    end = lines.at(j).time;
-                    break;
-                }
-            }
-        }
-        if (!(end > l.time))
-            end = l.time + 3.0;
-        end = qMin(end, l.time + 8.0);   // never run across a long gap
-        int total = 0;
-        for (const QString &w : words)
-            total += w.size();
-        if (total <= 0)
-            continue;
-        double t = l.time;
-        QVariantList stamps;
-        for (int k = 0; k < words.size(); ++k) {
-            const double next = (k + 1 == words.size())
-                ? end
-                : t + (end - l.time) * words.at(k).size() / total;
-            QVariantMap w;
-            w.insert(QStringLiteral("t"), t);
-            w.insert(QStringLiteral("e"), next);
-            w.insert(QStringLiteral("text"), words.at(k));
-            stamps.append(w);
-            t = next;
-        }
-        l.words = stamps;
-        l.end = end;
+        // No invented word timings for sung lines: if the source did not
+        // send real per-word stamps, the view lights the whole line. A
+        // guessed sweep drifts from the voice and looks worse than none.
+        return;
     }
 }
 
 // Some caches carry corrupt word stamps: inverted ranges, overlaps, a stray
 // word count. Repair them before the karaoke front is computed, otherwise the
-// front freezes or jumps. A line left with a single stamp loses it so
-// distributeWordTimes can spread the words again.
+// front freezes or jumps. A line left with a single stamp loses its
+// guessed timing so the whole line is lit instead.
 void Lyrics::sanitizeWordStamps(QVector<LrcLine> &lines)
 {
     for (int i = 0; i < lines.size(); ++i) {
@@ -3886,6 +3914,39 @@ void Lyrics::publishFinal()
     joinSplitWords(m_lines, m_plain);
     computeWordMeta(m_lines);
     collapseDuplicateLines(m_lines);
+    // A merged duplicate can inherit the OTHER source's end: a four-word
+    // phrase was left spanning 27 s, so its fill kept crawling after the
+    // voice and the highlight jumped when the next line arrived. Recompute
+    // the end from the winning word timings (or from the following line).
+    for (int i = 0; i < m_lines.size(); ++i) {
+        LrcLine &l = m_lines[i];
+        if (l.instrumental || l.end <= l.time)
+            continue;
+        double end = 0.0;
+        for (const QVariant &w : l.words) {
+            const double e = w.toMap().value(QStringLiteral("e")).toDouble();
+            if (e > end)
+                end = e;
+        }
+        double next = m_duration > 0 ? m_duration : l.time + 8.0;
+        if (i + 1 < m_lines.size() && m_lines.at(i + 1).time > l.time)
+            next = m_lines.at(i + 1).time;
+        // With word timings the voice is over at the last word: a provider
+        // end 20 s later is wrong and made the highlight crawl after the
+        // singing, then jump to the next line. Use the words as the truth.
+        if (end > l.time) {
+            // If the words end far before the stored end, the provider gave
+            // the phrase the timing of another take: end it at the words.
+            // The instrumental marker at 88 s is NOT another lyric: it must
+            // not be used as an excuse to stretch this phrase to 88 s.
+            if (l.end - end > 3.0)
+                l.end = end + 0.15;
+            else
+                l.end = qMin(l.end, next);
+        } else if (l.end > next) {
+            l.end = qMin(l.time + 8.0, next);
+        }
+    }
     if (m_publishFailed)
         saveToDiskCache(/*found=*/false);
     else if (!m_lines.isEmpty())
@@ -3936,11 +3997,19 @@ void Lyrics::fail(const QString &message)
 // The shell widget rebuilds the line from the word texts. Without a
 // trailing space it glues them ("Someofthem..."). Keep the same shape for
 // every provider: trimmed text, one space between words.
-static QVariantList wordsForOutput(const QVariantList &words)
+static QVariantList wordsForOutput(const QVariantList &words, double cap = 0.0)
 {
     QVariantList out;
     for (int i = 0; i < words.size(); ++i) {
         QVariantMap w = words.at(i).toMap();
+        // A provider may place the last word past the line end when the
+        // track duration cuts the line short. Keep the word inside the
+        // line so the karaoke fill cannot outlive its own row.
+        if (cap > 0.0) {
+            const double e = w.value(QStringLiteral("e")).toDouble();
+            if (e > cap)
+                w.insert(QStringLiteral("e"), cap);
+        }
         QString text = w.value(QStringLiteral("text")).toString().trimmed();
         if (i + 1 < words.size())
             text += QLatin1Char(' ');
@@ -4083,6 +4152,19 @@ QVariantList Lyrics::lines() const
                     }
                 }
             }
+            // The voice is over at the last timed word. A provider's end far
+            // past that belongs to another take: using it here made the fill
+            // crawl for 20 s after singing and then jump to the next line.
+            if (!l.words.isEmpty()) {
+                double lastWord = 0.0;
+                for (const QVariant &w : l.words) {
+                    const double e = w.toMap().value(QStringLiteral("e")).toDouble();
+                    if (e > lastWord)
+                        lastWord = e;
+                }
+                if (lastWord > l.time && end - lastWord > 3.0)
+                    end = lastWord + 0.15;
+            }
             if (m_duration > 0.0 && end > m_duration)
                 end = m_duration;
             m.insert(QStringLiteral("end"), end);
@@ -4095,7 +4177,8 @@ QVariantList Lyrics::lines() const
         if (!l.translation.isEmpty())
             m.insert(QStringLiteral("tr"), l.translation);
         if (!l.words.isEmpty())
-            m.insert(QStringLiteral("words"), wordsForOutput(l.words));
+            m.insert(QStringLiteral("words"),
+                     wordsForOutput(l.words, m.value(QStringLiteral("end")).toDouble()));
         if (l.instrumental)
             m.insert(QStringLiteral("instrumental"), true);
         out.append(m);
@@ -4641,8 +4724,14 @@ void Lyrics::publishLines()
             const LrcLine &l = m_lines.at(i);
             QJsonObject lo;
             lo.insert(QStringLiteral("t"), l.time);
-            double e = (i + 1 < m_lines.size()) ? m_lines.at(i + 1).time
-                                                : l.time + 12.0;
+            // Use the real end of the phrase (the end of its last word).
+            // Deriving it from the NEXT line made a phrase span the whole
+            // instrumental gap after it: its fill kept crawling and the
+            // highlight jumped when the next line finally started.
+            double e = l.end;
+            if (!(e > l.time))
+                e = (i + 1 < m_lines.size()) ? m_lines.at(i + 1).time
+                                             : l.time + 12.0;
             e = qMin(e, l.time + 45.0);
             if (m_duration > 0.0 && e > m_duration)
                 e = m_duration;   // nothing lasts past the end of the track

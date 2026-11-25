@@ -2359,9 +2359,19 @@ Item {
                             Layout.alignment: Qt.AlignVCenter
                             Layout.preferredWidth: 24
                             Layout.preferredHeight: 16
+                            Glyph {
+                                anchors.centerIn: parent
+                                width: 14
+                                height: 14
+                                // Always visible: no hover is needed to
+                                // know the row is playable.
+                                visible: !page.isNowPlaying(modelData)
+                                kind: "play"
+                                color: Theme.accentOn(Sys.accent, Sys.bg)
+                            }
                             Text {
                                 anchors.centerIn: parent
-                                visible: !page.isNowPlaying(modelData)
+                                visible: false
                                 // Number in two digits ("01"), as in the reference.
                                 text: {
                                     const n = (trow.modelData && trow.modelData._listIndex !== undefined)
