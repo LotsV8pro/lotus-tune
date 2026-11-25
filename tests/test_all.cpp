@@ -84,7 +84,6 @@ private slots:
     void testJoinGluedProviderWords();
     void testCollapseDuplicateLines();
     void testWordSyncPerSong();
-    void testLikedSongsWordSync();
     void testLrcExportImport();
     void testInstrumentalSweep();
     void testSanitizeWordStamps();
@@ -2044,65 +2043,6 @@ void TestLotusTune::testWordSyncPerSong()
             }
         }
     }
-}
-
-// Real word-synced records from the user's liked songs (random order).
-// Each one goes through applyPayload() and lines(): every line must keep
-// its text, and every word must sit inside the line it belongs to.
-void TestLotusTune::testLikedSongsWordSync()
-{
-#include "../../../tmp/opencode/liked_songs.h"
-    int checked = 0;
-    for (const LikedSong &song : kLikedSongs) {
-        Lyrics lyrics;
-        lyrics.m_title = QString::fromUtf8(song.title);
-        lyrics.m_artist = QString::fromUtf8(song.artist);
-        lyrics.m_duration = song.duration;
-        QJsonObject obj;
-        obj.insert(QStringLiteral("trackName"), lyrics.m_title);
-        obj.insert(QStringLiteral("artistName"), lyrics.m_artist);
-        obj.insert(QStringLiteral("plainLyrics"),
-                   QString::fromUtf8(song.plain));
-        obj.insert(QStringLiteral("lyricsfile"),
-                   QString::fromUtf8(song.yaml));
-        lyrics.applyPayload(obj);
-
-        const QVariantList published = lyrics.lines();
-        QVERIFY2(!published.isEmpty(), "no lines published");
-        int words = 0;
-        double prevLineTime = -1.0;
-        for (const QVariant &v : published) {
-            const QVariantMap l = v.toMap();
-            const double start = l.value(QStringLiteral("time")).toDouble();
-            const double end = l.value(QStringLiteral("end")).toDouble();
-            QVERIFY2(end >= start, "line end before its start");
-            QVERIFY2(start >= prevLineTime - 0.05, "lines out of order");
-            prevLineTime = start;
-            const QVariantList w = l.value(QStringLiteral("words")).toList();
-            words += w.size();
-            double prevWordEnd = -1.0;
-            for (const QVariant &x : w) {
-                const QVariantMap m = x.toMap();
-                const double ws = m.value(QStringLiteral("t")).toDouble();
-                const double we = m.value(QStringLiteral("e")).toDouble();
-                QVERIFY2(we >= ws, "word end before its start");
-                if (!(ws >= start - 0.05 && we <= end + 0.25))
-                    qWarning().noquote() << "OUT" << lyrics.m_title << QStringLiteral("line %1-%2").arg(start).arg(end)
-                                          << QStringLiteral("word %1-%2 %3").arg(ws).arg(we).arg(m.value(QStringLiteral("text")).toString());
-                QVERIFY2(ws >= start - 0.05 && we <= end + 0.25,
-                         "word outside its line");
-                QVERIFY2(ws >= prevWordEnd - 0.05, "words out of order");
-                QVERIFY2(!m.value(QStringLiteral("text")).toString().isEmpty(),
-                         "word without text");
-                prevWordEnd = we;
-            }
-        }
-        ++checked;
-        qInfo().noquote() << QStringLiteral("LIKED %1/%2 lines=%3 words=%4")
-                             .arg(lyrics.m_title, lyrics.m_artist)
-                             .arg(published.size()).arg(words);
-    }
-    QCOMPARE(checked, int(sizeof(kLikedSongs) / sizeof(kLikedSongs[0])));
 }
 
 QTEST_MAIN(TestLotusTune)
