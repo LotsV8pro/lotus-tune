@@ -67,11 +67,16 @@ Item {
         if (art.preferMaxRes && art.vid)
             list.push("https://i.ytimg.com/vi/" + art.vid + "/maxresdefault.jpg")
         if (art.vid) {
-            // "hqdefault" is the canonical one (480x360): "hq2" only exists
-            // for recent videos and answers 404 on the older ones.
+            // Small slots (the mini-player, cards) show mqdefault first:
+            // it is ~10 KB instead of the ~30 KB of hqdefault and answers
+            // sooner, so the cover stops looking late on startup. Big
+            // views keep hqdefault first for sharpness.
+            if (!art.preferMaxRes)
+                list.push("https://i.ytimg.com/vi/" + art.vid + "/mqdefault.jpg")
             list.push("https://i.ytimg.com/vi/" + art.vid + "/hqdefault.jpg")
             list.push("https://i.ytimg.com/vi/" + art.vid + "/hq2.jpg")
-            list.push("https://i.ytimg.com/vi/" + art.vid + "/mqdefault.jpg")
+            if (art.preferMaxRes)
+                list.push("https://i.ytimg.com/vi/" + art.vid + "/mqdefault.jpg")
             list.push("https://i.ytimg.com/vi/" + art.vid + "/default.jpg")
         }
         if (art.src)

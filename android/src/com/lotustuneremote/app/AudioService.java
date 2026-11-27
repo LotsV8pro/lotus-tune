@@ -16,8 +16,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
@@ -52,6 +54,10 @@ public class AudioService extends Service
     private static AudioFocusRequest sFocusReq = null;
     private static AudioManager.OnAudioFocusChangeListener sFocusListener = null;
     private static boolean sPausedByLoss = false;
+    // Unplugged headphones / Bluetooth disconnection. A focus change is not
+    // always delivered for it (and a transient loss may be resumed), so the
+    // system's BECOMING_NOISY broadcast is the reliable signal to stop.
+    private static BroadcastReceiver sNoisyReceiver = null;
 
     private static Handler sStopHandler = null;
     private static Runnable sStopRunnable = null;
@@ -525,6 +531,15 @@ public class AudioService extends Service
             sWake.setReferenceCounted(false);
             sWake.acquire(6 * 60 * 60 * 1000L);   // 6 h cap, just in case
         }
+        // Stop when the output device disappears (wired or Bluetooth).
+        sNoisyReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent i) {
+                sPausedByLoss = false;   // do not resume on a later focus gain
+                push("PAUSE");
+            }
+        };
+        registerReceiver(sNoisyReceiver,
+                         new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
     }
 
     @Override
@@ -539,6 +554,10 @@ public class AudioService extends Service
     @Override
     public void onDestroy()
     {
+        if (sNoisyReceiver != null) {
+            try { unregisterReceiver(sNoisyReceiver); } catch (Throwable ignore) {}
+            sNoisyReceiver = null;
+        }
         abandonFocus();
         if (sBeatHandler != null && sBeatRunnable != null)
             sBeatHandler.removeCallbacks(sBeatRunnable);

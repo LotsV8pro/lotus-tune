@@ -76,6 +76,14 @@ private slots:
     void testVideoEndWins();
     void testBestLrcRecordWins();
     void testMusicalEndKept();
+    void testSpanishGluedWords();
+    void testCompressedPhraseStretched();
+    void testLeadingParentheticalTitle();
+    void testNegativeCacheRetryNeedsDuration();
+    void testShortInnerWord();
+    void testLastWordOneMillisecond();
+    void testWordByWordCheck();
+    void testPublishedWordCheck();
     void testReferenceVersion();
     void testWrongSongDiscardedByPlain();
     void testRestoreSpacesFromPlain();
@@ -303,6 +311,12 @@ void TestLotusTune::testAppConfig()
     cfg.set("test_key_1.0", "lotus_tune_ready");
     QCOMPARE(cfg.get("test_key_1.0"), QString("lotus_tune_ready"));
     QCOMPARE(cfg.get("non_existent_key_xyz"), QString(""));
+
+    // A calibrated offset is stored as a JSON string in QSettings. It has
+    // to survive a round trip with its 50 ms precision, or a 0.2 s drift
+    // becomes a quarter-second step in the next session.
+    cfg.set("lyricsOffsetByTrack", "{\"Artist - Title\":0.2}");
+    QCOMPARE(cfg.get("lyricsOffsetByTrack"), QString("{\"Artist - Title\":0.2}"));
 }
 
 void TestLotusTune::testSourceManager()
@@ -501,6 +515,24 @@ void TestLotusTune::testPublishedArt()
     QVERIFY(rt.open(QIODevice::ReadOnly));
     const QJsonObject runtime = QJsonDocument::fromJson(rt.readAll()).object();
     QCOMPARE(runtime.value(QStringLiteral("art")).toString(), art);
+
+    // The cover often arrives after the lyrics. Publishing it must not
+    // replace the loaded lines with a "loading" state.
+    lyrics.m_hasSynced = true;
+    Lyrics::LrcLine line;
+    line.time = 1.0;
+    line.end = 2.0;
+    line.text = QStringLiteral("Already here");
+    lyrics.m_lines = {line};
+    lyrics.publishLines();
+    const QString art2 = QStringLiteral("https://i.ytimg.com/vi/abc123/mqdefault.jpg");
+    lyrics.setPublishedArt(art2);
+    QFile f2(AppPaths::stateDir() + QStringLiteral("/lyrics.json"));
+    QVERIFY(f2.open(QIODevice::ReadOnly));
+    const QJsonObject obj2 = QJsonDocument::fromJson(f2.readAll()).object();
+    QCOMPARE(obj2.value(QStringLiteral("art")).toString(), art2);
+    QCOMPARE(obj2.value(QStringLiteral("status")).toString(), QStringLiteral("ok"));
+    QCOMPARE((obj2.value(QStringLiteral("lines")).toArray().size()), 1);
 }
 
 void TestLotusTune::testSearchCandidatesAndQueryText()
@@ -1746,6 +1778,272 @@ void TestLotusTune::testMusicalEndKept()
                  .value(QStringLiteral("e")).toDouble(), 158.50);
 }
 
+void TestLotusTune::testShortInnerWord()
+{
+    // A stamp lit for 1 ms is invisible. With room before the next word it
+    // has to last at least 50 ms, or the front appears to skip it.
+    QVector<Lyrics::LrcLine> lines;
+    Lyrics::LrcLine line;
+    line.time = 10.0;
+    line.end = 11.0;
+    line.text = QStringLiteral("a b c");
+    const QStringList words{QStringLiteral("a"), QStringLiteral("b"),
+                            QStringLiteral("c")};
+    for (int i = 0; i < words.size(); ++i) {
+        QVariantMap w;
+        w.insert(QStringLiteral("t"), 10.0 + i * 0.3);
+        w.insert(QStringLiteral("e"), i == 1 ? 10.301 : 10.29 + i * 0.3);
+        w.insert(QStringLiteral("text"), words.at(i));
+        line.words.append(w);
+    }
+    lines.append(line);
+    Lyrics::sanitizeWordStamps(lines);
+    const QVariantMap mid = lines.at(0).words.at(1).toMap();
+    QVERIFY(mid.value(QStringLiteral("e")).toDouble()
+            - mid.value(QStringLiteral("t")).toDouble() >= 0.05);
+}
+
+void TestLotusTune::testLeadingParentheticalTitle()
+{
+    // "(D)eath" is the name of the song. Dropping the leading parentheses
+    // made every source that had the real title look like another song.
+    QCOMPARE(Lyrics::cleanTrackTitle(QStringLiteral("(D)eath")),
+             QStringLiteral("(D)eath"));
+    QCOMPARE(Lyrics::cleanTrackTitle(
+                 QStringLiteral("Song (Official Video)")),
+             QStringLiteral("Song"));
+}
+
+void TestLotusTune::testSpanishGluedWords()
+{
+    // Provider text from "MIAU" joins function words to the next one.
+    QVector<Lyrics::LrcLine> lines;
+    Lyrics::LrcLine l;
+    l.time = 1.0;
+    l.text = QStringLiteral("pasa delasiesta enLa Sexta ylos cerdos decaché");
+    lines.append(l);
+    Lyrics::joinSplitWords(lines, QString());
+    const QString out = lines.at(0).text;
+    QVERIFY2(out.contains(QStringLiteral("de la siesta")), qPrintable(out));
+    QVERIFY2(out.contains(QStringLiteral("en La Sexta")), qPrintable(out));
+    QVERIFY2(out.contains(QStringLiteral("y los cerdos")), qPrintable(out));
+    QVERIFY2(out.contains(QStringLiteral("de caché")), qPrintable(out));
+}
+
+void TestLotusTune::testCompressedPhraseStretched()
+{
+    // One provider compressed a seven-word phrase into 0.86 s while the
+    // rest of the song gives each word about 0.5 s. The front swept it in
+    // a blur and jumped to the next line.
+    QVector<Lyrics::LrcLine> lines;
+    const auto add = [&lines](double t, double e,
+                              const QStringList &words) {
+        Lyrics::LrcLine l;
+        l.time = t;
+        l.end = e;
+        l.text = words.join(QLatin1Char(' '));
+        const double step = (e - t) / words.size();
+        for (int i = 0; i < words.size(); ++i) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), t + i * step);
+            w.insert(QStringLiteral("e"), t + (i + 1) * step);
+            w.insert(QStringLiteral("text"), words.at(i));
+            l.words.append(w);
+        }
+        lines.append(l);
+    };
+    add(10.0, 13.0, QStringList{QStringLiteral("I"), QStringLiteral("know"),
+                                QStringLiteral("a"), QStringLiteral("thousand"),
+                                QStringLiteral("ways")});
+    add(13.0, 16.0, QStringList{QStringLiteral("to"), QStringLiteral("help"),
+                                QStringLiteral("you"), QStringLiteral("forget"),
+                                QStringLiteral("her")});
+    add(16.0, 16.86, QStringList{QStringLiteral("that"), QStringLiteral("bitch"),
+                                 QStringLiteral("can"), QStringLiteral("eat"),
+                                 QStringLiteral("her"), QStringLiteral("heart"),
+                                 QStringLiteral("out")});
+    add(22.0, 25.0, QStringList{QStringLiteral("love"), QStringLiteral("bites")});
+
+    Lyrics::sanitizeWordStamps(lines);
+    const Lyrics::LrcLine &fast = lines.at(2);
+    QVERIFY(fast.end - fast.time > 2.0);
+    QVERIFY(fast.end <= 22.0);
+    const double each = (fast.end - fast.time) / fast.words.size();
+    QVERIFY(each > 0.25);
+}
+
+void TestLotusTune::testNegativeCacheRetryNeedsDuration()
+{
+    // A "no lyrics" entry is retried once, but only when the lookup knows
+    // the real duration. The first fetch without it must not spend that
+    // retry, or the second fetch with the right length gets no chance.
+    const QString artist = QStringLiteral("Test Artist");
+    const QString title = QStringLiteral("Test Title");
+    const QByteArray key = (artist.toLower() + QLatin1Char('|')
+                            + title.toLower()).toUtf8();
+    const QString h = QString::fromLatin1(
+        QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex()).left(24);
+    const QString path = AppPaths::cacheDir() + QStringLiteral("/lyrics/")
+                         + h + QStringLiteral(".json");
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QJsonObject o;
+    o.insert(QStringLiteral("v"), 1);
+    o.insert(QStringLiteral("duration"), 200);
+    o.insert(QStringLiteral("retried"), 0);
+    o.insert(QStringLiteral("saved"), 0);
+    QFile f(path);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(QJsonDocument(o).toJson(QJsonDocument::Compact));
+    f.close();
+
+    Lyrics noDuration;
+    noDuration.m_artist = artist;
+    noDuration.m_title = title;
+    noDuration.m_duration = 0;
+    QVERIFY(!noDuration.loadFromDiskCache());
+    QFile rf(path);
+    QVERIFY(rf.open(QIODevice::ReadOnly));
+    const QJsonObject after =
+        QJsonDocument::fromJson(rf.readAll()).object();
+    rf.close();
+    QCOMPARE(after.value(QStringLiteral("retried")).toInt(), 0);
+
+    Lyrics withDuration;
+    withDuration.m_artist = artist;
+    withDuration.m_title = title;
+    withDuration.m_duration = 200;
+    QVERIFY(!withDuration.loadFromDiskCache());
+    QVERIFY(QFile::remove(path));
+}
+
+void TestLotusTune::testLastWordOneMillisecond()
+{
+    // The TTML of Apple Music can end the last word at its own start. The
+    // front lit it for 1 ms and jumped to the next line, so the karaoke
+    // looked early at the end of every phrase.
+    QVector<Lyrics::LrcLine> lines;
+    Lyrics::LrcLine line;
+    line.time = 10.0;
+    line.end = 10.9;
+    line.text = QStringLiteral("the quick brown fox");
+    const QStringList words{QStringLiteral("the"), QStringLiteral("quick"),
+                            QStringLiteral("brown"), QStringLiteral("fox")};
+    for (int i = 0; i < words.size(); ++i) {
+        QVariantMap w;
+        w.insert(QStringLiteral("t"), 10.0 + i * 0.2);
+        w.insert(QStringLiteral("e"), i == 3 ? 10.601 : 10.19 + i * 0.2);
+        w.insert(QStringLiteral("text"), words.at(i));
+        line.words.append(w);
+    }
+    lines.append(line);
+    Lyrics::sanitizeWordStamps(lines);
+    const QVariantMap last = lines.at(0).words.last().toMap();
+    QVERIFY(last.value(QStringLiteral("e")).toDouble()
+            - last.value(QStringLiteral("t")).toDouble() >= 0.05);
+    QVERIFY(last.value(QStringLiteral("e")).toDouble() <= 10.9);
+}
+
+void TestLotusTune::testWordByWordCheck()
+{
+    // The line times agree, but half of the words are late. The check has
+    // to see the drift inside the line, not only the start of the phrase.
+    QVector<Lyrics::LrcLine> worded;
+    Lyrics::LrcLine line;
+    line.time = 10.0;
+    line.text = QStringLiteral("the quick brown fox");
+    const QStringList words{QStringLiteral("the"), QStringLiteral("quick"),
+                            QStringLiteral("brown"), QStringLiteral("fox")};
+    for (int i = 0; i < words.size(); ++i) {
+        QVariantMap w;
+        w.insert(QStringLiteral("t"), 10.6 + i * 0.5);
+        w.insert(QStringLiteral("e"), 11.0 + i * 0.5);
+        w.insert(QStringLiteral("text"), words.at(i));
+        line.words.append(w);
+    }
+    worded.append(line);
+    Lyrics::LrcLine next;
+    next.time = 16.0;
+    next.text = QStringLiteral("jumps over");
+    worded.append(next);
+
+    QVector<Lyrics::LrcLine> reference;
+    for (int i = 0; i < words.size(); ++i) {
+        Lyrics::LrcLine ref;
+        ref.time = 10.0 + i * 0.5;
+        ref.text = words.at(i);
+        reference.append(ref);
+    }
+    Lyrics::LrcLine refNext;
+    refNext.time = 16.0;
+    refNext.text = QStringLiteral("jumps over");
+    reference.append(refNext);
+
+    const Lyrics::WordCheck check = Lyrics::checkWords(worded, reference);
+    QCOMPARE(check.words, 4);
+    QCOMPARE(check.matched, 4);
+    QVERIFY(qAbs(check.medianDelta - 0.6) < 0.01);
+    QVERIFY(check.maxDelta > 0.55);
+
+    // With the compensation applied the check must report zero drift.
+    // Otherwise the published value would still show a problem the user
+    // has already corrected.
+    const Lyrics::WordCheck fixed = Lyrics::checkWords(worded, reference, 0.6);
+    QCOMPARE(fixed.medianDelta, 0.0);
+    QCOMPARE(fixed.within200, 4);
+}
+
+void TestLotusTune::testPublishedWordCheck()
+{
+    // The check has to reach the published file, not stay in memory. A
+    // desktop consumer reads lyrics.json and has no other way to know.
+    Lyrics lyrics;
+    lyrics.m_trackKey = QStringLiteral("Artist - Title");
+    lyrics.m_title = QStringLiteral("Title");
+    lyrics.m_artist = QStringLiteral("Artist");
+    lyrics.m_videoId = QStringLiteral("abc123");
+    lyrics.m_hasSynced = true;
+    lyrics.m_worded = true;
+    lyrics.m_refLines.clear();
+    const QStringList refWords{QStringLiteral("the"), QStringLiteral("quick"),
+                               QStringLiteral("brown"), QStringLiteral("fox"),
+                               QStringLiteral("runs"), QStringLiteral("fast"),
+                               QStringLiteral("over"), QStringLiteral("the"),
+                               QStringLiteral("green"), QStringLiteral("hill"),
+                               QStringLiteral("jumps over")};
+    for (int i = 0; i < refWords.size(); ++i) {
+        Lyrics::LrcLine r;
+        r.time = i < 10 ? 10.0 + i * 0.5 : 20.0;
+        r.text = refWords.at(i);
+        lyrics.m_refLines.append(r);
+    }
+    Lyrics::LrcLine line;
+    line.time = 10.0;
+    line.end = 12.5;
+    line.text = QStringLiteral("the quick brown fox");
+    const QStringList ws{QStringLiteral("the"), QStringLiteral("quick"),
+                         QStringLiteral("brown"), QStringLiteral("fox"),
+                         QStringLiteral("runs"), QStringLiteral("fast"),
+                         QStringLiteral("over"), QStringLiteral("the"),
+                         QStringLiteral("green"), QStringLiteral("hill")};
+    for (int i = 0; i < ws.size(); ++i) {
+        QVariantMap w;
+        w.insert(QStringLiteral("t"), 10.0 + i * 0.5);
+        w.insert(QStringLiteral("e"), 10.4 + i * 0.5);
+        w.insert(QStringLiteral("text"), ws.at(i));
+        line.words.append(w);
+    }
+    lyrics.m_lines = {line};
+    lyrics.publishLines();
+
+    QFile f(AppPaths::stateDir() + QStringLiteral("/lyrics.json"));
+    QVERIFY(f.open(QIODevice::ReadOnly));
+    const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    const QJsonObject co = obj.value(QStringLiteral("wordCheck")).toObject();
+    QCOMPARE(co.value(QStringLiteral("words")).toInt(), 10);
+    QCOMPARE(co.value(QStringLiteral("matched")).toInt(), 10);
+    QVERIFY(co.value(QStringLiteral("within200")).toInt() >= 3);
+}
+
 void TestLotusTune::testBestLrcRecordWins()
 {
     // The search brings several records of the same song. The first one may
@@ -1925,13 +2223,17 @@ void TestLotusTune::testCollapseDuplicateLines()
     add(10.0, QStringLiteral("Eternal rest in time"), 2,
         QStringLiteral("Descanso eterno en el tiempo"));
     add(10.1, QStringLiteral("Eternal rest in time"), 0);
+    add(14.0, QStringLiteral("Eternal rest in time"), 2);
     add(20.0, QStringLiteral("Eternal rest in time"), 2);
     Lyrics::collapseDuplicateLines(lines);
-    QCOMPARE(lines.size(), 2);
+    // 10.0 and 10.1 are two sources marking one occurrence; 14.0 and 20.0
+    // are the phrase sung again and must both stay on screen.
+    QCOMPARE(lines.size(), 3);
     QCOMPARE(lines.at(0).time, 10.0);
     QCOMPARE(lines.at(0).translation,
              QStringLiteral("Descanso eterno en el tiempo"));
-    QCOMPARE(lines.at(1).time, 20.0);
+    QCOMPARE(lines.at(1).time, 14.0);
+    QCOMPARE(lines.at(2).time, 20.0);
 }
 
 // Review the word-sync of several songs end to end: lyrics text plus the

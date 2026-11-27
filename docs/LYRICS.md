@@ -32,6 +32,7 @@ when the track playing is not the one Lotus Tune is publishing.
 | `status` | text | `ok` when there are timed lyrics, `none` when there are not. |
 | `plain` | text | Untimed lyrics, used when there is nothing else. May be absent. |
 | `lines` | list | The lines. Empty when `status` is `none`. |
+| `wordCheck` | object | Absent until the app checks the word stamps against the video timeline. See below. |
 | `ts` | number | Time of writing, in milliseconds since the epoch. |
 
 Each entry in `lines`:
@@ -51,6 +52,30 @@ the rest.
 Instrumental stretches carry no singable text: the app sends them with
 `instrumental: true` and their text is only a marker. Whoever draws the lyrics
 should show dots or a gap, not the marker.
+
+## `wordCheck`
+
+When the video timeline has at least two lines, the app pairs every word stamp
+with the same word in that timeline, within 1.2 seconds. The pairing keeps the
+order of the song, so repeated words do not get matched to the wrong occurrence.
+The object has these fields:
+
+| Field | Type | What it is |
+|---|---|---|
+| `words` | number | Word stamps of the source. |
+| `matched` | number | Words paired with the same word in the video. |
+| `medianDelta` | number | Median of `word time - video word time`, in seconds. Positive means the front runs late. |
+| `maxDelta` | number | Largest absolute difference of a paired word. |
+| `within200` | number | Pairs no more than 0.2 s apart. |
+| `within350` | number | Pairs no more than 0.35 s apart. |
+
+The field is omitted when fewer than ten words pair or fewer than 40% of the
+source words pair. A low `within200` with a high `matched` means the karaoke is
+on the right song but its word front drifts inside the line.
+
+This check compares two text timelines. It does not listen to the audio. A
+consumer that needs to verify the singing itself must transcribe the audio and
+compare the transcript with these word stamps.
 
 ## `lyrics-runtime.json`
 

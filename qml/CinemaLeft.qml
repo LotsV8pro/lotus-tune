@@ -94,6 +94,12 @@ Item {
                 acceptedButtons: Qt.LeftButton
                 hoverEnabled: true
                 cursorShape: Qt.ArrowCursor
+                // On the phone there is no right button: a long press opens
+                // the same track menu as the desktop right click.
+                onPressAndHold: {
+                    const p = mapToItem(null, mouse.x, mouse.y)
+                    cl.trackMenuRequested(p.x, p.y)
+                }
             }
 
             MouseArea {
@@ -124,6 +130,13 @@ Item {
                 horizontalAlignment: cl.centered ? Text.AlignHCenter : Text.AlignLeft
                 elide: Text.ElideRight
                 maximumLineCount: 1
+                MouseArea {
+                    anchors.fill: parent
+                    onPressAndHold: {
+                        const p = mapToItem(null, mouse.x, mouse.y)
+                        cl.trackMenuRequested(p.x, p.y)
+                    }
+                }
             }
 
             // The heart, next to the title (as in the reference). Fixed
@@ -178,6 +191,13 @@ Item {
                 onTapped: {
                     if (typeof sfx !== "undefined")
                         sfx.play("tap")
+                    if (cl.artist.length)
+                        cl.artistRequested(cl.artist)
+                }
+            }
+            MouseArea {
+                anchors.fill: parent
+                onPressAndHold: {
                     if (cl.artist.length)
                         cl.artistRequested(cl.artist)
                 }

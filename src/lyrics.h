@@ -106,6 +106,10 @@ public:
     // A second engine can warm the disk cache for upcoming tracks without
     // touching the published state of the song that is playing.
     Q_INVOKABLE void setPrefetchOnly(bool on) { m_prefetchOnly = on; }
+    // Title used to match a source against the track. A leading
+    // parenthetical is part of the name ("(D)eath"), not marketing noise.
+    static QString cleanTrackTitle(const QString &in,
+                                    const QString &artist = QString());
     // Lines already parsed (with their seconds). It is the single source
     // of truth for painting and for lineIndexAt(), so the index and the
     // highlighted row can never drift apart.
@@ -234,6 +238,20 @@ private:
         }
     };
 
+    // Result of checking the word stamps of the chosen source against the
+    // timeline of the video. It is filled by checkWords() and published with
+    // the lyrics so other programs can see how much of the karaoke really
+    // follows the song.
+    struct WordCheck {
+        int words = 0;         // word stamps of the source
+        int matched = 0;       // words paired with the same word in the video
+        double medianDelta = 0.0; // most common difference, in seconds
+        double maxDelta = 0.0;    // largest difference still counted
+        int within200 = 0;     // pairs at most 0.2 s apart
+        int within350 = 0;     // pairs at most 0.35 s apart
+        bool usable = false;   // enough pairs to trust the numbers
+    };
+
     // A word level source that can be shown: the lines as they came (not
     // moved yet) and where they came from.
     struct WordedCandidate {
@@ -280,6 +298,14 @@ private:
     bool alignWords(QVector<LrcLine> &lines,
                     const QVector<LrcLine> &reference,
                     WordedScore *score = nullptr, bool musical = false);
+    // Checks the word stamps one by one against the words of the reference
+    // timeline. Pairs are made with a longest common subsequence of the
+    // normalised words, within 1.2 s of each other. It reports the median
+    // and the spread of the differences, so a karaoke that only matches at
+    // line level can be told from one that really follows every word.
+    static WordCheck checkWords(const QVector<LrcLine> &lines,
+                                const QVector<LrcLine> &reference,
+                                double offset = 0.0);
     // True when the timed lines can be the timeline of the video being
     // played: a reference that runs past the end of the track belongs to
     // a longer version (the studio take of an acoustic video), and using
@@ -292,6 +318,10 @@ private:
     // to what the other words of the line take.
     static void clampStretchedWord(LrcLine &line);
     static void clampStretchedWords(QVector<LrcLine> &lines);
+    // Adds a marker for a long stretch without voice so the previous phrase
+    // is not held until the next one. Used for line-level lyrics too, which
+    // do not go through prepareWordedLines().
+    static void markLongGaps(QVector<LrcLine> &lines);
     // The lines that are not sung (the title of the song with the artist,
     // a line of credits...) are removed: their words are not real timings
     // (they cover half of the song) and they spoil the karaoke.

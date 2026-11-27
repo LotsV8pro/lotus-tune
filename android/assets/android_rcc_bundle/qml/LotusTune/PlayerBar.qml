@@ -636,11 +636,13 @@ Rectangle {
                                 // The artwork is rounded by a CPU crop
                                 // (RoundedArt): the Rectangle's `clip` ignored
                                 // the radius and the image came out square.
-                                RoundedArt {
+                                ArtImage {
                                     id: coverArt
                                     anchors.fill: parent
-                                    source: bar.currentThumb
+                                    src: bar.currentThumb
+                                    videoId: bar.videoId
                                     radiusSpec: Theme.rSm
+                                    showIconWhenEmpty: false
                                 }
                                 LotusMark {
                                     anchors.centerIn: parent
@@ -1091,11 +1093,13 @@ Rectangle {
                             radius: Theme.rSm
                             antialiasing: true
                             color: Theme.sAccent(Sys.bg, Sys.accent, 0.10)
-                            RoundedArt {
+                            ArtImage {
                                 id: coverArtPhone
                                 anchors.fill: parent
-                                source: bar.currentThumb
+                                src: bar.currentThumb
+                                videoId: bar.videoId
                                 radiusSpec: Theme.rSm
+                                showIconWhenEmpty: false
                             }
                             LotusMark {
                                 anchors.centerIn: parent

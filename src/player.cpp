@@ -444,11 +444,23 @@ void Player::startMpv()
             return;
         }
         m_stallPos = m_position;
-        if (++m_stallTicks < 4)
+        if (++m_stallTicks < 6)
             return;
-        if (m_duration > 0.0 && m_position >= m_duration - 1.0) {
+        // A frozen position used to end the track four seconds early when
+        // the backend briefly stopped reporting progress near the end (or
+        // when the reported duration was short). Only end it here if the
+        // backend is really at EndOfMedia; otherwise force a small seek to
+        // rebuild the buffer and keep playing.
+        if (m_androidPlayer->mediaStatus() == QMediaPlayer::EndOfMedia) {
             qInfo() << "[player] vigilante: fin de pista sin aviso";
             androidEndOfTrack("vigilante-fin");
+            m_stallTicks = 0;
+            return;
+        }
+        if (m_stallTicks == 6) {
+            qWarning() << "[player] vigilante: posicion congelada cerca del final,"
+                       << "forzando buffer en" << m_position << "s";
+            m_androidPlayer->setPosition(qint64(m_position * 1000.0) - 200);
             m_stallTicks = 0;
             return;
         }

@@ -336,14 +336,14 @@ void RoundedArt::tryNext(const QString &key, int index)
         return;
     }
     QNetworkRequest req{QUrl(url)};
-    req.setTransferTimeout(4000);
+    req.setTransferTimeout(2500);
     req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                      QNetworkRequest::NoLessSafeRedirectPolicy);
     QNetworkReply *reply = m_net->get(req);
-    // Safety net: if this candidate does not answer in 4 s (a URL that
+    // Safety net: if this candidate does not answer in 2.5 s (a URL that
     // hangs, a CDN that does not respond) it is aborted and the next one is
-    // tried. Without this the cover stays empty forever.
-    QTimer::singleShot(4000, reply, [this, reply, key, index]() {
+    // tried. An empty cover for four seconds looked like a slow app start.
+    QTimer::singleShot(2500, reply, [this, reply, key, index]() {
         if (reply->isRunning()) {
             reply->abort();
         }

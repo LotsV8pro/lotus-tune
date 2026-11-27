@@ -41,6 +41,7 @@ constexpr bool kEnableMusixmatch = true;
 // Helpers of the lyrics alignment (they are defined next to the
 // Musixmatch code, further down).
 static QString normLine(const QString &t);
+static QStringList wordsOf(const QString &s);
 static bool isInstrumental(const QString &norm);
 static bool isNoteOnly(const QString &text);
 static bool isStale(QNetworkReply *reply, const QString &key,
@@ -163,10 +164,11 @@ void Lyrics::collapseDuplicateLines(QVector<LrcLine> &lines)
                     const double gap = qAbs(o.time - l.time);
                     if (gap > 6.0)
                         break;
-                    // The earlier a repeated chorus is, the less likely it
-                    // is the same occurrence: allow a wider window only for
-                    // lines produced in the same burst.
-                    if (gap > 1.5 && (i < out.size() - 1 || gap > 3.0))
+                    // Beyond 2 s this is the same phrase sung again, not
+                    // two sources marking one occurrence. The old rule let
+                    // a 6 s gap through when it was the latest line, so a
+                    // chorus repeated twice lost its second copy.
+                    if (gap > 2.0)
                         continue;
                     // Keep the variant that is really SYNCED to the audio.
                     // A line with word timings follows the voice; one with
@@ -605,6 +607,53 @@ void Lyrics::distributeWordTimes(QVector<LrcLine> &lines)
 // guessed timing so the whole line is lit instead.
 void Lyrics::sanitizeWordStamps(QVector<LrcLine> &lines)
 {
+    // A provider can compress one phrase into a fraction of the time its
+    // words take in the rest of the song. The front then sweeps it in a
+    // blur and jumps to the next line. Stretch a line whose time per word
+    // is far below the rest, up to the beginning of the following line.
+    QVector<double> perWord;
+    for (const LrcLine &l : lines) {
+        if (l.instrumental || l.words.size() < 2)
+            continue;
+        const double span = l.end > l.time ? l.end - l.time : 0.0;
+        if (span > 0.0)
+            perWord.append(span / l.words.size());
+    }
+    if (!perWord.isEmpty()) {
+        std::sort(perWord.begin(), perWord.end());
+        const double typical = perWord.at(perWord.size() / 2);
+        for (int i = 0; i < lines.size(); ++i) {
+            LrcLine &l = lines[i];
+            if (l.instrumental || l.words.size() < 2 || !(l.end > l.time))
+                continue;
+            const double each = (l.end - l.time) / l.words.size();
+            if (each >= typical / 3.0)
+                continue;
+            double next = l.end + 1.0;
+            for (int j = i + 1; j < lines.size(); ++j) {
+                if (lines.at(j).time > l.time) {
+                    next = lines.at(j).time;
+                    break;
+                }
+            }
+            const double want = qMin(l.time + typical * l.words.size(), next);
+            if (want <= l.end)
+                continue;
+            const double scale = (want - l.time) / (l.end - l.time);
+            for (QVariant &wv : l.words) {
+                QVariantMap w = wv.toMap();
+                const double t = l.time + (w.value(QStringLiteral("t")).toDouble()
+                                           - l.time) * scale;
+                const double e = l.time + (w.value(QStringLiteral("e")).toDouble()
+                                           - l.time) * scale;
+                w.insert(QStringLiteral("t"), t);
+                w.insert(QStringLiteral("e"), e);
+                wv = w;
+            }
+            l.end = want;
+        }
+    }
+
     for (int i = 0; i < lines.size(); ++i) {
         LrcLine &l = lines[i];
         if (l.words.isEmpty())
@@ -653,10 +702,48 @@ void Lyrics::sanitizeWordStamps(QVector<LrcLine> &lines)
             if (k + 1 < clean.size())
                 e = qMin(e, clean.at(k + 1).toMap()
                                 .value(QStringLiteral("t")).toDouble());
+            // A word lit for a few milliseconds is invisible: the front
+            // appears to skip it. Give it at least 50 ms when the gap to
+            // the next word allows it.
+            if (e - t < 0.02 && k + 1 < clean.size()) {
+                const double next = clean.at(k + 1).toMap()
+                                        .value(QStringLiteral("t")).toDouble();
+                if (next - t >= 0.05)
+                    e = qMax(e, t + 0.05);
+            }
             if (e <= t)
                 e = t + 0.001;
             w.insert(QStringLiteral("e"), e);
             clean[k] = w;
+        }
+        // A TTML source can give the last word an end equal to its start.
+        // The sweep then lights it for 1 ms and jumps to the next line,
+        // which reads as the front running ahead at the end of every
+        // phrase. Give it the median length of the other words, capped by
+        // the end of the line.
+        if (clean.size() >= 2) {
+            QVariantMap last = clean.last().toMap();
+            const double t = last.value(QStringLiteral("t")).toDouble();
+            double e = last.value(QStringLiteral("e")).toDouble();
+            if (e - t < 0.05) {
+                QVector<double> lengths;
+                for (int k = 0; k + 1 < clean.size(); ++k) {
+                    const QVariantMap w = clean.at(k).toMap();
+                    const double d = w.value(QStringLiteral("e")).toDouble()
+                                     - w.value(QStringLiteral("t")).toDouble();
+                    if (d > 0.0)
+                        lengths.append(d);
+                }
+                if (!lengths.isEmpty()) {
+                    std::sort(lengths.begin(), lengths.end());
+                    const double median = lengths.at(lengths.size() / 2);
+                    e = qMin(t + qMax(median, 0.08), limit);
+                    if (e > t) {
+                        last.insert(QStringLiteral("e"), e);
+                        clean.last() = last;
+                    }
+                }
+            }
         }
         l.words = (clean.size() == 1) ? QVariantList() : clean;
     }
@@ -679,7 +766,13 @@ bool Lyrics::loadFromDiskCache()
         // change must get one fresh attempt before the answer is trusted;
         // after that the marker is respected until it goes stale.
         const int retried = o.value(QStringLiteral("retried")).toInt();
-        if (retried < 1) {
+        // A lookup without a known duration is not the retry: it asks the
+        // sources with a wrong length and often fails. Spend the single
+        // retry only when the real duration is known, so the second fetch
+        // (the one with the right length) still gets a fresh attempt.
+        const bool haveDuration = m_duration > 0 && dur > 0
+                                  && qAbs(dur - m_duration) <= 6;
+        if (retried < 1 && haveDuration) {
             qInfo() << "[lyrics] cache sin letra: se reintenta una vez";
             QJsonObject retry = o;
             retry.insert(QStringLiteral("retried"), 1);
@@ -796,6 +889,7 @@ bool Lyrics::loadFromDiskCache()
         }
     }
     markNoteStretches(m_lines);
+    markLongGaps(m_lines);
     markChorus(m_lines);
     joinSplitWords(m_lines, m_plain);
     sanitizeWordStamps(m_lines);
@@ -2649,85 +2743,7 @@ void Lyrics::prepareWordedLines(QVector<LrcLine> &lines) const
     std::sort(lines.begin(), lines.end(),
               [](const LrcLine &x, const LrcLine &y) { return x.time < y.time; });
     markNoteStretches(lines);
-    // The instrumental stretches in the middle of the song are not always
-    // marked by the sources: without a line for them the previous phrase
-    // would be sung until the next one (it looked too long).
-    {
-        // A gap is only an instrumental stretch when it is much longer than
-        // the phrases of the song: the short pauses between the phrases
-        // are not marked.
-        QVector<double> durations;
-        for (int i = 0; i + 1 < lines.size(); ++i) {
-            const double d = lines.at(i + 1).time - lines.at(i).time;
-            if (d > 0.0 && d < 12.0)
-                durations.append(d);
-        }
-        std::sort(durations.begin(), durations.end());
-        const double typical = durations.isEmpty()
-            ? 4.0 : durations.at(durations.size() / 2);
-        const double threshold = qMax(10.0, typical * 2.5);
-
-        // The opening is an instrumental intro when the first phrase
-        // arrives late: without a marker nothing is shown during those
-        // seconds (the first line stayed dim, waiting). The notes cover
-        // that wait like any other stretch.
-        if (!lines.isEmpty() && lines.first().time >= threshold) {
-            bool marked = false;
-            for (const LrcLine &l : lines) {
-                if (l.instrumental && l.time <= lines.first().time) {
-                    marked = true;
-                    break;
-                }
-            }
-            if (!marked) {
-                LrcLine m;
-                m.time = 0.0;
-                m.text = QStringLiteral("♪");
-                m.instrumental = true;
-                lines.prepend(m);
-            }
-        }
-
-        QVector<LrcLine> withGaps;
-        for (int i = 0; i < lines.size(); ++i) {
-            withGaps.append(lines.at(i));
-            if (i + 1 >= lines.size())
-                break;
-            const double gap = lines.at(i + 1).time - lines.at(i).time;
-            // There is no marker already for that stretch.
-            bool marked = false;
-            for (const LrcLine &o : lines) {
-                if (o.instrumental && o.time >= lines.at(i).time
-                    && o.time <= lines.at(i + 1).time) {
-                    marked = true;
-                    break;
-                }
-            }
-            if (marked)
-                continue;
-            // The notes cannot start while the previous phrase is still
-            // being sung: the old marker (time + 0.5) cut its last words
-            // and the view jumped to the instrumental in the middle of the
-            // phrase.
-            const double end = endOf(lines.at(i));
-            const bool endKnown = end > lines.at(i).time + 0.05;
-            double start = endKnown ? end + 0.15 : lines.at(i).time + 0.5;
-            // With the real end of the phrase the silence is measured from
-            // that end: an instrumental of 8 s looked like a 12 s gap only
-            // because the phrase was stretched until the next lyric. Four
-            // seconds is already a stretch of music, not a breath.
-            const double silence = lines.at(i + 1).time - start;
-            const double minSilence = endKnown ? 4.0 : threshold;
-            if (endKnown ? (silence < minSilence) : (gap < threshold))
-                continue;   // there is no room for the notes: no marker
-            LrcLine m;
-            m.time = start;
-            m.text = QStringLiteral("♪");
-            m.instrumental = true;
-            withGaps.append(m);
-        }
-        lines = withGaps;
-    }
+    markLongGaps(lines);
     expandInstrumentals(lines);
     // The lines that are not sung are removed. The stretched words are
     // NOT cut here: that is an artefact of some sources (the last word of
@@ -3685,13 +3701,55 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
                          + plainWords.at(i + 1).toLower());
 
     static const QRegularExpression split(
-        QStringLiteral("(?<![A-Za-z'])([A-Za-z]+) ([A-Za-z]+)(?![A-Za-z'])"));
+        QStringLiteral("(?<![\\p{L}'])([\\p{L}]+) ([\\p{L}]+)(?![\\p{L}'])"));
     // A few words arrive glued ("waittoo", "neverwin"). They are split
     // in both the line text and the word stamps, so karaoke and text agree.
     // A vector, not a hash: the order in which these replacements run is
     // deterministic (a QHash iterates in a random order per process).
     // Longer / more specific rules come first.
     const QVector<QPair<QString, QString>> glued = {
+        // Spanish function words glued to the next one (seen in CACHÉ's
+        // "MIAU"). Longer rules first so "ylos" is not eaten by "yl".
+        {QStringLiteral("eldelincuente"), QStringLiteral("el delincuente")},
+        {QStringLiteral("elpresidente"), QStringLiteral("el presidente")},
+        {QStringLiteral("undescapotao"), QStringLiteral("un descapotao")},
+        {QStringLiteral("delasiesta"), QStringLiteral("de la siesta")},
+        {QStringLiteral("lasiesta"), QStringLiteral("la siesta")},
+        {QStringLiteral("enla sexta"), QStringLiteral("en La Sexta")},
+        {QStringLiteral("tuvecino"), QStringLiteral("tu vecino")},
+        {QStringLiteral("elque"), QStringLiteral("el que")},
+        {QStringLiteral("ysi"), QStringLiteral("y si")},
+        {QStringLiteral("eldelincuente"), QStringLiteral("el delincuente")},
+        {QStringLiteral("elpresidente"), QStringLiteral("el presidente")},
+        {QStringLiteral("delasiesta"), QStringLiteral("de la siesta")},
+        {QStringLiteral("lasiesta"), QStringLiteral("la siesta")},
+        {QStringLiteral("enla sexta"), QStringLiteral("en La Sexta")},
+        {QStringLiteral("tuvecino"), QStringLiteral("tu vecino")},
+        {QStringLiteral("elque"), QStringLiteral("el que")},
+        {QStringLiteral("ysi"), QStringLiteral("y si")},
+        {QStringLiteral("hevisto"), QStringLiteral("he visto")},
+        {QStringLiteral("lasexta"), QStringLiteral("la sexta")},
+        {QStringLiteral("devenirse"), QStringLiteral("de venirse")},
+        {QStringLiteral("deesas"), QStringLiteral("de esas")},
+        {QStringLiteral("unjubilao"), QStringLiteral("un jubilao")},
+        {QStringLiteral("decebra"), QStringLiteral("de cebra")},
+        {QStringLiteral("decaché"), QStringLiteral("de caché")},
+        {QStringLiteral("deron"), QStringLiteral("de ron")},
+        {QStringLiteral("deun"), QStringLiteral("de un")},
+        {QStringLiteral("dela"), QStringLiteral("de la")},
+        {QStringLiteral("conla"), QStringLiteral("con la")},
+        {QStringLiteral("ycon"), QStringLiteral("y con")},
+        {QStringLiteral("yhoy"), QStringLiteral("y hoy")},
+        {QStringLiteral("ylos"), QStringLiteral("y los")},
+        {QStringLiteral("yal"), QStringLiteral("y al")},
+        {QStringLiteral("losabe"), QStringLiteral("lo sabe")},
+        {QStringLiteral("lagente"), QStringLiteral("la gente")},
+        {QStringLiteral("sesiente"), QStringLiteral("se siente")},
+        {QStringLiteral("sevino"), QStringLiteral("se vino")},
+        {QStringLiteral("telo"), QStringLiteral("te lo")},
+        {QStringLiteral("quees"), QStringLiteral("que es")},
+        {QStringLiteral("inits"), QStringLiteral("in its")},
+        {QStringLiteral("thisdream"), QStringLiteral("this dream")},
         {QStringLiteral("waittoo"), QStringLiteral("wait too")},
         {QStringLiteral("neverwin"), QStringLiteral("never win")},
         {QStringLiteral("alot"), QStringLiteral("a lot")},
@@ -3714,6 +3772,12 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
         {QStringLiteral("ba by"), QStringLiteral("baby")},
         {QStringLiteral("pretty,ba by"), QStringLiteral("pretty, baby")},
         {QStringLiteral("di a monds"), QStringLiteral("diamonds")},
+        // A short rule above can create these intermediate forms; repair
+        // them last so the final text is never left half split.
+        {QStringLiteral("lasiesta"), QStringLiteral("la siesta")},
+        {QStringLiteral("enla sexta"), QStringLiteral("en La Sexta")},
+        {QStringLiteral("decaché"), QStringLiteral("de caché")},
+        {QStringLiteral("enla"), QStringLiteral("en la")},
     };
     // Two words that are one word in English. The provider splits them;
     // a generic length rule would also glue real phrases ("one thing").
@@ -3751,6 +3815,16 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
     const auto unglue = [&glued](const QString &s) {
         QString out = s;
         for (const auto &rule : glued) {
+            // QRegularExpression with (?i) does not handle every accented
+            // character the same way across Qt builds. A rule with a non
+            // ASCII letter is literal anyway, so replace it as text.
+            bool ascii = true;
+            for (const QChar &ch : rule.first)
+                if (ch.unicode() > 127) { ascii = false; break; }
+            if (!ascii) {
+                out.replace(rule.first, rule.second, Qt::CaseInsensitive);
+                continue;
+            }
             out.replace(QRegularExpression(QStringLiteral("(?i)(?<![A-Za-z])")
                                            + rule.first
                                            + QStringLiteral("(?![A-Za-z])")),
@@ -3839,6 +3913,13 @@ void Lyrics::joinSplitWords(QVector<LrcLine> &lines, const QString &plain)
             l.words.insert(i + 1, rest);
             i += 2;
         }
+        // The join loops above can put back a word a provider had glued.
+        // Run the split rules once more on the finished line.
+        l.text = unglue(l.text);
+        // A provider sometimes leaves a stray bracket at the start of a
+        // line ("] Livin' with snakes"). It is not part of the lyric.
+        l.text.replace(QRegularExpression(QStringLiteral("^\\s*[\\]\\[)]+\\s*")),
+                       QString());
         for (QVariant &wv : l.words) {
             QVariantMap w = wv.toMap();
             w.insert(QStringLiteral("text"),
@@ -3910,8 +3991,17 @@ void Lyrics::publishFinal()
         }
     }
     markNoteStretches(m_lines);
-    markChorus(m_lines);
     joinSplitWords(m_lines, m_plain);
+    // Splitting a glued word can leave slivers shorter than 20 ms. Fix them
+    // before the view computes the sweep, or those words never light up.
+    // This also stretches a phrase a provider compressed into a fraction
+    // of a second, so the gap marker must be placed AFTER it.
+    sanitizeWordStamps(m_lines);
+    // Line-level lyrics do not go through prepareWordedLines(), so a long
+    // instrumental break would leave the previous phrase lit until the
+    // next one. Mark it here too.
+    markLongGaps(m_lines);
+    markChorus(m_lines);
     computeWordMeta(m_lines);
     collapseDuplicateLines(m_lines);
     // A merged duplicate can inherit the OTHER source's end: a four-word
@@ -4675,7 +4765,13 @@ void Lyrics::setPublishedArt(const QString &url)
     if (m_publishedArt == url)
         return;
     m_publishedArt = url;
-    publishTrack();
+    // The cover can arrive after the lyrics were published (the metadata
+    // update follows the fetch). Rewriting the "loading" state here would
+    // hide lines that are already on screen, so keep them.
+    if (m_hasSynced || !m_plain.isEmpty())
+        publishLines();
+    else
+        publishTrack();
 }
 
 // New track (or a fetch() retry): the widget knows right away what is
@@ -4733,7 +4829,11 @@ void Lyrics::publishLines()
                 e = (i + 1 < m_lines.size()) ? m_lines.at(i + 1).time
                                              : l.time + 12.0;
             e = qMin(e, l.time + 45.0);
-            if (m_duration > 0.0 && e > m_duration)
+            // A wrong duration (a video reporting 90 s for a 290 s song)
+            // clipped every phrase to that second and left the instrumental
+            // dots frozen. Only trust the cap when it covers the last line.
+            const double lastLine = m_lines.isEmpty() ? 0.0 : m_lines.last().time;
+            if (m_duration > 0.0 && e > m_duration && m_duration >= lastLine)
                 e = m_duration;   // nothing lasts past the end of the track
             lo.insert(QStringLiteral("e"), e);
             lo.insert(QStringLiteral("text"), l.text);
@@ -4751,8 +4851,24 @@ void Lyrics::publishLines()
                     ws.append(QJsonValue::fromVariant(wv));
                 lo.insert(QStringLiteral("w"), ws);
             }
-            if (l.instrumental)
+            if (l.instrumental) {
                 lo.insert(QStringLiteral("instrumental"), true);
+                if (!lo.contains(QStringLiteral("w"))) {
+                    // A provider marker without word stamps leaves the dots
+                    // full for the whole stretch. Give them an even sweep
+                    // over the real duration of the marker.
+                    QJsonArray ws;
+                    const double step = (e - l.time) / 3.0;
+                    for (int k = 0; k < 3; ++k) {
+                        QJsonObject wo;
+                        wo.insert(QStringLiteral("t"), l.time + k * step);
+                        wo.insert(QStringLiteral("e"), l.time + (k + 1) * step);
+                        wo.insert(QStringLiteral("text"), QStringLiteral("♪"));
+                        ws.append(wo);
+                    }
+                    lo.insert(QStringLiteral("w"), ws);
+                }
+            }
             lines.append(lo);
         }
     }
@@ -4774,6 +4890,19 @@ void Lyrics::publishLines()
     if (!m_plain.isEmpty())
         obj.insert(QStringLiteral("plain"), m_plain);
     obj.insert(QStringLiteral("lines"), lines);
+    if (m_hasSynced && m_worded && m_refLines.size() >= 2) {
+        const WordCheck check = checkWords(m_lines, m_refLines, m_offset);
+        if (check.usable) {
+            QJsonObject co;
+            co.insert(QStringLiteral("words"), check.words);
+            co.insert(QStringLiteral("matched"), check.matched);
+            co.insert(QStringLiteral("medianDelta"), check.medianDelta);
+            co.insert(QStringLiteral("maxDelta"), check.maxDelta);
+            co.insert(QStringLiteral("within200"), check.within200);
+            co.insert(QStringLiteral("within350"), check.within350);
+            obj.insert(QStringLiteral("wordCheck"), co);
+        }
+    }
     obj.insert(QStringLiteral("ts"), QDateTime::currentMSecsSinceEpoch());
     writeJsonFile(stateDir() + QStringLiteral("/lyrics.json"), obj);
     publishRuntime();
@@ -4860,7 +4989,7 @@ static QString mxmTokenPath()
 static QString spaceCamel(const QString &s);
 static QString normMatch(const QString &s);
 
-static QString cleanTrackTitle(const QString &in, const QString &artist = QString())
+QString Lyrics::cleanTrackTitle(const QString &in, const QString &artist)
 {
     QString t = in;
     // Some catalogues put the artist in front of the title ("Rise Against -
@@ -4909,7 +5038,10 @@ static QString cleanTrackTitle(const QString &in, const QString &artist = QStrin
         t.remove(re);
     }
     t.remove(QRegularExpression(QStringLiteral("\\s*\\[[^\\]]*\\]")));
-    t.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)")));
+    // Only a trailing parenthetical is marketing noise. A leading one can
+    // be part of the name: cleanTrackTitle("(D)eath") must stay "(D)eath",
+    // not become "eath", or the source that has the real title is rejected.
+    t.remove(QRegularExpression(QStringLiteral("\\s*\\([^)]*\\)\\s*$")));
     t = t.simplified();
     return t;
 }
@@ -5058,6 +5190,103 @@ void Lyrics::markNoteStretches(QVector<LrcLine> &lines)
         }
         ++i;
     }
+}
+
+void Lyrics::markLongGaps(QVector<LrcLine> &lines)
+{
+    // A gap is an instrumental stretch when it is much longer than the
+    // phrases of the song: short pauses between phrases are not marked.
+    QVector<double> durations;
+    for (int i = 0; i + 1 < lines.size(); ++i) {
+        const double d = lines.at(i + 1).time - lines.at(i).time;
+        if (d > 0.0 && d < 12.0)
+            durations.append(d);
+    }
+    std::sort(durations.begin(), durations.end());
+    const double typical = durations.isEmpty()
+        ? 4.0 : durations.at(durations.size() / 2);
+    const double threshold = qMax(10.0, typical * 2.5);
+
+    // An instrumental intro: the first phrase arrives late and the first
+    // line would otherwise sit dim while nothing is shown.
+    if (!lines.isEmpty() && lines.first().time >= threshold) {
+        bool marked = false;
+        for (const LrcLine &l : lines) {
+            if (l.instrumental && l.time <= lines.first().time) {
+                marked = true;
+                break;
+            }
+        }
+        if (!marked) {
+            LrcLine m;
+            m.time = 0.0;
+            m.text = QStringLiteral("♪");
+            m.end = lines.first().time;
+            m.instrumental = true;
+            const double step = m.end / 3.0;
+            for (int k = 0; k < 3; ++k) {
+                QVariantMap w;
+                w.insert(QStringLiteral("t"), k * step);
+                w.insert(QStringLiteral("e"), (k + 1) * step);
+                w.insert(QStringLiteral("text"), QStringLiteral("♪"));
+                m.words.append(w);
+            }
+            lines.prepend(m);
+        }
+    }
+
+    QVector<LrcLine> withGaps;
+    for (int i = 0; i < lines.size(); ++i) {
+        withGaps.append(lines.at(i));
+        if (i + 1 >= lines.size())
+            break;
+        const double gap = lines.at(i + 1).time - lines.at(i).time;
+        bool marked = false;
+        for (const LrcLine &o : lines) {
+            if (o.instrumental && o.time >= lines.at(i).time
+                && o.time <= lines.at(i + 1).time) {
+                marked = true;
+                break;
+            }
+        }
+        if (marked)
+            continue;
+        // The notes cannot start while the previous phrase is still being
+        // sung: a marker at time + 0.5 cut its last words.
+        double lineEnd = lines.at(i).end;
+        if (!(lineEnd > lines.at(i).time + 0.05) && !lines.at(i).words.isEmpty()) {
+            const QVariantMap last = lines.at(i).words.last().toMap();
+            lineEnd = last.value(QStringLiteral("e")).toDouble();
+        }
+        // A provider that stores `end` as the NEXT line's start makes every
+        // gap look already filled. That end is not the end of the voice.
+        const double nextTime = lines.at(i + 1).time;
+        const bool endKnown = lineEnd > lines.at(i).time + 0.05
+                              && lineEnd < nextTime - 0.1;
+        const double start = endKnown ? lineEnd + 0.15 : lines.at(i).time + 0.5;
+        const double silence = lines.at(i + 1).time - start;
+        const double minSilence = endKnown ? 4.0 : threshold;
+        if (endKnown ? (silence < minSilence) : (gap < threshold))
+            continue;
+        LrcLine m;
+        m.time = start;
+        m.text = QStringLiteral("♪");
+        m.end = nextTime;
+        m.instrumental = true;
+        // The view sweeps the dots with their own word stamps. Without them
+        // the marker has no timing and the dots stay full until the next
+        // lyric arrives, even when the instrumental is much shorter.
+        const double step = (m.end - start) / 3.0;
+        for (int k = 0; k < 3; ++k) {
+            QVariantMap w;
+            w.insert(QStringLiteral("t"), start + k * step);
+            w.insert(QStringLiteral("e"), start + (k + 1) * step);
+            w.insert(QStringLiteral("text"), QStringLiteral("♪"));
+            m.words.append(w);
+        }
+        withGaps.append(m);
+    }
+    lines = withGaps;
 }
 
 void Lyrics::expandInstrumentals(QVector<LrcLine> &lines)
@@ -5891,6 +6120,91 @@ bool Lyrics::referenceFitsDuration(const QVector<LrcLine> &lines) const
     // The last sung line cannot start after the track ends. The margin
     // covers the sources that round the times up.
     return last <= m_duration + 5;
+}
+
+Lyrics::WordCheck Lyrics::checkWords(const QVector<LrcLine> &lines,
+                                     const QVector<LrcLine> &reference,
+                                     double offset)
+{
+    WordCheck out;
+    struct Entry { double time; QString text; };
+    auto collect = [offset](const QVector<LrcLine> &src, bool wordsOnly) {
+        QVector<Entry> res;
+        for (const LrcLine &l : src) {
+            if (l.instrumental || isInstrumental(normLine(l.text)))
+                continue;
+            if (wordsOnly) {
+                for (const QVariant &v : l.words) {
+                    const QVariantMap w = v.toMap();
+                    const QStringList parts = wordsOf(w.value(QStringLiteral("text")).toString());
+                    for (const QString &p : parts)
+                        res.append({w.value(QStringLiteral("t")).toDouble() - offset, p});
+                }
+            } else {
+                const QStringList parts = wordsOf(l.text);
+                for (const QString &p : parts)
+                    res.append({l.time, p});
+            }
+        }
+        std::sort(res.begin(), res.end(),
+                  [](const Entry &a, const Entry &b) { return a.time < b.time; });
+        return res;
+    };
+    const QVector<Entry> a = collect(lines, true);
+    const QVector<Entry> b = collect(reference, false);
+    out.words = a.size();
+    if (a.isEmpty() || b.isEmpty())
+        return out;
+
+    // Only nearby words can pair. The band keeps this quadratic in the
+    // length of the song instead of the square of it.
+    const int n = a.size(), m = b.size();
+    const int band = 60;
+    QVector<QVector<int>> dp(n + 1, QVector<int>(m + 1, 0));
+    for (int i = n - 1; i >= 0; --i) {
+        const int lo = qMax(0, i - band);
+        const int hi = qMin(m - 1, i + band);
+        for (int j = lo; j <= hi; ++j) {
+            const bool same = a.at(i).text == b.at(j).text
+                              && qAbs(a.at(i).time - b.at(j).time) <= 1.2;
+            dp[i][j] = same ? dp[i + 1][j + 1] + 1
+                            : qMax(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    QVector<double> deltas;
+    int i = 0, j = 0;
+    while (i < n && j < m) {
+        if (a.at(i).text == b.at(j).text
+            && qAbs(a.at(i).time - b.at(j).time) <= 1.2
+            && dp[i][j] == dp[i + 1][j + 1] + 1) {
+            deltas.append(a.at(i).time - b.at(j).time);
+            ++i;
+            ++j;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+            ++i;
+        } else {
+            ++j;
+        }
+    }
+    out.matched = deltas.size();
+    if (deltas.isEmpty())
+        return out;
+    std::sort(deltas.begin(), deltas.end());
+    out.medianDelta = deltas.at(deltas.size() / 2);
+    out.maxDelta = qMax(qAbs(deltas.first()), qAbs(deltas.last()));
+    for (double d : deltas) {
+        if (qAbs(d) <= 0.2)
+            ++out.within200;
+        if (qAbs(d) <= 0.35)
+            ++out.within350;
+    }
+    out.usable = out.matched >= 10
+                 && out.matched * 10 >= out.words * 4;
+    qInfo() << "[lyrics] comprobacion palabra a palabra:" << out.matched
+            << "de" << out.words << "palabras, desfase mediano"
+            << QString::number(out.medianDelta, 'f', 2) << "s,"
+            << out.within200 << "dentro de 0.2 s";
+    return out;
 }
 
 bool Lyrics::alignWords(QVector<LrcLine> &lines,

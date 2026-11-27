@@ -282,12 +282,27 @@ Item {
         searchHistory = []
     }
 
+    property bool firstShow: true
+
     Component.onCompleted: {
         refreshSearchHistory()
         refreshPicks()
         refreshRecCards()
-        if (visible) {
-            startRecPrefetch()
+        // On a cold start the radio prefetch competes with the window and
+        // with the mini-player cover. Give the first frames to the UI and
+        // only then warm the radios in the background.
+        Qt.callLater(function() {
+            if (visible && firstShow)
+                bootPrefetchTimer.start()
+        })
+    }
+
+    Timer {
+        id: bootPrefetchTimer
+        interval: 5000
+        onTriggered: {
+            page.firstShow = false
+            page.startRecPrefetch()
         }
     }
 
@@ -487,7 +502,11 @@ Item {
 
     // When Home is shown (and when the history changes, which rebuilds
     // the cards) the prefetch round is started.
-    onVisibleChanged: if (visible) { refreshSearchHistory(); refreshPicks(); refreshRecCards(); page.startRecPrefetch() }
+    onVisibleChanged: if (visible) {
+        refreshSearchHistory(); refreshPicks(); refreshRecCards()
+        if (!page.firstShow)
+            page.startRecPrefetch()
+    }
 
     Connections {
         target: catalog

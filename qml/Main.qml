@@ -2045,11 +2045,7 @@ Window {
             lyrics.karaoke = root.karaokeWords
         // Saved compensation: the backend publishes it as is so the
         // desktop widgets match the audio from the first second.
-        {
-            const lo = parseFloat(cfgGet("lyricsOffset"))
-            if (!isNaN(lo) && typeof lyrics !== "undefined")
-                lyrics.setPublishedOffset(Math.round(lo * 4) / 4)
-        }
+        applyCalibratedOffset()
         player.setQuality(cfgGet("audioQuality") || "max")
         // On a phone the resolver is a single-lane WebView chain: a high
         // count queues nine resolves behind one and stalls the UI, which is
@@ -2069,8 +2065,20 @@ Window {
         // waits a moment so it does not fight with the window opening (on a
         // phone the panel landed while the surface was still being created).
         if (root.whatsNewVersion.length > 0
-                && cfgGet("whatsNewForVersion") !== root.whatsNewVersion)
+                && cfgGet("whatsNewForVersion") !== root.whatsNewVersion) {
+            // The fixes of this version change how lyrics are split, timed
+            // and cached. A cache written by the previous build would keep
+            // the old glued words and wrong stamps forever, so clear it once
+            // on the first run of the new version (all three platforms).
+            if (typeof lyrics !== "undefined"
+                    && typeof lyrics.clearAllCachedLyrics === "function") {
+                const dropped = lyrics.clearAllCachedLyrics()
+                if (dropped > 0)
+                    console.log("[lyrics] descartadas", dropped,
+                                "letras de la versión anterior")
+            }
             Qt.callLater(function() { root.whatsNewOpen = true })
+        }
     }
 
     // Esc "back": closes overlays/panel or leaves fullscreen.
@@ -2979,10 +2987,15 @@ Window {
                 queueShuffled = shuffle && arr.length > 1
                 mpris.setShuffle(shuffle)
                 root.updateNowPlaying()
-                // Warm the streams of the restored queue at startup: the
-                // first play then finds the current track already resolved
-                // instead of waiting for yt-dlp (~2.5 s) on the click.
-                root.prefetchHead(toTrackList(st.queue), root.isPhone ? 4 : root.prefetchCount)
+                // Warm only the CURRENT track at startup. Warming four songs
+                // on a phone fills the single WebView resolve chain for
+                // seconds: the window appeared late and the mini-player's
+                // cover waited behind those jobs. The rest is prefetched on
+                // the first real change of track, when the UI is already up.
+                const warm = toTrackList(st.queue)
+                Qt.callLater(function() {
+                    root.prefetchHead(warm, 1)
+                })
             }
         }
         // Without a stored value the volume is not touched (mpv starts
@@ -3127,6 +3140,37 @@ Window {
     // Lyrics compensation (seconds). It is saved in the config, sent to
     // the backend - which publishes it for the desktop widgets - and the
     // on screen views pick it up when the notice arrives.
+    // Applies the saved compensation for the track that is about to load.
+    // The audio check writes a per-track value in 50 ms steps, so a small
+    // drift is kept instead of being rounded to the nearest quarter second.
+    function applyCalibratedOffset() {
+        if (typeof lyrics === "undefined")
+            return
+        const lo = parseFloat(cfgGet("lyricsOffset"))
+        let offset = isNaN(lo) ? 0 : Math.round(lo * 4) / 4
+        let map = {}
+        try {
+            map = JSON.parse(cfgGet("lyricsOffsetByTrack") || "{}")
+        } catch (e) {
+            map = {}
+        }
+        const keys = []
+        // The current track wins: trackKey can still name the previous
+        // song when this runs from maybeFetchLyrics().
+        keys.push(String(root.currentArtist || "") + " - "
+                  + String(root.currentTitle || ""))
+        if (typeof lyrics.trackKey === "string" && lyrics.trackKey)
+            keys.push(lyrics.trackKey)
+        for (const k of keys) {
+            const saved = parseFloat(map[k])
+            if (!isNaN(saved)) {
+                offset = Math.round(saved * 20) / 20
+                break
+            }
+        }
+        lyrics.setPublishedOffset(offset)
+    }
+
     function setLyricsOffset(v) {
         // The same range as the view of the lyrics.
         const x = Math.round(Theme.clamp(v, -180, 180) * 4) / 4    // 250 ms steps
@@ -3186,6 +3230,9 @@ Window {
         // for again now that the real length is known.
         const gotDur = Number(lyrics.duration || 0)
         const fits = sameTrack && gotDur > 0 && Math.abs(gotDur - dur) <= 10
+        // A cached track never reaches fetch(), so the calibrated offset
+        // has to be applied before any of the early returns below.
+        applyCalibratedOffset()
         // The lyrics of this version are already on screen.
         if (fits && (lyrics.hasLyrics || lyrics.hasSynced))
             return
@@ -3373,10 +3420,14 @@ Window {
     }
     function applyTrack(t) {
         if (root.lyricsEnabled && root.currentTitle) {
+            applyCalibratedOffset()
             lyrics.fetch(root.currentArtist, root.currentTitle,
                          Number(t.duration || 0), root.currentVideoId)
         }
-        player.clearPrefetch()
+        // Do not clear the prefetch queue here: it was just filled with the
+        // upcoming tracks and clearing it on every change left Android with
+        // nothing resolved when the next song started. load() takes priority
+        // and enqueueResolve() dedupes, so the queued songs keep warming.
         player.hintDuration = Number(t.duration || 0)
         player.load(t.url)
         prefetchAhead(queueIndex, root.prefetchCount)
@@ -4194,7 +4245,40 @@ Window {
         ]
     }
 
-    readonly property var whatsNewSections: root.whatsNewVersion === "2.3.0"
+    function notes2_3_2() {
+        return [
+            { title: qsTr("Letras"), items: [
+                qsTr("Se separan las palabras pegadas por el proveedor, también en los tiempos de palabra."),
+                qsTr("La reparación usa letras Unicode, así que no vuelve a pegar palabras con acento."),
+                qsTr("Se limpia el corchete suelto al principio de las líneas."),
+                qsTr("Se conservan las frases repetidas más de 2 segundos después de la anterior."),
+                qsTr("Los marcadores instrumentales tienen tres puntos con tiempos propios."),
+                qsTr("Las palabras de menos de 20 milisegundos se estiran cuando hay hueco.")
+            ] },
+            { title: qsTr("Sincronía"), items: [
+                qsTr("La comprobación palabra a palabra aplica el desplazamiento activo antes de comparar."),
+                qsTr("Los ajustes por canción se leen con pasos de 50 milisegundos."),
+                qsTr("El reintento de canción sin letra solo se gasta cuando se conoce la duración real.")
+            ] },
+            { title: qsTr("Títulos"), items: [
+                qsTr("Un paréntesis al principio del nombre, como en (D)eath, ya no se elimina como ruido.")
+            ] },
+            { title: qsTr("Arranque e interfaz"), items: [
+                qsTr("El arranque ya no lanza varias resoluciones de radio a la vez."),
+                qsTr("La carátula del mini usa la variante pequeña y aparece antes."),
+                qsTr("Pulsación larga en pantalla completa para ver opciones de la pista o del artista.")
+            ] },
+            { title: qsTr("Android"), items: [
+                qsTr("Al desconectar los cascos o el Bluetooth la música se pausa y no se reanuda sola."),
+                qsTr("La canción ya no salta antes de tiempo cuando la posición se congela."),
+                qsTr("Cambiar de pista no borra la precarga de las siguientes.")
+            ] }
+        ]
+    }
+
+    readonly property var whatsNewSections: root.whatsNewVersion === "2.3.2"
+        ? root.notes2_3_2()
+        : (root.whatsNewVersion === "2.3.0"
         ? root.notes2_3_0()
         : (root.whatsNewVersion === "2.2.3"
         ? root.notes2_2_3()
@@ -4206,7 +4290,7 @@ Window {
             ? root.notes2_2_0()
             : (root.whatsNewVersion === "2.1.9"
                 ? root.notes2_1_9()
-                : root.parseNotes(root.whatsNewSource, lang.current))))))
+                : root.parseNotes(root.whatsNewSource, lang.current)))))))
 
     function closeWhatsNew() {
         if (!root.whatsNewOpen)
